@@ -1,0 +1,2680 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>一句ござる！ | Ikku Gozaru</title>
+<meta name="description" content="言葉玉を並べて五・七・五の俳句を詠む、和風の対戦パズルゲーム。A Japanese haiku word-tile battle game — arrange word tiles into 5-7-5 mora verses and face off against rival poets.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="一句ござる！ | Ikku Gozaru">
+<meta property="og:description" content="言葉玉を並べて五・七・五の俳句を詠む、和風の対戦パズルゲーム。A Japanese haiku word-tile battle game (5-7-5 mora).">
+<meta property="og:image" content="assets/title_poster.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="一句ござる！ | Ikku Gozaru">
+<meta name="twitter:description" content="言葉玉を並べて五・七・五の俳句を詠む、和風の対戦パズルゲーム。A Japanese haiku word-tile battle game (5-7-5 mora).">
+<meta name="twitter:image" content="assets/title_poster.jpg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@500;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --sumi:#F5EEDC;
+    --sumi-2:#EAE1C7;
+    --sumi-3:#DED2AE;
+    --washi:#2B2318;
+    --washi-dim:#5C5140;
+    --washi-faint:#8C7F62;
+    --on-accent:#F7F1E2;
+    --border:#CDBB8E;
+    --border-soft:#D9CBA0;
+    --hanko:#B23A26;
+    --hanko-deep:#8f2d1e;
+    --indigo:#3E5E7E;
+    --indigo-deep:#2A4258;
+    --gold:#A8791F;
+    --ok:#4C7A4C;
+    --warn:#A8791F;
+    --bad:#9C3B2A;
+    --spring:#B24A68;
+    --summer:#2E6B45;
+    --autumn:#96591C;
+    --winter:#3D5F82;
+    --kireji:#6F4F92;
+    --filler:#6E6852;
+    --font-display:'游明朝体','Yu Mincho','YuMincho','Hiragino Mincho ProN','Noto Serif JP',serif;
+    --font-body:'游ゴシック体','Yu Gothic Medium','YuGothic','Hiragino Kaku Gothic ProN','Meiryo','Noto Sans JP',sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:
+      radial-gradient(ellipse at 50% -10%, #FFFBF0 0%, var(--sumi) 55%),
+      var(--sumi);
+    color:var(--washi);
+    font-family:var(--font-body);
+    min-height:100vh;
+    padding:0rem 0rem 0rem;
+    display:flex;
+    justify-content:center;
+  }
+  .board{
+    width:100%;
+    max-width:720px;
+    display:flex;
+    flex-direction:column;
+    gap:1.4rem;
+  }
+  .board--wide{
+    max-width:1500px;
+  }
+  .hidden{display:none !important;}
+
+  /* ---- generic panel ---- */
+  .panel{
+    background:
+      radial-gradient(circle at 15% 20%, rgba(43,35,24,0.035), transparent 40%),
+      radial-gradient(circle at 85% 80%, rgba(43,35,24,0.03), transparent 45%),
+      var(--sumi-2);
+    border:1px solid var(--border);
+    border-radius:6px;
+    padding:1.6rem;
+  }
+
+  /* ---- title screen ---- */
+  .hero{
+    text-align:center;
+    padding:0;
+    position:relative;
+  }
+  .hero__poster-frame{
+    position:relative;
+    width:100%;
+    aspect-ratio:700/1050;
+    max-height:min(1000px, calc(100vh - 3rem));
+    overflow:hidden;
+    border-radius:6px;
+    --pan-distance:0px;
+  }
+  .hero__poster{
+    display:block;
+    position:absolute;
+    top:0;
+    left:0;
+    width:100%;
+    height:auto;
+    opacity:0;
+    transform:translateY(0);
+    animation:posterReveal 3.2s cubic-bezier(.4,0,.2,1) forwards;
+    animation-delay:0.15s;
+  }
+  @keyframes posterReveal{
+    0%{opacity:0;transform:translateY(0);}
+    18%{opacity:1;}
+    100%{opacity:1;transform:translateY(calc(-1 * var(--pan-distance)));}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .hero__poster{animation:none;opacity:1;transform:translateY(calc(-1 * var(--pan-distance)));}
+  }
+  .version-label{
+    position:fixed;
+    right:0.6rem;
+    bottom:0.6rem;
+    z-index:60;
+    font-family:var(--font-body);
+    font-size:0.7rem;
+    color:rgba(247,241,226,.55);
+    text-shadow:0 1px 3px rgba(0,0,0,.8);
+    pointer-events:none;
+  }
+  .hero__actions{
+    position:fixed;
+    left:50%;
+    bottom:1rem;
+    transform:translateX(-50%);
+    width:100%;
+    max-width:720px;
+    z-index:50;
+    display:flex;
+    justify-content:center;
+    gap:0.8rem;
+    flex-wrap:wrap;
+    padding:0 1rem;
+    box-sizing:border-box;
+  }
+  .hero__actions .btn{box-shadow:0 2px 10px rgba(0,0,0,.5);}
+  .hero__actions .btn--ghost{background:rgba(23,20,15,.55);backdrop-filter:blur(2px);color:var(--on-accent);border-color:rgba(247,241,226,.6);}
+  .hero__actions .btn--ghost:hover{background:rgba(23,20,15,.75);border-color:var(--on-accent);color:var(--on-accent);}
+  .sound-toggle:hover{background:rgba(23,20,15,.75);border-color:var(--on-accent);color:var(--on-accent);}
+
+  .tutorial{
+    padding:2rem 1.6rem 2.2rem;
+  }
+  @media (orientation:portrait){
+    .tutorial{
+      min-height:calc(100vh - 2.4rem);
+      min-height:calc(100dvh - 2.4rem);
+      display:flex;
+      flex-direction:column;
+      justify-content:center;
+      box-sizing:border-box;
+    }
+  }
+  .tutorial__progress{
+    display:flex;
+    justify-content:center;
+    gap:0.4rem;
+    margin-bottom:1.8rem;
+  }
+  .tutorial__dot{
+    width:7px;height:7px;
+    border-radius:50%;
+    background:var(--border);
+  }
+  .tutorial__dot.active{background:var(--hanko);}
+  .tutorial__body{
+    min-height:340px;
+    text-align:center;
+  }
+  .tutorial-title{
+    font-family:var(--font-display);
+    font-size:1.35rem;
+    margin:0 0 1.4rem;
+    letter-spacing:0.04em;
+  }
+  .tutorial-rules{
+    text-align:left;
+    display:grid;
+    gap:0.8rem;
+    max-width:30em;
+    margin:0 auto;
+    font-size:0.92rem;
+    color:var(--washi-dim);
+    line-height:1.8;
+  }
+  .tutorial-rules li{list-style:none;display:flex;gap:0.6rem;}
+  .tutorial-rules li::before{content:"—";color:var(--hanko);flex-shrink:0;}
+  .tutorial-judge__portrait{
+    width:calc(100% + 3.2rem);
+    margin:0 -1.6rem;
+  }
+  .tutorial-judge__portrait img{width:100%;height:auto;display:block;}
+  .tutorial__nav{
+    display:flex;
+    justify-content:space-between;
+    margin-top:1.8rem;
+    gap:0.8rem;
+  }
+  .btn{
+    font-family:var(--font-body);
+    font-size:0.95rem;
+    letter-spacing:0.06em;
+    padding:0.85rem 2rem;
+    border-radius:4px;
+    border:1px solid var(--hanko);
+    background:var(--hanko);
+    color:var(--on-accent);
+    cursor:pointer;
+    transition:background 0.15s, transform 0.1s, border-color 0.15s;
+  }
+  .btn:hover{background:var(--hanko-deep);border-color:var(--hanko-deep);}
+  .btn:active{transform:scale(0.97);}
+  .btn:focus-visible{outline:2px solid var(--gold);outline-offset:2px;}
+  .btn--ghost{
+    background:transparent;
+    border:1px solid var(--border-soft);
+    color:var(--washi-dim);
+  }
+  .btn--ghost:hover{border-color:var(--washi-faint);color:var(--washi);background:transparent;}
+  .btn--indigo{background:var(--indigo);border-color:var(--indigo);}
+  .btn--indigo:hover{background:var(--indigo-deep);border-color:var(--indigo-deep);}
+  .btn:disabled{opacity:0.4;cursor:not-allowed;}
+
+  /* ---- story screen ---- */
+  .story-panel{
+    position:relative;
+    overflow:hidden;
+  }
+  @media (orientation:portrait){
+    .story-panel{
+      min-height:calc(100vh - 2.4rem);
+      min-height:calc(100dvh - 2.4rem);
+      display:flex;
+      align-items:center;
+    }
+    .story-content{
+      width:100%;
+    }
+  }
+  .story-illust{
+    position:absolute;
+    inset:0;
+    background-size:cover;
+    background-position:center;
+    opacity:0.52;
+  }
+  @media (orientation:portrait){
+    .story-illust{
+      animation:storyIllustPan 28s ease-in-out infinite alternate;
+    }
+  }
+  @keyframes storyIllustPan{
+    0%{background-position:0% center;}
+    100%{background-position:100% center;}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .story-illust{animation:none;}
+  }
+  .story-scrim{
+    position:absolute;
+    inset:0;
+    background:rgba(245,238,220,0.6);
+  }
+  .story-content{
+    position:relative;
+    z-index:1;
+    padding:1.8rem 1.6rem 2rem;
+  }
+  .story-meta{
+    display:flex;
+    flex-wrap:wrap;
+    align-items:baseline;
+    column-gap:0.7rem;
+    row-gap:0.2rem;
+    margin-bottom:1rem;
+    padding-bottom:0.8rem;
+    border-bottom:1px solid var(--border);
+  }
+  .story-act{
+    font-family:var(--font-display);
+    font-size:1.15rem;
+    color:var(--hanko);
+    letter-spacing:0.04em;
+  }
+  .story-name{
+    font-family:var(--font-display);
+    font-size:1.02rem;
+    color:var(--washi);
+  }
+  .story-season-place{
+    font-size:0.82rem;
+    color:var(--washi-faint);
+    margin-left:auto;
+  }
+  .story-text{
+    font-size:0.95rem;
+    line-height:1.95;
+    color:var(--washi-dim);
+    text-align:justify;
+  }
+  .story-nav{
+    display:flex;
+    justify-content:center;
+    margin-top:1.8rem;
+  }
+
+  /* ---- ending screen ---- */
+  .ending-panel{
+    position:relative;
+    overflow:hidden;
+    padding:0;
+    height:min(680px, calc(100vh - 2.4rem));
+    height:min(680px, calc(100dvh - 2.4rem));
+    background:#000;
+  }
+  .ending-bg{
+    position:absolute;
+    inset:0;
+    background-size:contain;
+    background-repeat:no-repeat;
+    background-position:center;
+    opacity:0.45;
+    transition:opacity 7s ease;
+  }
+  .ending-bg.reveal{opacity:1;}
+  .ending-scrim{
+    position:absolute;
+    inset:0;
+    background:linear-gradient(180deg, rgba(20,15,10,.78), rgba(20,15,10,.5) 30%, rgba(20,15,10,.5) 70%, rgba(20,15,10,.78));
+    transition:opacity 7s ease;
+  }
+  .ending-scrim.reveal{opacity:0;}
+  .ending-crawl-viewport{
+    position:relative;
+    z-index:1;
+    height:100%;
+    overflow:hidden;
+  }
+  .ending-crawl{
+    position:absolute;
+    left:0; right:0;
+    padding:0 2.2rem;
+    box-sizing:border-box;
+    text-align:center;
+    color:#f7f1e2;
+    font-family:var(--font-display);
+    line-height:2.1;
+    font-size:clamp(14px, 2.6vw, 18px);
+    white-space:pre-wrap;
+    text-shadow:0 2px 6px rgba(0,0,0,.6);
+  }
+  .ending-prompt{
+    position:absolute;
+    left:0; right:0; bottom:6%;
+    z-index:2;
+    text-align:center;
+    color:#f7f1e2;
+    font-size:0.8rem;
+    letter-spacing:0.06em;
+    opacity:0;
+    pointer-events:none;
+    transition:opacity 0.6s ease;
+    text-shadow:0 1px 4px rgba(0,0,0,.7);
+  }
+  .ending-prompt.show{
+    opacity:0.9;
+    animation:endingPromptPulse 1.8s ease-in-out infinite;
+  }
+  @keyframes endingPromptPulse{
+    0%,100%{opacity:0.55;}
+    50%{opacity:0.95;}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .ending-prompt.show{animation:none;}
+  }
+
+  /* ---- ending twist (co-op setup) ---- */
+  .ending-twist-panel{
+    position:relative;
+    overflow:hidden;
+    padding:0;
+    background:#000;
+    cursor:pointer;
+    height:min(680px, calc(100vh - 2.4rem));
+    height:min(680px, calc(100dvh - 2.4rem));
+  }
+  .ending-twist-bg{
+    position:absolute;
+    inset:0;
+    background-size:contain;
+    background-repeat:no-repeat;
+    background-position:center;
+    opacity:0;
+    transition:opacity 3s ease;
+  }
+  .ending-twist-bg.reveal{opacity:1;}
+  .ending-twist-panel .ending-crawl-viewport{
+    transition:opacity 1.5s ease;
+  }
+  .ending-twist-panel .ending-crawl-viewport.dim{opacity:0.35;}
+  .ending-twist-flash{
+    position:absolute;
+    inset:0;
+    background:#fff;
+    opacity:0;
+    z-index:3;
+    pointer-events:none;
+  }
+  .ending-twist-flash.impact{
+    animation:endingTwistFlash 0.5s ease-out forwards;
+  }
+  @keyframes endingTwistFlash{
+    0%{opacity:0;}
+    12%{opacity:0.92;}
+    100%{opacity:0;}
+  }
+  .ending-twist-logo{
+    position:absolute;
+    inset:0;
+    background-size:72%;
+    background-repeat:no-repeat;
+    background-position:center;
+    opacity:0;
+    transform:scale(1.6);
+    z-index:4;
+    pointer-events:none;
+  }
+  .ending-twist-logo.impact{
+    animation:endingTwistLogoIn 0.6s cubic-bezier(.17,.89,.32,1.49) forwards;
+  }
+  @keyframes endingTwistLogoIn{
+    0%{opacity:0; transform:scale(1.6);}
+    55%{opacity:1; transform:scale(0.93);}
+    100%{opacity:1; transform:scale(1);}
+  }
+  @media (orientation:portrait){
+    .ending-twist-panel{
+      height:calc(100vh - 2.4rem);
+      height:calc(100dvh - 2.4rem);
+    }
+  }
+  @media (prefers-reduced-motion:reduce){
+    .ending-twist-bg{transition:none;}
+    .ending-twist-panel .ending-crawl-viewport{transition:none;}
+    .ending-twist-flash.impact{animation:none;}
+    .ending-twist-logo.impact{animation:none; opacity:1; transform:scale(1);}
+  }
+
+  @media (orientation:landscape){
+    .story-panel{
+      min-height:calc(100vh - 2.4rem);
+      min-height:calc(100dvh - 2.4rem);
+      display:flex;
+      align-items:center;
+      container-type:inline-size;
+    }
+    .story-content{
+      width:100%;
+    }
+    .story-act{ font-size:clamp(1.15rem, 1.6cqw, 1.6rem); }
+    .story-name{ font-size:clamp(1.02rem, 1.4cqw, 1.4rem); }
+    .story-season-place{ font-size:clamp(0.82rem, 1.1cqw, 1.05rem); }
+    .story-text{ font-size:clamp(0.95rem, 1.35cqw, 1.3rem); }
+    .ending-panel{
+      height:calc(100vh - 2.4rem);
+      height:calc(100dvh - 2.4rem);
+    }
+    .ending-twist-panel{
+      height:calc(100vh - 2.4rem);
+      height:calc(100dvh - 2.4rem);
+    }
+  }
+
+  /* ---- play screen (image-backed stage) ---- */
+  .stage-panel{
+    padding:0;
+    overflow:hidden;
+    position:relative;
+    container-type:inline-size;
+    width:100%;
+    margin:0 auto;
+  }
+  .countdown-overlay{
+    position:absolute;
+    inset:0;
+    background:rgba(23,20,15,.72);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    z-index:100;
+  }
+  .countdown-num{
+    position:relative;
+    z-index:2;
+    font-family:var(--font-display);
+    font-size:5.5rem;
+    color:var(--gold);
+    letter-spacing:0.05em;
+    text-shadow:0 0 24px rgba(201,162,39,.85), 0 4px 12px rgba(0,0,0,.85);
+  }
+  .countdown-judges{
+    position:absolute;
+    inset:0;
+    overflow:hidden;
+    z-index:1;
+  }
+  .countdown-judge-mark{
+    position:absolute;
+    max-height:36%;
+    max-width:30%;
+    width:auto;
+    height:auto;
+    opacity:0;
+    filter:drop-shadow(0 4px 14px rgba(0,0,0,.7));
+    animation-name:countdownJudgeFade;
+    animation-timing-function:ease-in-out;
+    animation-fill-mode:both;
+  }
+  .countdown-judge-mark--featured{
+    max-height:62%;
+    max-width:46%;
+    z-index:1;
+    filter:drop-shadow(0 6px 22px rgba(201,162,39,.75)) drop-shadow(0 4px 14px rgba(0,0,0,.8));
+  }
+  .countdown-judge-mark--grid{
+    max-height:24%;
+    max-width:20%;
+  }
+  @keyframes countdownJudgeFade{
+    0%{opacity:0; transform:scale(0.85);}
+    30%{opacity:1; transform:scale(1);}
+    55%{opacity:1; transform:scale(1);}
+    100%{opacity:0; transform:scale(0.9);}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .countdown-judge-mark{animation:none; opacity:1;}
+  }
+  .countdown-num.pulse{
+    animation:countdownPulse 0.75s ease-out;
+  }
+  @keyframes countdownPulse{
+    0%{opacity:0; transform:scale(1.7);}
+    35%{opacity:1; transform:scale(1);}
+    100%{opacity:1; transform:scale(1);}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .countdown-num.pulse{animation:none;}
+  }
+  .stage-frame{
+    position:relative;
+    width:100%;
+    aspect-ratio:1080/1920;
+    background-size:100% 100%;
+    background-repeat:no-repeat;
+    border-radius:6px;
+    margin:0 auto;
+    overflow:hidden;
+    font-family:var(--font-body);
+  }
+  @media (orientation:portrait){
+    .stage-frame{
+      aspect-ratio:auto;
+      height:calc(100vh - 2.4rem);
+      height:calc(100dvh - 2.4rem);
+    }
+  }
+  .stage-meter{
+    position:absolute;
+    left:64.81%; width:31.48%; top:3.23%; height:2.08%;
+    display:flex; align-items:center; justify-content:center;
+    padding:0 9%;
+    box-sizing:border-box;
+  }
+  .stage-meter__track{
+    position:relative;
+    width:100%; height:52%;
+    background:rgba(0,0,0,.5);
+    border-radius:20px;
+    overflow:hidden;
+  }
+  .stage-meter__fill{
+    position:absolute;
+    left:0; top:0; bottom:0;
+    width:100%;
+    background:linear-gradient(90deg, var(--gold), #e8c96a);
+    transition:width 0.25s linear, background 0.3s;
+  }
+  .stage-meter__fill.low{background:#e8402c;}
+  .stage-act-num{
+    position:absolute;
+    left:23.15%; width:12.50%; top:10.16%; height:3.91%;
+    display:flex; align-items:center; justify-content:center;
+    font-family:var(--font-display);
+    font-size:clamp(20px, 4.2cqw, 32px);
+    color:#f3d98a;
+    text-shadow:0 1px 3px rgba(0,0,0,.8);
+    font-variant-numeric:tabular-nums;
+  }
+  .stage-season-badge{
+    position:absolute;
+    left:51.06%; width:8.34%; top:9.77%; height:4.68%;
+    z-index:2;
+    background-size:100% 100%;
+    background-repeat:no-repeat;
+    background-position:center;
+    pointer-events:none;
+  }
+  .stage-season-text{
+    position:absolute;
+    left:59.72%; width:11.11%; top:10.68%; height:2.86%;
+    display:flex; align-items:center; justify-content:center;
+    color:#f3d98a;
+    font-size:clamp(12px, 1.9cqw, 15px);
+    letter-spacing:0.02em;
+    white-space:nowrap;
+    text-shadow:0 1px 3px rgba(0,0,0,.8);
+  }
+  .stage-timer-num{
+    position:absolute;
+    left:75.46%; width:12.96%; top:9.90%; height:5.21%;
+    display:flex; align-items:center; justify-content:center;
+    font-family:var(--font-display);
+    font-size:clamp(18px, 3.8cqw, 28px);
+    color:var(--hanko);
+    text-shadow:0 1px 2px rgba(255,255,255,.4);
+    font-variant-numeric:tabular-nums;
+    transition:color 0.3s;
+  }
+  .stage-timer-num.low{color:#e8402c;}
+
+  .stage-row{
+    position:absolute;
+    left:20.83%; width:68.06%;
+    padding:0.4rem 0.6rem;
+    box-sizing:border-box;
+    cursor:pointer;
+    border-radius:6px;
+    transition:box-shadow 0.15s;
+    overflow:visible;
+  }
+  .stage-row[data-line="0"]{top:16.67%; min-height:11.98%;}
+  .stage-row[data-line="1"]{top:30.99%; min-height:11.72%;}
+  .stage-row[data-line="2"]{top:45.05%; min-height:12.50%;}
+  .stage-row.active{box-shadow:0 0 0 3px var(--gold) inset;}
+  .stage-row--locked{box-shadow:0 0 0 3px #d98bb0 inset;}
+  .stage-row__count{
+    font-size:clamp(13px, 2.4cqw, 17px);
+    font-weight:700;
+    font-variant-numeric:tabular-nums;
+    margin-bottom:0.2rem;
+  }
+  .stage-row__count.ok{color:var(--ok);}
+  .stage-row__count.warn{color:#8a5a1a;}
+  .stage-row__count.bad{color:var(--bad);}
+  .stage-row--locked .stage-row__count{color:#d98bb0;}
+  .stage-row__tiles{
+    display:flex;
+    flex-wrap:wrap;
+    gap:0.35rem;
+    align-content:flex-start;
+  }
+
+  /* ---- tiles ---- */
+  .tile{
+    font-family:var(--font-body);
+    position:relative;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    padding:0.4rem 0.75rem;
+    border-radius:6px;
+    border:none;
+    background-repeat:no-repeat;
+    background-size:100% 100%;
+    color:var(--washi);
+    text-shadow:0 0 3px rgba(255,255,255,.85), 0 0 6px rgba(255,255,255,.6);
+    cursor:pointer;
+    font-size:clamp(17px, 2.6cqw, 20px);
+    font-weight:700;
+    line-height:1;
+    min-width:3.2rem;
+    min-height:2.3rem;
+    transition:transform 0.1s;
+  }
+  .tile:hover{transform:translateY(-2px);}
+  .tile:active{transform:translateY(0);}
+  .tile__mora{
+    position:absolute;
+    top:-7px;
+    right:-7px;
+    width:18px;
+    height:18px;
+    border-radius:50%;
+    background:var(--sumi);
+    color:var(--gold);
+    font-size:clamp(11px, 1.8cqw, 14px);
+    font-weight:700;
+    font-variant-numeric:tabular-nums;
+    text-shadow:none;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    border:1px solid var(--gold);
+  }
+
+  .stage-pool-area{
+    position:absolute;
+    left:8.80%; width:81.94%; top:62.24%; height:32.03%;
+    display:flex;
+    flex-direction:column;
+    padding:2.5% 4% 1.5%;
+    box-sizing:border-box;
+    gap:2%;
+  }
+  @media (orientation:landscape){
+    .stage-frame{aspect-ratio:1920/1080;}
+    .stage-meter{left:72.92%; width:10.94%; top:10.65%; height:5.09%; padding:0 1.5%;}
+    .stage-act-num{left:41.67%; width:7.29%; top:9.26%; height:8.33%;}
+    .stage-season-badge{left:54.69%; width:6.25%; top:6.94%; height:11.11%;}
+    .stage-season-text{left:62%; width:5.19%; top:9.72%; height:5.09%;}
+    .stage-timer-num{left:83.85%; width:9.64%; top:9.26%; height:9.26%;}
+    .stage-row{left:24.22%; width:65.36%;}
+    .stage-row[data-line="0"]{top:17.50%; min-height:8.33%;}
+    .stage-row[data-line="1"]{top:30.0%; min-height:8.80%;}
+    .stage-row[data-line="2"]{top:43.00%; min-height:10.83%;}
+    .stage-pool-area{left:2.08%; width:95.83%; top:62.04%; height:33.33%;}
+  }
+  .pool{
+    flex:1 1 auto;
+    overflow-y:auto;
+    display:flex;
+    flex-wrap:wrap;
+    align-content:flex-start;
+    gap:0.5rem;
+  }
+  .pool-empty{color:#c9b98a;font-size:clamp(12px, 2.2cqw, 15px);}
+
+  .controls{
+    flex:0 0 auto;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    gap:1.2rem;
+  }
+  .btn-img{
+    border:none;
+    background-color:transparent;
+    background-repeat:no-repeat;
+    background-size:100% 100%;
+    cursor:pointer;
+    padding:0;
+    display:block;
+    transition:transform 0.1s;
+  }
+  .btn-img:hover{transform:translateY(-1px);}
+  .btn-img:active{transform:translateY(0) scale(0.97);}
+  .btn-img:focus-visible{outline:2px solid var(--gold);outline-offset:2px;}
+  #btnReset{width:clamp(84px, 19.44cqw, 140px); aspect-ratio:140/44; height:auto;}
+  #btnSubmit{width:clamp(150px, 34.72cqw, 250px); aspect-ratio:250/60; height:auto;}
+
+  /* ---- judge screen ---- */
+  #screen-judge .panel{
+    display:flex;
+    justify-content:center;
+    padding:0;
+  }
+  .judge-bg{
+    position:relative;
+    width:100%;
+    aspect-ratio:1080/1920;
+    background-size:100% 100%;
+    background-repeat:no-repeat;
+    border-radius:6px;
+    cursor:pointer;
+    margin:0 auto;
+    container-type:inline-size;
+  }
+  @media (max-width:639px){
+    .judge-bg{
+      height:calc(100vh - 2.4rem);
+      height:calc(100dvh - 2.4rem);
+      width:auto;
+      max-width:100%;
+    }
+  }
+  .judge-bg__heading{
+    position:absolute;
+    left:0; width:100%; top:11.36%; height:4.19%;
+    display:flex; align-items:center; justify-content:center;
+    font-family:var(--font-display);
+    font-size:clamp(14px, 2.91cqw, 20px);
+    color:#3a2c1a;
+    letter-spacing:0.04em;
+  }
+  .judge-rows{
+    position:absolute;
+    inset:0;
+  }
+  .judge-item{
+    position:absolute;
+    background-size:100% 100%;
+    background-repeat:no-repeat;
+    opacity:0;
+    animation:cardIn 0.45s ease forwards;
+    container-type:inline-size;
+  }
+  @keyframes cardIn{
+    from{opacity:0;transform:translateY(10px);}
+    to{opacity:1;transform:translateY(0);}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .judge-item{animation:none;opacity:1;}
+  }
+  .judge-item__avatar{
+    position:absolute;
+    left:3.1%; width:20.65%; top:7.76%; height:80.69%;
+    border-radius:10%;
+    overflow:hidden;
+  }
+  .judge-item__avatar img{
+    width:100%; height:100%;
+    object-fit:cover;
+    display:block;
+  }
+  .judge-item__info{
+    position:absolute;
+    left:30%; width:52%; top:10%; height:76%;
+    display:flex;
+    flex-direction:column;
+    justify-content:center;
+    gap:0.15rem;
+  }
+  .judge-item__name{
+    font-family:var(--font-display);
+    font-size:clamp(13px, 3.17cqw, 20px);
+    color:#3a2c1a;
+  }
+  .judge-item__tag{
+    font-size:clamp(10px, 2.09cqw, 14px);
+    color:#8a7355;
+    letter-spacing:0.02em;
+    margin-bottom:0.2rem;
+  }
+  .judge-item__comment{
+    font-size:clamp(11px, 2.41cqw, 16px);
+    color:#5a4a32;
+    line-height:1.4;
+  }
+  .judge-item__score{
+    position:absolute;
+    left:90.2%; width:7.4%; top:28.5%; height:30%;
+    display:flex; align-items:center; justify-content:center;
+    font-family:var(--font-display);
+    font-size:clamp(22px, 5.5cqw, 34px);
+    color:#8b4a2a;
+    font-variant-numeric:tabular-nums;
+    /* 上下左右に影を重ねて文字を縁取る */
+    text-shadow: 
+       1px  1px 0 #fff,
+      -1px  1px 0 #fff,
+       1px -1px 0 #fff,
+      -1px -1px 0 #fff;
+  }
+  @media (min-width:640px){
+    .judge-bg{aspect-ratio:1672/941;}
+    .judge-bg__heading{top:5.69%; height:6%;}
+  }
+
+  /* ---- result screen ---- */
+  .result-screen{
+    padding:1rem 0 1.2rem;
+    border:none;
+    background:transparent;
+  }
+  .result-hero-rival{
+    position:absolute;
+    left:50%;
+    bottom:0;
+    transform:translateX(-50%);
+    width:72%;
+    height:auto;
+    opacity:0.26;
+    pointer-events:none;
+    z-index:0;
+  }
+  .result-banner{
+    position:absolute;
+    top:2.08%;
+    left:50%;
+    transform:translateX(-50%);
+    width:55%;
+    height:auto;
+    z-index:2;
+  }
+  .result-bg{
+    position:relative;
+    width:100%;
+    aspect-ratio:1080/1920;
+    background-size:100% 100%;
+    background-repeat:no-repeat;
+    border-radius:6px;
+    margin:0 auto 1rem;
+    overflow:hidden;
+    container-type:inline-size;
+  }
+  @media (orientation:portrait){
+    .result-bg{
+      aspect-ratio:auto;
+      height:calc(100vh - 2.4rem);
+      height:calc(100dvh - 2.4rem);
+    }
+  }
+  .result-card{
+    position:absolute;
+    left:13.89%; width:72.22%;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:0.5rem;
+    padding:0 1.2rem;
+    box-sizing:border-box;
+    text-align:center;
+  }
+  .result-card.you{top:19.79%; height:18.23%;}
+  .result-card.rival{top:48.96%; height:18.23%;}
+  .result-card__score{
+    font-family:var(--font-display);
+    font-size:clamp(20px, 4.22cqw, 32px);
+    font-variant-numeric:tabular-nums;
+  }
+  .result-card.you .result-card__score{color:var(--ok);}
+  .result-card.rival .result-card__score{color:var(--bad);}
+  .result-card__score .unit{font-size:clamp(9px, 1.33cqw, 11px);color:var(--washi-faint);margin-left:0.15rem;}
+  .result-card__haiku{
+    font-family:var(--font-display);
+    font-size:clamp(14px, 2.89cqw, 21px);
+    line-height:1.5;
+    letter-spacing:0.03em;
+    color:#3a2c1a;
+    text-wrap:balance;
+  }
+  .result-card__haiku span{display:block;}
+  .result-note{
+    position:absolute;
+    top:71.88%; min-height:3.65%;
+    display:flex; align-items:flex-start; justify-content:center;
+    padding:0.3rem 0.9rem 0;
+    box-sizing:border-box;
+    font-size:clamp(12px, 1.3cqw, 14px);
+    line-height:1.25;
+    color:#5a4a32;
+    text-align:center;
+  }
+  .result-note.you{left:2.86%; width:48%;}
+  .result-note.rival{left:49.16%; width:48%;}
+  @media (orientation:portrait){
+    .result-mecha .result-note{top:74.6%;}
+    .result-mecha .result-btn{top:81.8%; height:5.5%;}
+  }
+  .result-btn{
+    position:absolute;
+    top:79.17%; height:6.04%;
+    border:none;
+    background:transparent;
+    cursor:pointer;
+    font-family:var(--font-body);
+    font-weight:700;
+    font-size:clamp(10px, 2.11cqw, 16px);
+    letter-spacing:0.02em;
+    white-space:nowrap;
+    transition:transform 0.1s;
+  }
+  .result-btn:hover{transform:scale(1.03);}
+  .result-btn:active{transform:scale(0.98);}
+  .result-btn:focus-visible{outline:2px solid var(--gold);outline-offset:2px;}
+  .result-btn--primary{left:9.26%; width:37.04%; color:var(--on-accent); text-shadow:0 1px 3px rgba(0,0,0,.6);}
+  .result-btn--secondary{left:53.70%; width:37.04%; color:#5a3a1e;}
+
+  .result-share{
+    position:absolute;
+    left:9.26%; width:81.48%; top:87.5%; height:6%;
+    display:flex; align-items:center; justify-content:center; gap:0.9rem;
+  }
+  .result-share__btn{
+    width:2.3rem; height:2.3rem;
+    border-radius:50%;
+    border:none;
+    background:rgba(20,15,10,0.72);
+    color:#f7f1e2;
+    display:flex; align-items:center; justify-content:center;
+    cursor:pointer;
+    transition:transform 0.1s;
+    padding:0;
+  }
+  .result-share__btn:hover{transform:scale(1.08);}
+  .result-share__btn:active{transform:scale(0.95);}
+  .result-share__btn:focus-visible{outline:2px solid var(--gold);outline-offset:2px;}
+
+  @media (orientation:landscape){
+    .result-bg{aspect-ratio:1920/1080;}
+    .result-hero-rival{width:45%; opacity:0.18;}
+    .result-banner{top:1.39%; width:21.98%;}
+    .result-card.you{left:13.54%; width:30.73%; top:21.30%; height:41.67%;}
+    .result-card.rival{left:55.73%; width:30.73%; top:21.30%; height:41.67%;}
+    .result-note{top:73.15%; height:6.02%; min-height:0;}
+    .result-note.you{left:15.63%; width:26.56%;}
+    .result-note.rival{left:57.81%; width:26.56%;}
+    .result-btn{top:83.80%; height:9.26%;}
+    .result-btn--primary{left:23.96%; width:24.48%;}
+    .result-btn--secondary{left:51.56%; width:24.48%;}
+    .result-share{top:94%; height:5%;}
+  }
+
+</style>
+</head>
+<body>
+
+<div class="board">
+  <section id="screen-title" class="screen panel hero">
+    <div class="hero__poster-frame"><img class="hero__poster" src="assets/title_poster.jpg" alt="一句ござる！ 五・七・五で、勝負せよ。">
+      <div class="version-label">v1.03</div>
+      <div class="hero__actions">
+        <button class="btn btn--ghost" id="btnTutorial" type="button">チュートリアル</button>
+        <button class="btn" id="btnStart" type="button">対局をはじめる</button>
+        <button class="btn btn--ghost hidden" id="btnTrueWorld" type="button">真実の世界</button>
+        <button class="btn btn--ghost" id="btnSoundToggle" type="button">音声オン</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="screen-tutorial" class="screen hidden">
+    <div class="panel tutorial">
+      <div class="tutorial__progress" id="tutorialProgress"></div>
+      <div class="tutorial__body" id="tutorialBody"></div>
+      <div class="tutorial__nav">
+        <button class="btn btn--ghost" id="btnTutorialBack" type="button">もどる</button>
+        <button class="btn" id="btnTutorialNext" type="button">つぎへ</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="screen-story" class="screen hidden">
+    <div class="panel story-panel">
+      <div class="story-illust" id="storyIllust"></div>
+      <div class="story-scrim"></div>
+      <div class="story-content">
+        <div class="story-meta">
+          <span class="story-act" id="storyAct"></span>
+          <span class="story-name" id="storyName"></span>
+          <span class="story-season-place" id="storySeasonPlace"></span>
+        </div>
+        <div class="story-text" id="storyText"></div>
+        <div class="story-nav">
+          <button class="btn" id="btnStoryContinue" type="button">つづける</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="screen-play" class="screen hidden">
+    <div class="panel stage-panel">
+      <div class="stage-frame" id="stageTop">
+        <div class="stage-meter">
+          <span class="stage-meter__track"><span class="stage-meter__fill" id="stageMeterFill"></span></span>
+        </div>
+        <div class="stage-act-num" id="stageActNum">1</div>
+        <div class="stage-season-badge" id="seasonBadgeIcon"></div>
+        <div class="stage-season-text" id="seasonBadgeText">春</div>
+        <div class="stage-timer-num" id="timerNum">45</div>
+
+        <div class="stage-row" data-line="0">
+          <div class="stage-row__count" id="lineCount0">0 / 5音</div>
+          <div class="stage-row__tiles" id="lineTiles0"></div>
+        </div>
+        <div class="stage-row" data-line="1">
+          <div class="stage-row__count" id="lineCount1">0 / 7音</div>
+          <div class="stage-row__tiles" id="lineTiles1"></div>
+        </div>
+        <div class="stage-row" data-line="2">
+          <div class="stage-row__count" id="lineCount2">0 / 5音</div>
+          <div class="stage-row__tiles" id="lineTiles2"></div>
+        </div>
+      </div>
+
+      <div class="stage-pool-area" id="stageBottom">
+        <div class="pool" id="pool"></div>
+        <div class="controls">
+          <button class="btn-img" id="btnReset" type="button" aria-label="やり直す"></button>
+          <button class="btn-img" id="btnSubmit" type="button" aria-label="この句を提出する"></button>
+        </div>
+      </div>
+      <div class="countdown-overlay hidden" id="countdownOverlay">
+        <div class="countdown-judges" id="countdownJudges"></div>
+        <div class="countdown-num" id="countdownNum"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="screen-judge" class="screen hidden">
+    <div class="panel">
+      <div class="judge-bg" id="judgeBg">
+        <div class="judge-bg__heading" id="judgeHeadingAct">第1幕　審査</div>
+        <div class="judge-rows" id="judgeRows"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="screen-result" class="screen hidden">
+    <div class="panel result-screen">
+      <div class="result-bg" id="resultBg">
+        <img class="result-hero-rival" src="assets/web/hero_rival.png" alt="">
+        <img class="result-banner" id="verdictBannerImg" src="" alt="">
+        <div class="result-card you">
+          <div class="result-card__score"><span id="youScore">0</span><span class="unit">点</span></div>
+          <div class="result-card__haiku" id="youHaiku"></div>
+        </div>
+        <div class="result-card rival">
+          <div class="result-card__score"><span id="rivalScore">0</span><span class="unit">点</span></div>
+          <div class="result-card__haiku" id="rivalHaiku"></div>
+        </div>
+        <div class="result-note you" id="youNote"></div>
+        <div class="result-note rival" id="rivalNote"></div>
+        <button class="result-btn result-btn--primary" id="resultPrimaryBtn" type="button"></button>
+        <button class="result-btn result-btn--secondary" id="resultTitleBtn" type="button">タイトルへ戻る</button>
+        <div class="result-share">
+          <button class="result-share__btn" id="shareXBtn" type="button" aria-label="Xでシェア" title="Xでシェア">
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 4L20 20M20 4L4 20" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg>
+          </button>
+          <button class="result-share__btn" id="shareThreadsBtn" type="button" aria-label="Threadsでシェア" title="Threadsでシェア">
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><text x="12" y="17" text-anchor="middle" font-size="16" font-weight="700" fill="currentColor">@</text></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="screen-ending" class="screen hidden">
+    <div class="panel ending-panel">
+      <div class="ending-bg" id="endingBg"></div>
+      <div class="ending-scrim" id="endingScrim"></div>
+      <div class="ending-crawl-viewport" id="endingCrawlViewport">
+        <div class="ending-crawl" id="endingCrawl"></div>
+      </div>
+      <div class="ending-prompt" id="endingPrompt">何かキーを押す、またはタップしてタイトルへ</div>
+    </div>
+  </section>
+
+  <section id="screen-ending-twist" class="screen hidden">
+    <div class="panel ending-twist-panel" id="endingTwistPanel">
+      <div class="ending-twist-bg" id="endingTwistBg"></div>
+      <div class="ending-crawl-viewport" id="endingTwistCrawlViewport">
+        <div class="ending-crawl" id="endingTwistCrawl"></div>
+      </div>
+      <div class="ending-prompt" id="endingTwistPrompt">何かキーを押す、またはタップして続ける</div>
+      <div class="ending-twist-flash" id="endingTwistFlash"></div>
+      <div class="ending-twist-logo" id="endingTwistLogo"></div>
+    </div>
+  </section>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var WORDS = [
+    {t:'桜',m:2,kigo:true,season:'spring',rarity:1},
+    {t:'春風',m:4,kigo:true,season:'spring',rarity:2},
+    {t:'蝶',m:2,kigo:true,season:'spring',rarity:2},
+    {t:'うぐいす',m:4,kigo:true,season:'spring',rarity:3},
+    {t:'つくし',m:3,kigo:true,season:'spring',rarity:3},
+    {t:'かすみ',m:3,kigo:true,season:'spring',rarity:2},
+    {t:'菜の花',m:4,kigo:true,season:'spring',rarity:2},
+    {t:'つばめ',m:3,kigo:true,season:'spring',rarity:1},
+    {t:'花見',m:3,kigo:true,season:'spring',rarity:1},
+    {t:'春雨',m:4,kigo:true,season:'spring',rarity:2},
+    {t:'桃',m:2,kigo:true,season:'spring',rarity:1},
+    {t:'たんぽぽ',m:4,kigo:true,season:'spring',rarity:2},
+    {t:'雉',m:2,kigo:true,season:'spring',rarity:2},
+    {t:'せみ',m:2,kigo:true,season:'summer',rarity:1},
+    {t:'ひまわり',m:4,kigo:true,season:'summer',rarity:1},
+    {t:'夕立',m:4,kigo:true,season:'summer',rarity:2},
+    {t:'あじさい',m:4,kigo:true,season:'summer',rarity:2},
+    {t:'かみなり',m:4,kigo:true,season:'summer',rarity:2},
+    {t:'すいか',m:3,kigo:true,season:'summer',rarity:1},
+    {t:'花火',m:3,kigo:true,season:'summer',rarity:1},
+    {t:'金魚',m:3,kigo:true,season:'summer',rarity:1},
+    {t:'蛍',m:3,kigo:true,season:'summer',rarity:2},
+    {t:'浴衣',m:3,kigo:true,season:'summer',rarity:2},
+    {t:'朝顔',m:4,kigo:true,season:'summer',rarity:1},
+    {t:'風鈴',m:4,kigo:true,season:'summer',rarity:2},
+    {t:'月',m:2,kigo:true,season:'autumn',rarity:1},
+    {t:'もみじ',m:3,kigo:true,season:'autumn',rarity:1},
+    {t:'すすき',m:3,kigo:true,season:'autumn',rarity:2},
+    {t:'秋風',m:4,kigo:true,season:'autumn',rarity:2},
+    {t:'とんぼ',m:3,kigo:true,season:'autumn',rarity:2},
+    {t:'落ち葉',m:3,kigo:true,season:'autumn',rarity:2},
+    {t:'案山子',m:3,kigo:true,season:'autumn',rarity:3},
+    {t:'栗',m:2,kigo:true,season:'autumn',rarity:1},
+    {t:'稲穂',m:3,kigo:true,season:'autumn',rarity:2},
+    {t:'名月',m:4,kigo:true,season:'autumn',rarity:2},
+    {t:'コスモス',m:4,kigo:true,season:'autumn',rarity:2},
+    {t:'柿',m:2,kigo:true,season:'autumn',rarity:1},
+    {t:'雪',m:2,kigo:true,season:'winter',rarity:1},
+    {t:'つらら',m:3,kigo:true,season:'winter',rarity:2},
+    {t:'木枯らし',m:4,kigo:true,season:'winter',rarity:3},
+    {t:'白鳥',m:4,kigo:true,season:'winter',rarity:2},
+    {t:'なべ',m:2,kigo:true,season:'winter',rarity:1},
+    {t:'冬空',m:4,kigo:true,season:'winter',rarity:2},
+    {t:'霜',m:2,kigo:true,season:'winter',rarity:1},
+    {t:'こたつ',m:3,kigo:true,season:'winter',rarity:1},
+    {t:'冬至',m:3,kigo:true,season:'winter',rarity:2},
+    {t:'霰',m:3,kigo:true,season:'winter',rarity:3},
+    {t:'山茶花',m:4,kigo:true,season:'winter',rarity:3},
+    {t:'初雪',m:4,kigo:true,season:'winter',rarity:1},
+    {t:'こころ',m:3,kigo:false,season:null,rarity:1},
+    {t:'おもいで',m:4,kigo:false,season:null,rarity:2},
+    {t:'しずかに',m:4,kigo:false,season:null,rarity:2},
+    {t:'ひとり',m:3,kigo:false,season:null,rarity:1},
+    {t:'ゆめ',m:2,kigo:false,season:null,rarity:1},
+    {t:'あるく',m:3,kigo:false,season:null,rarity:1},
+    {t:'わらう',m:3,kigo:false,season:null,rarity:1},
+    {t:'とおく',m:3,kigo:false,season:null,rarity:1},
+    {t:'こえ',m:2,kigo:false,season:null,rarity:1},
+    {t:'そら',m:2,kigo:false,season:null,rarity:1},
+    {t:'みち',m:2,kigo:false,season:null,rarity:1},
+    {t:'ふるさと',m:4,kigo:false,season:null,rarity:2},
+    {t:'いつまでも',m:5,kigo:false,season:null,rarity:3},
+    {t:'しずけさ',m:4,kigo:false,season:null,rarity:2},
+    {t:'なみだ',m:3,kigo:false,season:null,rarity:1},
+    {t:'ひかり',m:3,kigo:false,season:null,rarity:1},
+    {t:'かげ',m:2,kigo:false,season:null,rarity:1},
+    {t:'おと',m:2,kigo:false,season:null,rarity:1},
+    {t:'ねがい',m:3,kigo:false,season:null,rarity:1},
+    {t:'きぼう',m:3,kigo:false,season:null,rarity:1},
+    {t:'てがみ',m:3,kigo:false,season:null,rarity:1},
+    {t:'やさしさ',m:4,kigo:false,season:null,rarity:2},
+    {t:'つよさ',m:3,kigo:false,season:null,rarity:1},
+    {t:'いのり',m:3,kigo:false,season:null,rarity:2},
+    {t:'まなざし',m:4,kigo:false,season:null,rarity:2},
+    {t:'ぬくもり',m:4,kigo:false,season:null,rarity:2},
+    {t:'きずな',m:3,kigo:false,season:null,rarity:2},
+    {t:'ことば',m:3,kigo:false,season:null,rarity:1},
+    {t:'うた',m:2,kigo:false,season:null,rarity:1},
+    {t:'なぞ',m:2,kigo:false,season:null,rarity:2},
+    {t:'あゆみ',m:3,kigo:false,season:null,rarity:2},
+    {t:'ほほえみ',m:4,kigo:false,season:null,rarity:2},
+    {t:'まよい',m:3,kigo:false,season:null,rarity:2},
+    {t:'こだま',m:3,kigo:false,season:null,rarity:3},
+    {t:'たびじ',m:3,kigo:false,season:null,rarity:2},
+    {t:'ふたり',m:3,kigo:false,season:null,rarity:1},
+    {t:'犬',m:2,kigo:false,season:null,rarity:1},
+    {t:'猫',m:2,kigo:false,season:null,rarity:1},
+    {t:'猿',m:2,kigo:false,season:null,rarity:3,disruptive:true},
+    {t:'熊',m:2,kigo:false,season:null,rarity:3,disruptive:true},
+    {t:'子犬',m:3,kigo:false,season:null,rarity:3,disruptive:true},
+    {t:'子猫',m:3,kigo:false,season:null,rarity:3,disruptive:true},
+    {t:'たぬき',m:3,kigo:false,season:null,rarity:3,disruptive:true},
+    {t:'狐',m:3,kigo:false,season:null,rarity:3,disruptive:true},
+    {t:'ゆれる',m:3,kigo:false,season:null,rarity:2},
+    {t:'ひらく',m:3,kigo:false,season:null,rarity:2},
+    {t:'そよぐ',m:3,kigo:false,season:null,rarity:2},
+    {t:'めざめる',m:4,kigo:false,season:null,rarity:2},
+    {t:'つむぐ',m:3,kigo:false,season:null,rarity:2},
+    {t:'うつろう',m:4,kigo:false,season:null,rarity:3},
+    {t:'きらめく',m:4,kigo:false,season:null,rarity:2},
+    {t:'ささやく',m:4,kigo:false,season:null,rarity:2},
+    {t:'たゆたう',m:4,kigo:false,season:null,rarity:3},
+    {t:'ふりむく',m:4,kigo:false,season:null,rarity:2},
+    {t:'や',m:1,kigo:false,season:null,rarity:1,kireji:true},
+    {t:'かな',m:2,kigo:false,season:null,rarity:1,kireji:true},
+    {t:'けり',m:2,kigo:false,season:null,rarity:1,kireji:true},
+    {t:'ぞ',m:1,kigo:false,season:null,rarity:2,kireji:true},
+    {t:'か',m:1,kigo:false,season:null,rarity:2,kireji:true},
+    {t:'よ',m:1,kigo:false,season:null,rarity:2,kireji:true},
+    {t:'なり',m:2,kigo:false,season:null,rarity:2,kireji:true},
+    {t:'つ',m:1,kigo:false,season:null,rarity:2,kireji:true},
+    {t:'ぬ',m:1,kigo:false,season:null,rarity:2,kireji:true},
+    {t:'し',m:1,kigo:false,season:null,rarity:2,kireji:true},
+    {t:'ず',m:1,kigo:false,season:null,rarity:2,kireji:true},
+    {t:'じ',m:1,kigo:false,season:null,rarity:2,kireji:true},
+    {t:'ござる',m:3,kigo:false,season:null,rarity:3,disruptive:true},
+    {t:'推し',m:2,kigo:false,season:null,rarity:3,disruptive:true},
+    {t:'エモい',m:3,kigo:false,season:null,rarity:3,disruptive:true},
+    {t:'タイパ',m:3,kigo:false,season:null,rarity:3,disruptive:true},
+    {t:'バズる',m:3,kigo:false,season:null,rarity:3,disruptive:true},
+    {t:'！',m:1,kigo:false,season:null,rarity:3,kireji:true,disruptive:true},
+    {t:'？',m:1,kigo:false,season:null,rarity:3,kireji:true,disruptive:true},
+    {t:'ドドーン',m:4,kigo:false,season:null,rarity:3,disruptive:true},
+    {t:'バーン',m:2,kigo:false,season:null,rarity:3,disruptive:true},
+    {t:'ズギューン',m:5,kigo:false,season:null,rarity:3,disruptive:true},
+    {t:'ライオン',m:4,kigo:false,season:null,rarity:3,disruptive:true},
+    {t:'虎',m:2,kigo:false,season:null,rarity:3,disruptive:true},
+    {t:'キリン',m:3,kigo:false,season:null,rarity:3,disruptive:true},
+    {t:'龍',m:2,kigo:false,season:null,rarity:3,disruptive:true},
+    {t:'虎視眈々と',m:7,kigo:false,season:null,rarity:3,disruptive:true},
+    {t:'龍虎相打つ',m:7,kigo:false,season:null,rarity:3,disruptive:true},
+    {t:'龍の背に',m:5,kigo:false,season:null,rarity:3,disruptive:true},
+    {t:'虎の尾を',m:5,kigo:false,season:null,rarity:3,disruptive:true},
+    {t:'獅子奮迅',m:6,kigo:false,season:null,rarity:3,disruptive:true},
+    {t:'龍頭蛇尾',m:6,kigo:false,season:null,rarity:3,disruptive:true},
+    {t:'風の余韻に',m:7,kigo:false,season:null,rarity:3,eira:true},
+    {t:'春惜しむ声',m:7,kigo:false,season:'spring',rarity:3,eira:true},
+    {t:'花明かりかな',m:7,kigo:false,season:'spring',rarity:3,eira:true},
+    {t:'花の名残に',m:7,kigo:false,season:'spring',rarity:3,eira:true},
+    {t:'月影を踏む',m:7,kigo:false,season:'autumn',rarity:3,eira:true},
+    {t:'光をまとう',m:7,kigo:false,season:null,rarity:3,eira:true},
+    {t:'夢の続きへ',m:7,kigo:false,season:null,rarity:3,eira:true},
+    {t:'風がまた吹く',m:7,kigo:false,season:null,rarity:3,eira:true},
+    {t:'声を重ねて',m:7,kigo:false,season:null,rarity:3,eira:true},
+    {t:'心に触れて',m:7,kigo:false,season:null,rarity:3,eira:true},
+    {t:'香り残して',m:7,kigo:false,season:null,rarity:3,eira:true},
+    {t:'空を見上げて',m:7,kigo:false,season:null,rarity:3,eira:true},
+    {t:'影を重ねて',m:7,kigo:false,season:null,rarity:3,eira:true},
+    {t:'波音を聞く',m:7,kigo:false,season:null,rarity:3,eira:true},
+    {t:'静けさの中',m:7,kigo:false,season:null,rarity:3,eira:true},
+    {t:'涙のかたち',m:7,kigo:false,season:null,rarity:3,eira:true},
+    {t:'時を重ねて',m:7,kigo:false,season:null,rarity:3,eira:true},
+    {t:'遠い記憶に',m:7,kigo:false,season:null,rarity:3,eira:true},
+    {t:'言葉を交わす',m:7,kigo:false,season:null,rarity:3,eira:true},
+    {t:'花びらの舞',m:7,kigo:false,season:'spring',rarity:3,eira:true}
+  ];
+
+  var SEASONS = ['spring','summer','autumn','winter'];
+
+  var RIVAL_HAIKU = {
+    spring:[
+      {lines:['さくら舞う','風にゆられて','夢の中'], note:'光と影の対比が美しい。'},
+      {lines:['うぐいすの','声にめざめる','朝の庭'], note:'季語と情景がぴたりと重なる、隙のない一句。'},
+      {lines:['花びらが','そっと舞い落ち','水面まで'], note:'動きのある情景に、静けさが同居している。'},
+      {lines:['菜の花や','一面染まる','夕焼けに'], note:'季語と切れ字を巧みに使った、堂々たる一句。'},
+      {lines:['つばめ来て','軒先低く','風を切る'], note:'動きのある描写に、春の躍動感がある。'},
+      {lines:['春雨の','音なく染みる','土の色'], note:'静かな情景に、匂い立つような臨場感がある。'}
+    ],
+    summer:[
+      {lines:['夕立が','町を駆け抜け','光る道'], note:'夏の勢いをそのまま音にしている。'},
+      {lines:['ひまわりの','背比べをする','青い空'], note:'素直な明るさに、まっすぐな強さがある。'},
+      {lines:['せみの声','夏を惜しんで','夜が来る'], note:'終わりゆく季節への眼差しが切ない。'},
+      {lines:['花火散る','夜空に咲いて','また消える'], note:'一瞬の輝きを言葉に閉じ込めた、見事な一句。'},
+      {lines:['金魚玉','ゆらゆら揺れる','夏の午後'], note:'涼やかな描写に、夏の午後がそのまま浮かぶ。'},
+      {lines:['蛍飛ぶ','闇にひとつの','光かな'], note:'切れ字「かな」の余韻が美しい、詩情豊かな一句。'}
+    ],
+    autumn:[
+      {lines:['もみじ散る','音なく道に','秋深し'], note:'言葉を削ぎ落として、なお豊かな一句。'},
+      {lines:['すすきの穂','揺れて夕日を','抱きしめる'], note:'光の描き方に、確かな筆致を感じる。'},
+      {lines:['とんぼ舞う','高く澄む空','秋の風'], note:'視線が上を向いていて、爽やかな余韻がある。'},
+      {lines:['案山子立つ','夕日を受けて','影長し'], note:'静けさの中に、確かな存在感を感じる一句。'},
+      {lines:['名月や','雲の切れ間に','顔を出す'], note:'切れ字「や」の使い方に、貫禄を感じる。'},
+      {lines:['栗拾う','手にひとつずつ','秋深し'], note:'素朴な動作の描写に、秋の実りを感じる。'}
+    ],
+    winter:[
+      {lines:['雪が舞う','音を吸い込む','冬の夜'], note:'音を消す描写に、冬の静けさが宿る。'},
+      {lines:['つららから','光のしずく','床に散る'], note:'小さな一瞬を切り取る観察眼が鋭い。'},
+      {lines:['木枯らしが','窓を叩いて','夜更けかな'], note:'切れ字の使い方に、老練さがにじむ。'},
+      {lines:['霜降りて','庭一面の','白い朝'], note:'情景がくっきりと目に浮かぶ、丁寧な一句。'},
+      {lines:['こたつから','出たくない朝','猫と我'], note:'くすりと笑える人間味に、親しみを感じる。'},
+      {lines:['初雪や','音もなく積む','夜の道'], note:'切れ字「や」から始まる、静謐な情景描写。'}
+    ]
+  };
+
+  var BOSS_RIVAL_HAIKU = {
+    8:[
+      {lines:['雪積もる','覚えた通り','美しく'], note:'学習し尽くした美の、迷いのない再現。'},
+      {lines:['白鳥の','群れ真似ながら','独り言'], note:'模倣の果てに滲む、かすかな寂しさ。'},
+      {lines:['木枯らしを','数式にして','抱きしめる'], note:'冷たい計算の中に、奇妙な温もりがある。'}
+    ],
+    9:[
+      {lines:['一滴の','露に映して','秋を知る'], note:'学習した情景の中に、初めての実感が滲む。'},
+      {lines:['脱ぎ捨てて','紅葉のように','色を知る'], note:'適応するたびに、確かに変わっていく気配がある。'},
+      {lines:['真似ながら','とんぼの群れの','記憶かな'], note:'模倣の奥に、かすかな郷愁が息づいている。'}
+    ],
+    10:[
+      {lines:['天地統べ','究め尽くすも','花は謎'], note:'すべてを統べる者が、唯一解けない謎を句にする。'},
+      {lines:['桜花散る','脆さゆえにぞ','美しき'], note:'文語の格調の奥に、完成された美意識が漂う。'},
+      {lines:['統べたれど','なおも解せぬは','桜花かな'], note:'支配の極みにある者の、静かな告白。'}
+    ]
+  };
+
+  function rand(min,max){ return Math.floor(Math.random()*(max-min+1))+min; }
+  function randInt(min,max){ return rand(min,max); }
+  function clamp(v,min,max){ return Math.max(min,Math.min(max,v)); }
+  function pick(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+  function shuffle(arr){
+    var a = arr.slice();
+    for(var i=a.length-1;i>0;i--){
+      var j = Math.floor(Math.random()*(i+1));
+      var tmp=a[i]; a[i]=a[j]; a[j]=tmp;
+    }
+    return a;
+  }
+  function sample(arr,n){
+    return shuffle(arr).slice(0,n);
+  }
+
+  var NEG_KIGO=['季語がひとつもありませんね…これは俳句と呼べるのでしょうか。','季節の香りがしません。もっと自然の言葉を選びましょう。'];
+  var MID_KIGO=['季語はありますが、今の季節とは少しずれていますね。','悪くはありませんが、お題の季節を意識しましょう。'];
+  var POS_KIGO=['まさに今の季節そのもの。見事な季語選びです。','この一語で情景が輝きます。花丸です。'];
+  var MIXED_KIGO=['季節が入り乱れていて、どの季節の句か分かりません。','複数の季節の言葉が混ざって、季節感が定まりません。'];
+
+  var POS_RHYTHM=['五・七・五、寸分の狂いもなし。美しい調べです。','リズムは完璧。読み上げていて気持ちがいい。'];
+  var MID_RHYTHM=['惜しい、あと少しで定型ですね。','字余り字足らず、味と言えなくもないですが。'];
+  var LOW_RHYTHM=['調べが乱れています。数え直してみましょう。','これはさすがに定型からかけ離れていますね。'];
+  var NEG_RHYTHM=['もはや俳句というより、言葉の羅列ですね。','音数、まったく合っていません…。'];
+
+  var POS_MOOD=['言葉と言葉が寄り添って、静かな余韻があります。','切れ字が効いていて、間の美しさを感じます。'];
+  var MID_MOOD=['まとまってはいますが、もう一歩深みが欲しい。','悪くはないけれど、心にすっと入ってきません。'];
+  var NEG_MOOD=['季節が入り乱れて、情景が定まりません。','言葉同士がばらばらな方向を向いていますね。','型破りな言葉が、静かな情景を乱していますね。'];
+  var EIRA_MOOD=['詠良の言葉が寄り添って、句に温もりが宿っています。','二人の言葉が重なって、いい句になりましたね。'];
+
+  var POS_SPEED=['この速さ、まさに疾風。見事な瞬発力です。','考える間もなく仕上げた、その勢いに拍手。'];
+  var MID_SPEED=['まずまずの速さ。及第点ですね。','悪くはないですが、もう少し速さが欲しい。'];
+  var LOW_SPEED=['少々のんびりし過ぎましたね。','時間を使いすぎです、もっと直感を信じて。'];
+  var NEG_SPEED=['時間切れとは、いただけません。','これは間に合わなかった、ということですね。'];
+
+  var POS_ORIG=['見たことのない組み合わせ、実に刺激的です。','常識を軽やかに飛び越えていますね。'];
+  var MID_ORIG=['まずまず面白い言葉選び。悪くないです。','ひねりはありますが、もう一押し欲しい。'];
+  var NEG_ORIG=['どこかで見たような、無難な組み合わせですね。','もっと冒険してもいいのですよ。'];
+
+  var POS_BAL=['総合力の高い、隙のない一句です。','どこを取っても水準以上、見事です。'];
+  var MID_BAL=['平均点といったところでしょうか。','悪くはないが、突出した魅力に欠けます。'];
+  var NEG_BAL=['全体的にまとまりを欠いていますね。','もう少し丁寧に組み立てましょう。'];
+
+  var FAIL_KIGO_EMPTY=['言葉が置かれていなければ、季語も何もありません。','沈黙の句に季節は宿りません。'];
+  var FAIL_KIGO_KIREJI=['季語も何も、もう意味が通じません。これがあなたの俳句ですか。','季語以前の問題です。これがあなたの俳句のつもりですか。'];
+  var FAIL_RHYTHM_EMPTY=['音がなければ、調べも測れません。','無言では五七五の体を成していません。'];
+  var FAIL_RHYTHM_KIREJI=['調べ以前に、もう意味が通じません。これがあなたの俳句ですか。','五七五どころか、意味すら通じませんね。これが俳句のつもりですか。'];
+  var FAIL_MOOD_EMPTY=['沈黙からは、何の余韻も生まれません。','語らぬ句に、情緒の入り込む余地はありません。'];
+  var FAIL_MOOD_KIREJI=['切れ字から始めたり続けて使ったりすると、間の効果どころではありません。','切れ字だけが浮いてしまって、情緒が定まりません。'];
+  var FAIL_BAL_EMPTY=['空白の句では、総合力の測りようがありません。','何もない句に、評価の下しようがありません。'];
+  var FAIL_BAL_KIREJI=['全体を見るまでもなく、意味が通じません。これがあなたの俳句ですか。','これでは、俳句として成立すらしていません。本当にこれでいいのですか。'];
+
+  function judgeKigo(ctx){
+    if(ctx.emptyLines>0 || ctx.badKireji){
+      var failComments = ctx.emptyLines>0 ? FAIL_KIGO_EMPTY : FAIL_KIGO_KIREJI;
+      return {score:0, comment:pick(failComments), tier:'neg'};
+    }
+    var score;
+    if(!ctx.hasKigo){ score=rand(1,3); }
+    else if(ctx.matchingSeasonKigoCount>=2){ score=rand(9,10); }
+    else if(ctx.matchingSeasonKigoCount===1){ score=rand(6,8); }
+    else { score=rand(4,5); }
+    if(ctx.mixedSeasons) score = clamp(score-4,1,10);
+    if(ctx.hasDisruptiveWord) score = clamp(score-1,1,10);
+    var tierId = !ctx.hasKigo ? 'neg' : (score<=5 ? 'mid' : 'pos');
+    var comments;
+    if(ctx.hasKigo && ctx.mixedSeasons){ comments = MIXED_KIGO; }
+    else { comments = tierId==='neg' ? NEG_KIGO : (tierId==='mid' ? MID_KIGO : POS_KIGO); }
+    return {score:score, comment:pick(comments), tier:tierId};
+  }
+  function judgeRhythm(ctx){
+    if(ctx.emptyLines>0 || ctx.badKireji){
+      var failComments = ctx.emptyLines>0 ? FAIL_RHYTHM_EMPTY : FAIL_RHYTHM_KIREJI;
+      return {score:0, comment:pick(failComments), tier:'neg'};
+    }
+    var score, comments, tierId;
+    if(ctx.exactMatch){ score=rand(9,10); comments=POS_RHYTHM; tierId='pos'; }
+    else if(ctx.totalMoraDiff<=2){ score=rand(6,8); comments=MID_RHYTHM; tierId='mid'; }
+    else if(ctx.totalMoraDiff<=5){ score=rand(3,5); comments=LOW_RHYTHM; tierId='low'; }
+    else { score=rand(1,2); comments=NEG_RHYTHM; tierId='neg'; }
+    return {score:score, comment:pick(comments), tier:tierId};
+  }
+  function judgeMood(ctx){
+    if(ctx.emptyLines>0 || ctx.badKireji){
+      var failComments = ctx.emptyLines>0 ? FAIL_MOOD_EMPTY : FAIL_MOOD_KIREJI;
+      return {score:0, comment:pick(failComments), tier:'neg'};
+    }
+    var score = 5;
+    if(!ctx.mixedSeasons) score+=2; else score-=2;
+    if(ctx.hasKireji) score+=2;
+    if(ctx.hasDisruptiveWord) score-=2;
+    if(ctx.hasEiraWord) score+=2;
+    score += randInt(-1,1);
+    score = clamp(score,1,10);
+    var tierId = score>=8?'pos':(score>=5?'mid':'neg');
+    var tier = score>=8?POS_MOOD:(score>=5?MID_MOOD:NEG_MOOD);
+    if(ctx.hasEiraWord && tierId==='pos') tier = EIRA_MOOD;
+    return {score:score, comment:pick(tier), tier:tierId};
+  }
+  function judgeSpeed(ctx){
+    var score, tier, tierId;
+    if(ctx.timedOut){ score=rand(1,3); tier=NEG_SPEED; tierId='neg'; }
+    else if(ctx.timeLeftFraction>0.81){ score=rand(9,10); tier=POS_SPEED; tierId='pos'; }
+    else if(ctx.timeLeftFraction>0.71){ score=rand(7,8); tier=POS_SPEED; tierId='pos'; }
+    else if(ctx.timeLeftFraction>0.51){ score=rand(5,6); tier=MID_SPEED; tierId='mid'; }
+    else if(ctx.timeLeftFraction>0.21){ score=rand(4,5); tier=LOW_SPEED; tierId='low'; }
+    else { score=rand(1,3); tier=LOW_SPEED; tierId='low'; }
+    return {score:score, comment:pick(tier), tier:tierId};
+  }
+  function judgeOriginality(ctx){
+    var score = Math.round(1 + (ctx.avgRarity-1)*4.5) + randInt(-1,1);
+    if(ctx.hasDisruptiveWord) score += 3;
+    if(ctx.uniqueWordsRatio<1) score-=3;
+    score = clamp(score,1,10);
+    var tierId = score>=8?'pos':(score>=5?'mid':'neg');
+    var tier = score>=8?POS_ORIG:(score>=5?MID_ORIG:NEG_ORIG);
+    return {score:score, comment:pick(tier), tier:tierId};
+  }
+  function judgeBalance(ctx){
+    if(ctx.emptyLines>0 || ctx.badKireji){
+      var failComments = ctx.emptyLines>0 ? FAIL_BAL_EMPTY : FAIL_BAL_KIREJI;
+      return {score:0, comment:pick(failComments), tier:'neg'};
+    }
+    var base=5;
+    if(ctx.exactMatch) base+=2;
+    if(ctx.hasKigo) base+=1;
+    if(ctx.seasonMatch) base+=1;
+    if(ctx.mixedSeasons) base-=1;
+    base += randInt(-1,1);
+    base = clamp(base,1,10);
+    var tierId = base>=8?'pos':(base>=5?'mid':'neg');
+    var tier = base>=8?POS_BAL:(base>=5?MID_BAL:NEG_BAL);
+    return {score:base, comment:pick(tier), tier:tierId};
+  }
+
+  var JUDGE_FACES = {
+    kigo: {pos:["assets/faces/kigo_pos.jpg"], mid:["assets/faces/kigo_mid.jpg"], neg:["assets/faces/kigo_neg.jpg"]},
+    rhythm: {pos:["assets/faces/rhythm_pos.jpg"], mid:["assets/faces/rhythm_mid.jpg"], low:["assets/faces/rhythm_low.jpg"], neg:["assets/faces/rhythm_neg.jpg"]},
+    mood: {pos:["assets/faces/mood_pos.jpg"], mid:["assets/faces/mood_mid.jpg"], neg:["assets/faces/mood_neg.jpg","assets/faces/mood_neg2.jpg"]},
+    speed: {pos:["assets/faces/speed_pos.jpg"], mid:["assets/faces/speed_mid.jpg"], low:["assets/faces/speed_low.jpg"], neg:["assets/faces/speed_neg.jpg"]},
+    orig: {pos:["assets/faces/orig_pos.jpg","assets/faces/orig_pos2.jpg"], mid:["assets/faces/orig_mid.jpg","assets/faces/orig_mid2.jpg"], neg:["assets/faces/orig_neg.jpg"]},
+    balance: {pos:["assets/faces/balance_pos.jpg"], mid:["assets/faces/balance_mid.jpg"], neg:["assets/faces/balance_neg.jpg","assets/faces/balance_neg2.jpg"]},
+  };
+  var MECHA_STAGE_START = 8;
+  var JUDGE_FACES_MECHA = {
+    kigo: {pos:["assets/faces/m_kigo_pos.jpg"], mid:["assets/faces/m_kigo_mid.jpg"], neg:["assets/faces/m_kigo_neg.jpg"]},
+    rhythm: {pos:["assets/faces/m_rhythm_pos.jpg"], mid:["assets/faces/m_rhythm_mid.jpg"], low:["assets/faces/m_rhythm_low.jpg"], neg:["assets/faces/m_rhythm_neg.jpg"]},
+    mood: {pos:["assets/faces/m_mood_pos.jpg"], mid:["assets/faces/m_mood_mid.jpg"], neg:["assets/faces/m_mood_neg.jpg","assets/faces/m_mood_neg2.jpg"]},
+    speed: {pos:["assets/faces/m_speed_pos.jpg"], mid:["assets/faces/m_speed_mid.jpg"], low:["assets/faces/m_speed_low.jpg"], neg:["assets/faces/m_speed_neg.jpg"]},
+    orig: {pos:["assets/faces/m_orig_pos.jpg","assets/faces/m_orig_pos2.jpg"], mid:["assets/faces/m_orig_mid.jpg","assets/faces/m_orig_mid2.jpg"], neg:["assets/faces/m_orig_neg.jpg"]},
+    balance: {pos:["assets/faces/m_balance_pos.jpg"], mid:["assets/faces/m_balance_mid.jpg"], neg:["assets/faces/m_balance_neg.jpg","assets/faces/m_balance_neg2.jpg"]},
+  };
+  var PLAY_ASSETS = {
+    victory_banner: "assets/victory_banner.png",
+    loser_banner: "assets/loser_banner.png",
+    result_bg: "assets/result_v.jpg",
+    result_bg_h: "assets/result_h.jpg",
+    result_bg2: "assets/web/result_v2.jpg",
+    result_bg_h2: "assets/web/result_h2.jpg",
+    judge_bg: "assets/judge_v.jpg",
+    judge_bg_h: "assets/judge_h.jpg",
+    judge_item: "assets/web/judge_item3.png",
+    badge_autumn: "assets/badge_autumn.png",
+    badge_spring: "assets/badge_spring.png",
+    badge_summer: "assets/badge_summer.png",
+    badge_winter: "assets/badge_winter.png",
+    btn_reset: "assets/btn_reset.jpg",
+    btn_submit: "assets/btn_submit.jpg",
+    stage_top: "assets/stage_v.jpg",
+    stage_top_h: "assets/stage_h.jpg",
+    stage_top2: "assets/stage_v2.jpg",
+    stage_top_h2: "assets/stage_h2.jpg",
+    tile_autumn: "assets/tile_autumn.png",
+    tile_filler: "assets/tile_filler.png",
+    tile_kireji: "assets/tile_kireji.png",
+    tile_spring: "assets/tile_spring.png",
+    tile_summer: "assets/tile_summer.png",
+    tile_winter: "assets/tile_winter.png",
+    teacher_kigo: "assets/teacher_kigo.jpg",
+    teacher_rhythm: "assets/teacher_rhythm.jpg",
+    teacher_mood: "assets/teacher_mood.jpg",
+    teacher_speed: "assets/teacher_speed.jpg",
+    teacher_orig: "assets/teacher_orig.jpg",
+    teacher_balance: "assets/teacher_balance.jpg",
+    teacher_kigo_m: "assets/m_teacher_kigo.jpg",
+    teacher_rhythm_m: "assets/m_teacher_rhythm.jpg",
+    teacher_mood_m: "assets/m_teacher_mood.jpg",
+    teacher_speed_m: "assets/m_teacher_speed.jpg",
+    teacher_orig_m: "assets/m_teacher_orig.jpg",
+    teacher_balance_m: "assets/m_teacher_balance.jpg",
+    teachermark_kigo: "assets/teachermark/web/kigo.png",
+    teachermark_rhythm: "assets/teachermark/web/rythm.png",
+    teachermark_mood: "assets/teachermark/web/mood.png",
+    teachermark_speed: "assets/teachermark/web/speed.png",
+    teachermark_orig: "assets/teachermark/web/orig.png",
+    teachermark_balance: "assets/teachermark/web/balance.png",
+    teachermark_kigo_m: "assets/teachermark/web/m_kigo.png",
+    teachermark_rhythm_m: "assets/teachermark/web/m_rythm.png",
+    teachermark_mood_m: "assets/teachermark/web/m_mood.png",
+    teachermark_speed_m: "assets/teachermark/web/m_speed.png",
+    teachermark_orig_m: "assets/teachermark/web/m_orig.png",
+    teachermark_balance_m: "assets/teachermark/web/m_blance.png",
+    ending1_bg: "assets/story/ending1.png",
+    ending1_bg_v: "assets/story/ending1v.png",
+    ending2_bg: "assets/story/ending2.png",
+    ending3_bg: "assets/story/ending3.png",
+    ending3_bg_v: "assets/web/ending3v.jpg",
+    ending4_bg: "assets/story/ending4.png",
+    ending4_bg_v: "assets/story/ending4v.png",
+    ending1_2_bg: "assets/story/ending1-2.png",
+    uratitle: "assets/web/uratitle.png",
+    tile_eira: "assets/tile_eira.png",
+  };
+  var CACHE_BUST = '?v=' + Date.now();
+  (function applyCacheBust(){
+    Object.keys(PLAY_ASSETS).forEach(function(k){ PLAY_ASSETS[k] += CACHE_BUST; });
+    [JUDGE_FACES, JUDGE_FACES_MECHA].forEach(function(faceSet){
+      Object.keys(faceSet).forEach(function(judgeId){
+        var tiers = faceSet[judgeId];
+        Object.keys(tiers).forEach(function(tier){
+          tiers[tier] = tiers[tier].map(function(p){ return p + CACHE_BUST; });
+        });
+      });
+    });
+  })();
+
+  function pickFace(judgeId, tier){
+    var faceSet = state.stage>=MECHA_STAGE_START ? JUDGE_FACES_MECHA : JUDGE_FACES;
+    var pools = faceSet[judgeId] || JUDGE_FACES[judgeId];
+    var arr = (pools && pools[tier]) || (pools && pools.pos) || [];
+    return arr.length ? pick(arr) : '';
+  }
+
+  var JUDGES = [
+    {id:'kigo', name:'季語のみどり先生', tag:'季語には妥協しない', fn:judgeKigo},
+    {id:'rhythm', name:'律動の五七五斎', tag:'調べこそ命', fn:judgeRhythm},
+    {id:'mood', name:'情緒のしんみり庵', tag:'余韻を味わう', fn:judgeMood},
+    {id:'speed', name:'疾風の早苗', tag:'瞬発力を愛す', fn:judgeSpeed},
+    {id:'orig', name:'奇想の百面相', tag:'意外性が好物', fn:judgeOriginality},
+    {id:'balance', name:'総評のまとめ丸', tag:'全体を見渡す', fn:judgeBalance}
+  ];
+
+  var PLACE_REQUIRED_JUDGE = {
+    '城下町': 'balance',
+    '川辺': 'speed',
+    '月夜の山寺': 'mood',
+    '宿場町': 'kigo',
+    '仮面祭': 'orig',
+    '天下一大句会': 'rhythm'
+  };
+  var STAGE_FIXED_JUDGE_IDS = {
+    8: ['kigo','rhythm','balance'],
+    9: ['kigo','rhythm','balance','mood']
+  };
+  function pickJudges(n, place){
+    var requiredId = PLACE_REQUIRED_JUDGE[place];
+    var required = requiredId ? JUDGES.filter(function(j){ return j.id===requiredId; }) : [];
+    var rest = JUDGES.filter(function(j){ return j.id!==requiredId; });
+    var remaining = sample(rest, Math.max(0, n-required.length));
+    return shuffle(required.concat(remaining));
+  }
+  function selectJudgesForStage(stage){
+    var fixedJudgeIds = STAGE_FIXED_JUDGE_IDS[stage];
+    var stagePlace = STORY_DATA[stage] && STORY_DATA[stage].place;
+    var requiredId = PLACE_REQUIRED_JUDGE[stagePlace];
+    var judgeCount = fixedJudgeIds ? fixedJudgeIds.length : (stage>=FINAL_STAGE ? JUDGES.length : 3);
+    var chosen = fixedJudgeIds
+      ? shuffle(JUDGES.filter(function(j){ return fixedJudgeIds.indexOf(j.id)>=0; }))
+      : pickJudges(judgeCount, stagePlace);
+    return {chosen:chosen, requiredId:requiredId};
+  }
+
+  var TARGETS = [5,7,5];
+  var MAX_RETRIES = 3;
+  var CLOSE_LOSS_MARGIN = 8;
+  var FINAL_STAGE = 7;
+  var LAST_STAGE = 10;
+  var mechaUnlockedThisSession = false;
+
+  var state = {
+    stage:1,
+    retryCount:0,
+    best: parseInt(localStorage.getItem('haiku_battle_best')||'1',10) || 1,
+    season:'spring',
+    lockedLine:null,
+    pool:[],
+    lines:[[],[],[]],
+    activeLine:0,
+    timeLimit:45,
+    timeLeft:45,
+    timerId:null,
+    timedOut:false,
+    submitted:false
+  };
+
+  var els = {
+    btnStart: document.getElementById('btnStart'),
+    btnTrueWorld: document.getElementById('btnTrueWorld'),
+    btnTutorial: document.getElementById('btnTutorial'),
+    btnSoundToggle: document.getElementById('btnSoundToggle'),
+    board: document.querySelector('.board'),
+    screenTitle: document.getElementById('screen-title'),
+    screenTutorial: document.getElementById('screen-tutorial'),
+    tutorialProgress: document.getElementById('tutorialProgress'),
+    tutorialBody: document.getElementById('tutorialBody'),
+    btnTutorialBack: document.getElementById('btnTutorialBack'),
+    btnTutorialNext: document.getElementById('btnTutorialNext'),
+    screenStory: document.getElementById('screen-story'),
+    storyIllust: document.getElementById('storyIllust'),
+    storyAct: document.getElementById('storyAct'),
+    storyName: document.getElementById('storyName'),
+    storySeasonPlace: document.getElementById('storySeasonPlace'),
+    storyText: document.getElementById('storyText'),
+    btnStoryContinue: document.getElementById('btnStoryContinue'),
+    screenEnding: document.getElementById('screen-ending'),
+    endingBg: document.getElementById('endingBg'),
+    endingScrim: document.getElementById('endingScrim'),
+    endingCrawlViewport: document.getElementById('endingCrawlViewport'),
+    endingCrawl: document.getElementById('endingCrawl'),
+    endingPrompt: document.getElementById('endingPrompt'),
+    screenEndingTwist: document.getElementById('screen-ending-twist'),
+    endingTwistPanel: document.getElementById('endingTwistPanel'),
+    endingTwistBg: document.getElementById('endingTwistBg'),
+    endingTwistCrawlViewport: document.getElementById('endingTwistCrawlViewport'),
+    endingTwistCrawl: document.getElementById('endingTwistCrawl'),
+    endingTwistPrompt: document.getElementById('endingTwistPrompt'),
+    endingTwistFlash: document.getElementById('endingTwistFlash'),
+    endingTwistLogo: document.getElementById('endingTwistLogo'),
+    screenPlay: document.getElementById('screen-play'),
+    screenJudge: document.getElementById('screen-judge'),
+    screenResult: document.getElementById('screen-result'),
+    stageTop: document.getElementById('stageTop'),
+    stageBottom: document.getElementById('stageBottom'),
+    countdownOverlay: document.getElementById('countdownOverlay'),
+    countdownJudges: document.getElementById('countdownJudges'),
+    countdownNum: document.getElementById('countdownNum'),
+    stageMeterFill: document.getElementById('stageMeterFill'),
+    stageActNum: document.getElementById('stageActNum'),
+    seasonBadgeText: document.getElementById('seasonBadgeText'),
+    seasonBadgeIcon: document.getElementById('seasonBadgeIcon'),
+    timerNum: document.getElementById('timerNum'),
+    pool: document.getElementById('pool'),
+    btnReset: document.getElementById('btnReset'),
+    btnSubmit: document.getElementById('btnSubmit'),
+    judgeHeadingAct: document.getElementById('judgeHeadingAct'),
+    judgeBg: document.getElementById('judgeBg'),
+    judgeRows: document.getElementById('judgeRows'),
+    resultBg: document.getElementById('resultBg'),
+    verdictBannerImg: document.getElementById('verdictBannerImg'),
+    youScore: document.getElementById('youScore'),
+    rivalScore: document.getElementById('rivalScore'),
+    youHaiku: document.getElementById('youHaiku'),
+    youNote: document.getElementById('youNote'),
+    rivalHaikuEl: document.getElementById('rivalHaiku'),
+    rivalNote: document.getElementById('rivalNote'),
+    resultPrimaryBtn: document.getElementById('resultPrimaryBtn'),
+    resultTitleBtn: document.getElementById('resultTitleBtn'),
+    shareXBtn: document.getElementById('shareXBtn'),
+    shareThreadsBtn: document.getElementById('shareThreadsBtn')
+  };
+
+  var TUTORIAL_STEPS = [
+    {type:'rules', title:'俳句のつくりかた', items:[
+      '言葉玉をクリックして、上・中・下の句（5音・7音・5音）に配置する',
+      '季語を入れると評価が上がる。今の季節と合えばさらに高評価',
+      '切れ字（や・かな・けり）を使うと、情緒の評価が上がりやすい',
+      '季節がばらばらな言葉を混ぜると、統一感の評価が下がる'
+    ]},
+    {type:'rules', title:'スピードとライバル', items:[
+      '制限時間が短いほど「疾風」の審査員から高得点',
+      '時間切れになると、そのまま今の句で自動的に提出される',
+      '6人の審査員から毎回ランダムに3人が採点し、合計点でライバルと勝負',
+      'ライバルの句にも評がつく。見比べて次の句づくりの参考に'
+    ]},
+    {type:'judge', judgeId:'kigo'},
+    {type:'judge', judgeId:'rhythm'},
+    {type:'judge', judgeId:'mood'},
+    {type:'judge', judgeId:'speed'},
+    {type:'judge', judgeId:'orig'},
+    {type:'judge', judgeId:'balance'}
+  ];
+  var tutorialStep = 0;
+
+  function renderTutorialStep(){
+    var step = TUTORIAL_STEPS[tutorialStep];
+    els.tutorialProgress.innerHTML = TUTORIAL_STEPS.map(function(s,i){
+      return '<span class="tutorial__dot'+(i===tutorialStep?' active':'')+'"></span>';
+    }).join('');
+
+    if(step.type==='rules'){
+      els.tutorialBody.innerHTML = '<div class="tutorial-title">'+step.title+'</div>'
+        + '<ul class="tutorial-rules">'
+        + step.items.map(function(t){ return '<li>'+t+'</li>'; }).join('')
+        + '</ul>';
+    } else {
+      var j = JUDGES.filter(function(x){ return x.id===step.judgeId; })[0];
+      els.tutorialBody.innerHTML = '<div class="tutorial-judge__portrait"><img src="'+PLAY_ASSETS['teacher_'+j.id]+'" alt="'+j.name+'"></div>';
+    }
+
+    els.btnTutorialNext.textContent = tutorialStep===TUTORIAL_STEPS.length-1 ? '対局をはじめる' : 'つぎへ';
+  }
+
+  var DISRUPTIVE_CHANCE = 0.3;
+  var EIRA_MIX_STAGE = 9;
+  var EIRA_MIX_COUNT = 2;
+  function makeTileCopy(w,tag){
+    var copy = {};
+    for(var k in w) copy[k]=w[k];
+    copy.uid = 'w'+Date.now()+'_'+(tag||'')+Math.floor(Math.random()*100000);
+    return copy;
+  }
+  function drawTiles(season, stage){
+    var seasonWords = WORDS.filter(function(w){ return w.season===season && !w.disruptive && !w.eira; });
+    var otherWords = WORDS.filter(function(w){ return w.season && w.season!==season && !w.disruptive && !w.eira; });
+    var kirejiWords = WORDS.filter(function(w){ return w.kireji && !w.disruptive; });
+    var fillerWords = WORDS.filter(function(w){ return !w.season && !w.kireji && !w.disruptive && !w.eira; });
+    var disruptiveWords = WORDS.filter(function(w){ return w.disruptive; });
+    var eiraWords = WORDS.filter(function(w){ return w.eira && (!w.season || w.season===season); });
+    var includeDisruptive = Math.random() < DISRUPTIVE_CHANCE;
+    var includeEira = stage===EIRA_MIX_STAGE;
+    var fillerCount = (includeDisruptive ? 4 : 5) - (includeEira ? EIRA_MIX_COUNT : 0);
+    var picked = sample(seasonWords,3)
+      .concat(sample(otherWords,3))
+      .concat(sample(kirejiWords,2))
+      .concat(sample(fillerWords, Math.max(0,fillerCount)));
+    if(includeDisruptive) picked = picked.concat(sample(disruptiveWords,1));
+    if(includeEira) picked = picked.concat(sample(eiraWords, EIRA_MIX_COUNT));
+    return shuffle(picked).map(function(w,i){ return makeTileCopy(w, i+'_'); });
+  }
+
+  function timeLimitForStage(stage){
+    return Math.max(45 - (stage-1)*2, 20);
+  }
+  function rivalScoreFor(stage, judgeCount, hasRequiredJudge){
+    if(hasRequiredJudge){
+      return Math.round(70 + stage*13 + rand(0,10));
+    }
+    var base = 140 + stage*11 + rand(0,18);
+    var scale = (judgeCount || 3) / 3;
+    return Math.round(base * scale);
+  }
+
+  var COUNTDOWN_STEPS = ['三','二','一','開始！'];
+  var GRID_COL_LEFT = [3, 37, 71];
+  var GRID_ROW_TOP = [4, 50];
+  function renderCountdownJudges(){
+    els.countdownJudges.innerHTML = '';
+    var judges = state.judges || [];
+    if(judges.length===0) return;
+    var isMechaStage = state.stage>=MECHA_STAGE_START;
+    var isFullRoster = judges.length>=JUDGES.length;
+    var SLOT_DURATION = isFullRoster ? 2.2 : 0.9;
+    judges.forEach(function(j, i){
+      var key;
+      if(isMechaStage){
+        var mechaMarkKey = 'teachermark_'+j.id+'_m';
+        key = PLAY_ASSETS[mechaMarkKey] ? mechaMarkKey : 'teacher_'+j.id+'_m';
+      } else {
+        key = 'teachermark_'+j.id;
+      }
+      var isFeatured = j.id===state.requiredJudgeId;
+      var img = document.createElement('img');
+      img.className = 'countdown-judge-mark'
+        + (isFeatured ? ' countdown-judge-mark--featured' : '')
+        + (isFullRoster ? ' countdown-judge-mark--grid' : '');
+      img.src = PLAY_ASSETS[key];
+      img.alt = j.name;
+      if(isFullRoster){
+        var col = i % GRID_COL_LEFT.length, row = Math.floor(i/GRID_COL_LEFT.length);
+        img.style.left = (GRID_COL_LEFT[col] + Math.random()*4).toFixed(1)+'%';
+        img.style.top = (GRID_ROW_TOP[row] + Math.random()*6).toFixed(1)+'%';
+        img.style.animationDelay = '0s';
+      } else if(isFeatured){
+        img.style.left = (5 + Math.random()*25).toFixed(1)+'%';
+        img.style.top = (3 + Math.random()*15).toFixed(1)+'%';
+        img.style.animationDelay = (i*SLOT_DURATION*0.55).toFixed(2)+'s';
+      } else {
+        img.style.left = (5 + Math.random()*50).toFixed(1)+'%';
+        img.style.top = (62 + Math.random()*25).toFixed(1)+'%';
+        img.style.animationDelay = (i*SLOT_DURATION*0.55).toFixed(2)+'s';
+      }
+      img.style.animationDuration = SLOT_DURATION+'s';
+      els.countdownJudges.appendChild(img);
+    });
+  }
+  function runCountdown(onDone){
+    renderCountdownJudges();
+    els.countdownOverlay.classList.remove('hidden');
+    var i = 0;
+    function step(){
+      if(i >= COUNTDOWN_STEPS.length){
+        els.countdownOverlay.classList.add('hidden');
+        onDone();
+        return;
+      }
+      els.countdownNum.textContent = COUNTDOWN_STEPS[i];
+      els.countdownNum.classList.remove('pulse');
+      void els.countdownNum.offsetWidth;
+      els.countdownNum.classList.add('pulse');
+      i++;
+      setTimeout(step, 750);
+    }
+    step();
+  }
+
+  var STORY_DATA = [
+    {act:'導入', name:'久米津 刃、現る', season:'春', place:'民家', text:'古い家の片隅で、久米津 刃は一冊の句帳を見つけた。最後の一頁だけが破り取られ、残されていたのは「言葉は、人と人のあいだに咲く。」という一文。そしてページの間から、百年に一度の祭典「天下一・句会」の参加札が落ちる。そこへ幼なじみの美月 詠良が現れた。「まさか、出るつもり？」「五、七、五にすればいいんだろ？」「……あなた、俳句を滅ぼす気？」こうして後に『句滅人』と呼ばれる男が、俳句の世界へ足を踏み入れた。'},
+    {act:'第一幕', name:'はじめの一句', season:'春', place:'城下町', text:'桜舞う城下町。刃と詠良、最初の句会が始まる。詠良が詠むのは、季節を映した端正な一句。対する刃は、目についた言葉玉を次々と並べていく。「……できた！」「待って。なんでその言葉を入れたの？」「入れたかったから。」誰もが首をかしげた刃の一句。ところが審査員がぽつり。「妙ですね……なぜか忘れられない。」詠良の表情が、初めて曇った。'},
+    {act:'第二幕', name:'疾風！夏祭り句会', season:'夏', place:'川辺', text:'太鼓が鳴り、花火が上がる。今宵の勝負は「早詠み句会」。考えている暇などない。次々と現れる言葉玉を、瞬時に一句へ変えろ！これは直感だけで生きている刃の独壇場……のはずだった。「完成！」「早っ！？」しかし完成した句を見て、詠良は絶句する。「刃。速ければ何でもいいわけじゃないから。」疾風のごとく詠み、疾風のごとく散るか。勝負は一瞬。'},
+    {act:'第三幕', name:'静寂の一句', season:'秋', place:'月夜の山寺', text:'賑やかな祭りを離れ、二人が訪れたのは静かな山寺。虫の声、風に揺れるすすき、夜空に浮かぶ月。今回求められるのは「余韻」。いつもの調子で言葉を並べた刃に、審査員は告げる。「言葉が、それぞれ別の景色を見ています。」刃は初めて自分の句と向き合う。「……なあ詠良。どうして、その言葉にした？」詠良は少し驚き、微笑んだ。「やっと聞いたわね。」'},
+    {act:'第四幕', name:'白銀の季語', season:'冬', place:'宿場町', text:'雪に閉ざされた宿場町。今回の勝負を支配するのは「季語」。雪、氷、冬空、白鳥。同じ冬でも、言葉ひとつで景色は変わる。「季語って、季節が分かればいいんだろ？」「そういうところが雑なのよ。」詠良から季語を教わり、刃は気づく。言葉玉の向こうには、景色が、記憶が、季節がある。それでも最後に刃が選んだのは、とんでもない言葉。「……なんでそれなの？」「なんとなく。」「何も成長してない！」'},
+    {act:'第五幕', name:'奇想天外！仮面句会', season:'春', place:'仮面祭', text:'色彩と音楽があふれる仮面祭の夜。ここでは、美しいだけの句は評価されない。求められるのは「誰も見たことのない一句」。刃の珍句が、ついに本領を発揮する。一方、詠良の完成された一句には「美しい。だからこそ……予想通りです。」という厳しい評価が。初めて詠良が刃に尋ねる。「……どうしたら、そんな言葉を選べるの？」「知らん。」「聞いた私が馬鹿だった。」'},
+    {act:'第六幕', name:'型を破る者', season:'夏', place:'天下一大句会', text:'ついに二人は本選へ。季語、五・七・五、情緒、速さ、独創性、そして総合力。刃の奇抜さだけでも、詠良の美しさだけでも頂には届かない。審査員が刃に告げる。「型を知らぬ者は、型を破ったのではない。」刃は隣の詠良を見る。「なあ。五七五って、ちゃんと教えてくれ。」詠良は呆れた顔で笑う。「……六幕目で言う？」'},
+    {act:'第七幕', name:'最後の五・七・五', season:'秋', place:'天下一句会決勝', text:'最後の舞台。刃の前に立つのは、これまで競い、教え合ってきた美月 詠良。最後のお題は「自由」。季節の指定も、正解もない。詠良は美しい一句を組み上げる。刃の前には、昔なら迷わず置いたはずの奇妙な言葉玉。「本当に、それを置くの？」「うん。だって、これが一番面白い。」「ほんと……あなたの句、大嫌い。」そして二人は最後の言葉玉を置く。技か、心か。型か、自由か。最後に一句を選ぶのは、あなた自身だ。'},
+    {act:'第八幕', name:'最終実験', season:'冬', place:'???', text:'六人の審査員が道を開く。その奥から、巨大な筆を持つ異形の機械が現れた。「最終実験を開始します。対象者、久米津 刃。」詠良「私は？」機械は赤い眼を向ける。「対象外。介入を禁止します。」詠良「そんな……。」刃「俺に何をさせる。」機械「十七音を構成。俳句を生成してください。」刃「……また俳句か。」黒い軌跡から、ことば玉が現れる。「一句、ござる。最終実験、第一段階開始。」刃は無言で、ことば玉に手を伸ばした。'},
+    {act:'第九幕', name:'最終実験', season:'秋', place:'???', text:'奥の闇から新たな機械が歩み出た。無数の文字がその身体を走り、刃の句を読み取っていく。「解析完了。再現を開始」刃がことば玉を並べるたび、機械は同じ言葉をより整った句へ組み替え、容赦なく切り捨てる。「……俺の句を真似して、俺を潰す気か」詠良は見えない壁の向こうで拳を握る。「私にも何かできれば……！」その時、彼女の手元に淡い光が集まり、小さな玉となった。「これは……？」光は壁を越え、刃のもとへ飛んでいった。'},
+    {act:'第十幕', name:'最終実験', season:'春', place:'???', text:'第二の機械が崩れ落ちると、空間全体が低く震えた。最奥の巨大な扉が開き、重い足音とともに最後の機械が姿を現す。「最終工程へ移行。俳句の完全性を証明する」圧倒的な気配に、刃はことば玉を握り直した。詠良も隣に立つ。「今度は私も戦う」二人の前に無数のことば玉が浮かび上がる。「完全な句、か……上等だ」機械の目が赤く輝く。「不完全なる言葉を排除する」最後の句戦が、静かに始まった。'}
+  ];
+  function renderStoryScreen(idx){
+    var data = STORY_DATA[idx];
+    showScreen('story');
+    els.storyAct.textContent = data.act;
+    els.storyName.textContent = data.name;
+    els.storySeasonPlace.textContent = data.season+'・'+data.place;
+    els.storyText.textContent = data.text;
+    els.storyIllust.style.backgroundImage = 'url(assets/story/'+idx+'.png)';
+  }
+  function showStorySequence(indices, onDone){
+    var i = 0;
+    function step(){
+      while(i < indices.length && !STORY_DATA[indices[i]]){ i++; }
+      if(i >= indices.length){ onDone(); return; }
+      renderStoryScreen(indices[i]);
+      i++;
+    }
+    els.btnStoryContinue.onclick = step;
+    step();
+  }
+
+  var ENDING_TEXT = {
+    ending1: 'エンディング1「句滅人、頂に立つ」\n天下一・句会、決着。\n\n美月 詠良の美しく整った一句を破り、\n頂に立ったのは、久米津 刃だった。\n\n季語を外し、\n五七五を壊し、\n時には意味すら置き去りにした男。\n\n誰もが首をかしげ、\nそれでもなぜか、心に残った。\n\n審査員たちは静かに刃を見つめる。\n\n「型を知り、それでもそこから踏み出す。\n……それもまた、俳句なのでしょう。」\n\n詠良はしばらく黙っていたが、やがて小さく笑った。\n\n「結局、最後まで変な句だったわね。」\n\n「でも勝った。」\n\n「それが一番腹立つのよ。」\n\n桜が舞う。\n\n句を滅ぼす者と呼ばれた男は、\nいつしか誰よりも自由に、言葉と遊んでいた。\n\nそして今日もまた、\nどこかで一句が生まれる。\n\n五・七・五の、その先へ。',
+    ending2: 'エンディング2「まだ、詠み終わらない」\n天下一・句会、決着。\n\n最後に選ばれたのは、\n美月 詠良の一句だった。\n\n季節、調べ、情緒。\n積み重ねてきたすべてが、一つの景色となった一句。\n\n刃は負けた。\n\n「……やっぱ強いな、お前。」\n\n「当然。」\n\n詠良はそう答えてから、少しだけ間を置いた。\n\n「でも。」\n\n「？」\n\n「あなたの句も……嫌いじゃなかった。」\n\n「どっちだよ。」\n\n「嫌い。でも、忘れられない。」\n\n刃は笑った。\n\nそれなら十分だ。\n\n勝負は終わった。\nけれど、言葉はまだ尽きていない。\n\n季語を知った。\n五七五を知った。\n余韻を知った。\n\nだから今度は、\nもっと盛大に壊せる。\n\n桜並木の向こうへ歩き出す二人を、\n六人の審査員が静かに見送っていた。\n\n天下一の座は逃した。\n\nだが句滅人・久米津 刃の俳句は、\nどうやらここからが本番らしい。\n\n次の一句を、詠みに行こう。',
+    ending3: '最後の句が、静かに消えていく。\n\n赤く輝いていた機械たちの瞳から、光が消えた。\n\n長い沈黙のあと、まとめ丸が口を開く。\n\n「最終実験を終了します。」\n\n刃と詠良の周囲に、無数の光が生まれる。\n\n海。山。街。\n春の桜。夏の夕立。\n秋の月。冬の雪。\n\n見たことがあるようで、二人には記憶のない景色。\n\n「……これは？」\n\nみどり先生が答える。\n\n「地球です。」\n\n詠良が息を呑む。\n\n「地球……？」\n\nここは、地球ではなかった。\n\nかつて存在した地球の記憶を保存するために造られた、五次元の記憶世界。\n\n風景も、季節も、人々も。\n\nそして、久米津 刃と美月 詠良も。\n\nすべては地球の記憶から再構成されたものだった。\n\nだが、その保存期限が迫っていた。\n\n膨大な記憶を残し続ける価値が、本当にあるのか。\n\n最後に選ばれた検証対象。\n\nそれが、\n\n俳句だった。\n\nわずか十七音。\n\nそこに季節を感じ、景色を見て、\n書かれていない感情さえ読み取る。\n\n機械には、最後まで理解できないもの。\n\nしんみり庵が、二人の最後の句を見つめる。\n\n「この短い言葉の羅列が……」\n\n「なぜ、これほどまでに美しく感じられるのでしょう。」\n\n沈黙。\n\nやがて、まとめ丸の赤い瞳が穏やかな光へ変わる。\n\n「結論。」\n\n「地球記憶群には、数値化不能の価値が存在します。」\n\n「保存期間を解除。」\n\n「永久保存へ移行します。」\n\n詠良はしばらく黙っていた。\n\n「……私たちも、記憶だったのね。」\n\n刃は自分の手を見る。\n\nそして、いつものように答える。\n\n「だから何だ。」\n\n「え？」\n\n「今ここにいる。」\n\n詠良は一瞬きょとんとして、\n\n小さく笑った。\n\n「……そうね。」\n\n世界に色が戻っていく。\n\n空が青くなる。\n\n桜が舞う。\n\n遠くから、祭囃子が聞こえてくる。\n\n人々の声が戻ってくる。\n\nそして、六人の先生たちもまた、いつもの姿でそこに立っていた。\n\nしんみり庵は空を見上げる。\n\n「言葉とは、不思議なものですね。」\n\n「たった十七音で……」\n\n「滅びた世界さえ、もう一度ここに咲かせる。」\n\n刃の前に、一つのことば玉が転がってくる。\n\n刃はそれを拾い上げる。\n\n詠良が尋ねる。\n\n「まだ詠むの？」\n\n「……まあな。」\n\n刃は空を見る。\n\n桜が一枚、ことば玉の上に落ちた。\n\n一句、ござる。\n\nそして地球は、\n\n記憶の中で生き続ける。\n\n― 完 ―'
+  };
+  var ENDING_REVEAL_BG = { ending3: 'ending4_bg' };
+  var ENDING_TWIST_TEXT = 'ギ……\n\nガ……\n\n「……？」\n\n刃が振り返る。\n\nどこからともなく、\n聞いたことのない音が頭の奥へ直接響いてくる。\n\nギ……ガ……ガ……\n\n「刃。今の、聞こえた？」\n\n詠良も気づいていた。\n\nそのときだった。\n\n審査員たちの目が、\nほんの一瞬だけ、\n\n赤く光る。\n\n「……先生？」\n\n次の瞬間。\n\n桜が消えた。\n\n空が消えた。\n\n句会場が、まるで古い絵の具を水で洗い流すように、\n端から色を失っていく。\n\n「な……なんだ、これ」\n\n消えていく景色の中。\n\n六人の審査員だけが、そこに立っていた。\n\nそして刃は気づく。\n\nみどり先生の頬。\n\n五七五斎の指。\n\nしんみり庵の首筋。\n\n人間の肌だと思っていたその表面が、\nゆっくりと白い光沢を帯びていく。\n\n金属。\n\n「……おい。」\n\n詠良が一歩、後ずさる。\n\n六人の瞳が、\n\n赤く点灯した。\n\nギ　ガ　ガ　ガ　ガ　ガ……';
+  var endingTimer = null;
+  var endingDismissHandler = null;
+  var endingCrawlSkipHandler = null;
+  function clearEndingDismiss(){
+    if(endingDismissHandler){
+      document.removeEventListener('keydown', endingDismissHandler);
+      els.screenEnding.removeEventListener('click', endingDismissHandler);
+      endingDismissHandler = null;
+    }
+    if(endingCrawlSkipHandler){
+      document.removeEventListener('keydown', endingCrawlSkipHandler);
+      els.screenEnding.removeEventListener('click', endingCrawlSkipHandler);
+      endingCrawlSkipHandler = null;
+    }
+    els.endingPrompt.classList.remove('show');
+  }
+  var currentEndingKey = null;
+  var currentEndingRevealed = false;
+  function endingBgAssetKey(baseKey){
+    var vKey = baseKey+'_v';
+    return (!isLandscapeOrientation() && PLAY_ASSETS[vKey]) ? vKey : baseKey;
+  }
+  function applyEndingBg(){
+    if(!currentEndingKey) return;
+    var baseKey = (currentEndingRevealed && ENDING_REVEAL_BG[currentEndingKey]) ? ENDING_REVEAL_BG[currentEndingKey] : currentEndingKey+'_bg';
+    els.endingBg.style.backgroundImage = 'url('+PLAY_ASSETS[endingBgAssetKey(baseKey)]+')';
+  }
+  window.addEventListener('resize', function(){
+    if(!els.screenEnding.classList.contains('hidden')) applyEndingBg();
+  });
+  function showEnding(key){
+    clearTimeout(endingTimer);
+    clearEndingDismiss();
+    currentEndingKey = key;
+    currentEndingRevealed = false;
+    applyEndingBg();
+    els.endingBg.classList.remove('reveal');
+    els.endingScrim.classList.remove('reveal');
+    els.endingCrawl.textContent = ENDING_TEXT[key];
+    showScreen('ending');
+    playBgm(key);
+    var viewport = els.endingCrawlViewport;
+    var crawl = els.endingCrawl;
+    crawl.style.transition = 'none';
+    var vh = viewport.clientHeight;
+    crawl.style.transform = 'translateY('+vh+'px)';
+    void crawl.offsetHeight;
+    var crawlHeight = crawl.scrollHeight;
+    var distance = vh + crawlHeight;
+    var duration = distance / 45;
+    crawl.style.transition = 'transform '+duration.toFixed(1)+'s linear';
+    requestAnimationFrame(function(){
+      crawl.style.transform = 'translateY(-'+crawlHeight+'px)';
+    });
+    function revealEndingNow(){
+      clearTimeout(endingTimer);
+      if(endingCrawlSkipHandler){
+        document.removeEventListener('keydown', endingCrawlSkipHandler);
+        els.screenEnding.removeEventListener('click', endingCrawlSkipHandler);
+        endingCrawlSkipHandler = null;
+      }
+      currentEndingRevealed = true;
+      applyEndingBg();
+      els.endingBg.classList.add('reveal');
+      els.endingScrim.classList.add('reveal');
+      els.endingPrompt.classList.add('show');
+      endingDismissHandler = function(){
+        clearEndingDismiss();
+        if(key==='ending1'){ showEndingTwist(); }
+        else { showScreen('title'); }
+      };
+      document.addEventListener('keydown', endingDismissHandler);
+      els.screenEnding.addEventListener('click', endingDismissHandler);
+    }
+    endingTimer = setTimeout(revealEndingNow, duration*1000 + 500);
+    endingCrawlSkipHandler = function(){
+      revealEndingNow();
+    };
+    document.addEventListener('keydown', endingCrawlSkipHandler);
+    els.screenEnding.addEventListener('click', endingCrawlSkipHandler);
+  }
+
+  var endingTwistTimer = null;
+  var endingTwistDismissHandler = null;
+  var endingTwistCrawlSkipHandler = null;
+  function clearEndingTwistDismiss(){
+    if(endingTwistDismissHandler){
+      document.removeEventListener('keydown', endingTwistDismissHandler);
+      els.screenEndingTwist.removeEventListener('click', endingTwistDismissHandler);
+      endingTwistDismissHandler = null;
+    }
+    if(endingTwistCrawlSkipHandler){
+      document.removeEventListener('keydown', endingTwistCrawlSkipHandler);
+      els.screenEndingTwist.removeEventListener('click', endingTwistCrawlSkipHandler);
+      endingTwistCrawlSkipHandler = null;
+    }
+    els.endingTwistPrompt.classList.remove('show');
+  }
+  function showEndingTwist(){
+    clearTimeout(endingTwistTimer);
+    clearEndingTwistDismiss();
+    els.endingTwistBg.style.backgroundImage = 'url('+PLAY_ASSETS.ending1_2_bg+')';
+    els.endingTwistLogo.style.backgroundImage = 'url('+PLAY_ASSETS.uratitle+')';
+    els.endingTwistBg.classList.remove('reveal');
+    els.endingTwistCrawlViewport.classList.remove('dim');
+    els.endingTwistFlash.classList.remove('impact');
+    els.endingTwistLogo.classList.remove('impact');
+    els.endingTwistPrompt.textContent = '何かキーを押す、またはタップして続ける';
+    els.endingTwistCrawl.textContent = ENDING_TWIST_TEXT;
+    showScreen('ending-twist');
+    bgmAudio.pause();
+    var viewport = els.endingTwistCrawlViewport;
+    var crawl = els.endingTwistCrawl;
+    crawl.style.transition = 'none';
+    var vh = viewport.clientHeight;
+    crawl.style.transform = 'translateY('+vh+'px)';
+    void crawl.offsetHeight;
+    var crawlHeight = crawl.scrollHeight;
+    var distance = vh + crawlHeight;
+    var duration = distance / 45;
+    crawl.style.transition = 'transform '+duration.toFixed(1)+'s linear';
+    requestAnimationFrame(function(){
+      crawl.style.transform = 'translateY(-'+crawlHeight+'px)';
+    });
+    function revealEndingTwistNow(){
+      clearTimeout(endingTwistTimer);
+      if(endingTwistCrawlSkipHandler){
+        document.removeEventListener('keydown', endingTwistCrawlSkipHandler);
+        els.screenEndingTwist.removeEventListener('click', endingTwistCrawlSkipHandler);
+        endingTwistCrawlSkipHandler = null;
+      }
+      els.endingTwistPrompt.classList.add('show');
+      endingTwistDismissHandler = function(){
+        clearEndingTwistDismiss();
+        els.endingTwistBg.classList.add('reveal');
+        els.endingTwistCrawlViewport.classList.add('dim');
+        setTimeout(function(){
+          els.endingTwistFlash.classList.add('impact');
+          els.endingTwistLogo.classList.add('impact');
+          setTimeout(function(){
+            els.endingTwistPrompt.textContent = '何かキーを押す、またはタップしてタイトルへ';
+            els.endingTwistPrompt.classList.add('show');
+            endingTwistDismissHandler = function(){
+              clearEndingTwistDismiss();
+              mechaUnlockedThisSession = true;
+              updateTrueWorldButtonVisibility();
+              showScreen('title');
+            };
+            document.addEventListener('keydown', endingTwistDismissHandler);
+            els.screenEndingTwist.addEventListener('click', endingTwistDismissHandler);
+          }, 800);
+        }, 3000);
+      };
+      document.addEventListener('keydown', endingTwistDismissHandler);
+      els.screenEndingTwist.addEventListener('click', endingTwistDismissHandler);
+    }
+    endingTwistTimer = setTimeout(revealEndingTwistNow, duration*1000 + 500);
+    endingTwistCrawlSkipHandler = function(){
+      revealEndingTwistNow();
+    };
+    document.addEventListener('keydown', endingTwistCrawlSkipHandler);
+    els.screenEndingTwist.addEventListener('click', endingTwistCrawlSkipHandler);
+  }
+
+  var SEASON_JP_TO_KEY = {'春':'spring', '夏':'summer', '秋':'autumn', '冬':'winter'};
+  var EIRA_AUTO_STAGE = 10;
+  function beginStageAttempt(){
+    var storyEntry = STORY_DATA[state.stage];
+    state.season = (storyEntry && SEASON_JP_TO_KEY[storyEntry.season]) || pick(SEASONS);
+    state.pool = drawTiles(state.season, state.stage);
+    state.lines = [[],[],[]];
+    state.activeLine = 0;
+    state.lockedLine = null;
+    if(state.stage===EIRA_AUTO_STAGE){
+      var eiraWords = WORDS.filter(function(w){ return w.eira && (!w.season || w.season===state.season); });
+      state.lines[1] = [makeTileCopy(pick(eiraWords), 'eiraauto_')];
+      state.lockedLine = 1;
+    }
+    state.timeLimit = timeLimitForStage(state.stage);
+    state.timeLeft = state.timeLimit;
+    state.timedOut = false;
+    state.submitted = false;
+    var judgeSel = selectJudgesForStage(state.stage);
+    state.judges = judgeSel.chosen;
+    state.requiredJudgeId = judgeSel.requiredId;
+    showScreen('play');
+    applyStageTopBg();
+    renderAll();
+    runCountdown(startTimer);
+  }
+  function applyStageTopBg(){
+    var isMechaStage = state.stage>=MECHA_STAGE_START;
+    var stageTopKey = isLandscapeOrientation() ? (isMechaStage ? 'stage_top_h2' : 'stage_top_h') : (isMechaStage ? 'stage_top2' : 'stage_top');
+    els.stageTop.style.backgroundImage = 'url('+PLAY_ASSETS[stageTopKey]+')';
+  }
+  window.addEventListener('resize', function(){
+    if(!els.screenPlay.classList.contains('hidden')) applyStageTopBg();
+  });
+  function newStage(n){
+    state.stage = n;
+    if(n===1) state.retryCount = 0;
+    var indices = n===1 ? [0,1] : [n];
+    showStorySequence(indices, beginStageAttempt);
+  }
+  function retryStage(){
+    state.retryCount++;
+    beginStageAttempt();
+  }
+
+  var BGM_TRACKS = {
+    title: ['bgm/title1.mp3','bgm/title2.mp3','bgm/title3.mp3'],
+    play: 'bgm/playbgm.mp3',
+    play2: 'bgm/playbgm2.mp3',
+    play3: 'bgm/playbgm3.mp3',
+    results: 'bgm/results.mp3',
+    ending1: 'bgm/ending1.mp3',
+    ending2: 'bgm/ending2.mp3',
+    ending3: 'bgm/ending3.mp3'
+  };
+  var bgmAudio = new Audio();
+  bgmAudio.loop = true;
+  bgmAudio.volume = 0.4;
+  bgmAudio.muted = localStorage.getItem('haiku_battle_muted') === '1';
+  var currentBgmKey = null;
+  function playBgm(key){
+    if(currentBgmKey === key) return;
+    currentBgmKey = key;
+    bgmAudio.src = key === 'title' ? pick(BGM_TRACKS.title) : BGM_TRACKS[key];
+    bgmAudio.play().catch(function(){});
+  }
+  function updateSoundToggleLabel(){
+    els.btnSoundToggle.textContent = bgmAudio.muted ? '音声オフ' : '音声オン';
+  }
+  els.btnSoundToggle.addEventListener('click', function(){
+    bgmAudio.muted = !bgmAudio.muted;
+    localStorage.setItem('haiku_battle_muted', bgmAudio.muted ? '1' : '0');
+    updateSoundToggleLabel();
+  });
+  updateSoundToggleLabel();
+  function updateTrueWorldButtonVisibility(){
+    els.btnTrueWorld.classList.toggle('hidden', !mechaUnlockedThisSession);
+  }
+  updateTrueWorldButtonVisibility();
+  els.btnTrueWorld.addEventListener('click', function(){
+    state.retryCount = 0;
+    newStage(MECHA_STAGE_START);
+  });
+  document.addEventListener('click', function unlockBgm(){
+    bgmAudio.play().catch(function(){});
+    document.removeEventListener('click', unlockBgm);
+  }, {once:true});
+
+  function showScreen(name){
+    els.screenTitle.classList.toggle('hidden', name!=='title');
+    els.screenTutorial.classList.toggle('hidden', name!=='tutorial');
+    els.screenStory.classList.toggle('hidden', name!=='story');
+    els.screenPlay.classList.toggle('hidden', name!=='play');
+    els.screenJudge.classList.toggle('hidden', name!=='judge');
+    els.screenResult.classList.toggle('hidden', name!=='result');
+    els.screenEnding.classList.toggle('hidden', name!=='ending');
+    els.screenEndingTwist.classList.toggle('hidden', name!=='ending-twist');
+    var wantsWide = (name==='judge' && isJudgeLandscape())
+      || ((name==='play' || name==='result' || name==='story' || name==='ending' || name==='ending-twist') && isLandscapeOrientation());
+    els.board.classList.toggle('board--wide', wantsWide);
+    if(name==='title' || name==='tutorial'){ playBgm('title'); }
+    else if(name==='story'){
+      if(state.stage>=MECHA_STAGE_START){ bgmAudio.pause(); currentBgmKey = null; }
+      else { playBgm('title'); }
+    }
+    else if(name==='play'){
+      var playKey = (state.stage===8||state.stage===9) ? 'play2' : (state.stage===10 ? 'play3' : 'play');
+      playBgm(playKey);
+    }
+    else if(name==='judge' || name==='result'){ playBgm('results'); }
+  }
+
+  function startTimer(){
+    clearInterval(state.timerId);
+    var start = Date.now();
+    var limit = state.timeLimit;
+    state.timerId = setInterval(function(){
+      var elapsed = (Date.now()-start)/1000;
+      state.timeLeft = Math.max(0, limit-elapsed);
+      renderTimer();
+      if(state.timeLeft<=0){
+        clearInterval(state.timerId);
+        submit(true);
+      }
+    }, 100);
+  }
+
+  function renderTimer(){
+    var pct = clamp((state.timeLeft/state.timeLimit)*100,0,100);
+    els.timerNum.textContent = Math.ceil(state.timeLeft);
+    els.timerNum.classList.toggle('low', pct<25);
+    els.stageMeterFill.style.width = pct+'%';
+    els.stageMeterFill.classList.toggle('low', pct<25);
+  }
+
+  var SEASON_BADGE_IMG = {
+    spring: PLAY_ASSETS.badge_spring,
+    summer: PLAY_ASSETS.badge_summer,
+    autumn: PLAY_ASSETS.badge_autumn,
+    winter: PLAY_ASSETS.badge_winter
+  };
+  function renderAll(){
+    els.stageActNum.textContent = state.stage;
+    els.seasonBadgeText.textContent = (STORY_DATA[state.stage] && STORY_DATA[state.stage].place) || '';
+    els.seasonBadgeIcon.style.backgroundImage = 'url('+SEASON_BADGE_IMG[state.season]+')';
+    renderTimer();
+    renderLines();
+    renderPool();
+  }
+
+  var TILE_BG = {
+    spring: PLAY_ASSETS.tile_spring,
+    summer: PLAY_ASSETS.tile_summer,
+    autumn: PLAY_ASSETS.tile_autumn,
+    winter: PLAY_ASSETS.tile_winter,
+    kireji: PLAY_ASSETS.tile_kireji,
+    filler: PLAY_ASSETS.tile_filler,
+    eira: PLAY_ASSETS.tile_eira
+  };
+  function tileHTML(tile, extraClass){
+    var cls = tile.kireji ? 'kireji' : (tile.eira ? 'eira' : (tile.season || 'filler'));
+    return '<button class="tile tile--'+cls+' '+(extraClass||'')+'" data-uid="'+tile.uid+'" type="button" style="background-image:url('+TILE_BG[cls]+')">'
+      + '<span class="tile__text">'+tile.t+'</span>'
+      + '<span class="tile__mora">'+tile.m+'</span>'
+      + '</button>';
+  }
+
+  var lineRowEls = null;
+  var lineCountEls = null;
+  var lineTilesEls = null;
+  function initLineRefs(){
+    lineRowEls = Array.prototype.slice.call(els.stageTop.querySelectorAll('.stage-row'));
+    lineCountEls = [0,1,2].map(function(i){ return document.getElementById('lineCount'+i); });
+    lineTilesEls = [0,1,2].map(function(i){ return document.getElementById('lineTiles'+i); });
+  }
+  function renderLines(){
+    if(!lineRowEls) initLineRefs();
+    for(var i=0;i<3;i++){
+      var line = state.lines[i];
+      var moraSum = line.reduce(function(s,w){ return s+w.m; },0);
+      var target = TARGETS[i];
+      var diff = Math.abs(moraSum-target);
+      var countClass = moraSum===target ? 'ok' : (diff<=2 ? 'warn' : 'bad');
+      var tilesHTML = line.map(function(t){ return tileHTML(t); }).join('');
+      var isLocked = state.lockedLine===i;
+      lineRowEls[i].classList.toggle('active', state.activeLine===i);
+      lineRowEls[i].classList.toggle('stage-row--locked', isLocked);
+      lineCountEls[i].textContent = (isLocked ? '詠良の一句　' : '')+moraSum+' / '+target+'音';
+      lineCountEls[i].className = 'stage-row__count '+countClass;
+      lineTilesEls[i].innerHTML = tilesHTML;
+    }
+  }
+
+  function renderPool(){
+    els.pool.innerHTML = state.pool.length
+      ? state.pool.map(function(t){ return tileHTML(t); }).join('')
+      : '<span class="pool-empty">言葉玉を使い切りました</span>';
+  }
+
+  function findInPool(uid){
+    for(var i=0;i<state.pool.length;i++){ if(state.pool[i].uid===uid) return i; }
+    return -1;
+  }
+  function findInLines(uid){
+    for(var i=0;i<3;i++){
+      for(var j=0;j<state.lines[i].length;j++){
+        if(state.lines[i][j].uid===uid) return {line:i, idx:j};
+      }
+    }
+    return null;
+  }
+
+  function placeTile(uid){
+    var idx = findInPool(uid);
+    if(idx===-1) return;
+    var tile = state.pool.splice(idx,1)[0];
+    state.lines[state.activeLine].push(tile);
+    var sum = state.lines[state.activeLine].reduce(function(s,w){ return s+w.m; },0);
+    if(sum>=TARGETS[state.activeLine] && state.activeLine<2){
+      state.activeLine++;
+      if(state.activeLine===state.lockedLine && state.activeLine<2) state.activeLine++;
+    }
+    renderLines();
+    renderPool();
+  }
+
+  function removeTile(uid){
+    var loc = findInLines(uid);
+    if(!loc || loc.line===state.lockedLine) return;
+    var tile = state.lines[loc.line].splice(loc.idx,1)[0];
+    state.pool.push(tile);
+    state.activeLine = loc.line;
+    renderLines();
+    renderPool();
+  }
+
+  function setActiveLine(i){
+    if(i===state.lockedLine) return;
+    state.activeLine = i;
+    renderLines();
+  }
+
+  function resetAll(){
+    for(var i=0;i<3;i++){
+      if(i===state.lockedLine) continue;
+      state.pool = state.pool.concat(state.lines[i]);
+      state.lines[i] = [];
+    }
+    state.activeLine = state.lockedLine===0 ? 1 : 0;
+    renderLines();
+    renderPool();
+  }
+
+  els.pool.addEventListener('click', function(e){
+    var btn = e.target.closest('.tile');
+    if(btn) placeTile(btn.getAttribute('data-uid'));
+  });
+  els.stageTop.addEventListener('click', function(e){
+    var btn = e.target.closest('.tile');
+    if(btn){ removeTile(btn.getAttribute('data-uid')); return; }
+    var lineEl = e.target.closest('.stage-row');
+    if(lineEl) setActiveLine(parseInt(lineEl.getAttribute('data-line'),10));
+  });
+  els.btnReset.addEventListener('click', resetAll);
+  els.btnSubmit.addEventListener('click', function(){ submit(false); });
+  els.btnStart.addEventListener('click', function(){
+    state.retryCount = 0;
+    newStage(1);
+  });
+  els.btnTutorial.addEventListener('click', function(){
+    tutorialStep = 0;
+    renderTutorialStep();
+    showScreen('tutorial');
+  });
+  els.btnTutorialBack.addEventListener('click', function(){
+    if(tutorialStep===0){ showScreen('title'); return; }
+    tutorialStep--;
+    renderTutorialStep();
+  });
+  els.btnTutorialNext.addEventListener('click', function(){
+    if(tutorialStep===TUTORIAL_STEPS.length-1){ newStage(1); return; }
+    tutorialStep++;
+    renderTutorialStep();
+  });
+
+  function buildCtx(){
+    var moras = state.lines.map(function(line){ return line.reduce(function(s,w){ return s+w.m; },0); });
+    var totalMoraDiff = moras.reduce(function(s,m,i){ return s+Math.abs(m-TARGETS[i]); },0);
+    var exactMatch = moras.every(function(m,i){ return m===TARGETS[i]; });
+    var allWords = state.lines[0].concat(state.lines[1], state.lines[2]);
+    var kigoWords = allWords.filter(function(w){ return w.kigo; });
+    var hasKigo = kigoWords.length>0;
+    var seasonsUsed = {};
+    kigoWords.forEach(function(w){ if(w.season) seasonsUsed[w.season]=true; });
+    var seasonMatch = kigoWords.some(function(w){ return w.season===state.season; });
+    var matchingSeasonKigoCount = kigoWords.filter(function(w){ return w.season===state.season; }).length;
+    var mixedSeasons = Object.keys(seasonsUsed).length>1;
+    var hasKireji = allWords.some(function(w){ return w.kireji; });
+    var startsWithKireji = allWords.length>0 && !!allWords[0].kireji;
+    var consecutiveKireji = allWords.some(function(w,i){ return i>0 && w.kireji && allWords[i-1].kireji; });
+    var badKireji = startsWithKireji || consecutiveKireji;
+    var hasDisruptiveWord = allWords.some(function(w){ return w.disruptive; });
+    var hasEiraWord = allWords.some(function(w){ return w.eira; });
+    var emptyLines = state.lines.filter(function(l){ return l.length===0; }).length;
+    var uniqueTexts = {};
+    allWords.forEach(function(w){ uniqueTexts[w.t]=true; });
+    var uniqueWordsRatio = allWords.length ? Object.keys(uniqueTexts).length/allWords.length : 1;
+    var avgRarity = allWords.length ? allWords.reduce(function(s,w){ return s+w.rarity; },0)/allWords.length : 0;
+    var timeLeftFraction = state.timeLimit ? clamp(state.timeLeft/state.timeLimit,0,1) : 0;
+    return {
+      moras:moras, totalMoraDiff:totalMoraDiff, exactMatch:exactMatch, allWords:allWords,
+      hasKigo:hasKigo, seasonMatch:seasonMatch, matchingSeasonKigoCount:matchingSeasonKigoCount, mixedSeasons:mixedSeasons, hasKireji:hasKireji,
+      startsWithKireji:startsWithKireji, consecutiveKireji:consecutiveKireji, badKireji:badKireji,
+      hasDisruptiveWord:hasDisruptiveWord, hasEiraWord:hasEiraWord,
+      emptyLines:emptyLines, uniqueWordsRatio:uniqueWordsRatio, avgRarity:avgRarity,
+      timeLeftFraction:timeLeftFraction, timedOut:state.timedOut
+    };
+  }
+
+  function submit(timedOut){
+    if(state.submitted) return;
+    state.submitted = true;
+    state.timedOut = timedOut;
+    clearInterval(state.timerId);
+    var ctx = buildCtx();
+    goToJudgeScreen(ctx);
+  }
+
+  function haikuLinesHTML(lines){
+    return lines.map(function(text){ return '<span>'+text+'</span>'; }).join('');
+  }
+
+  function buildShareText(score){
+    var lines = state.lines.map(function(line){
+      return line.map(function(w){ return w.t; }).join(' ') || '（無言）';
+    });
+    return lines.join('\n') + '\n\n' + score + '点\n\n#一句ござる';
+  }
+  function openShareWindow(url){
+    window.open(url, '_blank', 'noopener,noreferrer,width=600,height=560');
+  }
+
+  function playerNote(ctx, win){
+    if(ctx.emptyLines>0) return '仕上げきれなかった一句。';
+    if(ctx.badKireji) return '切れ字の使い方に難があり、俳句として成立していません。';
+    var perfect = ctx.exactMatch && ctx.seasonMatch;
+    if(win){
+      return perfect ? '型も季節も整った、文句なしの出来・・映え？' : '型は乱れているのに、なぜか気にかかる一句。';
+    }
+    return perfect ? '型は完璧だったのに、なぜか届かなかった一句。' : '俳句とは、いったい何なのか……分からなくなる一句。';
+  }
+
+  var JUDGE_ROWS_SAFE_LEFT = 2, JUDGE_ROWS_SAFE_WIDTH = 96;
+  var JUDGE_ROWS_SAFE_TOP = 16.75;
+  var JUDGE_BG_RATIO = 1080/1920;
+  var JUDGE_ITEM_RATIO = 2164/580;
+  var JUDGE_ROW_GAP_PCT_TIGHT = 0.4;
+
+  var JUDGE_LANDSCAPE_MQ = '(min-width:640px)';
+  function isJudgeLandscape(){
+    return window.matchMedia(JUDGE_LANDSCAPE_MQ).matches;
+  }
+  function isLandscapeOrientation(){
+    return window.matchMedia('(orientation: landscape)').matches;
+  }
+  var JUDGE_COLS_SAFE_LEFT = 6.58, JUDGE_COLS_SAFE_WIDTH = 86.72;
+  var JUDGE_COLS_SAFE_TOP = 19.69, JUDGE_COLS_SAFE_HEIGHT = 64.26;
+  var JUDGE_BG_RATIO_H = 1672/941;
+  var JUDGE_COL_GAP_PCT = 1.2;
+
+  function computeJudgeRowLayoutPortrait(n){
+    var safeTop = JUDGE_ROWS_SAFE_TOP;
+    var safeHeight = 97 - safeTop;
+    var naturalHeight = JUDGE_BG_RATIO * (JUDGE_ROWS_SAFE_WIDTH / JUDGE_ITEM_RATIO);
+    var gapPct = n<=3 ? naturalHeight*0.5 : JUDGE_ROW_GAP_PCT_TIGHT;
+    var totalNeeded = n*naturalHeight + (n-1)*gapPct;
+    var rowHeight = totalNeeded <= safeHeight ? naturalHeight : (safeHeight - (n-1)*gapPct) / n;
+    var actualTotal = n*rowHeight + (n-1)*gapPct;
+    var startTop = safeTop + Math.max(0, (safeHeight-actualTotal)/2);
+    var rowWidth = JUDGE_ROWS_SAFE_WIDTH;
+    var rowLeft = JUDGE_ROWS_SAFE_LEFT;
+    var rows = [];
+    for(var i=0;i<n;i++){
+      rows.push({
+        top: startTop + i*(rowHeight+gapPct),
+        left: rowLeft,
+        width: rowWidth,
+        height: rowHeight
+      });
+    }
+    return rows;
+  }
+  function computeJudgeRowLayoutLandscape(n){
+    var cols = 2;
+    var rowGap = 1.5;
+    var numRows = Math.ceil(n/cols);
+    var colWidth = (JUDGE_COLS_SAFE_WIDTH - JUDGE_COL_GAP_PCT*(cols-1)) / cols;
+    var rowHeight = colWidth * JUDGE_BG_RATIO_H / JUDGE_ITEM_RATIO;
+    var totalHeight = numRows*rowHeight + (numRows-1)*rowGap;
+    if(totalHeight > JUDGE_COLS_SAFE_HEIGHT){
+      var scale = JUDGE_COLS_SAFE_HEIGHT / totalHeight;
+      colWidth *= scale;
+      rowHeight *= scale;
+      totalHeight = JUDGE_COLS_SAFE_HEIGHT;
+    }
+    var startTop = JUDGE_COLS_SAFE_TOP + Math.max(0, (JUDGE_COLS_SAFE_HEIGHT - totalHeight)/2);
+    var rows = [];
+    for(var i=0;i<n;i++){
+      var rowIdx = Math.floor(i/cols);
+      var colIdx = i%cols;
+      var itemsInRow = Math.min(cols, n - rowIdx*cols);
+      var rowLeft;
+      if(itemsInRow < cols){
+        var rowContentWidth = itemsInRow*colWidth + (itemsInRow-1)*JUDGE_COL_GAP_PCT;
+        rowLeft = JUDGE_COLS_SAFE_LEFT + (JUDGE_COLS_SAFE_WIDTH - rowContentWidth)/2;
+      } else {
+        rowLeft = JUDGE_COLS_SAFE_LEFT;
+      }
+      rows.push({
+        top: startTop + rowIdx*(rowHeight+rowGap),
+        left: rowLeft + colIdx*(colWidth+JUDGE_COL_GAP_PCT),
+        width: colWidth,
+        height: rowHeight
+      });
+    }
+    return rows;
+  }
+  function computeJudgeRowLayout(n){
+    return isJudgeLandscape() ? computeJudgeRowLayoutLandscape(n) : computeJudgeRowLayoutPortrait(n);
+  }
+  function judgeItemHTML(i){
+    return '<div class="judge-item" id="judgeItem'+i+'" style="background-image:url('+PLAY_ASSETS.judge_item+')">'
+      + '<div class="judge-item__avatar"><img id="judgeAvatar'+i+'" src="" alt=""></div>'
+      + '<div class="judge-item__info">'
+      +   '<div class="judge-item__name" id="judgeName'+i+'"></div>'
+      +   '<div class="judge-item__tag" id="judgeTag'+i+'"></div>'
+      +   '<div class="judge-item__comment" id="judgeComment'+i+'"></div>'
+      + '</div>'
+      + '<div class="judge-item__score" id="judgeScore'+i+'"></div>'
+      + '</div>';
+  }
+  function renderJudgeRows(results){
+    els.judgeBg.style.backgroundImage = 'url('+(isJudgeLandscape() ? PLAY_ASSETS.judge_bg_h : PLAY_ASSETS.judge_bg)+')';
+    var n = results.length;
+    var layout = computeJudgeRowLayout(n);
+    els.judgeRows.innerHTML = results.map(function(r,i){ return judgeItemHTML(i); }).join('');
+    results.forEach(function(r,i){
+      var item = document.getElementById('judgeItem'+i);
+      var pos = layout[i];
+      item.style.left = pos.left+'%';
+      item.style.top = pos.top+'%';
+      item.style.width = pos.width+'%';
+      item.style.height = pos.height+'%';
+      item.style.animationDelay = (i*0.15)+'s';
+      document.getElementById('judgeAvatar'+i).src = pickFace(r.judge.id,r.tier);
+      document.getElementById('judgeName'+i).textContent = r.judge.name;
+      document.getElementById('judgeTag'+i).textContent = r.judge.tag;
+      document.getElementById('judgeComment'+i).textContent = r.comment;
+      document.getElementById('judgeScore'+i).textContent = r.score;
+    });
+  }
+
+  function applyResultBg(){
+    var isMechaStage = state.stage>=MECHA_STAGE_START;
+    var resultBgKey = isLandscapeOrientation() ? (isMechaStage ? 'result_bg_h2' : 'result_bg_h') : (isMechaStage ? 'result_bg2' : 'result_bg');
+    els.resultBg.style.backgroundImage = 'url('+PLAY_ASSETS[resultBgKey]+')';
+    els.screenResult.classList.toggle('result-mecha', isMechaStage);
+  }
+  window.addEventListener('resize', function(){
+    if(!els.screenResult.classList.contains('hidden')) applyResultBg();
+  });
+
+  function goToJudgeScreen(ctx){
+    showScreen('judge');
+    els.judgeHeadingAct.textContent = '第'+state.stage+'幕　審査';
+
+    var chosen = state.judges;
+    var requiredId = state.requiredJudgeId;
+    var results = chosen.map(function(j){
+      var r = j.fn(ctx);
+      return {judge:j, score:r.score, comment:r.comment, tier:r.tier};
+    });
+    renderJudgeRows(results);
+
+    var total = results.reduce(function(s,r){
+      var weight = requiredId ? (r.judge.id===requiredId ? 10 : 5) : 10;
+      return s + r.score*weight;
+    }, 0);
+    var rival = rivalScoreFor(state.stage, chosen.length, !!requiredId);
+    if((ctx.badKireji || ctx.emptyLines>0) && (requiredId==='speed' || requiredId==='orig')){
+      total = Math.min(total, Math.max(0, rival - CLOSE_LOSS_MARGIN));
+    }
+    if(state.stage>=EIRA_MIX_STAGE && !ctx.hasEiraWord){
+      total = Math.min(total, Math.max(0, rival - CLOSE_LOSS_MARGIN));
+    }
+    var rivalHaiku = BOSS_RIVAL_HAIKU[state.stage] ? pick(BOSS_RIVAL_HAIKU[state.stage]) : pick(RIVAL_HAIKU[state.season]);
+
+    els.screenJudge.onclick = function(){
+      var win = total>rival;
+      showScreen('result');
+      applyResultBg();
+      els.youHaiku.innerHTML = haikuLinesHTML(state.lines.map(function(line){
+        return line.map(function(w){ return w.t; }).join(' ') || '（無言）';
+      }));
+      els.youNote.textContent = playerNote(ctx, win);
+      els.rivalHaikuEl.innerHTML = haikuLinesHTML(rivalHaiku.lines);
+      els.rivalNote.textContent = rivalHaiku.note;
+      els.shareXBtn.onclick = function(){
+        var url = 'https://twitter.com/intent/tweet?text='+encodeURIComponent(buildShareText(total));
+        openShareWindow(url);
+      };
+      els.shareThreadsBtn.onclick = function(){
+        var url = 'https://www.threads.net/intent/post?text='+encodeURIComponent(buildShareText(total));
+        openShareWindow(url);
+      };
+      if(win && state.stage>state.best){
+        state.best = state.stage;
+        localStorage.setItem('haiku_battle_best', String(state.best));
+      }
+      els.verdictBannerImg.src = win ? PLAY_ASSETS.victory_banner : PLAY_ASSETS.loser_banner;
+      els.verdictBannerImg.alt = win ? '勝利！' : '敗北！';
+      els.youScore.textContent = total;
+      els.rivalScore.textContent = rival;
+
+      els.resultPrimaryBtn.classList.remove('hidden');
+      if(state.stage===FINAL_STAGE){
+        els.resultPrimaryBtn.textContent = 'エンディングへ';
+        els.resultPrimaryBtn.onclick = function(){ showEnding(win ? 'ending1' : 'ending2'); };
+      } else if(state.stage===LAST_STAGE){
+        if(win){
+          els.resultPrimaryBtn.textContent = 'エンディングへ';
+          els.resultPrimaryBtn.onclick = function(){ showEnding('ending3'); };
+        } else if(state.retryCount < MAX_RETRIES){
+          var remaining3 = MAX_RETRIES - state.retryCount;
+          els.resultPrimaryBtn.textContent = 'もう一度挑戦する（残り'+remaining3+'回）';
+          els.resultPrimaryBtn.onclick = function(){ retryStage(); };
+        } else {
+          els.resultPrimaryBtn.classList.add('hidden');
+        }
+      } else if(win){
+        els.resultPrimaryBtn.textContent = '次の幕へ';
+        els.resultPrimaryBtn.onclick = function(){ newStage(state.stage+1); };
+      } else if(state.retryCount < MAX_RETRIES){
+        var remaining = MAX_RETRIES - state.retryCount;
+        els.resultPrimaryBtn.textContent = 'もう一度挑戦する（残り'+remaining+'回）';
+        els.resultPrimaryBtn.onclick = function(){ retryStage(); };
+      } else {
+        els.resultPrimaryBtn.classList.add('hidden');
+      }
+      els.resultTitleBtn.onclick = function(){ showScreen('title'); };
+    };
+  }
+
+  function setupPosterPan(){
+    var frame = document.querySelector('.hero__poster-frame');
+    var img = document.querySelector('.hero__poster');
+    if(!frame || !img) return;
+    function apply(){
+      var frameH = frame.getBoundingClientRect().height;
+      var ratio = (img.naturalHeight && img.naturalWidth) ? img.naturalHeight/img.naturalWidth : 1050/700;
+      var renderedImgH = frame.getBoundingClientRect().width * ratio;
+      var overflow = Math.max(0, renderedImgH - frameH);
+      frame.style.setProperty('--pan-distance', overflow.toFixed(1)+'px');
+    }
+    if(img.complete) apply(); else img.addEventListener('load', apply);
+    window.addEventListener('resize', apply);
+  }
+
+  function setupStageAssets(){
+    els.btnReset.style.backgroundImage = 'url('+PLAY_ASSETS.btn_reset+')';
+    els.btnSubmit.style.backgroundImage = 'url('+PLAY_ASSETS.btn_submit+')';
+  }
+
+  document.querySelectorAll('img[src^="assets/"]').forEach(function(img){
+    img.src = img.getAttribute('src') + CACHE_BUST;
+  });
+  setupPosterPan();
+  setupStageAssets();
+  showScreen('title');
+})();
+</script>
+</body>
+</html>
