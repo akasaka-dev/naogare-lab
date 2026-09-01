@@ -1,0 +1,1738 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<!--
+  黄昏のフォー・イン・ア・ロウ
+  Created by naogare — https://www.youtube.com/@NMLabo
+-->
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="author" content="naogare">
+<title>LineUp4 - 4個並べ対戦ゲーム</title>
+<style>
+  :root {
+    --bg: #1e293b;
+    --board: #2563eb;
+    --slot: #0f172a;
+    --p1: #ef4444;
+    --p2: #eab308;
+    --text: #f1f5f9;
+    --accent: #38bdf8;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #0f172a, #1e293b);
+    color: var(--text);
+    font-family: "Segoe UI", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
+    padding: 16px;
+    position: relative;
+    overflow-x: hidden;
+  }
+
+  /* ---- Audio toggles (always visible, above every screen) ---- */
+  #audioControls {
+    position: fixed;
+    top: max(10px, env(safe-area-inset-top));
+    left: max(10px, env(safe-area-inset-left));
+    z-index: 20;
+    display: flex;
+    gap: 8px;
+  }
+  .audio-btn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    background: rgba(15, 23, 42, 0.72);
+    border: 1.5px solid rgba(148, 163, 184, 0.45);
+    color: var(--text);
+    padding: 7px 10px;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    backdrop-filter: blur(4px);
+  }
+  .audio-btn .audio-icon { font-size: 0.95rem; line-height: 1; }
+  .audio-btn.muted {
+    border-color: rgba(148, 163, 184, 0.25);
+    color: rgba(241, 245, 249, 0.45);
+  }
+  .audio-btn.muted .audio-icon { filter: grayscale(1); opacity: 0.6; }
+  @media (max-width: 480px) {
+    .audio-btn .audio-label { display: none; }
+    .audio-btn { padding: 8px; }
+  }
+
+  /* ---- Splash / title screen ---- */
+  #splashScreen {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #000;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 1.1s ease;
+  }
+  #splashScreen.show { opacity: 1; }
+  #splashScreen.hide { opacity: 0; pointer-events: none; }
+  #splashScreen img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  /* title.webp is a wide landscape illustration — on narrow/portrait screens
+     "cover" crops off the characters and part of the logo at the sides, so
+     switch to "contain" (full artwork visible, letterboxed) there instead. */
+  @media (max-aspect-ratio: 1/1) {
+    #splashScreen img { object-fit: contain; }
+  }
+
+  /* ---- Full-screen CPU character backdrop (shown during play) ---- */
+  #charBgWrap {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    overflow: hidden;
+    display: flex;
+    align-items: flex-end;
+    justify-content: flex-end;
+    opacity: 0;
+    transition: opacity 0.6s ease;
+  }
+  #charBgWrap.show { opacity: 1; }
+  #charBgImg {
+    height: 96vh;
+    max-width: 62vw;
+    object-fit: contain;
+    object-position: bottom right;
+    filter: drop-shadow(0 10px 34px rgba(0,0,0,0.65));
+    -webkit-mask-image: linear-gradient(to left, rgba(0,0,0,1) 38%, rgba(0,0,0,0) 92%);
+    mask-image: linear-gradient(to left, rgba(0,0,0,1) 38%, rgba(0,0,0,0) 92%);
+  }
+  #charBgOverlay {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.6s ease;
+    background: linear-gradient(to right,
+      rgba(10, 15, 30, 1) 0%,
+      rgba(10, 15, 30, 0.88) 32%,
+      rgba(10, 15, 30, 0.4) 58%,
+      rgba(10, 15, 30, 0) 82%);
+  }
+  #charBgOverlay.show { opacity: 1; }
+
+  /* On narrow screens there's no side-by-side space: the desktop layout
+     (character peeking in from the right, page content to its left) leaves
+     the character almost entirely masked out. Switch to a centered figure
+     standing behind the bottom of the screen, fading out before it reaches
+     the UI text up top, instead. */
+  @media (max-width: 640px) {
+    /* The board is opaque and claims the center/bottom of the screen, so a
+       bottom-anchored character just disappears behind it. Put the character
+       in a header band above the board instead — cropped to the upper body
+       via object-fit:cover, faded out before it reaches the board — so it
+       shows through behind the status text without the two fighting for the
+       same space. */
+    #charBgWrap { justify-content: center; align-items: flex-start; }
+    #charBgImg {
+      width: 100vw;
+      max-width: 100vw;
+      height: 36vh;
+      max-height: 36vh;
+      object-fit: cover;
+      object-position: top center;
+      opacity: 0.5;
+      -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,0.95) 55%, rgba(0,0,0,0) 100%);
+      mask-image: linear-gradient(to bottom, rgba(0,0,0,0.95) 55%, rgba(0,0,0,0) 100%);
+    }
+    #charBgOverlay {
+      background: linear-gradient(to bottom,
+        rgba(10, 15, 30, 0.35) 0%,
+        rgba(10, 15, 30, 0.08) 30%,
+        rgba(10, 15, 30, 0) 45%);
+    }
+  }
+
+  .page-content {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  h1 {
+    margin: 0 0 8px;
+    font-size: clamp(1.15rem, 6.2vw, 1.8rem);
+    letter-spacing: 0.05em;
+    overflow-wrap: break-word;
+    max-width: 100%;
+  }
+  .hidden { display: none !important; }
+
+  /* ---- Title screen ---- */
+  #titleScreen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+    padding: 36px 30px;
+    background: rgba(15, 23, 42, 0.55);
+    border-radius: 18px;
+    box-shadow: 0 12px 30px rgba(0,0,0,0.45);
+    width: 100%;
+    max-width: min(820px, 92vw);
+    box-sizing: border-box;
+  }
+  @media (max-width: 480px) {
+    #titleScreen { padding: 28px 18px; gap: 14px; }
+  }
+  #titleScreen p.subtitle {
+    margin: -8px 0 4px;
+    opacity: 0.75;
+    font-size: 0.95rem;
+  }
+  #debugTrigger { user-select: none; }
+  .mode-options {
+    display: flex;
+    gap: 18px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .mode-btn {
+    background: #0f172a;
+    border: 2px solid var(--accent);
+    color: var(--text);
+    padding: 22px 28px;
+    border-radius: 14px;
+    font-size: 1.05rem;
+    font-weight: 700;
+    cursor: pointer;
+    min-width: 180px;
+    transition: transform 0.15s ease, background 0.15s ease;
+  }
+  .mode-btn .emoji { font-size: 1.8rem; display: block; margin-bottom: 6px; }
+  .mode-btn-sub {
+    display: block;
+    font-size: 0.68rem;
+    font-weight: 500;
+    opacity: 0.65;
+    margin-top: 4px;
+  }
+  .mode-btn:hover {
+    background: var(--accent);
+    color: #0f172a;
+    transform: translateY(-3px);
+  }
+  .mode-btn:hover .mode-btn-sub { color: #0f172a; opacity: 0.8; }
+
+  .back-to-splash-btn {
+    background: transparent;
+    border: none;
+    color: var(--text);
+    opacity: 0.65;
+    font-size: 0.85rem;
+    cursor: pointer;
+    padding: 6px 10px;
+  }
+  .back-to-splash-btn:hover { opacity: 1; text-decoration: underline; }
+
+  .credit {
+    margin: 4px 0 0;
+    font-size: 0.72rem;
+    opacity: 0.45;
+    letter-spacing: 0.02em;
+  }
+  .credit strong { font-weight: 700; opacity: 0.9; }
+  .credit a {
+    color: inherit;
+    opacity: 0.8;
+    text-decoration: none;
+    border-bottom: 1px dotted currentColor;
+  }
+  .credit a:hover { opacity: 1; }
+
+  /* ---- Ladder result overlay (shown between/after CPU matches) ---- */
+  #resultOverlay {
+    position: fixed;
+    inset: 0;
+    z-index: 6;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(5, 8, 18, 0.82);
+    padding: 20px;
+  }
+  .result-card {
+    background: rgba(15, 23, 42, 0.96);
+    border: 2px solid var(--accent);
+    border-radius: 18px;
+    padding: 28px 30px;
+    max-width: 360px;
+    width: 100%;
+    text-align: center;
+    box-shadow: 0 16px 40px rgba(0,0,0,0.6);
+  }
+  .result-portrait {
+    width: 100%;
+    height: 190px;
+    border-radius: 12px;
+    background: #0f172a;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 3rem;
+    margin-bottom: 14px;
+  }
+  .result-portrait:empty { display: none; margin: 0; }
+  .result-portrait img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: top center;
+  }
+  .result-title {
+    font-size: 1.15rem;
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+  .result-message {
+    font-size: 0.9rem;
+    opacity: 0.85;
+    line-height: 1.6;
+    margin-bottom: 20px;
+    white-space: pre-line;
+  }
+  .result-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .result-actions button {
+    width: 100%;
+  }
+  .result-actions .secondary {
+    background: transparent;
+    border: 2px solid #475569;
+    color: var(--text);
+  }
+
+  /* ---- All-clear ending ---- */
+  #endingScreen {
+    position: fixed;
+    inset: 0;
+    z-index: 9;
+    background: #000;
+    overflow: hidden;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.9s ease;
+  }
+  #endingScreen.show { opacity: 1; }
+  #endingScroll {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    position: relative;
+  }
+  #endingScroll img {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+  #endingScroll img.pan {
+    animation: endingPan 22s ease-in-out forwards;
+  }
+  @keyframes endingPan {
+    0%, 10% { transform: translateY(0); }
+    90%, 100% { transform: translateY(calc(-100% + 100vh)); }
+  }
+  .ending-hint {
+    position: fixed;
+    left: 50%;
+    bottom: max(22px, env(safe-area-inset-bottom));
+    transform: translateX(-50%);
+    z-index: 10;
+    color: var(--text);
+    background: rgba(15, 23, 42, 0.65);
+    border: 1.5px solid rgba(148, 163, 184, 0.45);
+    padding: 8px 18px;
+    border-radius: 999px;
+    font-size: 0.85rem;
+    letter-spacing: 0.04em;
+    pointer-events: none;
+    opacity: 0;
+    animation: endingHintFade 2s ease 1s forwards;
+  }
+  @keyframes endingHintFade {
+    to { opacity: 0.9; }
+  }
+
+  /* ---- Turn-order coin toss ---- */
+  #turnDecideOverlay {
+    position: fixed;
+    inset: 0;
+    z-index: 7;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(5, 8, 18, 0.82);
+  }
+  .turn-decide-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 18px;
+  }
+  .coin-wrap { perspective: 400px; }
+  .coin {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    background: var(--p1);
+    box-shadow: 0 0 20px 6px rgba(255,255,255,0.18), 0 8px 20px rgba(0,0,0,0.5);
+    animation: coinSpin 0.15s linear infinite;
+  }
+  .coin.settled { animation: coinSettle 0.4s cubic-bezier(0.34, 1.56, 0.64, 1); }
+  @keyframes coinSpin {
+    0%, 100% { transform: scaleX(1); }
+    50% { transform: scaleX(0.12); }
+  }
+  @keyframes coinSettle {
+    0% { transform: scaleX(0.12); }
+    55% { transform: scaleX(1.18) scaleY(0.85); }
+    75% { transform: scaleX(0.92) scaleY(1.06); }
+    100% { transform: scaleX(1) scaleY(1); }
+  }
+  .turn-decide-text {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--text);
+    opacity: 0;
+    transition: opacity 0.25s ease;
+    text-align: center;
+  }
+  .turn-decide-text.show { opacity: 1; }
+
+  /* ---- Game screen ---- */
+  #gameScreen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  #status {
+    font-size: 1.15rem;
+    margin-bottom: 14px;
+    min-height: 1.6em;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+  }
+  .turn-indicator {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    display: inline-block;
+    box-shadow: 0 0 0 2px rgba(255,255,255,0.3) inset;
+  }
+  .turn-avatar {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    object-fit: cover;
+    object-position: top center;
+    box-shadow: 0 0 0 2px var(--p2);
+  }
+  #modeLabel {
+    font-size: 0.85rem;
+    opacity: 0.7;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  #opponentAvatar {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    object-fit: cover;
+    object-position: top center;
+  }
+
+  /* ---- CPU speech bubble ---- */
+  /* Sits where the game title used to be — reserves its slot only in CPU
+     mode (toggled via the .hidden utility class in JS); the text itself
+     still cross-fades in/out per line via the .show class. */
+  #speechBubble {
+    width: 100%;
+    max-width: 420px;
+    min-height: 64px;
+    box-sizing: border-box;
+    background: rgba(15, 23, 42, 0.94);
+    border: 2px solid var(--accent);
+    border-radius: 16px;
+    padding: 12px 18px;
+    margin: 0 0 14px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    text-align: center;
+    opacity: 0;
+    transform: translateY(-6px);
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  }
+  #speechBubble.show {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  #speechBubble .bubble-name {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 4px;
+  }
+  #speechBubble .bubble-text {
+    font-size: 0.92rem;
+    line-height: 1.55;
+  }
+  #board-wrap {
+    background: var(--board);
+    padding: 10px;
+    border-radius: 14px;
+    box-shadow: 0 12px 30px rgba(0,0,0,0.45);
+    position: relative;
+  }
+  #board-wrap.locked { pointer-events: none; opacity: 0.85; }
+  #board {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(38px, 60px));
+    gap: 8px;
+  }
+  .col-hitzone {
+    position: relative;
+    cursor: pointer;
+    aspect-ratio: 1 / 1;
+  }
+  .cell {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    background: var(--slot);
+    position: relative;
+    transition: transform 0.15s ease;
+  }
+  .cell.p1 { background: var(--p1); box-shadow: 0 0 10px rgba(239,68,68,0.7); }
+  .cell.p2 { background: var(--p2); box-shadow: 0 0 10px rgba(234,179,8,0.7); }
+  .cell.drop {
+    /* Purely cosmetic — game state already updates instantly on click,
+       so this playing out slowly never blocks the next move. */
+    animation: drop 1.1s;
+    transform-origin: bottom center;
+  }
+  .cell.win {
+    animation: pulse 0.8s ease-in-out infinite;
+    box-shadow: 0 0 18px 4px var(--accent);
+  }
+  @keyframes drop {
+    0%   { transform: translateY(-260%) scale(1, 1);         animation-timing-function: cubic-bezier(0.2, 0, 1, 0.35); }
+    10%  { transform: translateY(-250%) scale(1, 1);         animation-timing-function: cubic-bezier(0.2, 0, 1, 0.35); }
+    58%  { transform: translateY(0) scale(1, 1);              animation-timing-function: ease-out; }
+    68%  { transform: translateY(3%) scale(1.1, 0.88);        animation-timing-function: ease-out; }
+    80%  { transform: translateY(-7%) scale(0.96, 1.05);      animation-timing-function: ease-out; }
+    91%  { transform: translateY(2%) scale(1.03, 0.97);       animation-timing-function: ease-out; }
+    97%  { transform: translateY(-1%) scale(0.99, 1.01); }
+    100% { transform: translateY(0) scale(1, 1); }
+  }
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.12); }
+  }
+  .col-hitzone:hover .cell:not(.p1):not(.p2) {
+    background: #1e293b;
+  }
+  #controls {
+    margin-top: 18px;
+    display: flex;
+    gap: 12px;
+  }
+  button {
+    background: var(--accent);
+    color: #0f172a;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: filter 0.15s ease;
+  }
+  button:hover { filter: brightness(1.1); }
+  button:active { filter: brightness(0.9); }
+  #titleBtn {
+    background: transparent;
+    border: 2px solid #475569;
+    color: var(--text);
+  }
+  #score {
+    margin-top: 14px;
+    display: flex;
+    gap: 20px;
+    font-size: 0.95rem;
+    opacity: 0.85;
+  }
+</style>
+</head>
+<body>
+
+  <!-- Always-on-top audio toggles — visible through every screen (splash, title, game, results) -->
+  <div id="audioControls">
+    <button id="bgmToggle" class="audio-btn" type="button" aria-label="BGMのオン/オフ" aria-pressed="true">
+      <span class="audio-icon">🎵</span><span class="audio-label">BGM</span>
+    </button>
+    <button id="seToggle" class="audio-btn" type="button" aria-label="効果音のオン/オフ" aria-pressed="true">
+      <span class="audio-icon">🔔</span><span class="audio-label">SE</span>
+    </button>
+  </div>
+  <audio id="bgmAudio" loop preload="none"></audio>
+
+  <div id="splashScreen">
+    <img src="title.webp" alt="黄昏のフォー・イン・ア・ロウ タイトル">
+  </div>
+
+  <div id="charBgWrap"><img id="charBgImg" src="" alt=""></div>
+  <div id="charBgOverlay"></div>
+
+  <div class="page-content">
+
+  <!-- Title / mode select screen -->
+  <div id="titleScreen">
+    <h1>黄昏のフォー・イン・ア・<span id="debugTrigger">ロ</span>ウ</h1>
+    <p class="subtitle">遊び方を選んでください</p>
+    <div class="mode-options" id="modeOptions">
+      <button class="mode-btn" id="pvpBtn"><span class="emoji">🧑‍🤝‍🧑</span>対人戦</button>
+      <button class="mode-btn" id="cpuBtn"><span class="emoji">🤖</span>CPU戦<br><span class="mode-btn-sub">LV1からの勝ち抜き</span></button>
+    </div>
+    <button class="back-to-splash-btn" id="backToSplashBtn">← タイトルに戻る</button>
+    <p class="credit">
+      Created by <strong>naogare</strong> ／
+      <a href="https://www.youtube.com/@NMLabo" target="_blank" rel="noopener noreferrer">YouTube: NMLabo</a>
+    </p>
+  </div>
+
+  <!-- Game screen -->
+  <div id="gameScreen" class="hidden">
+    <div id="speechBubble" class="hidden">
+      <div class="bubble-name" id="bubbleName"></div>
+      <div class="bubble-text" id="bubbleText"></div>
+    </div>
+    <div id="modeLabel"></div>
+    <div id="status"></div>
+    <div id="board-wrap">
+      <div id="board"></div>
+    </div>
+    <div id="controls">
+      <button id="resetBtn">最初からやり直す</button>
+      <button id="titleBtn">タイトルに戻る</button>
+    </div>
+    <div id="score">
+      <span id="score1">プレイヤー1（赤）: 0勝</span>
+      <span id="score2">プレイヤー2（黄）: 0勝</span>
+    </div>
+  </div>
+
+  </div>
+
+  <!-- Ladder result overlay: shown after each CPU match (advance / game over / all-clear / draw) -->
+  <div id="resultOverlay" class="hidden">
+    <div class="result-card">
+      <div class="result-portrait" id="resultPortrait"></div>
+      <div class="result-title" id="resultTitle"></div>
+      <div class="result-message" id="resultMessage"></div>
+      <div class="result-actions" id="resultActions"></div>
+    </div>
+  </div>
+
+  <!-- Turn-order coin toss: brief animation shown before every match starts -->
+  <div id="turnDecideOverlay" class="hidden">
+    <div class="turn-decide-card">
+      <div class="coin-wrap"><div class="coin" id="turnCoin"></div></div>
+      <div class="turn-decide-text" id="turnDecideText"></div>
+    </div>
+  </div>
+
+  <!-- Hidden debug menu: double-click the "ロ" in the title to jump straight to any ladder level -->
+  <div id="debugLevelOverlay" class="hidden">
+    <div class="result-card">
+      <div class="result-title">🛠 デバッグ: 開始レベル選択</div>
+      <div class="result-message">CPU戦の開始レベルを選んでください</div>
+      <div class="result-actions" id="debugLevelActions"></div>
+    </div>
+  </div>
+
+  <!-- All-clear ending: slow scroll through ending.webp over ending.mp3, click anywhere to return to title -->
+  <div id="endingScreen" class="hidden">
+    <div id="endingScroll"><img src="ending.webp" alt="エンディング"></div>
+    <div class="ending-hint">クリックでタイトルへ</div>
+  </div>
+
+<script>
+(function () {
+  // ---------- Audio: looping BGM (file-based, per-screen tracks) + synthesized SFX (Web Audio API) ----------
+  // Music lives in bgm/: title.mp3 plays on the splash/title screens, bgm.mp3
+  // plays during actual matches. Either file can be missing (bgm.mp3 isn't
+  // made yet) — playback just silently no-ops until it shows up. SFX are
+  // generated on the fly via Web Audio API so they work immediately, no files
+  // needed. Both toggles persist via localStorage and stay visible/functional
+  // across every screen (splash, title, game, result overlay).
+  // Some contexts (sandboxed embeds, certain mobile in-app browsers, strict
+  // private-browsing modes) throw on any localStorage access rather than
+  // just failing quietly — guard every call so a blocked storage API can
+  // never take the rest of the game down with it.
+  function safeStorageGet(key) {
+    try { return localStorage.getItem(key); } catch (e) { return null; }
+  }
+  function safeStorageSet(key, value) {
+    try { localStorage.setItem(key, value); } catch (e) { /* ignore */ }
+  }
+
+  const SoundMgr = (function () {
+    const STORAGE_BGM = 'lineup4_bgm_on';
+    const STORAGE_SE = 'lineup4_se_on';
+    let bgmOn = safeStorageGet(STORAGE_BGM) !== '0';
+    let seOn = safeStorageGet(STORAGE_SE) !== '0';
+    let unlocked = false;
+    let ctx = null;
+
+    // 'title' and 'game' are fixed tracks; 'level:N' is resolved to bgm/LVN.mp3
+    // for a per-character theme, falling back to the generic game track (and
+    // from there, silence) wherever a more specific file hasn't been added yet.
+    const TITLE_URL = 'bgm/title.mp3';
+    const GAME_URL = 'bgm/bgm.mp3';
+    const ENDING_URL = 'bgm/ending.mp3';
+    function levelUrl(level) { return 'bgm/LV' + level + '.mp3'; }
+    function urlForKey(key) {
+      if (key === 'title') return TITLE_URL;
+      if (key === 'game') return GAME_URL;
+      if (key === 'ending') return ENDING_URL;
+      if (key.indexOf('level:') === 0) return levelUrl(key.slice(6));
+      return null;
+    }
+
+    const BGM_VOLUME = 0.35;
+    const trackMissing = {};
+    let currentTrackKey = null;
+
+    const bgmEl = document.getElementById('bgmAudio');
+    bgmEl.volume = BGM_VOLUME;
+
+    function ensureContext() {
+      if (!ctx) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (AC) ctx = new AC();
+      }
+      if (ctx && ctx.state === 'suspended') ctx.resume();
+      return ctx;
+    }
+
+    function fadeVolume(target, duration) {
+      const start = bgmEl.volume;
+      const t0 = performance.now();
+      function step(now) {
+        const t = Math.min(1, (now - t0) / duration);
+        bgmEl.volume = start + (target - start) * t;
+        if (t < 1) requestAnimationFrame(step);
+      }
+      requestAnimationFrame(step);
+    }
+
+    function playTrack(key, fallbackKey) {
+      if (trackMissing[key]) {
+        if (fallbackKey) playTrack(fallbackKey, fallbackKey === 'game' ? null : 'game');
+        return;
+      }
+      if (currentTrackKey === key) {
+        if (bgmOn && unlocked) bgmEl.play().catch(() => {});
+        return;
+      }
+      currentTrackKey = key;
+      const switchSrc = () => {
+        const thisKey = key;
+        bgmEl.onerror = () => {
+          trackMissing[thisKey] = true;
+          if (fallbackKey && currentTrackKey === thisKey) {
+            playTrack(fallbackKey, fallbackKey === 'game' ? null : 'game');
+          }
+        };
+        bgmEl.src = urlForKey(key);
+        if (bgmOn && unlocked) {
+          bgmEl.volume = 0;
+          bgmEl.play().then(() => fadeVolume(BGM_VOLUME, 500)).catch(() => {});
+        } else {
+          bgmEl.volume = BGM_VOLUME;
+        }
+      };
+      if (!bgmEl.paused) {
+        fadeVolume(0, 250);
+        setTimeout(() => { bgmEl.pause(); switchSrc(); }, 260);
+      } else {
+        switchSrc();
+      }
+    }
+
+    // Prefer a level-specific theme (bgm/LV{level}.mp3); silently falls back
+    // to the shared game track if that file doesn't exist for this level yet.
+    function playLevelTrack(level) {
+      playTrack('level:' + level, 'game');
+    }
+
+    function tone(freq, duration, type, gainPeak, delay) {
+      if (!seOn) return;
+      const audioCtx = ensureContext();
+      if (!audioCtx) return;
+      const t0 = audioCtx.currentTime + (delay || 0);
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = type || 'sine';
+      osc.frequency.setValueAtTime(freq, t0);
+      gain.gain.setValueAtTime(0, t0);
+      gain.gain.linearRampToValueAtTime(gainPeak || 0.15, t0 + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.001, t0 + duration);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start(t0);
+      osc.stop(t0 + duration + 0.02);
+    }
+
+    return {
+      unlock() {
+        if (unlocked) return;
+        unlocked = true;
+        ensureContext();
+        playTrack(currentTrackKey || 'title');
+      },
+      playTrack,
+      playLevelTrack,
+      setBgmOn(v) {
+        bgmOn = v;
+        safeStorageSet(STORAGE_BGM, v ? '1' : '0');
+        if (v) {
+          if (unlocked) bgmEl.play().catch(() => {});
+        } else {
+          bgmEl.pause();
+        }
+      },
+      setSeOn(v) {
+        seOn = v;
+        safeStorageSet(STORAGE_SE, v ? '1' : '0');
+      },
+      isBgmOn: () => bgmOn,
+      isSeOn: () => seOn,
+      seClick() { tone(520, 0.09, 'triangle', 0.12); },
+      seDrop() { tone(160, 0.16, 'sine', 0.22); tone(90, 0.22, 'sine', 0.15, 0.03); },
+      seWin() { [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => tone(f, 0.22, 'triangle', 0.16, i * 0.09)); },
+      seLose() { [392, 329.63, 261.63, 196].forEach((f, i) => tone(f, 0.28, 'sawtooth', 0.1, i * 0.11)); },
+      seDraw() { tone(300, 0.2, 'sine', 0.12); tone(300, 0.2, 'sine', 0.12, 0.15); },
+    };
+  })();
+
+  const bgmToggleBtn = document.getElementById('bgmToggle');
+  const seToggleBtn = document.getElementById('seToggle');
+  function refreshAudioButtons() {
+    const bgmIcon = bgmToggleBtn.querySelector('.audio-icon');
+    const seIcon = seToggleBtn.querySelector('.audio-icon');
+    bgmToggleBtn.classList.toggle('muted', !SoundMgr.isBgmOn());
+    bgmToggleBtn.setAttribute('aria-pressed', String(SoundMgr.isBgmOn()));
+    bgmIcon.textContent = SoundMgr.isBgmOn() ? '🎵' : '🔇';
+    seToggleBtn.classList.toggle('muted', !SoundMgr.isSeOn());
+    seToggleBtn.setAttribute('aria-pressed', String(SoundMgr.isSeOn()));
+    seIcon.textContent = SoundMgr.isSeOn() ? '🔔' : '🔕';
+  }
+  refreshAudioButtons();
+  bgmToggleBtn.addEventListener('click', () => {
+    SoundMgr.unlock();
+    SoundMgr.setBgmOn(!SoundMgr.isBgmOn());
+    refreshAudioButtons();
+  });
+  seToggleBtn.addEventListener('click', () => {
+    SoundMgr.unlock();
+    SoundMgr.setSeOn(!SoundMgr.isSeOn());
+    SoundMgr.seClick();
+    refreshAudioButtons();
+  });
+
+  // ---------- Splash screen ----------
+  const splashScreen = document.getElementById('splashScreen');
+  function showSplash() {
+    SoundMgr.playTrack('title');
+    splashScreen.classList.remove('hide');
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => splashScreen.classList.add('show'));
+    });
+  }
+  function hideSplash() {
+    SoundMgr.unlock();
+    SoundMgr.seClick();
+    splashScreen.classList.remove('show');
+    splashScreen.classList.add('hide');
+  }
+  showSplash();
+  splashScreen.addEventListener('click', hideSplash);
+
+  document.getElementById('backToSplashBtn').addEventListener('click', () => {
+    SoundMgr.seClick();
+    showSplash();
+  });
+
+  const ROWS = 6;
+  const COLS = 7;
+  const boardEl = document.getElementById('board');
+  const statusEl = document.getElementById('status');
+  const resetBtn = document.getElementById('resetBtn');
+  const titleBtn = document.getElementById('titleBtn');
+  const score1El = document.getElementById('score1');
+  const score2El = document.getElementById('score2');
+  const boardWrap = document.getElementById('board-wrap');
+  const modeLabelEl = document.getElementById('modeLabel');
+
+  const titleScreen = document.getElementById('titleScreen');
+  const gameScreen = document.getElementById('gameScreen');
+  const pvpBtn = document.getElementById('pvpBtn');
+  const cpuBtn = document.getElementById('cpuBtn');
+
+  // ---------- CPU character roster ----------
+  // 5-stage strength ladder. `depth` = minimax search depth, `wildness` = chance
+  // the character ignores the calculated best move in favor of a rough/random one
+  // (a winning move is always taken regardless, so weaker levels never look "broken").
+  const CHARACTERS = [
+    { level: 1, name: '荒くれストライカー', stars: 2, img: 'chara/LV1.webp', emoji: '👊',
+      desc: '力任せで攻めてくるチンピラ系', depth: 1, wildness: 0.40,
+      lines: {
+        normal: [
+          'へへっ、どこに置こうが俺の勝ちだぜ！',
+          '考えすぎんな！　ガツンと来いよ！',
+          'その一手、俺には丸見えだぜ！',
+          'おいおい、そんなところに置いていいのか？',
+          'まだまだ！　ここからひっくり返してやる！',
+        ],
+        aboutToWin: [
+          '見たか！　もう逃げ道はねぇぞ！',
+          'ハハハッ！　あと一手でブッ飛ばしてやる！',
+        ],
+        aboutToLose: [
+          'ちょ、待て！　今のはナシだろ！',
+          'くそっ！　まだ終わっちゃいねぇぞ！',
+        ],
+        victory: 'ガハハハッ！　俺様の勝ちだ！　力ってのはな、最後にモノを言うんだよ！',
+        defeat: 'ぐおおお……！　俺が……負けただと……？　次は絶対ぶっ潰す！',
+      } },
+    { level: 2, name: '黒衣のディーラー', stars: 3, img: 'chara/LV2.webp', emoji: '🃏',
+      desc: '冷静・知的な悪役', depth: 2, wildness: 0.25,
+      lines: {
+        normal: [
+          'なるほど。あなたは、そういう手を選ぶんですね。',
+          '面白い。では、こちらはどうでしょう？',
+          '焦らなくても結構ですよ。時間はありますから。',
+          'その一手には、少々期待していたんですがね。',
+          '勝負というのは、最後まで分からないものですよ。',
+        ],
+        aboutToWin: [
+          'チェックメイト……と言うには、まだ早いですかね。',
+          'どうやら勝負の流れは、こちらに傾いたようですね。',
+        ],
+        aboutToLose: [
+          '……これは少々、計算が狂いましたね。',
+          'なるほど。そう来ましたか。実に興味深い。',
+        ],
+        victory: '勝負あり、ですね。あなたの手札は、すべて見えていましたよ。',
+        defeat: '……私の読みを上回りましたか。お見事。次は、そう簡単にはいきませんよ。',
+      } },
+    { level: 3, name: '狂犬マスク', stars: 4, img: 'chara/LV3.webp', emoji: '🐺',
+      desc: '不気味で攻撃的', depth: 3, wildness: 0.15,
+      lines: {
+        normal: [
+          'ククク……そこに置くんだ？　へぇ……。',
+          'もっと来いよ。まだ全然足りねぇ。',
+          'その顔……いいねぇ。追い詰められてきた顔だ。',
+          '次はどこかな？　どこかなぁ？',
+          'ハハッ！　盤面がぐちゃぐちゃになってきたぜ！',
+        ],
+        aboutToWin: [
+          '見える……見えるぞ！　お前が負ける瞬間が！',
+          'ヒャハハハ！　あと一手だ！　逃げてみろよ！',
+        ],
+        aboutToLose: [
+          '……へぇ。やるじゃねぇか。',
+          'ハハッ……最高だ！　もっとギリギリまで来いよ！',
+        ],
+        victory: 'アハハハハ！　終わっちまった！　もっと遊びたかったのになぁ！',
+        defeat: '……負けた？　俺が？　ハハ……ハハハッ！　最高じゃねぇか！',
+      } },
+    { level: 4, name: '黒薔薇アイドル', stars: 4, img: 'chara/LV4.webp', emoji: '🌹',
+      desc: '美貌と妖しさを兼ね備えた人気者', depth: 4, wildness: 0.05,
+      lines: {
+        normal: [
+          'あら、そこに置くの？　かわいい選択ね♡',
+          'ふふっ、ちゃんと私を見ててね？',
+          '大丈夫。まだ負けたわけじゃないもの。',
+          'その手……ファンのみんなならどう思うかしら？',
+          '勝負って、こんなにドキドキするものなのね♡',
+        ],
+        aboutToWin: [
+          'うふふ……もう逃げられないわよ♡',
+          'さあ、最後の一手よ。私をもっと楽しませて？',
+        ],
+        aboutToLose: [
+          '……あら？　ちょっと予定と違うわね。',
+          'ふふっ……まだ私が笑ってる理由、分からない？',
+        ],
+        victory: 'みんなーっ！　勝ったよーっ♡ ……ふふ。あなたも、ちゃんと楽しめたかしら？',
+        defeat: '……え？　私が……負けたの？　……ふふ、そういう顔するんだ。覚えておくわね♡',
+      } },
+    { level: 5, name: '傀儡師', stars: 5, img: 'chara/LV5.webp', emoji: '🎭',
+      desc: '名人・ラスボス。ゲーム盤そのものを操る', depth: 6, wildness: 0,
+      // LV5 only: lines are multi-speaker conversations between the puppeteer
+      // ("master") and his four puppets, instead of a single character's line.
+      // See PUPPETS/speakerName() for how `speaker` keys are rendered.
+      lines: {
+        normal: [
+          [
+            { speaker: 'master', text: 'さて……次は、誰に踊ってもらいましょうか。' },
+            { speaker: 'fox', text: 'ボクがいい！' },
+            { speaker: 'owl', text: 'お前は少し黙っていなさい。' },
+          ],
+          [
+            { speaker: 'owl', text: 'マスター、左です。左の手をお忘れなく。' },
+            { speaker: 'master', text: 'おや。私より先に気づきましたか。' },
+          ],
+          [
+            { speaker: 'mouse', text: '……あの……こっち、危ないと思う……。' },
+            { speaker: 'master', text: 'ふふ。ネズミの勘は、侮れませんからね。' },
+          ],
+          [
+            { speaker: 'badger', text: '……。' },
+            { speaker: 'master', text: 'どうしました？' },
+            { speaker: 'badger', text: '……勝てる。' },
+            { speaker: 'master', text: 'それは頼もしい。' },
+          ],
+          [
+            { speaker: 'fox', text: 'ねえねえ、あいつ、次どうすると思う？' },
+            { speaker: 'owl', text: '静かにしなさい。今、考えているところです。' },
+            { speaker: 'fox', text: 'じゃあボクは分かった！' },
+            { speaker: 'master', text: '……では、聞かせてもらいましょうか。' },
+          ],
+        ],
+        aboutToWin: [
+          [
+            { speaker: 'master', text: '……ほら。もう、糸が見えてきましたよ。' },
+            { speaker: 'owl', text: 'あと一手です。' },
+            { speaker: 'fox', text: 'やったー！' },
+            { speaker: 'badger', text: '……まだだ。' },
+            { speaker: 'mouse', text: '……うん。まだ。' },
+            { speaker: 'master', text: 'ふふ。慎重ですね。' },
+          ],
+          [
+            { speaker: 'master', text: 'さあ、最後の一手です。' },
+            { speaker: 'fox', text: 'もう勝った？' },
+            { speaker: 'owl', text: 'まだです。油断は禁物ですよ。' },
+            { speaker: 'mouse', text: '……でも、たぶん勝てる。' },
+            { speaker: 'badger', text: '……勝つ。' },
+            { speaker: 'master', text: '皆さん、ずいぶん気が早いようで。' },
+          ],
+        ],
+        aboutToLose: [
+          [
+            { speaker: 'mouse', text: '……マスター。' },
+            { speaker: 'master', text: 'ええ。分かっていますよ。' },
+            { speaker: 'owl', text: 'これは……なかなか。' },
+            { speaker: 'fox', text: 'えっ、ちょっと待って！　負けるの!?' },
+            { speaker: 'badger', text: '……まだ終わってない。' },
+            { speaker: 'master', text: 'その通りです。' },
+          ],
+          [
+            { speaker: 'owl', text: 'マスター。これは、予定外では？' },
+            { speaker: 'master', text: 'ええ。実に愉快な予定外です。' },
+            { speaker: 'fox', text: '全然愉快じゃないよ！' },
+            { speaker: 'badger', text: '……まだ打てる。' },
+            { speaker: 'mouse', text: '……一手、ある。' },
+            { speaker: 'master', text: 'なるほど。では、その一手に賭けてみましょう。' },
+          ],
+        ],
+        victory: [
+          { speaker: 'master', text: '……終幕です。' },
+          { speaker: 'owl', text: '見事な勝負でした。' },
+          { speaker: 'fox', text: 'やったー！　勝ったー！' },
+          { speaker: 'badger', text: '……当然。' },
+          { speaker: 'mouse', text: '……よかった。' },
+          { speaker: 'master', text: '皆さん、お疲れ様でした。では……次の舞台へ参りましょう。' },
+        ],
+        defeat: [
+          { speaker: 'fox', text: '……負けちゃった。' },
+          { speaker: 'owl', text: '認めましょう。完敗です。' },
+          { speaker: 'badger', text: '……強い。' },
+          { speaker: 'mouse', text: '……すごかった。' },
+          { speaker: 'master', text: '……ふふ。' },
+          { speaker: 'master', text: 'まさか、この私が操られるとはね。' },
+          { speaker: 'fox', text: 'えっ、マスターが人形になったの？' },
+          { speaker: 'master', text: '……それは、次の舞台でのお楽しみです。' },
+        ],
+      } },
+  ];
+
+  const PUPPETS = {
+    fox: '🦊 きつね',
+    owl: '🦉 ふくろう',
+    mouse: '🐭 ねずみ',
+    badger: '🦡 あなぐま',
+  };
+  function speakerName(ch, speakerKey) {
+    return speakerKey === 'master' ? ch.name : (PUPPETS[speakerKey] || speakerKey);
+  }
+
+  let grid, currentPlayer, gameOver, cellEls;
+  let scores = { 1: 0, 2: 0 };
+  let mode = 'pvp'; // 'pvp' | 'cpu'
+  let currentChar = null;
+  let ladderIndex = 0; // index into CHARACTERS for the current CPU ladder run
+  let cpuThinking = false;
+
+  // ---------- Title screen wiring ----------
+  function starString(n) {
+    return '★'.repeat(n) + '☆'.repeat(5 - n);
+  }
+
+  pvpBtn.addEventListener('click', () => { SoundMgr.seClick(); startGame('pvp'); });
+  cpuBtn.addEventListener('click', () => { SoundMgr.seClick(); startLadder(); });
+
+  function startLadder() {
+    ladderIndex = 0;
+    currentChar = CHARACTERS[0];
+    startGame('cpu');
+  }
+
+  // ---------- Hidden debug menu: double-click the "ロ" in the title ----------
+  document.getElementById('debugTrigger').addEventListener('dblclick', (e) => {
+    e.preventDefault();
+    const overlay = document.getElementById('debugLevelOverlay');
+    const actions = document.getElementById('debugLevelActions');
+    actions.innerHTML = '';
+    CHARACTERS.forEach((ch, idx) => {
+      const b = document.createElement('button');
+      b.textContent = `LV.${ch.level} ${ch.name}`;
+      if (idx > 0) b.classList.add('secondary');
+      b.addEventListener('click', () => {
+        SoundMgr.seClick();
+        overlay.classList.add('hidden');
+        ladderIndex = idx;
+        currentChar = ch;
+        startGame('cpu');
+      });
+      actions.appendChild(b);
+    });
+    const cancelBtn = document.createElement('button');
+    cancelBtn.textContent = 'キャンセル';
+    cancelBtn.classList.add('secondary');
+    cancelBtn.addEventListener('click', () => overlay.classList.add('hidden'));
+    actions.appendChild(cancelBtn);
+    overlay.classList.remove('hidden');
+  });
+
+  function startGame(selectedMode) {
+    mode = selectedMode;
+    titleScreen.classList.add('hidden');
+    gameScreen.classList.remove('hidden');
+    const speechBubbleEl = document.getElementById('speechBubble');
+    if (mode === 'cpu' && currentChar) {
+      SoundMgr.playLevelTrack(currentChar.level);
+      modeLabelEl.innerHTML = `
+        <img id="opponentAvatar" src="${currentChar.img}" alt=""
+             onerror="this.style.display='none'">
+        LV.${currentChar.level}/5 ${currentChar.name}（${starString(currentChar.stars)}） ／ あなたは赤`;
+      setCharBackground(currentChar);
+      speechBubbleEl.classList.remove('hidden');
+    } else {
+      SoundMgr.playTrack('game');
+      modeLabelEl.textContent = '対人戦モード';
+      setCharBackground(null);
+      speechBubbleEl.classList.add('hidden');
+    }
+    scores = { 1: 0, 2: 0 };
+    updateScoreboard();
+    initGame();
+  }
+
+  function setCharBackground(ch) {
+    const wrap = document.getElementById('charBgWrap');
+    const overlay = document.getElementById('charBgOverlay');
+    const img = document.getElementById('charBgImg');
+    if (!ch) {
+      wrap.classList.remove('show');
+      overlay.classList.remove('show');
+      return;
+    }
+    img.onload = () => {
+      wrap.classList.add('show');
+      overlay.classList.add('show');
+    };
+    img.onerror = () => {
+      wrap.classList.remove('show');
+      overlay.classList.remove('show');
+    };
+    img.src = ch.img;
+  }
+
+  function goToTitle() {
+    SoundMgr.playTrack('title');
+    gameScreen.classList.add('hidden');
+    titleScreen.classList.remove('hidden');
+    setCharBackground(null);
+    hideBubble();
+  }
+
+  // ---------- All-clear ending: slow scroll through ending.webp over ending.mp3 ----------
+  function showEndingScreen() {
+    SoundMgr.playTrack('ending', 'title');
+    const el = document.getElementById('endingScreen');
+    const img = el.querySelector('img');
+    img.classList.remove('pan');
+    void img.offsetWidth; // restart the pan animation each time this is shown
+    img.classList.add('pan');
+    el.classList.remove('hidden');
+    requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('show')));
+  }
+
+  document.getElementById('endingScreen').addEventListener('click', () => {
+    SoundMgr.seClick();
+    const el = document.getElementById('endingScreen');
+    el.classList.remove('show');
+    setTimeout(() => el.classList.add('hidden'), 500);
+    goToTitle();
+  });
+
+  titleBtn.addEventListener('click', () => { SoundMgr.seClick(); goToTitle(); });
+
+  // ---------- Ladder progression (win → next challenger, lose → run over) ----------
+  function showResultOverlay({ title, message, portraitImg, portraitEmoji, buttons }) {
+    const overlay = document.getElementById('resultOverlay');
+    const portraitEl = document.getElementById('resultPortrait');
+    document.getElementById('resultTitle').textContent = title;
+    document.getElementById('resultMessage').textContent = message;
+    portraitEl.innerHTML = portraitImg
+      ? `<img src="${portraitImg}" alt="" onerror="this.parentElement.innerHTML='${portraitEmoji || ''}'">`
+      : (portraitEmoji || '');
+    const actionsEl = document.getElementById('resultActions');
+    actionsEl.innerHTML = '';
+    buttons.forEach(btn => {
+      const b = document.createElement('button');
+      b.textContent = btn.label;
+      if (!btn.primary) b.classList.add('secondary');
+      b.addEventListener('click', () => {
+        SoundMgr.seClick();
+        overlay.classList.add('hidden');
+        btn.onClick();
+      });
+      actionsEl.appendChild(b);
+    });
+    overlay.classList.remove('hidden');
+  }
+
+  function handleLadderOutcome(result) {
+    if (result === 'draw') {
+      showResultOverlay({
+        title: '引き分け',
+        message: `${currentChar.name} との勝負は引き分けに終わりました。`,
+        portraitImg: currentChar.img,
+        portraitEmoji: currentChar.emoji,
+        buttons: [
+          { label: 'もう一度対戦する', primary: true, onClick: () => initGame() },
+          { label: 'タイトルに戻る', onClick: goToTitle },
+        ],
+      });
+      return;
+    }
+
+    if (result === 'lose') {
+      showResultOverlay({
+        title: '敗北……',
+        message: `LV.${currentChar.level} ${currentChar.name} に敗れました。\n到達レベル: LV.${currentChar.level}`,
+        portraitImg: currentChar.img,
+        portraitEmoji: currentChar.emoji,
+        buttons: [
+          { label: 'このレベルに再挑戦する', primary: true, onClick: () => startGame('cpu') },
+          { label: 'LV1からやり直す', onClick: startLadder },
+          { label: 'タイトルに戻る', onClick: goToTitle },
+        ],
+      });
+      return;
+    }
+
+    // result === 'win'
+    if (ladderIndex >= CHARACTERS.length - 1) {
+      showEndingScreen();
+      return;
+    }
+
+    const beaten = currentChar;
+    const next = CHARACTERS[ladderIndex + 1];
+    showResultOverlay({
+      title: `LV.${beaten.level} ${beaten.name} 撃破！`,
+      message: `次の刺客が現れた……\nLV.${next.level} ${next.name}`,
+      portraitImg: next.img,
+      portraitEmoji: next.emoji,
+      buttons: [
+        { label: '対戦開始', primary: true, onClick: () => {
+            ladderIndex++;
+            currentChar = next;
+            startGame('cpu');
+          } },
+        { label: 'ここでやめる（タイトルへ）', onClick: goToTitle },
+      ],
+    });
+  }
+
+  // ---------- Core game ----------
+  function initGame() {
+    grid = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+    gameOver = false;
+    cpuThinking = false;
+    buildBoard();
+    hideBubble();
+    updateStatus('先攻・後攻を決めています…');
+    boardWrap.classList.add('locked');
+    decideStartingPlayer((starter) => {
+      currentPlayer = starter;
+      boardWrap.classList.remove('locked');
+      updateStatus();
+      if (mode === 'cpu' && currentPlayer === 2 && !gameOver) {
+        triggerCpuMove();
+      }
+    });
+  }
+
+  // Brief (~2s) coin-toss animation deciding who moves first, run before
+  // every match (fresh game, reset, and each new CPU ladder opponent).
+  function decideStartingPlayer(onDone) {
+    const overlay = document.getElementById('turnDecideOverlay');
+    const coin = document.getElementById('turnCoin');
+    const textEl = document.getElementById('turnDecideText');
+    const starter = Math.random() < 0.5 ? 1 : 2;
+    const starterLabel = starter === 1
+      ? (mode === 'cpu' ? 'あなた（赤）' : 'プレイヤー1（赤）')
+      : (mode === 'cpu' ? opponentLabel() : 'プレイヤー2（黄）');
+
+    coin.classList.remove('settled');
+    coin.style.background = 'var(--p1)';
+    textEl.classList.remove('show');
+    textEl.textContent = '先攻・後攻を決めています…';
+    overlay.classList.remove('hidden');
+
+    let flip = 0;
+    const flickerTimer = setInterval(() => {
+      flip++;
+      coin.style.background = flip % 2 === 0 ? 'var(--p1)' : 'var(--p2)';
+    }, 110);
+
+    setTimeout(() => {
+      clearInterval(flickerTimer);
+      coin.style.background = starter === 1 ? 'var(--p1)' : 'var(--p2)';
+      coin.classList.add('settled');
+      SoundMgr.seDrop();
+      textEl.textContent = `${starterLabel}の先攻です！`;
+      textEl.classList.add('show');
+    }, 1250);
+
+    setTimeout(() => {
+      overlay.classList.add('hidden');
+      onDone(starter);
+    }, 2000);
+  }
+
+  function buildBoard() {
+    boardEl.innerHTML = '';
+    cellEls = [];
+    for (let r = 0; r < ROWS; r++) {
+      cellEls.push([]);
+      for (let c = 0; c < COLS; c++) {
+        const hitzone = document.createElement('div');
+        hitzone.className = 'col-hitzone';
+        hitzone.dataset.col = c;
+        const cell = document.createElement('div');
+        cell.className = 'cell';
+        hitzone.appendChild(cell);
+        hitzone.addEventListener('click', () => handleColumnClick(c));
+        boardEl.appendChild(hitzone);
+        cellEls[r].push(cell);
+      }
+    }
+  }
+
+  function opponentLabel() {
+    return mode === 'cpu' && currentChar ? currentChar.name : 'プレイヤー2（黄）';
+  }
+
+  function updateStatus(message) {
+    if (message) {
+      statusEl.innerHTML = message;
+      return;
+    }
+    let indicator = `<span class="turn-indicator" style="background:var(--p1)"></span>`;
+    let name = 'プレイヤー1（赤）';
+    if (currentPlayer === 2) {
+      name = opponentLabel();
+      indicator = (mode === 'cpu' && currentChar)
+        ? `<img class="turn-avatar" src="${currentChar.img}" alt="" onerror="this.outerHTML='<span class=&quot;turn-indicator&quot; style=&quot;background:var(--p2)&quot;></span>'">`
+        : `<span class="turn-indicator" style="background:var(--p2)"></span>`;
+    }
+    statusEl.innerHTML = `${indicator} ${name}の番です`;
+  }
+
+  function handleColumnClick(col) {
+    if (gameOver || cpuThinking) return;
+    if (mode === 'cpu' && currentPlayer === 2) return; // block manual clicks during CPU turn
+    dropPiece(col, currentPlayer);
+  }
+
+  function dropPiece(col, player) {
+    const targetRow = getNextOpenRow(grid, col);
+    if (targetRow === -1) return false;
+
+    grid[targetRow][col] = player;
+    const cellEl = cellEls[targetRow][col];
+    cellEl.classList.add(player === 1 ? 'p1' : 'p2', 'drop');
+    SoundMgr.seDrop();
+
+    const winLine = checkWin(targetRow, col, player);
+    if (winLine) {
+      gameOver = true;
+      winLine.forEach(([r, c]) => cellEls[r][c].classList.add('win'));
+      scores[player]++;
+      updateScoreboard();
+      const name = player === 1 ? 'プレイヤー1（赤）' : opponentLabel();
+      updateStatus(`🎉 ${name}の勝利！`);
+      if (mode === 'cpu' && currentChar) {
+        if (player === 2) SoundMgr.seLose(); else SoundMgr.seWin();
+        const spokenMs = speak(currentChar, player === 2 ? 'victory' : 'defeat');
+        setTimeout(() => handleLadderOutcome(player === 1 ? 'win' : 'lose'), Math.max(1800, spokenMs + 600));
+      } else {
+        SoundMgr.seWin();
+      }
+      return true;
+    }
+
+    if (isBoardFull()) {
+      gameOver = true;
+      updateStatus('引き分けです！');
+      hideBubble();
+      SoundMgr.seDraw();
+      if (mode === 'cpu' && currentChar) {
+        setTimeout(() => handleLadderOutcome('draw'), 1000);
+      }
+      return true;
+    }
+
+    currentPlayer = currentPlayer === 1 ? 2 : 1;
+    updateStatus();
+
+    if (mode === 'cpu' && player === 2 && currentChar) {
+      if (findImmediateWin(grid, 1) !== null) speak(currentChar, 'aboutToLose');
+      else if (findImmediateWin(grid, 2) !== null) speak(currentChar, 'aboutToWin');
+      else speak(currentChar, 'normal');
+    }
+
+    if (mode === 'cpu' && currentPlayer === 2 && !gameOver) {
+      triggerCpuMove();
+    }
+    return true;
+  }
+
+  // ---------- CPU speech bubble ----------
+  // Most characters speak a single line per category. LV5 (傀儡師) instead has
+  // multi-speaker conversations (master + 4 puppets) — see PUPPETS above.
+  // speak() returns how long (ms) the bubble will be showing, so callers can
+  // delay any follow-up (e.g. the ladder result overlay) until it's done.
+  let conversationTimer = null;
+
+  function lineDelay(text) {
+    return Math.max(1300, Math.min(2600, text.length * 110));
+  }
+
+  function showSingleLine(name, text) {
+    const bubble = document.getElementById('speechBubble');
+    document.getElementById('bubbleName').textContent = name;
+    document.getElementById('bubbleText').textContent = text;
+    bubble.classList.remove('show');
+    void bubble.offsetWidth; // restart the fade/slide animation
+    bubble.classList.add('show');
+    return lineDelay(text);
+  }
+
+  function playConversation(ch, convo) {
+    if (conversationTimer) { clearTimeout(conversationTimer); conversationTimer = null; }
+    let i = 0;
+    function step() {
+      const line = convo[i];
+      i++;
+      showSingleLine(speakerName(ch, line.speaker), line.text);
+      if (i < convo.length) {
+        conversationTimer = setTimeout(step, lineDelay(line.text));
+      }
+    }
+    step();
+    return convo.reduce((sum, line) => sum + lineDelay(line.text), 0);
+  }
+
+  function speak(ch, category) {
+    if (!ch || !ch.lines) return 0;
+    const data = ch.lines[category];
+    if (!data) return 0;
+
+    if (category === 'victory' || category === 'defeat') {
+      return Array.isArray(data) && typeof data[0] === 'object'
+        ? playConversation(ch, data)
+        : showSingleLine(ch.name, data);
+    }
+
+    if (!data.length) return 0;
+    const picked = data[Math.floor(Math.random() * data.length)];
+    return Array.isArray(picked)
+      ? playConversation(ch, picked)
+      : showSingleLine(ch.name, picked);
+  }
+
+  function hideBubble() {
+    if (conversationTimer) { clearTimeout(conversationTimer); conversationTimer = null; }
+    document.getElementById('speechBubble').classList.remove('show');
+  }
+
+  function triggerCpuMove() {
+    cpuThinking = true;
+    boardWrap.classList.add('locked');
+    const thinkingAvatar = currentChar
+      ? `<img class="turn-avatar" src="${currentChar.img}" alt="" onerror="this.outerHTML='<span class=&quot;turn-indicator&quot; style=&quot;background:var(--p2)&quot;></span>'">`
+      : `<span class="turn-indicator" style="background:var(--p2)"></span>`;
+    updateStatus(`${thinkingAvatar} ${opponentLabel()}が考え中...`);
+    setTimeout(() => {
+      const col = getCpuMove();
+      cpuThinking = false;
+      boardWrap.classList.remove('locked');
+      if (col !== null) dropPiece(col, 2);
+    }, 450);
+  }
+
+  function isBoardFull() {
+    return grid[0].every(cell => cell !== 0);
+  }
+
+  function getNextOpenRow(g, col) {
+    for (let r = ROWS - 1; r >= 0; r--) {
+      if (g[r][col] === 0) return r;
+    }
+    return -1;
+  }
+
+  function checkWin(row, col, player) {
+    const directions = [
+      [[0, 1], [0, -1]],   // horizontal
+      [[1, 0], [-1, 0]],   // vertical
+      [[1, 1], [-1, -1]],  // diagonal \
+      [[1, -1], [-1, 1]],  // diagonal /
+    ];
+
+    for (const pair of directions) {
+      let line = [[row, col]];
+      for (const [dr, dc] of pair) {
+        let r = row + dr;
+        let c = col + dc;
+        while (r >= 0 && r < ROWS && c >= 0 && c < COLS && grid[r][c] === player) {
+          line.push([r, c]);
+          r += dr;
+          c += dc;
+        }
+      }
+      if (line.length >= 4) return line;
+    }
+    return null;
+  }
+
+  function updateScoreboard() {
+    score1El.textContent = `プレイヤー1（赤）: ${scores[1]}勝`;
+    score2El.textContent = `${opponentLabel()}: ${scores[2]}勝`;
+  }
+
+  resetBtn.addEventListener('click', () => { SoundMgr.seClick(); initGame(); });
+
+  // ---------- CPU AI (minimax with alpha-beta pruning) ----------
+  function getValidCols(g) {
+    const cols = [];
+    for (let c = 0; c < COLS; c++) if (g[0][c] === 0) cols.push(c);
+    return cols;
+  }
+
+  function cloneGrid(g) {
+    return g.map(row => row.slice());
+  }
+
+  function winningMoveGrid(g, player) {
+    // horizontal
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c <= COLS - 4; c++) {
+        if (g[r][c] === player && g[r][c+1] === player && g[r][c+2] === player && g[r][c+3] === player) return true;
+      }
+    }
+    // vertical
+    for (let c = 0; c < COLS; c++) {
+      for (let r = 0; r <= ROWS - 4; r++) {
+        if (g[r][c] === player && g[r+1][c] === player && g[r+2][c] === player && g[r+3][c] === player) return true;
+      }
+    }
+    // diagonal down-right
+    for (let r = 0; r <= ROWS - 4; r++) {
+      for (let c = 0; c <= COLS - 4; c++) {
+        if (g[r][c] === player && g[r+1][c+1] === player && g[r+2][c+2] === player && g[r+3][c+3] === player) return true;
+      }
+    }
+    // diagonal up-right
+    for (let r = 3; r < ROWS; r++) {
+      for (let c = 0; c <= COLS - 4; c++) {
+        if (g[r][c] === player && g[r-1][c+1] === player && g[r-2][c+2] === player && g[r-3][c+3] === player) return true;
+      }
+    }
+    return false;
+  }
+
+  function evaluateWindow(win, piece) {
+    const opp = piece === 1 ? 2 : 1;
+    let score = 0;
+    const countPiece = win.filter(v => v === piece).length;
+    const countEmpty = win.filter(v => v === 0).length;
+    const countOpp = win.filter(v => v === opp).length;
+    if (countPiece === 4) score += 100;
+    else if (countPiece === 3 && countEmpty === 1) score += 5;
+    else if (countPiece === 2 && countEmpty === 2) score += 2;
+    if (countOpp === 3 && countEmpty === 1) score -= 4;
+    return score;
+  }
+
+  function scorePosition(g, piece) {
+    let score = 0;
+    const centerCol = Math.floor(COLS / 2);
+    const centerCount = g.reduce((acc, row) => acc + (row[centerCol] === piece ? 1 : 0), 0);
+    score += centerCount * 3;
+
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c <= COLS - 4; c++) {
+        score += evaluateWindow([g[r][c], g[r][c+1], g[r][c+2], g[r][c+3]], piece);
+      }
+    }
+    for (let c = 0; c < COLS; c++) {
+      for (let r = 0; r <= ROWS - 4; r++) {
+        score += evaluateWindow([g[r][c], g[r+1][c], g[r+2][c], g[r+3][c]], piece);
+      }
+    }
+    for (let r = 0; r <= ROWS - 4; r++) {
+      for (let c = 0; c <= COLS - 4; c++) {
+        score += evaluateWindow([g[r][c], g[r+1][c+1], g[r+2][c+2], g[r+3][c+3]], piece);
+      }
+    }
+    for (let r = 3; r < ROWS; r++) {
+      for (let c = 0; c <= COLS - 4; c++) {
+        score += evaluateWindow([g[r][c], g[r-1][c+1], g[r-2][c+2], g[r-3][c+3]], piece);
+      }
+    }
+    return score;
+  }
+
+  function isTerminalNode(g) {
+    return winningMoveGrid(g, 1) || winningMoveGrid(g, 2) || getValidCols(g).length === 0;
+  }
+
+  function minimax(g, depth, alpha, beta, maximizing) {
+    const validCols = getValidCols(g);
+    const terminal = isTerminalNode(g);
+
+    if (depth === 0 || terminal) {
+      if (terminal) {
+        if (winningMoveGrid(g, 2)) return [null, 10000000];
+        if (winningMoveGrid(g, 1)) return [null, -10000000];
+        return [null, 0];
+      }
+      return [null, scorePosition(g, 2)];
+    }
+
+    if (maximizing) {
+      let value = -Infinity;
+      let column = validCols[Math.floor(Math.random() * validCols.length)];
+      for (const col of validCols) {
+        const row = getNextOpenRow(g, col);
+        const gCopy = cloneGrid(g);
+        gCopy[row][col] = 2;
+        const newScore = minimax(gCopy, depth - 1, alpha, beta, false)[1];
+        if (newScore > value) { value = newScore; column = col; }
+        alpha = Math.max(alpha, value);
+        if (alpha >= beta) break;
+      }
+      return [column, value];
+    } else {
+      let value = Infinity;
+      let column = validCols[Math.floor(Math.random() * validCols.length)];
+      for (const col of validCols) {
+        const row = getNextOpenRow(g, col);
+        const gCopy = cloneGrid(g);
+        gCopy[row][col] = 1;
+        const newScore = minimax(gCopy, depth - 1, alpha, beta, true)[1];
+        if (newScore < value) { value = newScore; column = col; }
+        beta = Math.min(beta, value);
+        if (alpha >= beta) break;
+      }
+      return [column, value];
+    }
+  }
+
+  // Returns a column that would immediately win for `player`, or null.
+  function findImmediateWin(g, player) {
+    for (const col of getValidCols(g)) {
+      const row = getNextOpenRow(g, col);
+      const gCopy = cloneGrid(g);
+      gCopy[row][col] = player;
+      if (winningMoveGrid(gCopy, player)) return col;
+    }
+    return null;
+  }
+
+  function getCpuMove() {
+    const validCols = getValidCols(grid);
+    if (validCols.length === 0) return null;
+
+    // Always take a winning move on offer, regardless of character strength,
+    // so weaker levels never look "broken" by missing a free win.
+    const winCol = findImmediateWin(grid, 2);
+    if (winCol !== null) return winCol;
+
+    const wildness = currentChar ? currentChar.wildness : 0;
+    if (wildness > 0 && Math.random() < wildness) {
+      return validCols[Math.floor(Math.random() * validCols.length)];
+    }
+
+    const depth = currentChar ? currentChar.depth : 3;
+    const [col] = minimax(grid, depth, -Infinity, Infinity, true);
+    return col === null ? validCols[0] : col;
+  }
+})();
+</script>
+</body>
+</html>
