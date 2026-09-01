@@ -69,6 +69,46 @@
   }
   .hidden{display:none !important;}
 
+  .loading-overlay{
+    position:fixed;
+    inset:0;
+    z-index:999;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:1rem;
+    background:
+      radial-gradient(ellipse at 50% -10%, #FFFBF0 0%, var(--sumi) 55%),
+      var(--sumi);
+    transition:opacity .4s ease;
+  }
+  .loading-overlay__title{
+    font-family:var(--font-display);
+    font-size:1.5rem;
+    letter-spacing:.1em;
+    color:var(--washi);
+  }
+  .loading-overlay__bar{
+    width:min(70%, 320px);
+    height:8px;
+    border-radius:999px;
+    background:var(--sumi-3);
+    border:1px solid var(--border);
+    overflow:hidden;
+  }
+  .loading-overlay__fill{
+    height:100%;
+    width:0%;
+    background:linear-gradient(90deg, var(--hanko), var(--gold));
+    transition:width .2s ease;
+  }
+  .loading-overlay__pct{
+    font-family:var(--font-body);
+    font-size:.85rem;
+    color:var(--washi-dim);
+  }
+
   /* ---- generic panel ---- */
   .panel{
     background:
@@ -1024,6 +1064,12 @@
 </head>
 <body>
 
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="loading-overlay__title">一句ござる！</div>
+  <div class="loading-overlay__bar"><div class="loading-overlay__fill" id="loadingFill"></div></div>
+  <div class="loading-overlay__pct" id="loadingPct">読み込み中…</div>
+</div>
+
 <div class="board">
   <section id="screen-title" class="screen panel hero">
     <div class="hero__poster-frame"><img class="hero__poster" id="heroPosterImg" src="" alt="一句ござる！ 五・七・五で、勝負せよ。">
@@ -1685,6 +1731,9 @@
   var els = {
     heroPosterImg: document.getElementById('heroPosterImg'),
     resultHeroRival: document.getElementById('resultHeroRival'),
+    loadingOverlay: document.getElementById('loadingOverlay'),
+    loadingFill: document.getElementById('loadingFill'),
+    loadingPct: document.getElementById('loadingPct'),
     btnStart: document.getElementById('btnStart'),
     btnTrueWorld: document.getElementById('btnTrueWorld'),
     btnTutorial: document.getElementById('btnTutorial'),
@@ -2673,10 +2722,48 @@
     els.btnSubmit.style.backgroundImage = 'url('+PLAY_ASSETS.btn_submit+')';
   }
 
+  function collectPreloadUrls(){
+    var urls = Object.values(PLAY_ASSETS);
+    [JUDGE_FACES, JUDGE_FACES_MECHA].forEach(function(faceSet){
+      Object.keys(faceSet).forEach(function(judgeId){
+        var tiers = faceSet[judgeId];
+        Object.keys(tiers).forEach(function(tier){
+          urls = urls.concat(tiers[tier]);
+        });
+      });
+    });
+    return Array.from(new Set(urls));
+  }
+
+  function preloadAllImages(onDone){
+    var urls = collectPreloadUrls();
+    var total = urls.length;
+    var loaded = 0;
+    if(total===0){ onDone(); return; }
+    function tick(){
+      loaded++;
+      var pct = Math.round(loaded/total*100);
+      els.loadingFill.style.width = pct+'%';
+      els.loadingPct.textContent = '読み込み中… '+pct+'%';
+      if(loaded>=total) onDone();
+    }
+    urls.forEach(function(url){
+      var img = new Image();
+      img.onload = tick;
+      img.onerror = tick;
+      img.src = url;
+    });
+    setTimeout(onDone, 15000);
+  }
+
   els.heroPosterImg.src = PLAY_ASSETS.title_poster;
   setupPosterPan();
   setupStageAssets();
-  showScreen('title');
+  preloadAllImages(function(){
+    if(els.loadingOverlay.classList.contains('hidden')) return;
+    els.loadingOverlay.classList.add('hidden');
+    showScreen('title');
+  });
 })();
 </script>
 </body>
