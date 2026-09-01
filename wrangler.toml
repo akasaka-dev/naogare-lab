@@ -1,5 +1,12 @@
 name = "naogare-lab"
 compatibility_date = "2026-08-31"
+main = "src/index.js"
 
 [assets]
 directory = "./"
+binding = "ASSETS"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "naogare-lab-db"
+database_id = "dfa75866-0f70-4492-ba63-35879e9e676a"

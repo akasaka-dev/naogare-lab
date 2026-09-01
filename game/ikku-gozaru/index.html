@@ -1045,6 +1045,58 @@
   .result-share__btn:active{transform:scale(0.95);}
   .result-share__btn:focus-visible{outline:2px solid var(--gold);outline-offset:2px;}
 
+  .result-ranking-cta{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:.5rem;
+    padding:1rem 1rem 0;
+  }
+  .result-ranking-cta .btn{width:100%; max-width:320px;}
+  .result-ranking-msg{font-size:.85rem; color:var(--washi-dim); min-height:1.2em; text-align:center;}
+
+  /* ---- ranking / recent screen ---- */
+  .list-screen{position:relative; overflow:hidden;}
+  .list-screen__bg{
+    position:absolute; inset:0;
+    background-size:cover; background-position:center;
+    opacity:.1;
+    z-index:0;
+    pointer-events:none;
+  }
+  .list-screen__head, .list-screen__body, .list-screen__msg, .list-screen__foot{position:relative; z-index:1;}
+  .list-screen__tabs{display:flex; gap:.5rem; justify-content:center; margin-bottom:.8rem;}
+  .list-tab-btn{
+    font-family:var(--font-body);
+    font-size:.9rem;
+    padding:.45rem 1.1rem;
+    border-radius:999px;
+    border:1px solid var(--border);
+    background:var(--sumi-3);
+    color:var(--washi-dim);
+    cursor:pointer;
+  }
+  .list-tab-btn.active{background:var(--hanko); color:var(--on-accent); border-color:var(--hanko);}
+  .list-screen__msg{text-align:center; font-size:.85rem; color:var(--washi-dim); min-height:1.2em; margin-bottom:.4rem;}
+  .list-screen__body{display:flex; flex-direction:column; gap:.5rem; max-height:60vh; overflow-y:auto; margin-bottom:1rem;}
+  .list-row{
+    display:flex;
+    align-items:baseline;
+    flex-wrap:wrap;
+    gap:.3rem .8rem;
+    background:var(--sumi);
+    border:1px solid var(--border-soft);
+    border-radius:6px;
+    padding:.55rem .8rem;
+    font-size:.9rem;
+  }
+  .list-row__rank{font-weight:700; color:var(--gold); min-width:2.4em;}
+  .list-row__haiku{white-space:pre-line; line-height:1.4; flex:1 1 160px;}
+  .list-row__score{font-weight:700; color:var(--hanko); white-space:nowrap;}
+  .list-row__date{font-size:.75rem; color:var(--washi-faint); width:100%;}
+  .list-empty{text-align:center; color:var(--washi-faint); padding:1rem;}
+  .list-screen__foot{display:flex; justify-content:center;}
+
   @media (orientation:landscape){
     .result-bg{aspect-ratio:1920/1080;}
     .result-hero-rival{width:45%; opacity:0.18;}
@@ -1185,6 +1237,29 @@
             <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><text x="12" y="17" text-anchor="middle" font-size="16" font-weight="700" fill="currentColor">@</text></svg>
           </button>
         </div>
+      </div>
+      <div class="result-ranking-cta">
+        <button class="btn" id="btnSubmitScore" type="button">この句をランキングに登録</button>
+        <button class="btn btn--ghost" id="btnViewRanking" type="button">ランキングを見る</button>
+        <div class="result-ranking-msg" id="resultRankingMsg"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="screen-ranking" class="screen hidden">
+    <div class="panel list-screen">
+      <div class="list-screen__bg" id="listScreenBg"></div>
+      <div class="list-screen__head">
+        <div class="list-screen__tabs">
+          <button class="list-tab-btn" id="tabRankingBtn" type="button">ハイスコア</button>
+          <button class="list-tab-btn" id="tabRecentBtn" type="button">最近の句</button>
+        </div>
+      </div>
+      <div class="list-screen__msg" id="rankingMsg"></div>
+      <div class="list-screen__body" id="rankingListRanking"></div>
+      <div class="list-screen__body hidden" id="rankingListRecent"></div>
+      <div class="list-screen__foot">
+        <button class="btn btn--ghost" id="btnRankingBack" type="button">結果へ戻る</button>
       </div>
     </div>
   </section>
@@ -1796,7 +1871,18 @@
     resultPrimaryBtn: document.getElementById('resultPrimaryBtn'),
     resultTitleBtn: document.getElementById('resultTitleBtn'),
     shareXBtn: document.getElementById('shareXBtn'),
-    shareThreadsBtn: document.getElementById('shareThreadsBtn')
+    shareThreadsBtn: document.getElementById('shareThreadsBtn'),
+    btnSubmitScore: document.getElementById('btnSubmitScore'),
+    btnViewRanking: document.getElementById('btnViewRanking'),
+    resultRankingMsg: document.getElementById('resultRankingMsg'),
+    screenRanking: document.getElementById('screen-ranking'),
+    listScreenBg: document.getElementById('listScreenBg'),
+    tabRankingBtn: document.getElementById('tabRankingBtn'),
+    tabRecentBtn: document.getElementById('tabRecentBtn'),
+    rankingMsg: document.getElementById('rankingMsg'),
+    rankingListRanking: document.getElementById('rankingListRanking'),
+    rankingListRecent: document.getElementById('rankingListRecent'),
+    btnRankingBack: document.getElementById('btnRankingBack')
   };
 
   var TUTORIAL_STEPS = [
@@ -2245,6 +2331,7 @@
     els.screenResult.classList.toggle('hidden', name!=='result');
     els.screenEnding.classList.toggle('hidden', name!=='ending');
     els.screenEndingTwist.classList.toggle('hidden', name!=='ending-twist');
+    els.screenRanking.classList.toggle('hidden', name!=='ranking');
     var wantsWide = (name==='judge' && isJudgeLandscape())
       || ((name==='play' || name==='result' || name==='story' || name==='ending' || name==='ending-twist') && isLandscapeOrientation());
     els.board.classList.toggle('board--wide', wantsWide);
@@ -2673,6 +2760,17 @@
       els.youScore.textContent = total;
       els.rivalScore.textContent = rival;
 
+      state.lastResult = {
+        score: total,
+        haiku: state.lines.map(function(line){
+          return line.map(function(w){ return w.t; }).join(' ') || '（無言）';
+        }).join('\n'),
+        submitted: false
+      };
+      els.btnSubmitScore.disabled = false;
+      els.btnSubmitScore.textContent = 'この句をランキングに登録';
+      els.resultRankingMsg.textContent = '';
+
       els.resultPrimaryBtn.classList.remove('hidden');
       if(state.stage===FINAL_STAGE){
         els.resultPrimaryBtn.textContent = 'エンディングへ';
@@ -2722,6 +2820,104 @@
     els.btnSubmit.style.backgroundImage = 'url('+PLAY_ASSETS.btn_submit+')';
   }
 
+  function formatRankingDate(iso){
+    var d = new Date(iso);
+    if(isNaN(d.getTime())) return iso;
+    return d.toLocaleString('ja-JP', {year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'});
+  }
+
+  function renderRankingRows(container, list, kind){
+    container.innerHTML = '';
+    if(!list || !list.length){
+      var empty = document.createElement('div');
+      empty.className = 'list-empty';
+      empty.textContent = 'まだ登録がありません';
+      container.appendChild(empty);
+      return;
+    }
+    list.forEach(function(row, i){
+      var el = document.createElement('div');
+      el.className = 'list-row';
+      if(kind==='ranking'){
+        var rank = document.createElement('span');
+        rank.className = 'list-row__rank';
+        rank.textContent = (i+1)+'位';
+        el.appendChild(rank);
+      }
+      var haiku = document.createElement('span');
+      haiku.className = 'list-row__haiku';
+      haiku.textContent = row.haiku;
+      el.appendChild(haiku);
+      var score = document.createElement('span');
+      score.className = 'list-row__score';
+      score.textContent = row.score+'点';
+      el.appendChild(score);
+      if(kind==='recent'){
+        var date = document.createElement('span');
+        date.className = 'list-row__date';
+        date.textContent = formatRankingDate(row.created_at);
+        el.appendChild(date);
+      }
+      container.appendChild(el);
+    });
+  }
+
+  function setRankingTab(tab){
+    els.tabRankingBtn.classList.toggle('active', tab==='ranking');
+    els.tabRecentBtn.classList.toggle('active', tab==='recent');
+    els.rankingListRanking.classList.toggle('hidden', tab!=='ranking');
+    els.rankingListRecent.classList.toggle('hidden', tab!=='recent');
+  }
+
+  function loadRankingData(){
+    els.rankingMsg.textContent = '読み込み中…';
+    Promise.all([
+      fetch('/api/ikku-gozaru/ranking').then(function(r){ if(!r.ok) throw new Error('ranking'); return r.json(); }),
+      fetch('/api/ikku-gozaru/recent').then(function(r){ if(!r.ok) throw new Error('recent'); return r.json(); })
+    ]).then(function(res){
+      if(!res[0].ok || !res[1].ok) throw new Error('bad response');
+      els.rankingMsg.textContent = '';
+      renderRankingRows(els.rankingListRanking, res[0].results, 'ranking');
+      renderRankingRows(els.rankingListRecent, res[1].results, 'recent');
+    }).catch(function(){
+      els.rankingMsg.textContent = 'ランキングを取得できませんでした。';
+    });
+  }
+
+  function setupRankingUI(){
+    els.listScreenBg.style.backgroundImage = 'url('+PLAY_ASSETS.hero_rival+')';
+    els.tabRankingBtn.onclick = function(){ setRankingTab('ranking'); };
+    els.tabRecentBtn.onclick = function(){ setRankingTab('recent'); };
+    els.btnRankingBack.onclick = function(){ showScreen('result'); };
+    els.btnViewRanking.onclick = function(){
+      setRankingTab('ranking');
+      showScreen('ranking');
+      loadRankingData();
+    };
+    els.btnSubmitScore.onclick = function(){
+      if(!state.lastResult || state.lastResult.submitted) return;
+      els.btnSubmitScore.disabled = true;
+      els.resultRankingMsg.textContent = '登録中…';
+      fetch('/api/ikku-gozaru/score', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({score: state.lastResult.score, haiku: state.lastResult.haiku})
+      }).then(function(res){
+        if(!res.ok) throw new Error('submit failed');
+        return res.json();
+      }).then(function(data){
+        if(!data.ok) throw new Error('submit failed');
+        state.lastResult.submitted = true;
+        els.btnSubmitScore.textContent = '登録済み';
+        els.resultRankingMsg.textContent = '登録しました！';
+        loadRankingData();
+      }).catch(function(){
+        els.btnSubmitScore.disabled = false;
+        els.resultRankingMsg.textContent = '登録に失敗しました。時間をおいて再度お試しください。';
+      });
+    };
+  }
+
   function collectPreloadUrls(){
     var urls = Object.values(PLAY_ASSETS);
     [JUDGE_FACES, JUDGE_FACES_MECHA].forEach(function(faceSet){
@@ -2759,6 +2955,7 @@
   els.heroPosterImg.src = PLAY_ASSETS.title_poster;
   setupPosterPan();
   setupStageAssets();
+  setupRankingUI();
   preloadAllImages(function(){
     if(els.loadingOverlay.classList.contains('hidden')) return;
     els.loadingOverlay.classList.add('hidden');
