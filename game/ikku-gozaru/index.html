@@ -1026,7 +1026,7 @@
 
 <div class="board">
   <section id="screen-title" class="screen panel hero">
-    <div class="hero__poster-frame"><img class="hero__poster" src="assets/title_poster.jpg" alt="一句ござる！ 五・七・五で、勝負せよ。">
+    <div class="hero__poster-frame"><img class="hero__poster" id="heroPosterImg" src="" alt="一句ござる！ 五・七・五で、勝負せよ。">
       <div class="version-label">v1.03</div>
       <div class="hero__actions">
         <button class="btn btn--ghost" id="btnTutorial" type="button">チュートリアル</button>
@@ -1117,7 +1117,7 @@
   <section id="screen-result" class="screen hidden">
     <div class="panel result-screen">
       <div class="result-bg" id="resultBg">
-        <img class="result-hero-rival" src="assets/web/hero_rival.png" alt="">
+        <img class="result-hero-rival" id="resultHeroRival" src="" alt="">
         <img class="result-banner" id="verdictBannerImg" src="" alt="">
         <div class="result-card you">
           <div class="result-card__score"><span id="youScore">0</span><span class="unit">点</span></div>
@@ -1597,6 +1597,8 @@
     ending1_2_bg: "assets/web/ending1-2.jpg",
     uratitle: "assets/web/uratitle.png",
     tile_eira: "assets/tile_eira.png",
+    title_poster: "assets/title_poster.jpg",
+    hero_rival: "assets/web/hero_rival.png",
   };
   var CACHE_BUST = '?v=' + Date.now();
   (function applyCacheBust(){
@@ -1681,6 +1683,8 @@
   };
 
   var els = {
+    heroPosterImg: document.getElementById('heroPosterImg'),
+    resultHeroRival: document.getElementById('resultHeroRival'),
     btnStart: document.getElementById('btnStart'),
     btnTrueWorld: document.getElementById('btnTrueWorld'),
     btnTutorial: document.getElementById('btnTutorial'),
@@ -2614,6 +2618,7 @@
         state.best = state.stage;
         localStorage.setItem('haiku_battle_best', String(state.best));
       }
+      if(!els.resultHeroRival.getAttribute('src')) els.resultHeroRival.src = PLAY_ASSETS.hero_rival;
       els.verdictBannerImg.src = win ? PLAY_ASSETS.victory_banner : PLAY_ASSETS.loser_banner;
       els.verdictBannerImg.alt = win ? '勝利！' : '敗北！';
       els.youScore.textContent = total;
@@ -2668,9 +2673,7 @@
     els.btnSubmit.style.backgroundImage = 'url('+PLAY_ASSETS.btn_submit+')';
   }
 
-  document.querySelectorAll('img[src^="assets/"]').forEach(function(img){
-    img.src = img.getAttribute('src') + CACHE_BUST;
-  });
+  els.heroPosterImg.src = PLAY_ASSETS.title_poster;
   setupPosterPan();
   setupStageAssets();
   showScreen('title');
