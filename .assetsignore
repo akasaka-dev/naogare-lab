@@ -2,4 +2,5 @@
 .wrangler
 src
 schema.sql
+migrations
 wrangler.toml

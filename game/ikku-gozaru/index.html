@@ -15,7 +15,8 @@
 <meta name="twitter:image" content="assets/title_poster.jpg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@500;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@500;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" onload="this.onload=null;this.rel='stylesheet'">
+<noscript><link href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@500;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet"></noscript>
 <style>
   :root{
     --sumi:#F5EEDC;
@@ -1095,6 +1096,18 @@
     cursor:pointer;
   }
   .list-tab-btn.active{background:var(--hanko); color:var(--on-accent); border-color:var(--hanko);}
+  .stage-picker{display:flex; flex-wrap:wrap; gap:.4rem; justify-content:center; margin-bottom:.8rem;}
+  .stage-picker-btn{
+    font-family:var(--font-body);
+    font-size:.8rem;
+    width:2.2rem; height:2.2rem;
+    border-radius:50%;
+    border:1px solid var(--border);
+    background:var(--sumi);
+    color:var(--washi-dim);
+    cursor:pointer;
+  }
+  .stage-picker-btn.active{background:var(--gold); color:var(--on-accent); border-color:var(--gold);}
   .list-screen__msg{text-align:center; font-size:.85rem; color:var(--washi-dim); min-height:1.2em; margin-bottom:.4rem;}
   .list-screen__body{display:flex; flex-direction:column; gap:.5rem; max-height:60vh; overflow-y:auto; margin-bottom:1rem;}
   .list-row{
@@ -1278,12 +1291,15 @@
       <div class="list-screen__bg" id="listScreenBg"></div>
       <div class="list-screen__head">
         <div class="list-screen__tabs">
-          <button class="list-tab-btn" id="tabRankingBtn" type="button">ハイスコア</button>
+          <button class="list-tab-btn" id="tabRankingBtn" type="button">トータル</button>
+          <button class="list-tab-btn" id="tabStageBtn" type="button">幕ごと</button>
           <button class="list-tab-btn" id="tabRecentBtn" type="button">最近の句</button>
         </div>
       </div>
+      <div class="stage-picker hidden" id="stagePicker"></div>
       <div class="list-screen__msg" id="rankingMsg"></div>
       <div class="list-screen__body" id="rankingListRanking"></div>
+      <div class="list-screen__body hidden" id="rankingListStage"></div>
       <div class="list-screen__body hidden" id="rankingListRecent"></div>
       <div class="list-screen__foot">
         <button class="btn btn--ghost" id="btnRankingBack" type="button">結果へ戻る</button>
@@ -1907,9 +1923,12 @@
     screenRanking: document.getElementById('screen-ranking'),
     listScreenBg: document.getElementById('listScreenBg'),
     tabRankingBtn: document.getElementById('tabRankingBtn'),
+    tabStageBtn: document.getElementById('tabStageBtn'),
     tabRecentBtn: document.getElementById('tabRecentBtn'),
+    stagePicker: document.getElementById('stagePicker'),
     rankingMsg: document.getElementById('rankingMsg'),
     rankingListRanking: document.getElementById('rankingListRanking'),
+    rankingListStage: document.getElementById('rankingListStage'),
     rankingListRecent: document.getElementById('rankingListRecent'),
     btnRankingBack: document.getElementById('btnRankingBack')
   };
@@ -2752,6 +2771,10 @@
       var weight = requiredId ? (r.judge.id===requiredId ? 10 : 5) : 10;
       return s + r.score*weight;
     }, 0);
+    var totalWeightSum = results.reduce(function(s,r){
+      var weight = requiredId ? (r.judge.id===requiredId ? 10 : 5) : 10;
+      return s + weight;
+    }, 0);
     var rival = rivalScoreFor(state.stage, chosen.length, !!requiredId);
     if((ctx.badKireji || ctx.emptyLines>0) && (requiredId==='speed' || requiredId==='orig')){
       total = Math.min(total, Math.max(0, rival - CLOSE_LOSS_MARGIN));
@@ -2791,6 +2814,8 @@
 
       state.lastResult = {
         score: total,
+        qualityScore: totalWeightSum>0 ? clamp(Math.round(total/totalWeightSum*10), 0, 100) : 0,
+        stage: state.stage,
         haiku: state.lines.map(function(line){
           return line.map(function(w){ return w.t; }).join(' ') || '（無言）';
         }).join('\n'),
@@ -2864,7 +2889,7 @@
     list.forEach(function(row, i){
       var el = document.createElement('div');
       el.className = 'list-row';
-      if(kind==='ranking'){
+      if(kind==='total' || kind==='stage'){
         var rank = document.createElement('span');
         rank.className = 'list-row__rank';
         rank.textContent = (i+1)+'位';
@@ -2876,23 +2901,54 @@
       el.appendChild(haiku);
       var score = document.createElement('span');
       score.className = 'list-row__score';
-      score.textContent = row.score+'点';
+      if(kind==='total'){
+        score.textContent = '品質 '+row.quality_score;
+      } else {
+        score.textContent = row.score+'点';
+      }
       el.appendChild(score);
       if(kind==='recent'){
-        var date = document.createElement('span');
-        date.className = 'list-row__date';
-        date.textContent = formatRankingDate(row.created_at);
-        el.appendChild(date);
+        var stage = document.createElement('span');
+        stage.className = 'list-row__date';
+        stage.textContent = '第'+row.stage+'幕・'+formatRankingDate(row.created_at);
+        el.appendChild(stage);
       }
       container.appendChild(el);
     });
   }
 
+  var currentStageSelection = 1;
+
+  function renderStagePicker(){
+    els.stagePicker.innerHTML = '';
+    for(var i=1;i<=LAST_STAGE;i++){
+      (function(stageNum){
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'stage-picker-btn'+(stageNum===currentStageSelection ? ' active' : '');
+        btn.textContent = stageNum;
+        btn.onclick = function(){
+          currentStageSelection = stageNum;
+          renderStagePicker();
+          loadStageRanking(stageNum);
+        };
+        els.stagePicker.appendChild(btn);
+      })(i);
+    }
+  }
+
   function setRankingTab(tab){
-    els.tabRankingBtn.classList.toggle('active', tab==='ranking');
+    els.tabRankingBtn.classList.toggle('active', tab==='total');
+    els.tabStageBtn.classList.toggle('active', tab==='stage');
     els.tabRecentBtn.classList.toggle('active', tab==='recent');
-    els.rankingListRanking.classList.toggle('hidden', tab!=='ranking');
+    els.rankingListRanking.classList.toggle('hidden', tab!=='total');
+    els.rankingListStage.classList.toggle('hidden', tab!=='stage');
     els.rankingListRecent.classList.toggle('hidden', tab!=='recent');
+    els.stagePicker.classList.toggle('hidden', tab!=='stage');
+    if(tab==='stage'){
+      renderStagePicker();
+      loadStageRanking(currentStageSelection);
+    }
   }
 
   function loadRankingData(){
@@ -2903,8 +2959,22 @@
     ]).then(function(res){
       if(!res[0].ok || !res[1].ok) throw new Error('bad response');
       els.rankingMsg.textContent = '';
-      renderRankingRows(els.rankingListRanking, res[0].results, 'ranking');
+      renderRankingRows(els.rankingListRanking, res[0].results, 'total');
       renderRankingRows(els.rankingListRecent, res[1].results, 'recent');
+    }).catch(function(){
+      els.rankingMsg.textContent = 'ランキングを取得できませんでした。';
+    });
+  }
+
+  function loadStageRanking(stageNum){
+    els.rankingMsg.textContent = '読み込み中…';
+    fetch('/api/ikku-gozaru/ranking?stage='+stageNum).then(function(r){
+      if(!r.ok) throw new Error('stage ranking');
+      return r.json();
+    }).then(function(data){
+      if(!data.ok) throw new Error('bad response');
+      els.rankingMsg.textContent = '';
+      renderRankingRows(els.rankingListStage, data.results, 'stage');
     }).catch(function(){
       els.rankingMsg.textContent = 'ランキングを取得できませんでした。';
     });
@@ -2915,7 +2985,8 @@
   function goToRankingScreen(returnTo){
     rankingReturnScreen = returnTo || 'result';
     els.btnRankingBack.textContent = rankingReturnScreen==='title' ? 'タイトルへ戻る' : '結果へ戻る';
-    setRankingTab('ranking');
+    currentStageSelection = clamp((state.lastResult && state.lastResult.stage) || state.stage || 1, 1, LAST_STAGE);
+    setRankingTab('total');
     showScreen('ranking');
     loadRankingData();
   }
@@ -2925,7 +2996,7 @@
     fetch('/api/ikku-gozaru/score', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({score: state.lastResult.score, haiku: state.lastResult.haiku})
+      body: JSON.stringify({score: state.lastResult.score, haiku: state.lastResult.haiku, stage: state.lastResult.stage, qualityScore: state.lastResult.qualityScore})
     }).then(function(res){
       if(!res.ok) throw new Error('submit failed');
       return res.json();
@@ -2939,7 +3010,8 @@
 
   function setupRankingUI(){
     els.listScreenBg.style.backgroundImage = 'url('+PLAY_ASSETS.hero_rival+')';
-    els.tabRankingBtn.onclick = function(){ setRankingTab('ranking'); };
+    els.tabRankingBtn.onclick = function(){ setRankingTab('total'); };
+    els.tabStageBtn.onclick = function(){ setRankingTab('stage'); };
     els.tabRecentBtn.onclick = function(){ setRankingTab('recent'); };
     els.btnRankingBack.onclick = function(){ showScreen(rankingReturnScreen); };
     els.btnTitleRanking.onclick = function(){ goToRankingScreen('title'); };
