@@ -1045,15 +1045,33 @@
   .result-share__btn:active{transform:scale(0.95);}
   .result-share__btn:focus-visible{outline:2px solid var(--gold);outline-offset:2px;}
 
-  .result-ranking-cta{
+  .ranking-confirm{
+    position:fixed;
+    inset:0;
+    z-index:900;
     display:flex;
-    flex-direction:column;
     align-items:center;
-    gap:.5rem;
-    padding:1rem 1rem 0;
+    justify-content:center;
+    background:rgba(20,15,10,.55);
+    padding:1rem;
   }
-  .result-ranking-cta .btn{width:100%; max-width:320px;}
-  .result-ranking-msg{font-size:.85rem; color:var(--washi-dim); min-height:1.2em; text-align:center;}
+  .ranking-confirm__box{
+    background:var(--sumi-2);
+    border:1px solid var(--border);
+    border-radius:8px;
+    padding:1.4rem 1.2rem;
+    max-width:320px;
+    width:100%;
+    text-align:center;
+    box-shadow:0 8px 24px rgba(0,0,0,.3);
+  }
+  .ranking-confirm__text{
+    font-family:var(--font-body);
+    font-size:.95rem;
+    color:var(--washi);
+    margin-bottom:1rem;
+  }
+  .ranking-confirm__actions{display:flex; flex-direction:column; gap:.6rem;}
 
   /* ---- ranking / recent screen ---- */
   .list-screen{position:relative; overflow:hidden;}
@@ -1236,15 +1254,23 @@
           <button class="result-share__btn" id="shareThreadsBtn" type="button" aria-label="Threadsでシェア" title="Threadsでシェア">
             <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><text x="12" y="17" text-anchor="middle" font-size="16" font-weight="700" fill="currentColor">@</text></svg>
           </button>
+          <button class="result-share__btn" id="btnRankingIcon" type="button" aria-label="ランキング" title="ランキング">
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><rect x="4" y="13" width="4" height="7" fill="currentColor"/><rect x="10" y="8" width="4" height="12" fill="currentColor"/><rect x="16" y="4" width="4" height="16" fill="currentColor"/></svg>
+          </button>
         </div>
-      </div>
-      <div class="result-ranking-cta">
-        <button class="btn" id="btnSubmitScore" type="button">この句をランキングに登録</button>
-        <button class="btn btn--ghost" id="btnViewRanking" type="button">ランキングを見る</button>
-        <div class="result-ranking-msg" id="resultRankingMsg"></div>
       </div>
     </div>
   </section>
+
+  <div class="ranking-confirm hidden" id="rankingConfirm">
+    <div class="ranking-confirm__box">
+      <div class="ranking-confirm__text">この句をランキングに登録しますか？</div>
+      <div class="ranking-confirm__actions">
+        <button class="btn" id="btnConfirmRegister" type="button">登録して見る</button>
+        <button class="btn btn--ghost" id="btnSkipRegister" type="button">見るだけ</button>
+      </div>
+    </div>
+  </div>
 
   <section id="screen-ranking" class="screen hidden">
     <div class="panel list-screen">
@@ -1872,9 +1898,10 @@
     resultTitleBtn: document.getElementById('resultTitleBtn'),
     shareXBtn: document.getElementById('shareXBtn'),
     shareThreadsBtn: document.getElementById('shareThreadsBtn'),
-    btnSubmitScore: document.getElementById('btnSubmitScore'),
-    btnViewRanking: document.getElementById('btnViewRanking'),
-    resultRankingMsg: document.getElementById('resultRankingMsg'),
+    btnRankingIcon: document.getElementById('btnRankingIcon'),
+    rankingConfirm: document.getElementById('rankingConfirm'),
+    btnConfirmRegister: document.getElementById('btnConfirmRegister'),
+    btnSkipRegister: document.getElementById('btnSkipRegister'),
     screenRanking: document.getElementById('screen-ranking'),
     listScreenBg: document.getElementById('listScreenBg'),
     tabRankingBtn: document.getElementById('tabRankingBtn'),
@@ -2767,9 +2794,6 @@
         }).join('\n'),
         submitted: false
       };
-      els.btnSubmitScore.disabled = false;
-      els.btnSubmitScore.textContent = 'この句をランキングに登録';
-      els.resultRankingMsg.textContent = '';
 
       els.resultPrimaryBtn.classList.remove('hidden');
       if(state.stage===FINAL_STAGE){
@@ -2884,37 +2908,48 @@
     });
   }
 
+  function goToRankingScreen(){
+    setRankingTab('ranking');
+    showScreen('ranking');
+    loadRankingData();
+  }
+
+  function submitScoreIfNeeded(onDone){
+    if(!state.lastResult || state.lastResult.submitted){ onDone(); return; }
+    fetch('/api/ikku-gozaru/score', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({score: state.lastResult.score, haiku: state.lastResult.haiku})
+    }).then(function(res){
+      if(!res.ok) throw new Error('submit failed');
+      return res.json();
+    }).then(function(data){
+      if(data.ok) state.lastResult.submitted = true;
+      onDone();
+    }).catch(function(){
+      onDone();
+    });
+  }
+
   function setupRankingUI(){
     els.listScreenBg.style.backgroundImage = 'url('+PLAY_ASSETS.hero_rival+')';
     els.tabRankingBtn.onclick = function(){ setRankingTab('ranking'); };
     els.tabRecentBtn.onclick = function(){ setRankingTab('recent'); };
     els.btnRankingBack.onclick = function(){ showScreen('result'); };
-    els.btnViewRanking.onclick = function(){
-      setRankingTab('ranking');
-      showScreen('ranking');
-      loadRankingData();
+    els.btnRankingIcon.onclick = function(){
+      if(!state.lastResult || state.lastResult.submitted){
+        goToRankingScreen();
+        return;
+      }
+      els.rankingConfirm.classList.remove('hidden');
     };
-    els.btnSubmitScore.onclick = function(){
-      if(!state.lastResult || state.lastResult.submitted) return;
-      els.btnSubmitScore.disabled = true;
-      els.resultRankingMsg.textContent = '登録中…';
-      fetch('/api/ikku-gozaru/score', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({score: state.lastResult.score, haiku: state.lastResult.haiku})
-      }).then(function(res){
-        if(!res.ok) throw new Error('submit failed');
-        return res.json();
-      }).then(function(data){
-        if(!data.ok) throw new Error('submit failed');
-        state.lastResult.submitted = true;
-        els.btnSubmitScore.textContent = '登録済み';
-        els.resultRankingMsg.textContent = '登録しました！';
-        loadRankingData();
-      }).catch(function(){
-        els.btnSubmitScore.disabled = false;
-        els.resultRankingMsg.textContent = '登録に失敗しました。時間をおいて再度お試しください。';
-      });
+    els.btnConfirmRegister.onclick = function(){
+      els.rankingConfirm.classList.add('hidden');
+      submitScoreIfNeeded(goToRankingScreen);
+    };
+    els.btnSkipRegister.onclick = function(){
+      els.rankingConfirm.classList.add('hidden');
+      goToRankingScreen();
     };
   }
 
