@@ -1146,6 +1146,7 @@
       <div class="version-label">v1.03</div>
       <div class="hero__actions">
         <button class="btn btn--ghost" id="btnTutorial" type="button">チュートリアル</button>
+        <button class="btn btn--ghost" id="btnTitleRanking" type="button"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" style="vertical-align:-2px; margin-right:.3em;"><rect x="4" y="13" width="4" height="7" fill="currentColor"/><rect x="10" y="8" width="4" height="12" fill="currentColor"/><rect x="16" y="4" width="4" height="16" fill="currentColor"/></svg>ランキング</button>
         <button class="btn" id="btnStart" type="button">対局をはじめる</button>
         <button class="btn btn--ghost hidden" id="btnTrueWorld" type="button">真実の世界</button>
         <button class="btn btn--ghost" id="btnSoundToggle" type="button">音声オン</button>
@@ -1838,6 +1839,7 @@
     btnStart: document.getElementById('btnStart'),
     btnTrueWorld: document.getElementById('btnTrueWorld'),
     btnTutorial: document.getElementById('btnTutorial'),
+    btnTitleRanking: document.getElementById('btnTitleRanking'),
     btnSoundToggle: document.getElementById('btnSoundToggle'),
     board: document.querySelector('.board'),
     screenTitle: document.getElementById('screen-title'),
@@ -2908,7 +2910,11 @@
     });
   }
 
-  function goToRankingScreen(){
+  var rankingReturnScreen = 'result';
+
+  function goToRankingScreen(returnTo){
+    rankingReturnScreen = returnTo || 'result';
+    els.btnRankingBack.textContent = rankingReturnScreen==='title' ? 'タイトルへ戻る' : '結果へ戻る';
     setRankingTab('ranking');
     showScreen('ranking');
     loadRankingData();
@@ -2935,10 +2941,11 @@
     els.listScreenBg.style.backgroundImage = 'url('+PLAY_ASSETS.hero_rival+')';
     els.tabRankingBtn.onclick = function(){ setRankingTab('ranking'); };
     els.tabRecentBtn.onclick = function(){ setRankingTab('recent'); };
-    els.btnRankingBack.onclick = function(){ showScreen('result'); };
+    els.btnRankingBack.onclick = function(){ showScreen(rankingReturnScreen); };
+    els.btnTitleRanking.onclick = function(){ goToRankingScreen('title'); };
     els.btnRankingIcon.onclick = function(){
       if(!state.lastResult || state.lastResult.submitted){
-        goToRankingScreen();
+        goToRankingScreen('result');
         return;
       }
       els.rankingConfirm.classList.remove('hidden');
