@@ -184,7 +184,7 @@
   .hidden { display: none !important; }
 
   /* ---- Title screen ---- */
-  #titleScreen {
+  #titleScreen, #onlineScreen {
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -198,14 +198,62 @@
     box-sizing: border-box;
   }
   @media (max-width: 480px) {
-    #titleScreen { padding: 28px 18px; gap: 14px; }
+    #titleScreen, #onlineScreen { padding: 28px 18px; gap: 14px; }
   }
-  #titleScreen p.subtitle {
+  #titleScreen p.subtitle, #onlineScreen p.subtitle {
     margin: -8px 0 4px;
     opacity: 0.75;
     font-size: 0.95rem;
   }
   #debugTrigger { user-select: none; }
+
+  /* ---- Online multiplayer (create/join room) ---- */
+  .online-join-row {
+    display: flex;
+    gap: 8px;
+  }
+  #onlineJoinCode {
+    background: #0f172a;
+    border: 2px solid #334155;
+    color: var(--text);
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: 1rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    width: 140px;
+    text-align: center;
+  }
+  #onlineJoinCode:focus { outline: none; border-color: var(--accent); }
+  #onlineJoinBtn {
+    padding: 10px 18px;
+    border-radius: 10px;
+  }
+  .online-error {
+    color: var(--p1);
+    font-size: 0.85rem;
+    min-height: 1.2em;
+    margin: 0;
+  }
+  .online-room-code {
+    font-size: 2.2rem;
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    color: var(--accent);
+    background: #0f172a;
+    border: 2px solid var(--accent);
+    border-radius: 14px;
+    padding: 14px 24px;
+  }
+  .online-waiting-text {
+    font-size: 0.95rem;
+    margin: 0;
+    animation: onlinePulse 1.6s ease-in-out infinite;
+  }
+  @keyframes onlinePulse {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 0.95; }
+  }
   .mode-options {
     display: flex;
     gap: 18px;
@@ -627,12 +675,36 @@
     <div class="mode-options" id="modeOptions">
       <button class="mode-btn" id="pvpBtn"><span class="emoji">🧑‍🤝‍🧑</span>対人戦</button>
       <button class="mode-btn" id="cpuBtn"><span class="emoji">🤖</span>CPU戦<br><span class="mode-btn-sub">LV1からの勝ち抜き</span></button>
+      <button class="mode-btn" id="onlineBtn"><span class="emoji">🌐</span>オンライン対戦<br><span class="mode-btn-sub">友達を招待</span></button>
     </div>
     <button class="back-to-splash-btn" id="backToSplashBtn">← タイトルに戻る</button>
     <p class="credit">
       Created by <strong>naogare</strong> ／
       <a href="https://www.youtube.com/@NMLabo" target="_blank" rel="noopener noreferrer">YouTube: NMLabo</a>
     </p>
+  </div>
+
+  <!-- Online multiplayer: create/join a room, then wait for the opponent -->
+  <div id="onlineScreen" class="hidden">
+    <h1>🌐 オンライン対戦</h1>
+    <div id="onlineMenu">
+      <p class="subtitle">友達を招待して対戦しましょう</p>
+      <button class="mode-btn" id="onlineCreateBtn"><span class="emoji">🚪</span>部屋を作る</button>
+      <p class="subtitle" style="margin-top:14px;">または、もらったコードで参加</p>
+      <div class="online-join-row">
+        <input type="text" id="onlineJoinCode" placeholder="部屋コード" maxlength="6" autocomplete="off" autocapitalize="characters">
+        <button id="onlineJoinBtn">参加する</button>
+      </div>
+      <p class="online-error" id="onlineError"></p>
+      <button class="back-to-splash-btn" id="onlineBackBtn">← タイトルに戻る</button>
+    </div>
+    <div id="onlineWaiting" class="hidden">
+      <p class="subtitle">このコードを友達に伝えるか、URLを共有してください</p>
+      <div class="online-room-code" id="onlineRoomCode"></div>
+      <button id="onlineCopyBtn">招待URLをコピー</button>
+      <p class="online-waiting-text">対戦相手を待っています…</p>
+      <button class="back-to-splash-btn" id="onlineCancelBtn">キャンセル</button>
+    </div>
   </div>
 
   <!-- Game screen -->
@@ -892,7 +964,17 @@
     splashScreen.classList.add('hide');
   }
   showSplash();
-  splashScreen.addEventListener('click', hideSplash);
+  splashScreen.addEventListener('click', () => {
+    hideSplash();
+    // A friend's invite link (?room=CODE) skips straight to joining that room.
+    const roomParam = new URLSearchParams(location.search).get('room');
+    if (roomParam) {
+      const code = roomParam.trim().toUpperCase();
+      goToOnlineScreen();
+      onlineJoinCodeEl.value = code;
+      joinOnlineRoom(code);
+    }
+  });
 
   document.getElementById('backToSplashBtn').addEventListener('click', () => {
     SoundMgr.seClick();
@@ -914,6 +996,7 @@
   const gameScreen = document.getElementById('gameScreen');
   const pvpBtn = document.getElementById('pvpBtn');
   const cpuBtn = document.getElementById('cpuBtn');
+  const onlineBtn = document.getElementById('onlineBtn');
 
   // ---------- CPU character roster ----------
   // 5-stage strength ladder. `depth` = minimax search depth, `wildness` = chance
@@ -1106,10 +1189,11 @@
 
   let grid, currentPlayer, gameOver, cellEls;
   let scores = { 1: 0, 2: 0 };
-  let mode = 'pvp'; // 'pvp' | 'cpu'
+  let mode = 'pvp'; // 'pvp' | 'cpu' | 'online'
   let currentChar = null;
   let ladderIndex = 0; // index into CHARACTERS for the current CPU ladder run
   let cpuThinking = false;
+  let online = null; // { code, token, myPlayer, rev, timer, busy } while in an online match
 
   // ---------- Title screen wiring ----------
   function starString(n) {
@@ -1123,6 +1207,242 @@
     ladderIndex = 0;
     currentChar = CHARACTERS[0];
     startGame('cpu');
+  }
+
+  // ---------- Online multiplayer (friend invite via room code / URL) ----------
+  // Server is authoritative: the Worker (src/line4-online.js) owns the grid,
+  // turn order and win/draw detection in a dedicated D1 database. This client
+  // only ever sends "I choose column N" and renders whatever state comes back
+  // — it never decides a win/turn locally the way the pvp/cpu modes do.
+  const ONLINE_API = '/api/line4';
+  const ONLINE_POLL_MS = 1300;
+  const onlineScreenEl = document.getElementById('onlineScreen');
+  const onlineMenuEl = document.getElementById('onlineMenu');
+  const onlineWaitingEl = document.getElementById('onlineWaiting');
+  const onlineErrorEl = document.getElementById('onlineError');
+  const onlineRoomCodeEl = document.getElementById('onlineRoomCode');
+  const onlineJoinCodeEl = document.getElementById('onlineJoinCode');
+
+  async function apiPost(path, body) {
+    const res = await fetch(ONLINE_API + path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {}),
+    });
+    return res.json();
+  }
+  async function apiGet(path) {
+    const res = await fetch(ONLINE_API + path);
+    return res.json();
+  }
+
+  const ONLINE_ERROR_MESSAGES = {
+    room_not_found: '部屋が見つかりませんでした。コードを確認してください。',
+    room_full: 'その部屋にはすでに2人揃っています。',
+    invalid_body: 'コードを入力してください。',
+    server_error: '通信エラーが発生しました。もう一度お試しください。',
+  };
+  function showOnlineError(code) {
+    onlineErrorEl.textContent = ONLINE_ERROR_MESSAGES[code] || '通信エラーが発生しました。もう一度お試しください。';
+  }
+  function clearOnlineError() {
+    onlineErrorEl.textContent = '';
+  }
+
+  function showOnlineMenu() {
+    stopOnlinePolling();
+    online = null;
+    onlineWaitingEl.classList.add('hidden');
+    onlineMenuEl.classList.remove('hidden');
+    clearOnlineError();
+  }
+
+  function goToOnlineScreen() {
+    titleScreen.classList.add('hidden');
+    onlineScreenEl.classList.remove('hidden');
+    showOnlineMenu();
+  }
+
+  onlineBtn.addEventListener('click', () => { SoundMgr.seClick(); goToOnlineScreen(); });
+  document.getElementById('onlineBackBtn').addEventListener('click', () => {
+    SoundMgr.seClick();
+    onlineScreenEl.classList.add('hidden');
+    titleScreen.classList.remove('hidden');
+  });
+  document.getElementById('onlineCancelBtn').addEventListener('click', () => {
+    SoundMgr.seClick();
+    showOnlineMenu();
+  });
+
+  function inviteUrl(code) {
+    const url = new URL(location.href);
+    url.search = '?room=' + code;
+    return url.toString();
+  }
+
+  document.getElementById('onlineCopyBtn').addEventListener('click', async (e) => {
+    SoundMgr.seClick();
+    const url = inviteUrl(online.code);
+    const btn = e.currentTarget;
+    try {
+      await navigator.clipboard.writeText(url);
+      const original = btn.textContent;
+      btn.textContent = 'コピーしました！';
+      setTimeout(() => { btn.textContent = original; }, 1500);
+    } catch (err) {
+      window.prompt('このURLをコピーして送ってください:', url);
+    }
+  });
+
+  async function createOnlineRoom() {
+    clearOnlineError();
+    const res = await apiPost('/room');
+    if (!res.ok) { showOnlineError(res.error); return; }
+    online = { code: res.code, token: res.token, myPlayer: 1, rev: res.state.rev, timer: null, busy: false };
+    onlineMenuEl.classList.add('hidden');
+    onlineWaitingEl.classList.remove('hidden');
+    onlineRoomCodeEl.textContent = res.code;
+    pollForOpponent();
+  }
+
+  function pollForOpponent() {
+    online.timer = setInterval(async () => {
+      if (!online) return;
+      try {
+        const res = await apiGet(`/room/${online.code}/state`);
+        if (res.ok && res.state.hasP2) {
+          stopOnlinePolling();
+          beginOnlineMatch(res.state);
+        }
+      } catch (e) { /* transient — try again next tick */ }
+    }, ONLINE_POLL_MS);
+  }
+
+  async function joinOnlineRoom(code) {
+    clearOnlineError();
+    if (!code) { showOnlineError('invalid_body'); return; }
+    const res = await apiPost(`/room/${code}/join`);
+    if (!res.ok) { showOnlineError(res.error); return; }
+    online = { code, token: res.token, myPlayer: 2, rev: res.state.rev, timer: null, busy: false };
+    beginOnlineMatch(res.state);
+  }
+
+  document.getElementById('onlineCreateBtn').addEventListener('click', () => { SoundMgr.seClick(); createOnlineRoom(); });
+  document.getElementById('onlineJoinBtn').addEventListener('click', () => {
+    SoundMgr.seClick();
+    joinOnlineRoom(onlineJoinCodeEl.value.trim().toUpperCase());
+  });
+  onlineJoinCodeEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('onlineJoinBtn').click();
+  });
+
+  function stopOnlinePolling() {
+    if (online && online.timer) { clearInterval(online.timer); online.timer = null; }
+  }
+
+  function startOnlinePolling() {
+    stopOnlinePolling();
+    online.timer = setInterval(async () => {
+      if (!online || online.busy) return;
+      try {
+        const res = await apiGet(`/room/${online.code}/state`);
+        if (res.ok && res.state.rev !== online.rev) applyOnlineState(res.state);
+      } catch (e) { /* transient — try again next tick */ }
+    }, ONLINE_POLL_MS);
+  }
+
+  function beginOnlineMatch(state) {
+    mode = 'online';
+    onlineScreenEl.classList.add('hidden');
+    titleScreen.classList.add('hidden');
+    gameScreen.classList.remove('hidden');
+    document.getElementById('speechBubble').classList.add('hidden');
+    document.getElementById('score').classList.add('hidden');
+    resetBtn.classList.add('hidden');
+    setCharBackground(null);
+    SoundMgr.playTrack('game');
+    modeLabelEl.textContent = `オンライン対戦（部屋: ${online.code}） ／ あなたは${online.myPlayer === 1 ? '赤' : '黄'}`;
+
+    grid = state.grid;
+    gameOver = false;
+    cellEls = [];
+    buildBoard();
+    hideBubble();
+    updateStatus('先攻・後攻を決めています…');
+    boardWrap.classList.add('locked');
+    online.rev = state.rev;
+    decideStartingPlayer((starter) => {
+      currentPlayer = starter;
+      boardWrap.classList.remove('locked');
+      updateStatus();
+      startOnlinePolling();
+    }, state.startingPlayer);
+  }
+
+  async function submitOnlineMove(col) {
+    if (!online || online.busy || gameOver) return;
+    if (currentPlayer !== online.myPlayer) return;
+    online.busy = true;
+    boardWrap.classList.add('locked');
+    try {
+      const res = await apiPost(`/room/${online.code}/move`, { token: online.token, col });
+      if (res.ok) {
+        applyOnlineState(res.state);
+      } else {
+        boardWrap.classList.remove('locked');
+      }
+    } catch (e) {
+      boardWrap.classList.remove('locked');
+    }
+    online.busy = false;
+  }
+
+  // Renders whatever the server says the room looks like now — used both for
+  // the response to our own move and for a poll that picked up the opponent's.
+  function applyOnlineState(state) {
+    if (!online || state.rev === online.rev) return;
+    online.rev = state.rev;
+
+    // Find the single cell that changed since our local copy and animate it
+    // the same way a local drop does, then adopt the server grid as-is.
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        if (grid[r][c] === 0 && state.grid[r][c] !== 0) {
+          const player = state.grid[r][c];
+          cellEls[r][c].classList.add(player === 1 ? 'p1' : 'p2', 'drop');
+          SoundMgr.seDrop();
+        }
+      }
+    }
+    grid = state.grid;
+    currentPlayer = state.currentPlayer;
+    gameOver = state.gameOver;
+
+    if (state.gameOver) {
+      stopOnlinePolling();
+      if (state.winLine) state.winLine.forEach(([r, c]) => cellEls[r][c].classList.add('win'));
+      const iWon = state.winner === String(online.myPlayer);
+      const isDraw = state.winner === 'draw';
+      if (isDraw) {
+        updateStatus('引き分けです！');
+        SoundMgr.seDraw();
+      } else {
+        const winnerLabel = state.winner === '1' ? 'プレイヤー1（赤）' : 'プレイヤー2（黄）';
+        updateStatus(`🎉 ${winnerLabel}の勝利！`);
+        if (iWon) SoundMgr.seWin(); else SoundMgr.seLose();
+      }
+      setTimeout(() => {
+        showResultOverlay({
+          title: isDraw ? '引き分け' : (iWon ? '勝利！' : '敗北……'),
+          message: isDraw ? 'オンライン対戦は引き分けに終わりました。' : (iWon ? '相手に勝利しました！' : '相手に敗れました……'),
+          buttons: [{ label: 'タイトルに戻る', primary: true, onClick: goToTitle }],
+        });
+      }, 1200);
+      return;
+    }
+
+    boardWrap.classList.remove('locked');
+    updateStatus();
   }
 
   // ---------- Hidden debug menu: double-click the "ロ" in the title ----------
@@ -1156,6 +1476,8 @@
     mode = selectedMode;
     titleScreen.classList.add('hidden');
     gameScreen.classList.remove('hidden');
+    resetBtn.classList.remove('hidden');
+    document.getElementById('score').classList.remove('hidden');
     const speechBubbleEl = document.getElementById('speechBubble');
     if (mode === 'cpu' && currentChar) {
       SoundMgr.playLevelTrack(currentChar.level);
@@ -1198,7 +1520,10 @@
 
   function goToTitle() {
     SoundMgr.playTrack('title');
+    stopOnlinePolling();
+    online = null;
     gameScreen.classList.add('hidden');
+    onlineScreenEl.classList.add('hidden');
     titleScreen.classList.remove('hidden');
     setCharBackground(null);
     hideBubble();
@@ -1326,11 +1651,11 @@
 
   // Brief (~2s) coin-toss animation deciding who moves first, run before
   // every match (fresh game, reset, and each new CPU ladder opponent).
-  function decideStartingPlayer(onDone) {
+  function decideStartingPlayer(onDone, forcedStarter) {
     const overlay = document.getElementById('turnDecideOverlay');
     const coin = document.getElementById('turnCoin');
     const textEl = document.getElementById('turnDecideText');
-    const starter = Math.random() < 0.5 ? 1 : 2;
+    const starter = forcedStarter != null ? forcedStarter : (Math.random() < 0.5 ? 1 : 2);
     const starterLabel = starter === 1
       ? (mode === 'cpu' ? 'あなた（赤）' : 'プレイヤー1（赤）')
       : (mode === 'cpu' ? opponentLabel() : 'プレイヤー2（黄）');
@@ -1404,6 +1729,7 @@
   function handleColumnClick(col) {
     if (gameOver || cpuThinking) return;
     if (mode === 'cpu' && currentPlayer === 2) return; // block manual clicks during CPU turn
+    if (mode === 'online') { submitOnlineMove(col); return; }
     dropPiece(col, currentPlayer);
   }
 

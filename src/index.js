@@ -1,3 +1,5 @@
+import { routeLine4 } from './line4-online.js';
+
 const MAX_HAIKU_LENGTH = 300;
 const MIN_SCORE = 0;
 const MAX_SCORE = 1000;
@@ -108,6 +110,17 @@ export default {
       if (request.method !== 'POST') return jsonResponse({ ok: false, error: 'method_not_allowed' }, 405);
       try {
         return await handleScoreSubmit(request, env);
+      } catch (e) {
+        return jsonResponse({ ok: false, error: 'server_error' }, 500);
+      }
+    }
+
+    // line4 (黄昏のフォー・イン・ア・ロウ) online multiplayer — isolated in
+    // line4-online.js / the LINE4_ROOMS KV namespace, untouched by anything above.
+    if (path.startsWith('/api/line4/')) {
+      try {
+        const res = await routeLine4(request, env, path);
+        if (res) return res;
       } catch (e) {
         return jsonResponse({ ok: false, error: 'server_error' }, 500);
       }

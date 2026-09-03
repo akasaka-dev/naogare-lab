@@ -10,3 +10,13 @@ binding = "ASSETS"
 binding = "DB"
 database_name = "naogare-lab-db"
 database_id = "dfa75866-0f70-4492-ba63-35879e9e676a"
+
+# line4 (黄昏のフォー・イン・ア・ロウ) online multiplayer room storage.
+# Own dedicated D1 database — separate from the ikku-gozaru DB above. Used
+# instead of KV because KV's eventually-consistent edge caching (writes can
+# take well over 30s to become visible to a different read) is unusable for
+# live turn-by-turn game state; D1 gives us real read-your-writes consistency.
+[[d1_databases]]
+binding = "LINE4_DB"
+database_name = "line4-rooms-db"
+database_id = "1d686960-c6e4-4698-8560-f47040b523cb"
