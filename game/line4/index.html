@@ -430,40 +430,67 @@
     to { opacity: 0.9; }
   }
 
-  /* ---- Online emote bar + incoming emote popup ---- */
+  /* ---- Online emote picker (flick/drag-scroll strip) + incoming popup ---- */
   #onlineEmoteBar {
+    width: 100%;
+    max-width: 480px;
+    margin-top: 14px;
+  }
+  #emoteScroller {
     display: flex;
     gap: 8px;
-    margin-top: 14px;
-    flex-wrap: wrap;
-    justify-content: center;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-x;
+    padding: 4px 4px 10px;
+    cursor: grab;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
   }
-  .emote-btn {
-    font-size: 1.4rem;
-    line-height: 1;
-    padding: 8px 12px;
+  #emoteScroller::-webkit-scrollbar { display: none; }
+  #emoteScroller.dragging { cursor: grabbing; }
+  .emote-icon-btn {
+    flex: 0 0 auto;
+    width: 52px;
+    height: 52px;
+    padding: 4px;
     border-radius: 12px;
     background: #0f172a;
     border: 2px solid #334155;
     cursor: pointer;
-    transition: transform 0.15s ease, border-color 0.15s ease;
+    scroll-snap-align: start;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: border-color 0.15s ease, transform 0.15s ease;
   }
-  .emote-btn:hover { border-color: var(--accent); transform: translateY(-2px); }
-  .emote-btn:active { transform: scale(0.9); }
-  .emote-btn:disabled { opacity: 0.4; cursor: default; transform: none; }
+  .emote-icon-btn img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-drag: none;
+  }
+  .emote-icon-btn:hover { border-color: var(--accent); }
+  .emote-icon-btn:active { transform: scale(0.92); }
 
   #incomingEmote {
     position: fixed;
     top: 16vh;
     left: 50%;
     z-index: 8;
-    font-size: 4rem;
+    width: 120px;
+    height: 120px;
     opacity: 0;
     pointer-events: none;
     transform: translate(-50%, -12px) scale(0.5);
     transition: opacity 0.25s ease, transform 0.25s ease;
     filter: drop-shadow(0 6px 16px rgba(0,0,0,0.6));
   }
+  #incomingEmote img { width: 100%; height: 100%; object-fit: contain; }
   #incomingEmote.show {
     opacity: 1;
     transform: translate(-50%, 0) scale(1);
@@ -758,12 +785,33 @@
       <div id="board"></div>
     </div>
     <div id="onlineEmoteBar" class="hidden">
-      <button class="emote-btn" data-emote="👍">👍</button>
-      <button class="emote-btn" data-emote="😂">😂</button>
-      <button class="emote-btn" data-emote="😮">😮</button>
-      <button class="emote-btn" data-emote="😢">😢</button>
-      <button class="emote-btn" data-emote="🔥">🔥</button>
-      <button class="emote-btn" data-emote="🤔">🤔</button>
+      <div id="emoteScroller">
+        <button class="emote-icon-btn" data-emote="icon01_wave"><img src="emotes/icon01_wave.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon02_thumbsup"><img src="emotes/icon02_thumbsup.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon03_girl_wink"><img src="emotes/icon03_girl_wink.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon04_crying"><img src="emotes/icon04_crying.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon05_angry"><img src="emotes/icon05_angry.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon06_cat_surprised"><img src="emotes/icon06_cat_surprised.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon07_owl_question"><img src="emotes/icon07_owl_question.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon08_rose_heart"><img src="emotes/icon08_rose_heart.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon09_sparkle"><img src="emotes/icon09_sparkle.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon10_skull_ghost"><img src="emotes/icon10_skull_ghost.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon11_char_striker"><img src="emotes/icon11_char_striker.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon12_char_dealer"><img src="emotes/icon12_char_dealer.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon13_char_mask"><img src="emotes/icon13_char_mask.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon14_char_idol"><img src="emotes/icon14_char_idol.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon15_char_puppeteer"><img src="emotes/icon15_char_puppeteer.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon16_pet_owl"><img src="emotes/icon16_pet_owl.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon17_pet_fox"><img src="emotes/icon17_pet_fox.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon18_pet_badger"><img src="emotes/icon18_pet_badger.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon19_pet_mouse"><img src="emotes/icon19_pet_mouse.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon20_hand_wave"><img src="emotes/icon20_hand_wave.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon21_bubble_sweat"><img src="emotes/icon21_bubble_sweat.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon22_bubble_girl"><img src="emotes/icon22_bubble_girl.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon23_bubble_thanks"><img src="emotes/icon23_bubble_thanks.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon24_bubble_end"><img src="emotes/icon24_bubble_end.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon25_bubble_ghost"><img src="emotes/icon25_bubble_ghost.webp" alt="" draggable="false"></button>
+      </div>
     </div>
     <div id="controls">
       <button id="resetBtn">最初からやり直す</button>
@@ -796,7 +844,7 @@
   </div>
 
   <!-- Opponent's emote pops up here briefly when it arrives via polling -->
-  <div id="incomingEmote"><span id="incomingEmoteIcon"></span></div>
+  <div id="incomingEmote"><img id="incomingEmoteIcon" src="" alt=""></div>
 
   <!-- Hidden debug menu: double-click the "ロ" in the title to jump straight to any ladder level -->
   <div id="debugLevelOverlay" class="hidden">
@@ -1422,9 +1470,9 @@
     } catch (e) { /* not critical — just drop it */ }
   }
 
-  function showIncomingEmote(emoji) {
+  function showIncomingEmote(iconId) {
     const el = document.getElementById('incomingEmote');
-    document.getElementById('incomingEmoteIcon').textContent = emoji;
+    document.getElementById('incomingEmoteIcon').src = `emotes/${iconId}.webp`;
     SoundMgr.seClick();
     el.classList.remove('show');
     void el.offsetWidth; // restart the pop animation even if one is already mid-flight
@@ -1433,12 +1481,49 @@
     showIncomingEmote._t = setTimeout(() => el.classList.remove('show'), 1800);
   }
 
-  document.getElementById('onlineEmoteBar').addEventListener('click', (e) => {
-    const btn = e.target.closest('.emote-btn');
-    if (!btn) return;
-    SoundMgr.seClick();
-    sendOnlineEmote(btn.dataset.emote);
-  });
+  // 25-icon picker: flicks/drags to scroll (native touch scrolling handles
+  // that on its own), tap an icon to send. Only mouse pointers get a custom
+  // click-and-drag pan, since a mouse has no native drag-to-scroll — touch
+  // and pen are left to the browser's own momentum scrolling untouched, and
+  // mobile browsers already suppress a click when a touch ends up scrolling.
+  (function setupEmoteScroller() {
+    const scroller = document.getElementById('emoteScroller');
+    let isDown = false;
+    let dragged = false;
+    let startX = 0;
+    let startScrollLeft = 0;
+
+    scroller.addEventListener('pointerdown', (e) => {
+      if (e.pointerType !== 'mouse') return;
+      isDown = true;
+      dragged = false;
+      startX = e.clientX;
+      startScrollLeft = scroller.scrollLeft;
+      scroller.classList.add('dragging');
+    });
+    scroller.addEventListener('pointermove', (e) => {
+      if (!isDown || e.pointerType !== 'mouse') return;
+      const dx = e.clientX - startX;
+      if (Math.abs(dx) > 6) dragged = true;
+      scroller.scrollLeft = startScrollLeft - dx;
+    });
+    function endDrag(e) {
+      if (e.pointerType && e.pointerType !== 'mouse') return;
+      isDown = false;
+      scroller.classList.remove('dragging');
+    }
+    scroller.addEventListener('pointerup', endDrag);
+    scroller.addEventListener('pointercancel', endDrag);
+    scroller.addEventListener('pointerleave', endDrag);
+
+    scroller.addEventListener('click', (e) => {
+      if (dragged) { dragged = false; return; } // that was a drag, not a tap
+      const btn = e.target.closest('.emote-icon-btn');
+      if (!btn) return;
+      SoundMgr.seClick();
+      sendOnlineEmote(btn.dataset.emote);
+    });
+  })();
 
   function beginOnlineMatch(state) {
     mode = 'online';
