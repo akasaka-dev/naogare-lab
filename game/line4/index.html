@@ -430,6 +430,45 @@
     to { opacity: 0.9; }
   }
 
+  /* ---- Online emote bar + incoming emote popup ---- */
+  #onlineEmoteBar {
+    display: flex;
+    gap: 8px;
+    margin-top: 14px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .emote-btn {
+    font-size: 1.4rem;
+    line-height: 1;
+    padding: 8px 12px;
+    border-radius: 12px;
+    background: #0f172a;
+    border: 2px solid #334155;
+    cursor: pointer;
+    transition: transform 0.15s ease, border-color 0.15s ease;
+  }
+  .emote-btn:hover { border-color: var(--accent); transform: translateY(-2px); }
+  .emote-btn:active { transform: scale(0.9); }
+  .emote-btn:disabled { opacity: 0.4; cursor: default; transform: none; }
+
+  #incomingEmote {
+    position: fixed;
+    top: 16vh;
+    left: 50%;
+    z-index: 8;
+    font-size: 4rem;
+    opacity: 0;
+    pointer-events: none;
+    transform: translate(-50%, -12px) scale(0.5);
+    transition: opacity 0.25s ease, transform 0.25s ease;
+    filter: drop-shadow(0 6px 16px rgba(0,0,0,0.6));
+  }
+  #incomingEmote.show {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+
   /* ---- Turn-order coin toss ---- */
   #turnDecideOverlay {
     position: fixed;
@@ -718,6 +757,14 @@
     <div id="board-wrap">
       <div id="board"></div>
     </div>
+    <div id="onlineEmoteBar" class="hidden">
+      <button class="emote-btn" data-emote="👍">👍</button>
+      <button class="emote-btn" data-emote="😂">😂</button>
+      <button class="emote-btn" data-emote="😮">😮</button>
+      <button class="emote-btn" data-emote="😢">😢</button>
+      <button class="emote-btn" data-emote="🔥">🔥</button>
+      <button class="emote-btn" data-emote="🤔">🤔</button>
+    </div>
     <div id="controls">
       <button id="resetBtn">最初からやり直す</button>
       <button id="titleBtn">タイトルに戻る</button>
@@ -747,6 +794,9 @@
       <div class="turn-decide-text" id="turnDecideText"></div>
     </div>
   </div>
+
+  <!-- Opponent's emote pops up here briefly when it arrives via polling -->
+  <div id="incomingEmote"><span id="incomingEmoteIcon"></span></div>
 
   <!-- Hidden debug menu: double-click the "ロ" in the title to jump straight to any ladder level -->
   <div id="debugLevelOverlay" class="hidden">
@@ -1298,7 +1348,7 @@
     clearOnlineError();
     const res = await apiPost('/room');
     if (!res.ok) { showOnlineError(res.error); return; }
-    online = { code: res.code, token: res.token, myPlayer: 1, rev: res.state.rev, timer: null, busy: false };
+    online = { code: res.code, token: res.token, myPlayer: 1, rev: res.state.rev, emoteRev: res.state.emoteRev || 0, timer: null, busy: false };
     onlineMenuEl.classList.add('hidden');
     onlineWaitingEl.classList.remove('hidden');
     onlineRoomCodeEl.textContent = res.code;
@@ -1323,7 +1373,7 @@
     if (!code) { showOnlineError('invalid_body'); return; }
     const res = await apiPost(`/room/${code}/join`);
     if (!res.ok) { showOnlineError(res.error); return; }
-    online = { code, token: res.token, myPlayer: 2, rev: res.state.rev, timer: null, busy: false };
+    online = { code, token: res.token, myPlayer: 2, rev: res.state.rev, emoteRev: res.state.emoteRev || 0, timer: null, busy: false };
     beginOnlineMatch(res.state);
   }
 
@@ -1346,10 +1396,49 @@
       if (!online || online.busy) return;
       try {
         const res = await apiGet(`/room/${online.code}/state`);
-        if (res.ok && res.state.rev !== online.rev) applyOnlineState(res.state);
+        if (!res.ok) return;
+        // Emote check rides on this same poll — no separate request needed.
+        if (res.state.emoteRev !== online.emoteRev) {
+          online.emoteRev = res.state.emoteRev;
+          if (res.state.emoteBy && res.state.emoteBy !== online.myPlayer) {
+            showIncomingEmote(res.state.emote);
+          }
+        }
+        if (res.state.rev !== online.rev) applyOnlineState(res.state);
       } catch (e) { /* transient — try again next tick */ }
     }, ONLINE_POLL_MS);
   }
+
+  const ONLINE_EMOTE_COOLDOWN_MS = 1500;
+  let onlineEmoteCooldownUntil = 0;
+  async function sendOnlineEmote(emoji) {
+    if (!online || mode !== 'online') return;
+    const now = Date.now();
+    if (now < onlineEmoteCooldownUntil) return;
+    onlineEmoteCooldownUntil = now + ONLINE_EMOTE_COOLDOWN_MS;
+    try {
+      const res = await apiPost(`/room/${online.code}/emote`, { token: online.token, emote: emoji });
+      if (res.ok) online.emoteRev = res.state.emoteRev; // it's our own — don't pop it up for ourselves
+    } catch (e) { /* not critical — just drop it */ }
+  }
+
+  function showIncomingEmote(emoji) {
+    const el = document.getElementById('incomingEmote');
+    document.getElementById('incomingEmoteIcon').textContent = emoji;
+    SoundMgr.seClick();
+    el.classList.remove('show');
+    void el.offsetWidth; // restart the pop animation even if one is already mid-flight
+    el.classList.add('show');
+    clearTimeout(showIncomingEmote._t);
+    showIncomingEmote._t = setTimeout(() => el.classList.remove('show'), 1800);
+  }
+
+  document.getElementById('onlineEmoteBar').addEventListener('click', (e) => {
+    const btn = e.target.closest('.emote-btn');
+    if (!btn) return;
+    SoundMgr.seClick();
+    sendOnlineEmote(btn.dataset.emote);
+  });
 
   function beginOnlineMatch(state) {
     mode = 'online';
@@ -1359,6 +1448,7 @@
     document.getElementById('speechBubble').classList.add('hidden');
     document.getElementById('score').classList.add('hidden');
     resetBtn.classList.add('hidden');
+    document.getElementById('onlineEmoteBar').classList.remove('hidden');
     setCharBackground(null);
     SoundMgr.playTrack('game');
     modeLabelEl.textContent = `オンライン対戦（部屋: ${online.code}） ／ あなたは${online.myPlayer === 1 ? '赤' : '黄'}`;
@@ -1371,6 +1461,7 @@
     updateStatus('先攻・後攻を決めています…');
     boardWrap.classList.add('locked');
     online.rev = state.rev;
+    online.emoteRev = state.emoteRev || 0;
     decideStartingPlayer((starter) => {
       currentPlayer = starter;
       boardWrap.classList.remove('locked');
@@ -1420,6 +1511,7 @@
 
     if (state.gameOver) {
       stopOnlinePolling();
+      document.getElementById('onlineEmoteBar').classList.add('hidden');
       if (state.winLine) state.winLine.forEach(([r, c]) => cellEls[r][c].classList.add('win'));
       const iWon = state.winner === String(online.myPlayer);
       const isDraw = state.winner === 'draw';
@@ -1525,6 +1617,8 @@
     gameScreen.classList.add('hidden');
     onlineScreenEl.classList.add('hidden');
     titleScreen.classList.remove('hidden');
+    document.getElementById('onlineEmoteBar').classList.add('hidden');
+    document.getElementById('incomingEmote').classList.remove('show');
     setCharBackground(null);
     hideBubble();
   }

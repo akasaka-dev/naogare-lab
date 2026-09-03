@@ -17,6 +17,10 @@ const ROOM_MAX_AGE_MS = 6 * 60 * 60 * 1000; // 6 hours — rooms older than this
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I to avoid confusion
 const CODE_LENGTH = 6;
 
+// Server-side whitelist so a client can't send arbitrary/oversized text through
+// the emote channel — must match the buttons offered in the client UI.
+const ALLOWED_EMOTES = ['👍', '😂', '😮', '😢', '🔥', '🤔'];
+
 function jsonResponse(data, status) {
   return new Response(JSON.stringify(data), {
     status: status || 200,
@@ -94,6 +98,9 @@ function rowToRoom(row) {
     winner: row.winner,
     winLine: row.win_line ? JSON.parse(row.win_line) : null,
     rev: row.rev,
+    emote: row.emote,
+    emoteBy: row.emote_by,
+    emoteRev: row.emote_rev,
     updatedAt: row.updated_at,
   };
 }
@@ -110,6 +117,9 @@ function publicState(room) {
     winner: room.winner,
     winLine: room.winLine,
     rev: room.rev,
+    emote: room.emote,
+    emoteBy: room.emoteBy,
+    emoteRev: room.emoteRev,
     updatedAt: room.updatedAt,
   };
 }
@@ -238,6 +248,38 @@ async function handleMove(request, env, code) {
   return jsonResponse({ ok: true, state: publicState(updated) });
 }
 
+// Lightweight "in-game chat" — a whitelisted emote icon, piggybacked onto the
+// same room row the /state poll already fetches every ~1.3s. No new polling
+// loop, no free-text storage: just one more field the existing poll picks up.
+async function handleEmote(request, env, code) {
+  let body;
+  try {
+    body = await request.json();
+  } catch (e) {
+    return errorResponse('invalid_json');
+  }
+  const { token, emote } = body || {};
+  if (typeof token !== 'string' || !ALLOWED_EMOTES.includes(emote)) {
+    return errorResponse('invalid_body');
+  }
+
+  const room = await loadRoom(env, code);
+  if (!room) return errorResponse('room_not_found', 404);
+  if (room.status !== 'playing') return errorResponse('game_not_active', 409);
+
+  const isP1 = room.p1Token === token;
+  const isP2 = room.p2Token === token;
+  if (!isP1 && !isP2) return errorResponse('invalid_token', 403);
+  const player = isP1 ? 1 : 2;
+
+  await env.LINE4_DB.prepare(
+    `UPDATE rooms SET emote = ?1, emote_by = ?2, emote_rev = emote_rev + 1, updated_at = ?3 WHERE code = ?4`
+  ).bind(emote, player, Date.now(), code).run();
+
+  const updated = await loadRoom(env, code);
+  return jsonResponse({ ok: true, state: publicState(updated) });
+}
+
 // Returns a Response for any /api/line4/* route it recognizes, or null if
 // the path isn't one of ours (caller should fall through to other routes).
 export async function routeLine4(request, env, path) {
@@ -262,6 +304,12 @@ export async function routeLine4(request, env, path) {
   if (moveMatch) {
     if (request.method !== 'POST') return errorResponse('method_not_allowed', 405);
     return handleMove(request, env, moveMatch[1]);
+  }
+
+  const emoteMatch = path.match(/^\/api\/line4\/room\/([A-Z0-9]{4,10})\/emote$/);
+  if (emoteMatch) {
+    if (request.method !== 'POST') return errorResponse('method_not_allowed', 405);
+    return handleEmote(request, env, emoteMatch[1]);
   }
 
   return null;

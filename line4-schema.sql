@@ -12,6 +12,9 @@ CREATE TABLE IF NOT EXISTS rooms (
   winner TEXT,                              -- '1' | '2' | 'draw' | NULL
   win_line TEXT,                            -- JSON-encoded [[r,c],...] | NULL
   rev INTEGER NOT NULL DEFAULT 0,
+  emote TEXT,                               -- last emote icon sent, e.g. '👍' | NULL
+  emote_by INTEGER,                         -- 1 | 2 | NULL — who sent the last emote
+  emote_rev INTEGER NOT NULL DEFAULT 0,     -- bumped on every emote, independent of `rev`
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
