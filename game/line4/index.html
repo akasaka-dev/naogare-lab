@@ -60,6 +60,12 @@
     backdrop-filter: blur(4px);
   }
   .audio-btn .audio-icon { font-size: 0.95rem; line-height: 1; }
+  .audio-btn .kana-icon {
+    font-weight: 800;
+    font-size: 1.05rem;
+    color: var(--accent);
+  }
+  .audio-btn.muted .kana-icon { color: inherit; }
   .audio-btn.muted {
     border-color: rgba(148, 163, 184, 0.25);
     color: rgba(241, 245, 249, 0.45);
@@ -723,7 +729,7 @@
       <span class="audio-icon">🔔</span><span class="audio-label">SE</span>
     </button>
     <button id="kanaToggle" class="audio-btn" type="button" aria-label="かなモードのオン/オフ" aria-pressed="false">
-      <span class="audio-icon">🈁</span><span class="audio-label">かな</span>
+      <span class="audio-icon kana-icon">あ</span><span class="audio-label">かな</span>
     </button>
   </div>
   <audio id="bgmAudio" loop preload="none"></audio>
