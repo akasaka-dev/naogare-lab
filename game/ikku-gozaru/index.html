@@ -2301,6 +2301,14 @@
     state.timeLeft = state.timeLimit;
     state.timedOut = false;
     state.submitted = false;
+    state.sessionToken = null;
+    fetch('/api/ikku-gozaru/session', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({stage: state.stage})
+    }).then(function(r){ return r.ok ? r.json() : null; }).then(function(data){
+      if(data && data.ok) state.sessionToken = data.token;
+    }).catch(function(){});
     var judgeSel = selectJudgesForStage(state.stage);
     state.judges = judgeSel.chosen;
     state.requiredJudgeId = judgeSel.requiredId;
@@ -2820,6 +2828,7 @@
         haiku: state.lines.map(function(line){
           return line.map(function(w){ return w.t; }).join(' ') || '（無言）';
         }).join('\n'),
+        sessionToken: state.sessionToken,
         submitted: false
       };
 
@@ -2997,7 +3006,7 @@
     fetch('/api/ikku-gozaru/score', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({score: state.lastResult.score, haiku: state.lastResult.haiku, stage: state.lastResult.stage, qualityScore: state.lastResult.qualityScore})
+      body: JSON.stringify({score: state.lastResult.score, haiku: state.lastResult.haiku, stage: state.lastResult.stage, qualityScore: state.lastResult.qualityScore, token: state.lastResult.sessionToken})
     }).then(function(res){
       if(!res.ok) throw new Error('submit failed');
       return res.json();

@@ -11,6 +11,8 @@
 // authoritative copy per database, so reads always see the latest write.
 // ---------------------------------------------------------------------------
 
+import { checkRateLimit } from './rate-limit.js';
+
 const ROWS = 6;
 const COLS = 7;
 const ROOM_MAX_AGE_MS = 6 * 60 * 60 * 1000; // 6 hours — rooms older than this are swept on create
@@ -292,12 +294,14 @@ async function handleEmote(request, env, code) {
 export async function routeLine4(request, env, path) {
   if (path === '/api/line4/room') {
     if (request.method !== 'POST') return errorResponse('method_not_allowed', 405);
+    if (!(await checkRateLimit(env, 'line4-create', request, 10, 600))) return errorResponse('rate_limited', 429);
     return handleCreate(env);
   }
 
   const joinMatch = path.match(/^\/api\/line4\/room\/([A-Z0-9]{4,10})\/join$/);
   if (joinMatch) {
     if (request.method !== 'POST') return errorResponse('method_not_allowed', 405);
+    if (!(await checkRateLimit(env, 'line4-join', request, 20, 600))) return errorResponse('rate_limited', 429);
     return handleJoin(env, joinMatch[1]);
   }
 
@@ -310,12 +314,14 @@ export async function routeLine4(request, env, path) {
   const moveMatch = path.match(/^\/api\/line4\/room\/([A-Z0-9]{4,10})\/move$/);
   if (moveMatch) {
     if (request.method !== 'POST') return errorResponse('method_not_allowed', 405);
+    if (!(await checkRateLimit(env, 'line4-move', request, 120, 60))) return errorResponse('rate_limited', 429);
     return handleMove(request, env, moveMatch[1]);
   }
 
   const emoteMatch = path.match(/^\/api\/line4\/room\/([A-Z0-9]{4,10})\/emote$/);
   if (emoteMatch) {
     if (request.method !== 'POST') return errorResponse('method_not_allowed', 405);
+    if (!(await checkRateLimit(env, 'line4-emote', request, 30, 60))) return errorResponse('rate_limited', 429);
     return handleEmote(request, env, emoteMatch[1]);
   }
 

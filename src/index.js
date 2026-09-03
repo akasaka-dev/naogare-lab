@@ -1,4 +1,5 @@
 import { routeLine4 } from './line4-online.js';
+import { checkRateLimit } from './rate-limit.js';
 
 const MAX_HAIKU_LENGTH = 300;
 const MIN_SCORE = 0;
@@ -10,6 +11,7 @@ const MAX_QUALITY_SCORE = 100;
 const GAME_ID = 'ikku-gozaru';
 const RANKING_LIMIT = 20;
 const RECENT_LIMIT = 20;
+const SESSION_MAX_AGE_MS = 3 * 60 * 60 * 1000; // 3 hours — generous for a single stage attempt
 
 function jsonResponse(data, status) {
   return new Response(JSON.stringify(data), {
@@ -46,6 +48,33 @@ async function handleRecent(env) {
   return jsonResponse({ ok: true, results });
 }
 
+// Called once when a stage attempt begins (client: beginStageAttempt()).
+// Issues a one-time-use token that /score must present, so a score can't be
+// posted without a matching "I started a stage" record first.
+async function handleSessionStart(request, env) {
+  let body;
+  try {
+    body = await request.json();
+  } catch (e) {
+    return jsonResponse({ ok: false, error: 'invalid_json' }, 400);
+  }
+  const stage = body && body.stage;
+  if (!Number.isInteger(stage) || stage < MIN_STAGE || stage > MAX_STAGE) {
+    return jsonResponse({ ok: false, error: 'invalid_stage' }, 400);
+  }
+
+  // Opportunistic cleanup so unused/expired sessions don't accumulate.
+  const cutoff = Date.now() - SESSION_MAX_AGE_MS;
+  await env.DB.prepare('DELETE FROM game_sessions WHERE created_at < ?1').bind(cutoff).run();
+
+  const token = crypto.randomUUID();
+  await env.DB.prepare(
+    'INSERT INTO game_sessions (token, game_id, stage, used, created_at) VALUES (?1, ?2, ?3, 0, ?4)'
+  ).bind(token, GAME_ID, stage, Date.now()).run();
+
+  return jsonResponse({ ok: true, token });
+}
+
 async function handleScoreSubmit(request, env) {
   let body;
   try {
@@ -57,7 +86,7 @@ async function handleScoreSubmit(request, env) {
     return jsonResponse({ ok: false, error: 'invalid_body' }, 400);
   }
 
-  const { score, haiku, stage, qualityScore } = body;
+  const { score, haiku, stage, qualityScore, token } = body;
 
   if (!Number.isInteger(score) || score < MIN_SCORE || score > MAX_SCORE) {
     return jsonResponse({ ok: false, error: 'invalid_score' }, 400);
@@ -73,6 +102,17 @@ async function handleScoreSubmit(request, env) {
   }
   if (!Number.isInteger(qualityScore) || qualityScore < MIN_QUALITY_SCORE || qualityScore > MAX_QUALITY_SCORE) {
     return jsonResponse({ ok: false, error: 'invalid_quality_score' }, 400);
+  }
+  if (typeof token !== 'string' || !token) {
+    return jsonResponse({ ok: false, error: 'invalid_token' }, 400);
+  }
+
+  const cutoff = Date.now() - SESSION_MAX_AGE_MS;
+  const consumed = await env.DB.prepare(
+    'UPDATE game_sessions SET used = 1 WHERE token = ?1 AND game_id = ?2 AND stage = ?3 AND used = 0 AND created_at >= ?4'
+  ).bind(token, GAME_ID, stage, cutoff).run();
+  if (!consumed.meta || consumed.meta.changes === 0) {
+    return jsonResponse({ ok: false, error: 'invalid_session' }, 403);
   }
 
   const createdAt = new Date().toISOString();
@@ -106,8 +146,23 @@ export default {
       }
     }
 
+    if (path === '/api/ikku-gozaru/session') {
+      if (request.method !== 'POST') return jsonResponse({ ok: false, error: 'method_not_allowed' }, 405);
+      if (!(await checkRateLimit(env, 'ikku-session', request, 20, 600))) {
+        return jsonResponse({ ok: false, error: 'rate_limited' }, 429);
+      }
+      try {
+        return await handleSessionStart(request, env);
+      } catch (e) {
+        return jsonResponse({ ok: false, error: 'server_error' }, 500);
+      }
+    }
+
     if (path === '/api/ikku-gozaru/score') {
       if (request.method !== 'POST') return jsonResponse({ ok: false, error: 'method_not_allowed' }, 405);
+      if (!(await checkRateLimit(env, 'ikku-score', request, 20, 600))) {
+        return jsonResponse({ ok: false, error: 'rate_limited' }, 429);
+      }
       try {
         return await handleScoreSubmit(request, env);
       } catch (e) {
@@ -116,7 +171,7 @@ export default {
     }
 
     // line4 (黄昏のフォー・イン・ア・ロウ) online multiplayer — isolated in
-    // line4-online.js / the LINE4_ROOMS KV namespace, untouched by anything above.
+    // line4-online.js / its own D1 database (LINE4_DB), untouched by anything above.
     if (path.startsWith('/api/line4/')) {
       try {
         const res = await routeLine4(request, env, path);
