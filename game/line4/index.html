@@ -1199,6 +1199,29 @@
         ],
         victory: 'ガハハハッ！　俺様の勝ちだ！　力ってのはな、最後にモノを言うんだよ！',
         defeat: 'ぐおおお……！　俺が……負けただと……？　次は絶対ぶっ潰す！',
+      },
+      // Kana-mode dialogue: same shape as `lines`, hiragana-only (sound
+      // effects/loanwords stay katakana, e.g. ガツン・ナシ・モノ). speak()
+      // picks this over `lines` when kanaMode is on. Character names and
+      // speaker labels (PUPPETS, ch.name) are out of scope and stay as-is.
+      linesKana: {
+        normal: [
+          'へへっ、どこにおこうがおれのかちだぜ！',
+          'かんがえすぎんな！　ガツンとこいよ！',
+          'そのいって、おれにはまるみえだぜ！',
+          'おいおい、そんなところにおいていいのか？',
+          'まだまだ！　ここからひっくりかえしてやる！',
+        ],
+        aboutToWin: [
+          'みたか！　もうにげみちはねぇぞ！',
+          'ハハハッ！　あといってでぶっとばしてやる！',
+        ],
+        aboutToLose: [
+          'ちょ、まて！　いまのはナシだろ！',
+          'くそっ！　まだおわっちゃいねぇぞ！',
+        ],
+        victory: 'ガハハハッ！　おれさまのかちだ！　ちからってのはな、さいごにモノをいうんだよ！',
+        defeat: 'ぐおおお……！　おれが……まけただと……？　つぎはぜったいぶっつぶす！',
       } },
     { level: 2, name: '黒衣のディーラー', stars: 3, img: 'chara/LV2.webp', emoji: '🃏',
       desc: '冷静・知的な悪役', depth: 2, wildness: 0.25,
@@ -1220,6 +1243,25 @@
         ],
         victory: '勝負あり、ですね。あなたの手札は、すべて見えていましたよ。',
         defeat: '……私の読みを上回りましたか。お見事。次は、そう簡単にはいきませんよ。',
+      },
+      linesKana: {
+        normal: [
+          'なるほど。あなたは、そういうてをえらぶんですね。',
+          'おもしろい。では、こちらはどうでしょう？',
+          'あせらなくてもけっこうですよ。じかんはありますから。',
+          'そのいってには、しょうしょうきたいしていたんですがね。',
+          'しょうぶというのは、さいごまでわからないものですよ。',
+        ],
+        aboutToWin: [
+          'チェックメイト……というには、まだはやいですかね。',
+          'どうやらしょうぶのながれは、こちらにかたむいたようですね。',
+        ],
+        aboutToLose: [
+          '……これはしょうしょう、けいさんがくるいましたね。',
+          'なるほど。そうきましたか。じつにきょうみぶかい。',
+        ],
+        victory: 'しょうぶあり、ですね。あなたのてふだは、すべてみえていましたよ。',
+        defeat: '……わたしのよみをうわまわりましたか。おみごと。つぎは、そうかんたんにはいきませんよ。',
       } },
     { level: 3, name: '狂犬マスク', stars: 4, img: 'chara/LV3.webp', emoji: '🐺',
       desc: '不気味で攻撃的', depth: 3, wildness: 0.15,
@@ -1241,6 +1283,25 @@
         ],
         victory: 'アハハハハ！　終わっちまった！　もっと遊びたかったのになぁ！',
         defeat: '……負けた？　俺が？　ハハ……ハハハッ！　最高じゃねぇか！',
+      },
+      linesKana: {
+        normal: [
+          'ククク……そこにおくんだ？　へぇ……。',
+          'もっとこいよ。まだぜんぜんたりねぇ。',
+          'そのかお……いいねぇ。おいつめられてきたかおだ。',
+          'つぎはどこかな？　どこかなぁ？',
+          'ハハッ！　ばんめんがぐちゃぐちゃになってきたぜ！',
+        ],
+        aboutToWin: [
+          'みえる……みえるぞ！　おまえがまけるしゅんかんが！',
+          'ヒャハハハ！　あといってだ！　にげてみろよ！',
+        ],
+        aboutToLose: [
+          '……へぇ。やるじゃねぇか。',
+          'ハハッ……さいこうだ！　もっとギリギリまでこいよ！',
+        ],
+        victory: 'アハハハハ！　おわっちまった！　もっとあそびたかったのになぁ！',
+        defeat: '……まけた？　おれが？　ハハ……ハハハッ！　さいこうじゃねぇか！',
       } },
     { level: 4, name: '黒薔薇アイドル', stars: 4, img: 'chara/LV4.webp', emoji: '🌹',
       desc: '美貌と妖しさを兼ね備えた人気者', depth: 4, wildness: 0.05,
@@ -1262,6 +1323,25 @@
         ],
         victory: 'みんなーっ！　勝ったよーっ♡ ……ふふ。あなたも、ちゃんと楽しめたかしら？',
         defeat: '……え？　私が……負けたの？　……ふふ、そういう顔するんだ。覚えておくわね♡',
+      },
+      linesKana: {
+        normal: [
+          'あら、そこにおくの？　かわいいせんたくね♡',
+          'ふふっ、ちゃんとわたしをみててね？',
+          'だいじょうぶ。まだまけたわけじゃないもの。',
+          'そのて……ファンのみんなならどうおもうかしら？',
+          'しょうぶって、こんなにドキドキするものなのね♡',
+        ],
+        aboutToWin: [
+          'うふふ……もうにげられないわよ♡',
+          'さあ、さいごのいってよ。わたしをもっとたのしませて？',
+        ],
+        aboutToLose: [
+          '……あら？　ちょっとよていとちがうわね。',
+          'ふふっ……まだわたしがわらってるりゆう、わからない？',
+        ],
+        victory: 'みんなーっ！　かったよーっ♡ ……ふふ。あなたも、ちゃんとたのしめたかしら？',
+        defeat: '……え？　わたしが……まけたの？　……ふふ、そういうかおするんだ。おぼえておくわね♡',
       } },
     { level: 5, name: '傀儡師', stars: 5, img: 'chara/LV5.webp', emoji: '🎭',
       desc: '名人・ラスボス。ゲーム盤そのものを操る', depth: 6, wildness: 0,
@@ -1349,6 +1429,89 @@
           { speaker: 'master', text: 'まさか、この私が操られるとはね。' },
           { speaker: 'fox', text: 'えっ、マスターが人形になったの？' },
           { speaker: 'master', text: '……それは、次の舞台でのお楽しみです。' },
+        ],
+      },
+      linesKana: {
+        normal: [
+          [
+            { speaker: 'master', text: 'さて……つぎは、だれにおどってもらいましょうか。' },
+            { speaker: 'fox', text: 'ボクがいい！' },
+            { speaker: 'owl', text: 'おまえはすこしだまっていなさい。' },
+          ],
+          [
+            { speaker: 'owl', text: 'マスター、ひだりです。ひだりのてをおわすれなく。' },
+            { speaker: 'master', text: 'おや。わたしよりさきにきづきましたか。' },
+          ],
+          [
+            { speaker: 'mouse', text: '……あの……こっち、あぶないとおもう……。' },
+            { speaker: 'master', text: 'ふふ。ネズミのかんは、あなどれませんからね。' },
+          ],
+          [
+            { speaker: 'badger', text: '……。' },
+            { speaker: 'master', text: 'どうしました？' },
+            { speaker: 'badger', text: '……かてる。' },
+            { speaker: 'master', text: 'それはたのもしい。' },
+          ],
+          [
+            { speaker: 'fox', text: 'ねえねえ、あいつ、つぎどうするとおもう？' },
+            { speaker: 'owl', text: 'しずかにしなさい。いま、かんがえているところです。' },
+            { speaker: 'fox', text: 'じゃあボクはわかった！' },
+            { speaker: 'master', text: '……では、きかせてもらいましょうか。' },
+          ],
+        ],
+        aboutToWin: [
+          [
+            { speaker: 'master', text: '……ほら。もう、いとがみえてきましたよ。' },
+            { speaker: 'owl', text: 'あといってです。' },
+            { speaker: 'fox', text: 'やったー！' },
+            { speaker: 'badger', text: '……まだだ。' },
+            { speaker: 'mouse', text: '……うん。まだ。' },
+            { speaker: 'master', text: 'ふふ。しんちょうですね。' },
+          ],
+          [
+            { speaker: 'master', text: 'さあ、さいごのいってです。' },
+            { speaker: 'fox', text: 'もうかった？' },
+            { speaker: 'owl', text: 'まだです。ゆだんはきんもつですよ。' },
+            { speaker: 'mouse', text: '……でも、たぶんかてる。' },
+            { speaker: 'badger', text: '……かつ。' },
+            { speaker: 'master', text: 'みなさん、ずいぶんきがはやいようで。' },
+          ],
+        ],
+        aboutToLose: [
+          [
+            { speaker: 'mouse', text: '……マスター。' },
+            { speaker: 'master', text: 'ええ。わかっていますよ。' },
+            { speaker: 'owl', text: 'これは……なかなか。' },
+            { speaker: 'fox', text: 'えっ、ちょっとまって！　まけるの!?' },
+            { speaker: 'badger', text: '……まだおわってない。' },
+            { speaker: 'master', text: 'そのとおりです。' },
+          ],
+          [
+            { speaker: 'owl', text: 'マスター。これは、よていがいでは？' },
+            { speaker: 'master', text: 'ええ。じつにゆかいなよていがいです。' },
+            { speaker: 'fox', text: 'ぜんぜんゆかいじゃないよ！' },
+            { speaker: 'badger', text: '……まだうてる。' },
+            { speaker: 'mouse', text: '……いって、ある。' },
+            { speaker: 'master', text: 'なるほど。では、そのいってにかけてみましょう。' },
+          ],
+        ],
+        victory: [
+          { speaker: 'master', text: '……しゅうまくです。' },
+          { speaker: 'owl', text: 'みごとなしょうぶでした。' },
+          { speaker: 'fox', text: 'やったー！　かったー！' },
+          { speaker: 'badger', text: '……とうぜん。' },
+          { speaker: 'mouse', text: '……よかった。' },
+          { speaker: 'master', text: 'みなさん、おつかれさまでした。では……つぎのぶたいへまいりましょう。' },
+        ],
+        defeat: [
+          { speaker: 'fox', text: '……まけちゃった。' },
+          { speaker: 'owl', text: 'みとめましょう。かんぱいです。' },
+          { speaker: 'badger', text: '……つよい。' },
+          { speaker: 'mouse', text: '……すごかった。' },
+          { speaker: 'master', text: '……ふふ。' },
+          { speaker: 'master', text: 'まさか、このわたしがあやつられるとはね。' },
+          { speaker: 'fox', text: 'えっ、マスターがにんぎょうになったの？' },
+          { speaker: 'master', text: '……それは、つぎのぶたいでのおたのしみです。' },
         ],
       } },
   ];
@@ -2083,7 +2246,8 @@
 
   function speak(ch, category) {
     if (!ch || !ch.lines) return 0;
-    const data = ch.lines[category];
+    const lineSet = (kanaMode && ch.linesKana) ? ch.linesKana : ch.lines;
+    const data = lineSet[category];
     if (!data) return 0;
 
     if (category === 'victory' || category === 'defeat') {
