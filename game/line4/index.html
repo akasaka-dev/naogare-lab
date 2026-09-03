@@ -722,6 +722,9 @@
     <button id="seToggle" class="audio-btn" type="button" aria-label="効果音のオン/オフ" aria-pressed="true">
       <span class="audio-icon">🔔</span><span class="audio-label">SE</span>
     </button>
+    <button id="kanaToggle" class="audio-btn" type="button" aria-label="かなモードのオン/オフ" aria-pressed="false">
+      <span class="audio-icon">🈁</span><span class="audio-label">かな</span>
+    </button>
   </div>
   <audio id="bgmAudio" loop preload="none"></audio>
 
@@ -736,14 +739,14 @@
 
   <!-- Title / mode select screen -->
   <div id="titleScreen">
-    <h1>黄昏のフォー・イン・ア・<span id="debugTrigger">ロ</span>ウ</h1>
-    <p class="subtitle">遊び方を選んでください</p>
+    <h1><span id="titlePrefix">黄昏のフォー・イン・ア・</span><span id="debugTrigger">ロ</span>ウ</h1>
+    <p class="subtitle" id="titleSubtitle">遊び方を選んでください</p>
     <div class="mode-options" id="modeOptions">
-      <button class="mode-btn" id="pvpBtn"><span class="emoji">🧑‍🤝‍🧑</span>対人戦</button>
-      <button class="mode-btn" id="cpuBtn"><span class="emoji">🤖</span>CPU戦<br><span class="mode-btn-sub">LV1からの勝ち抜き</span></button>
-      <button class="mode-btn" id="onlineBtn"><span class="emoji">🌐</span>オンライン対戦<br><span class="mode-btn-sub">友達を招待</span></button>
+      <button class="mode-btn" id="pvpBtn"><span class="emoji">🧑‍🤝‍🧑</span><span id="pvpBtnLabel"></span></button>
+      <button class="mode-btn" id="cpuBtn"><span class="emoji">🤖</span><span id="cpuBtnLabel"></span><br><span class="mode-btn-sub" id="cpuBtnSub"></span></button>
+      <button class="mode-btn" id="onlineBtn"><span class="emoji">🌐</span><span id="onlineBtnLabel"></span><br><span class="mode-btn-sub" id="onlineBtnSub"></span></button>
     </div>
-    <button class="back-to-splash-btn" id="backToSplashBtn">← タイトルに戻る</button>
+    <button class="back-to-splash-btn" id="backToSplashBtn"></button>
     <p class="credit">
       Created by <strong>naogare</strong> ／
       <a href="https://www.youtube.com/@NMLabo" target="_blank" rel="noopener noreferrer">YouTube: NMLabo</a>
@@ -752,24 +755,24 @@
 
   <!-- Online multiplayer: create/join a room, then wait for the opponent -->
   <div id="onlineScreen" class="hidden">
-    <h1>🌐 オンライン対戦</h1>
+    <h1 id="onlineHeading"></h1>
     <div id="onlineMenu">
-      <p class="subtitle">友達を招待して対戦しましょう</p>
-      <button class="mode-btn" id="onlineCreateBtn"><span class="emoji">🚪</span>部屋を作る</button>
-      <p class="subtitle" style="margin-top:14px;">または、もらったコードで参加</p>
+      <p class="subtitle" id="onlineIntro"></p>
+      <button class="mode-btn" id="onlineCreateBtn"><span class="emoji">🚪</span><span id="onlineCreateBtnLabel"></span></button>
+      <p class="subtitle" id="onlineOrJoin" style="margin-top:14px;"></p>
       <div class="online-join-row">
         <input type="text" id="onlineJoinCode" placeholder="部屋コード" maxlength="6" autocomplete="off" autocapitalize="characters">
-        <button id="onlineJoinBtn">参加する</button>
+        <button id="onlineJoinBtn"></button>
       </div>
       <p class="online-error" id="onlineError"></p>
-      <button class="back-to-splash-btn" id="onlineBackBtn">← タイトルに戻る</button>
+      <button class="back-to-splash-btn" id="onlineBackBtn"></button>
     </div>
     <div id="onlineWaiting" class="hidden">
-      <p class="subtitle">このコードを友達に伝えるか、URLを共有してください</p>
+      <p class="subtitle" id="onlineShareInstructions"></p>
       <div class="online-room-code" id="onlineRoomCode"></div>
-      <button id="onlineCopyBtn">招待URLをコピー</button>
-      <p class="online-waiting-text">対戦相手を待っています…</p>
-      <button class="back-to-splash-btn" id="onlineCancelBtn">キャンセル</button>
+      <button id="onlineCopyBtn"></button>
+      <p class="online-waiting-text" id="onlineWaitingText"></p>
+      <button class="back-to-splash-btn" id="onlineCancelBtn"></button>
     </div>
   </div>
 
@@ -1045,6 +1048,75 @@
     SoundMgr.seClick();
     refreshAudioButtons();
   });
+
+  // ---------- Kana mode: UI text only (buttons, labels, status messages).
+  // Character names/dialogue are left as-is — this is about making the game's
+  // own chrome readable without kanji, not a full localization pass. K()
+  // picks the right string for whichever mode is active *at the moment it's
+  // called*, so text built dynamically (status line, result overlays, etc.)
+  // always reflects the current mode with no extra wiring; only text that's
+  // set once into static HTML needs applyKanaMode() to re-run on toggle.
+  const KANA_STORAGE_KEY = 'lineup4_kana_on';
+  let kanaMode = safeStorageGet(KANA_STORAGE_KEY) === '1';
+  function K(kanji, kana) { return kanaMode ? kana : kanji; }
+
+  const kanaToggleBtn = document.getElementById('kanaToggle');
+  function refreshKanaButton() {
+    kanaToggleBtn.classList.toggle('muted', !kanaMode);
+    kanaToggleBtn.setAttribute('aria-pressed', String(kanaMode));
+  }
+  refreshKanaButton();
+  kanaToggleBtn.addEventListener('click', () => {
+    SoundMgr.unlock();
+    SoundMgr.seClick();
+    kanaMode = !kanaMode;
+    safeStorageSet(KANA_STORAGE_KEY, kanaMode ? '1' : '0');
+    refreshKanaButton();
+    applyKanaMode();
+  });
+
+  // Re-renders every *statically*-placed UI string (button labels, headings,
+  // placeholders) for the current kanaMode. Dynamic strings (status line,
+  // result overlays, ...) don't need this — they already call K() fresh each
+  // time they run — but if a match is already in progress we also nudge the
+  // couple of screens that only render once at match start.
+  function applyKanaMode() {
+    document.getElementById('titlePrefix').textContent = K('黄昏のフォー・イン・ア・', 'たそがれのフォー・イン・ア・');
+    document.getElementById('titleSubtitle').textContent = K('遊び方を選んでください', 'あそびかたをえらんでください');
+    document.getElementById('pvpBtnLabel').textContent = K('対人戦', 'たいじんせん');
+    document.getElementById('cpuBtnLabel').textContent = K('CPU戦', 'CPUせん');
+    document.getElementById('cpuBtnSub').textContent = K('LV1からの勝ち抜き', 'LV1からのかちぬき');
+    document.getElementById('onlineBtnLabel').textContent = K('オンライン対戦', 'オンラインたいせん');
+    document.getElementById('onlineBtnSub').textContent = K('友達を招待', 'ともだちをしょうたい');
+    const backLabel = K('← タイトルに戻る', '← タイトルにもどる');
+    document.getElementById('backToSplashBtn').textContent = backLabel;
+    document.getElementById('onlineBackBtn').textContent = backLabel;
+
+    document.getElementById('onlineHeading').textContent = '🌐 ' + K('オンライン対戦', 'オンラインたいせん');
+    document.getElementById('onlineIntro').textContent = K('友達を招待して対戦しましょう', 'ともだちをしょうたいしてたいせんしましょう');
+    document.getElementById('onlineCreateBtnLabel').textContent = K('部屋を作る', 'へやをつくる');
+    document.getElementById('onlineOrJoin').textContent = K('または、もらったコードで参加', 'または、もらったコードでさんか');
+    document.getElementById('onlineJoinCode').placeholder = K('部屋コード', 'へやコード');
+    document.getElementById('onlineJoinBtn').textContent = K('参加する', 'さんかする');
+    document.getElementById('onlineShareInstructions').textContent = K('このコードを友達に伝えるか、URLを共有してください', 'このコードをともだちにつたえるか、URLをきょうゆうしてください');
+    document.getElementById('onlineCopyBtn').textContent = K('招待URLをコピー', 'しょうたいURLをコピー');
+    document.getElementById('onlineWaitingText').textContent = K('対戦相手を待っています…', 'たいせんあいてをまっています…');
+    document.getElementById('onlineCancelBtn').textContent = 'キャンセル';
+
+    resetBtn.textContent = K('最初からやり直す', 'さいしょからやりなおす');
+    titleBtn.textContent = K('タイトルに戻る', 'タイトルにもどる');
+
+    // If a match is already up, refresh what's currently on screen too.
+    if (!gameScreen.classList.contains('hidden')) {
+      if (mode === 'pvp') {
+        modeLabelEl.textContent = K('対人戦モード', 'たいじんせんモード');
+      } else if (mode === 'online' && online) {
+        modeLabelEl.textContent = `${K('オンライン対戦', 'オンラインたいせん')}（${K('部屋', 'へや')}: ${online.code}） ／ ${K('あなたは', 'あなたは')}${online.myPlayer === 1 ? K('赤', 'あか') : K('黄', 'き')}`;
+      }
+      if (typeof currentPlayer !== 'undefined' && !gameOver) updateStatus();
+      updateScoreboard();
+    }
+  }
 
   // ---------- Splash screen ----------
   const splashScreen = document.getElementById('splashScreen');
@@ -1334,14 +1406,16 @@
     return res.json();
   }
 
-  const ONLINE_ERROR_MESSAGES = {
-    room_not_found: '部屋が見つかりませんでした。コードを確認してください。',
-    room_full: 'その部屋にはすでに2人揃っています。',
-    invalid_body: 'コードを入力してください。',
-    server_error: '通信エラーが発生しました。もう一度お試しください。',
-  };
+  function onlineErrorMessages() {
+    return {
+      room_not_found: K('部屋が見つかりませんでした。コードを確認してください。', 'へやがみつかりませんでした。コードをかくにんしてください。'),
+      room_full: K('その部屋にはすでに2人揃っています。', 'そのへやにはすでに2にんそろっています。'),
+      invalid_body: K('コードを入力してください。', 'コードをにゅうりょくしてください。'),
+      server_error: K('通信エラーが発生しました。もう一度お試しください。', 'つうしんエラーがはっせいしました。もういちどおためしください。'),
+    };
+  }
   function showOnlineError(code) {
-    onlineErrorEl.textContent = ONLINE_ERROR_MESSAGES[code] || '通信エラーが発生しました。もう一度お試しください。';
+    onlineErrorEl.textContent = onlineErrorMessages()[code] || onlineErrorMessages().server_error;
   }
   function clearOnlineError() {
     onlineErrorEl.textContent = '';
@@ -1536,14 +1610,14 @@
     document.getElementById('onlineEmoteBar').classList.remove('hidden');
     setCharBackground(null);
     SoundMgr.playTrack('game');
-    modeLabelEl.textContent = `オンライン対戦（部屋: ${online.code}） ／ あなたは${online.myPlayer === 1 ? '赤' : '黄'}`;
+    modeLabelEl.textContent = `${K('オンライン対戦', 'オンラインたいせん')}（${K('部屋', 'へや')}: ${online.code}） ／ ${K('あなたは', 'あなたは')}${online.myPlayer === 1 ? K('赤', 'あか') : K('黄', 'き')}`;
 
     grid = state.grid;
     gameOver = false;
     cellEls = [];
     buildBoard();
     hideBubble();
-    updateStatus('先攻・後攻を決めています…');
+    updateStatus(K('先攻・後攻を決めています…', 'せんこう・こうこうをきめています…'));
     boardWrap.classList.add('locked');
     online.rev = state.rev;
     online.emoteRev = state.emoteRev || 0;
@@ -1601,18 +1675,18 @@
       const iWon = state.winner === String(online.myPlayer);
       const isDraw = state.winner === 'draw';
       if (isDraw) {
-        updateStatus('引き分けです！');
+        updateStatus(K('引き分けです！', 'ひきわけです！'));
         SoundMgr.seDraw();
       } else {
-        const winnerLabel = state.winner === '1' ? 'プレイヤー1（赤）' : 'プレイヤー2（黄）';
-        updateStatus(`🎉 ${winnerLabel}の勝利！`);
+        const winnerLabel = state.winner === '1' ? K('プレイヤー1（赤）', 'プレイヤー1（あか）') : K('プレイヤー2（黄）', 'プレイヤー2（き）');
+        updateStatus(`🎉 ${winnerLabel}${K('の勝利！', 'のしょうり！')}`);
         if (iWon) SoundMgr.seWin(); else SoundMgr.seLose();
       }
       setTimeout(() => {
         showResultOverlay({
-          title: isDraw ? '引き分け' : (iWon ? '勝利！' : '敗北……'),
-          message: isDraw ? 'オンライン対戦は引き分けに終わりました。' : (iWon ? '相手に勝利しました！' : '相手に敗れました……'),
-          buttons: [{ label: 'タイトルに戻る', primary: true, onClick: goToTitle }],
+          title: isDraw ? K('引き分け', 'ひきわけ') : (iWon ? K('勝利！', 'しょうり！') : K('敗北……', 'はいぼく……')),
+          message: isDraw ? K('オンライン対戦は引き分けに終わりました。', 'オンラインたいせんはひきわけにおわりました。') : (iWon ? K('相手に勝利しました！', 'あいてにしょうりしました！') : K('相手に敗れました……', 'あいてにやぶれました……')),
+          buttons: [{ label: K('タイトルに戻る', 'タイトルにもどる'), primary: true, onClick: goToTitle }],
         });
       }, 1200);
       return;
@@ -1661,12 +1735,12 @@
       modeLabelEl.innerHTML = `
         <img id="opponentAvatar" src="${currentChar.img}" alt=""
              onerror="this.style.display='none'">
-        LV.${currentChar.level}/5 ${currentChar.name}（${starString(currentChar.stars)}） ／ あなたは赤`;
+        LV.${currentChar.level}/5 ${currentChar.name}（${starString(currentChar.stars)}） ／ ${K('あなたは赤', 'あなたはあか')}`;
       setCharBackground(currentChar);
       speechBubbleEl.classList.remove('hidden');
     } else {
       SoundMgr.playTrack('game');
-      modeLabelEl.textContent = '対人戦モード';
+      modeLabelEl.textContent = K('対人戦モード', 'たいじんせんモード');
       setCharBackground(null);
       speechBubbleEl.classList.add('hidden');
     }
@@ -1758,13 +1832,13 @@
   function handleLadderOutcome(result) {
     if (result === 'draw') {
       showResultOverlay({
-        title: '引き分け',
-        message: `${currentChar.name} との勝負は引き分けに終わりました。`,
+        title: K('引き分け', 'ひきわけ'),
+        message: `${currentChar.name} ${K('との勝負は引き分けに終わりました。', 'とのしょうぶはひきわけにおわりました。')}`,
         portraitImg: currentChar.img,
         portraitEmoji: currentChar.emoji,
         buttons: [
-          { label: 'もう一度対戦する', primary: true, onClick: () => initGame() },
-          { label: 'タイトルに戻る', onClick: goToTitle },
+          { label: K('もう一度対戦する', 'もういちどたいせんする'), primary: true, onClick: () => initGame() },
+          { label: K('タイトルに戻る', 'タイトルにもどる'), onClick: goToTitle },
         ],
       });
       return;
@@ -1772,14 +1846,14 @@
 
     if (result === 'lose') {
       showResultOverlay({
-        title: '敗北……',
-        message: `LV.${currentChar.level} ${currentChar.name} に敗れました。\n到達レベル: LV.${currentChar.level}`,
+        title: K('敗北……', 'はいぼく……'),
+        message: `LV.${currentChar.level} ${currentChar.name} ${K('に敗れました。', 'にやぶれました。')}\n${K('到達レベル', 'とうたつレベル')}: LV.${currentChar.level}`,
         portraitImg: currentChar.img,
         portraitEmoji: currentChar.emoji,
         buttons: [
-          { label: 'このレベルに再挑戦する', primary: true, onClick: () => startGame('cpu') },
-          { label: 'LV1からやり直す', onClick: startLadder },
-          { label: 'タイトルに戻る', onClick: goToTitle },
+          { label: K('このレベルに再挑戦する', 'このレベルにさいちょうせんする'), primary: true, onClick: () => startGame('cpu') },
+          { label: K('LV1からやり直す', 'LV1からやりなおす'), onClick: startLadder },
+          { label: K('タイトルに戻る', 'タイトルにもどる'), onClick: goToTitle },
         ],
       });
       return;
@@ -1794,17 +1868,17 @@
     const beaten = currentChar;
     const next = CHARACTERS[ladderIndex + 1];
     showResultOverlay({
-      title: `LV.${beaten.level} ${beaten.name} 撃破！`,
-      message: `次の刺客が現れた……\nLV.${next.level} ${next.name}`,
+      title: `LV.${beaten.level} ${beaten.name} ${K('撃破！', 'げきは！')}`,
+      message: `${K('次の刺客が現れた……', 'つぎのしかくがあらわれた……')}\nLV.${next.level} ${next.name}`,
       portraitImg: next.img,
       portraitEmoji: next.emoji,
       buttons: [
-        { label: '対戦開始', primary: true, onClick: () => {
+        { label: K('対戦開始', 'たいせんかいし'), primary: true, onClick: () => {
             ladderIndex++;
             currentChar = next;
             startGame('cpu');
           } },
-        { label: 'ここでやめる（タイトルへ）', onClick: goToTitle },
+        { label: K('ここでやめる（タイトルへ）', 'ここでやめる（タイトルへ）'), onClick: goToTitle },
       ],
     });
   }
@@ -1816,7 +1890,7 @@
     cpuThinking = false;
     buildBoard();
     hideBubble();
-    updateStatus('先攻・後攻を決めています…');
+    updateStatus(K('先攻・後攻を決めています…', 'せんこう・こうこうをきめています…'));
     boardWrap.classList.add('locked');
     decideStartingPlayer((starter) => {
       currentPlayer = starter;
@@ -1836,13 +1910,13 @@
     const textEl = document.getElementById('turnDecideText');
     const starter = forcedStarter != null ? forcedStarter : (Math.random() < 0.5 ? 1 : 2);
     const starterLabel = starter === 1
-      ? (mode === 'cpu' ? 'あなた（赤）' : 'プレイヤー1（赤）')
-      : (mode === 'cpu' ? opponentLabel() : 'プレイヤー2（黄）');
+      ? (mode === 'cpu' ? K('あなた（赤）', 'あなた（あか）') : K('プレイヤー1（赤）', 'プレイヤー1（あか）'))
+      : (mode === 'cpu' ? opponentLabel() : K('プレイヤー2（黄）', 'プレイヤー2（き）'));
 
     coin.classList.remove('settled');
     coin.style.background = 'var(--p1)';
     textEl.classList.remove('show');
-    textEl.textContent = '先攻・後攻を決めています…';
+    textEl.textContent = K('先攻・後攻を決めています…', 'せんこう・こうこうをきめています…');
     overlay.classList.remove('hidden');
 
     let flip = 0;
@@ -1856,7 +1930,7 @@
       coin.style.background = starter === 1 ? 'var(--p1)' : 'var(--p2)';
       coin.classList.add('settled');
       SoundMgr.seDrop();
-      textEl.textContent = `${starterLabel}の先攻です！`;
+      textEl.textContent = `${starterLabel}${K('の先攻です！', 'のせんこうです！')}`;
       textEl.classList.add('show');
     }, 1250);
 
@@ -1886,7 +1960,7 @@
   }
 
   function opponentLabel() {
-    return mode === 'cpu' && currentChar ? currentChar.name : 'プレイヤー2（黄）';
+    return mode === 'cpu' && currentChar ? currentChar.name : K('プレイヤー2（黄）', 'プレイヤー2（き）');
   }
 
   function updateStatus(message) {
@@ -1895,14 +1969,14 @@
       return;
     }
     let indicator = `<span class="turn-indicator" style="background:var(--p1)"></span>`;
-    let name = 'プレイヤー1（赤）';
+    let name = K('プレイヤー1（赤）', 'プレイヤー1（あか）');
     if (currentPlayer === 2) {
       name = opponentLabel();
       indicator = (mode === 'cpu' && currentChar)
         ? `<img class="turn-avatar" src="${currentChar.img}" alt="" onerror="this.outerHTML='<span class=&quot;turn-indicator&quot; style=&quot;background:var(--p2)&quot;></span>'">`
         : `<span class="turn-indicator" style="background:var(--p2)"></span>`;
     }
-    statusEl.innerHTML = `${indicator} ${name}の番です`;
+    statusEl.innerHTML = `${indicator} ${name}${K('の番です', 'のばんです')}`;
   }
 
   function handleColumnClick(col) {
@@ -1927,8 +2001,8 @@
       winLine.forEach(([r, c]) => cellEls[r][c].classList.add('win'));
       scores[player]++;
       updateScoreboard();
-      const name = player === 1 ? 'プレイヤー1（赤）' : opponentLabel();
-      updateStatus(`🎉 ${name}の勝利！`);
+      const name = player === 1 ? K('プレイヤー1（赤）', 'プレイヤー1（あか）') : opponentLabel();
+      updateStatus(`🎉 ${name}${K('の勝利！', 'のしょうり！')}`);
       if (mode === 'cpu' && currentChar) {
         if (player === 2) SoundMgr.seLose(); else SoundMgr.seWin();
         const spokenMs = speak(currentChar, player === 2 ? 'victory' : 'defeat');
@@ -1941,7 +2015,7 @@
 
     if (isBoardFull()) {
       gameOver = true;
-      updateStatus('引き分けです！');
+      updateStatus(K('引き分けです！', 'ひきわけです！'));
       hideBubble();
       SoundMgr.seDraw();
       if (mode === 'cpu' && currentChar) {
@@ -2030,7 +2104,7 @@
     const thinkingAvatar = currentChar
       ? `<img class="turn-avatar" src="${currentChar.img}" alt="" onerror="this.outerHTML='<span class=&quot;turn-indicator&quot; style=&quot;background:var(--p2)&quot;></span>'">`
       : `<span class="turn-indicator" style="background:var(--p2)"></span>`;
-    updateStatus(`${thinkingAvatar} ${opponentLabel()}が考え中...`);
+    updateStatus(`${thinkingAvatar} ${opponentLabel()}${K('が考え中...', 'がかんがえちゅう...')}`);
     setTimeout(() => {
       const col = getCpuMove();
       cpuThinking = false;
@@ -2075,8 +2149,8 @@
   }
 
   function updateScoreboard() {
-    score1El.textContent = `プレイヤー1（赤）: ${scores[1]}勝`;
-    score2El.textContent = `${opponentLabel()}: ${scores[2]}勝`;
+    score1El.textContent = `${K('プレイヤー1（赤）', 'プレイヤー1（あか）')}: ${scores[1]}${K('勝', 'しょう')}`;
+    score2El.textContent = `${opponentLabel()}: ${scores[2]}${K('勝', 'しょう')}`;
   }
 
   resetBtn.addEventListener('click', () => { SoundMgr.seClick(); initGame(); });
@@ -2237,6 +2311,8 @@
     const [col] = minimax(grid, depth, -Infinity, Infinity, true);
     return col === null ? validCols[0] : col;
   }
+
+  applyKanaMode(); // render the title/online screens in the persisted mode
 })();
 </script>
 </body>
