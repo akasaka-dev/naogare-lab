@@ -10,6 +10,7 @@ import { Particles } from './Particles.js';
 import { Post } from './Post.js';
 import { FloatingBodies } from './FloatingBodies.js';
 import { Clouds } from './Clouds.js';
+import { Birds } from './Birds.js';
 
 // ---------------------------------------------------------------------------
 //  Boot
@@ -111,6 +112,16 @@ scene.add(island.mesh);
 
 const particles = new Particles(5000, 160);
 scene.add(particles.points);
+
+// ---------------------------------------------------------------------------
+//  Bird Demo V1 — opt-in via ?birds=1. When absent, none of this runs: no
+//  birds, no bird GUI, no camera/preset override. See Birds.js.
+// ---------------------------------------------------------------------------
+const birdDemoEnabled = new URLSearchParams(window.location.search).get('birds') === '1';
+const birds = birdDemoEnabled ? new Birds(scene, { seed: 1337, count: 3 }) : null;
+let birdClock = 0;
+let birdPaused = false;
+const birdDemoState = { time: 0 };
 
 // Lights — only the dropped primitives (MeshStandardMaterial) use these; the
 // ocean/island/sky are raw ShaderMaterials and ignore scene lights.
@@ -359,6 +370,13 @@ fPost.add(post.compositeMat.uniforms.uGrain, 'value', 0.0, 0.2, 0.005).name('fil
 fPost.add(post.compositeMat.uniforms.uCA, 'value', 0.0, 2.0, 0.05).name('lens fringe');
 fPost.add(post.compositeMat.uniforms.uVignetteAir, 'value', 0.0, 0.6, 0.02).name('vignette');
 
+if (birdDemoEnabled) {
+  const fBirdDemo = gui.addFolder('Bird Demo');
+  fBirdDemo.add({ restart: () => { birdClock = 0; } }, 'restart').name('Restart');
+  fBirdDemo.add({ toggle: () => { birdPaused = !birdPaused; } }, 'toggle').name('Pause / Play');
+  fBirdDemo.add(birdDemoState, 'time').name('timeline (s)').listen().disable();
+}
+
 gui.add({ dive: () => diveTo(-12) }, 'dive').name('▼ dive under');
 gui.add({ surface: () => diveTo(14) }, 'surface').name('▲ back to surface');
 
@@ -500,6 +518,7 @@ function animate() {
   const dt = Math.min((now - lastNow) / 1000, 0.05);
   time += dt;
   lastNow = now;
+  if (birdDemoEnabled && !birdPaused) birdClock += dt;
 
   controls.update();
 
@@ -516,6 +535,10 @@ function animate() {
   particles.update(time, camera);
   sky.update(camera, time);
   bodies.update(dt, time, ocean, terrainAt);
+  if (birds) {
+    birds.update(birdClock);
+    birdDemoState.time = Math.round((birdClock % birds.loopDuration) * 10) / 10;
+  }
 
   ocean.uniforms.uCameraUnderwater.value = underwater ? 1 : 0;
   ocean.uniforms.uProjMatrix.value.copy(camera.projectionMatrix);
@@ -593,7 +616,24 @@ function animate() {
 
 // Small handle for debugging / automation (harmless in production).
 window.OCEAN = { camera, controls, diveTo, sunParams, applySun, applyPreset, PRESETS, ocean, floor, island, post, bodies, dropObject, dropAtTarget, clouds, setCloudsEnabled };
+if (birdDemoEnabled) {
+  window.OCEAN.birds = birds;
+  window.OCEAN.setBirdClock = (t) => { birdClock = t; };
+  window.OCEAN.setBirdPaused = (p) => { birdPaused = p; };
+}
 
 applySun();
 setCloudsEnabled(true); // volumetric clouds on by default (toggle in the GUI)
+
+if (birdDemoEnabled) {
+  // Bird Demo camera: looking out over open water in +Z, well clear of the
+  // island (which sits entirely at world Z <= 65, behind this framing) — a
+  // clean horizon + sky with room for the flock to cross. Static pose
+  // (OrbitControls stay usable, but this is where the shot starts).
+  camera.position.set(0, 9, 90);
+  controls.target.set(0, 6, 220);
+  controls.update();
+  applyPreset('Golden Hour');
+}
+
 animate();
