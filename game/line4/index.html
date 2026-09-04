@@ -437,9 +437,14 @@
   }
 
   /* ---- Online emote picker (flick/drag-scroll strip) + incoming popup ---- */
+  /* max-width must stay tied to the viewport (vw), not just a flat px cap:
+     #emoteScroller's 25 fixed-width icons give it a large intrinsic content
+     width, and on portrait phones a flat 480px let that intrinsic width
+     inflate #gameScreen (an auto-width flex column) past the viewport,
+     clipping the board's side columns under body's overflow-x:hidden. */
   #onlineEmoteBar {
     width: 100%;
-    max-width: 480px;
+    max-width: min(480px, 92vw);
     margin-top: 14px;
   }
   #emoteScroller {
