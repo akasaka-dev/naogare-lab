@@ -1558,6 +1558,11 @@
   let ladderIndex = 0; // index into CHARACTERS for the current CPU ladder run
   let cpuThinking = false;
   let online = null; // { code, token, myPlayer, rev, timer, busy } while in an online match
+  // Pending setTimeout that will call handleLadderOutcome() after a CPU
+  // match's win/lose/draw line finishes playing. Must be cancelled by
+  // initGame() — otherwise clicking "retry" while it's still pending lets it
+  // fire mid-way through the NEW match and pop up a stale result overlay.
+  let ladderOutcomeTimer = null;
 
   // ---------- Title screen wiring ----------
   function starString(n) {
@@ -1979,6 +1984,7 @@
   }
 
   function goToTitle() {
+    if (ladderOutcomeTimer) { clearTimeout(ladderOutcomeTimer); ladderOutcomeTimer = null; }
     SoundMgr.playTrack('title');
     stopOnlinePolling();
     online = null;
@@ -2094,6 +2100,7 @@
 
   // ---------- Core game ----------
   function initGame() {
+    if (ladderOutcomeTimer) { clearTimeout(ladderOutcomeTimer); ladderOutcomeTimer = null; }
     grid = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
     gameOver = false;
     cpuThinking = false;
@@ -2215,7 +2222,7 @@
       if (mode === 'cpu' && currentChar) {
         if (player === 2) SoundMgr.seLose(); else SoundMgr.seWin();
         const spokenMs = speak(currentChar, player === 2 ? 'victory' : 'defeat');
-        setTimeout(() => handleLadderOutcome(player === 1 ? 'win' : 'lose'), Math.max(1800, spokenMs + 600));
+        ladderOutcomeTimer = setTimeout(() => handleLadderOutcome(player === 1 ? 'win' : 'lose'), Math.max(1800, spokenMs + 600));
       } else {
         SoundMgr.seWin();
       }
@@ -2228,7 +2235,7 @@
       hideBubble();
       SoundMgr.seDraw();
       if (mode === 'cpu' && currentChar) {
-        setTimeout(() => handleLadderOutcome('draw'), 1000);
+        ladderOutcomeTimer = setTimeout(() => handleLadderOutcome('draw'), 1000);
       }
       return true;
     }
