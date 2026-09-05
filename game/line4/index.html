@@ -1272,6 +1272,10 @@
     const roomParam = new URLSearchParams(location.search).get('room');
     if (roomParam) {
       const code = roomParam.trim().toUpperCase();
+      // Strip it from the URL right away — otherwise reloading this tab, or
+      // navigating back/forward to it later, re-triggers the auto-join every
+      // time (e.g. a match that already ended, or a room that's long gone).
+      history.replaceState(null, '', location.pathname);
       goToOnlineScreen();
       onlineJoinCodeEl.value = code;
       joinOnlineRoom(code);
