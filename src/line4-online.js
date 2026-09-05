@@ -20,6 +20,7 @@ const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I to avoid co
 const CODE_LENGTH = 6;
 const MAX_NAME_LENGTH = 10;
 const DEFAULT_NAME = 'プレイヤー';
+const TURN_TIMEOUT_MS = 60 * 1000; // no move within this long forfeits the turn
 
 // Free text (unlike the emote whitelist), so it's capped and defaulted —
 // the client's own default is "ノア" but this is the backstop for anything
@@ -117,6 +118,7 @@ function rowToRoom(row) {
     p2Name: row.p2_name,
     p1Streak: row.p1_streak,
     p2Streak: row.p2_streak,
+    turnStartedAt: row.turn_started_at,
     startingPlayer: row.starting_player,
     grid: JSON.parse(row.grid),
     currentPlayer: row.current_player,
@@ -141,6 +143,7 @@ function publicState(room) {
     p2Name: room.p2Name,
     p1Streak: room.p1Streak,
     p2Streak: room.p2Streak,
+    turnStartedAt: room.turnStartedAt,
     startingPlayer: room.startingPlayer,
     grid: room.grid,
     currentPlayer: room.currentPlayer,
@@ -157,7 +160,38 @@ function publicState(room) {
 
 async function loadRoom(env, code) {
   const row = await env.LINE4_DB.prepare('SELECT * FROM rooms WHERE code = ?1').bind(code).first();
-  return row ? rowToRoom(row) : null;
+  if (!row) return null;
+  const room = rowToRoom(row);
+  if (room.status === 'playing' && !room.gameOver && room.turnStartedAt
+      && Date.now() - room.turnStartedAt > TURN_TIMEOUT_MS) {
+    return resolveTimeout(env, room);
+  }
+  return room;
+}
+
+// No cron/Durable Object on this plan, so a timed-out turn isn't caught by a
+// background job — it's resolved lazily, the next time *anyone* reads the
+// room (every /state poll from either player qualifies), same pattern as the
+// opportunistic old-room sweep in handleCreate. Counts as an ordinary win for
+// streak purposes: whoever didn't move forfeits, the other player's streak
+// advances exactly like a real 4-in-a-row.
+async function resolveTimeout(env, room) {
+  const winner = room.currentPlayer === 1 ? '2' : '1';
+  const now = Date.now();
+  let p1Streak = room.p1Streak || 0;
+  let p2Streak = room.p2Streak || 0;
+  if (winner === '1') p1Streak += 1; else p2Streak += 1;
+
+  const result = await env.LINE4_DB.prepare(
+    `UPDATE rooms SET game_over = 1, winner = ?1, status = 'finished', updated_at = ?2, p1_streak = ?3, p2_streak = ?4, rev = rev + 1
+     WHERE code = ?5 AND rev = ?6`
+  ).bind(winner, now, p1Streak, p2Streak, room.code, room.rev).run();
+
+  const row = await env.LINE4_DB.prepare('SELECT * FROM rooms WHERE code = ?1').bind(room.code).first();
+  // If the UPDATE above lost a race (someone's move or another timeout check
+  // beat it to this rev), just return whatever the room actually is now —
+  // no need to error, the caller just wants the current true state.
+  return rowToRoom(row);
 }
 
 // ---- Route handlers ----
@@ -222,9 +256,9 @@ async function handleJoin(request, env, code) {
 
   const result = await env.LINE4_DB.prepare(
     fillingP1
-      ? `UPDATE rooms SET p1_token = ?1, p1_name = ?2, status = 'playing', starting_player = ?3, current_player = ?3, rev = rev + 1, updated_at = ?4
+      ? `UPDATE rooms SET p1_token = ?1, p1_name = ?2, status = 'playing', starting_player = ?3, current_player = ?3, turn_started_at = ?4, rev = rev + 1, updated_at = ?4
          WHERE code = ?5 AND p1_token IS NULL`
-      : `UPDATE rooms SET p2_token = ?1, p2_name = ?2, status = 'playing', starting_player = ?3, current_player = ?3, rev = rev + 1, updated_at = ?4
+      : `UPDATE rooms SET p2_token = ?1, p2_name = ?2, status = 'playing', starting_player = ?3, current_player = ?3, turn_started_at = ?4, rev = rev + 1, updated_at = ?4
          WHERE code = ?5 AND p2_token IS NULL`
   ).bind(token, name, startingPlayer, now, code).run();
 
@@ -286,9 +320,11 @@ async function handleMove(request, env, code) {
   const now = Date.now();
   // Guard on rev to make sure we're writing on top of the exact room state we
   // just validated the move against (protects against a rare double-submit race).
+  // turn_started_at resets on every non-final move — it marks when the *next*
+  // player's clock (TURN_TIMEOUT_MS, checked lazily in loadRoom) starts.
   const result = await env.LINE4_DB.prepare(
-    `UPDATE rooms SET grid = ?1, current_player = ?2, game_over = ?3, winner = ?4, win_line = ?5, rev = rev + 1, updated_at = ?6, status = ?7, p1_streak = ?8, p2_streak = ?9
-     WHERE code = ?10 AND rev = ?11`
+    `UPDATE rooms SET grid = ?1, current_player = ?2, game_over = ?3, winner = ?4, win_line = ?5, rev = rev + 1, updated_at = ?6, status = ?7, p1_streak = ?8, p2_streak = ?9, turn_started_at = ?10
+     WHERE code = ?11 AND rev = ?12`
   ).bind(
     JSON.stringify(room.grid),
     gameOver ? room.currentPlayer : nextPlayer,
@@ -299,6 +335,7 @@ async function handleMove(request, env, code) {
     gameOver ? 'finished' : 'playing',
     p1Streak,
     p2Streak,
+    gameOver ? room.turnStartedAt : now,
     code,
     room.rev
   ).run();
@@ -342,9 +379,9 @@ async function handleRematch(request, env, code) {
 
   const result = await env.LINE4_DB.prepare(
     loserIsP1
-      ? `UPDATE rooms SET p1_token = NULL, p1_name = NULL, p1_streak = 0, grid = ?1, current_player = 1, game_over = 0, winner = NULL, win_line = NULL, status = 'waiting', starting_player = NULL, rev = rev + 1, updated_at = ?2
+      ? `UPDATE rooms SET p1_token = NULL, p1_name = NULL, p1_streak = 0, grid = ?1, current_player = 1, game_over = 0, winner = NULL, win_line = NULL, status = 'waiting', starting_player = NULL, turn_started_at = NULL, rev = rev + 1, updated_at = ?2
          WHERE code = ?3 AND rev = ?4`
-      : `UPDATE rooms SET p2_token = NULL, p2_name = NULL, p2_streak = 0, grid = ?1, current_player = 1, game_over = 0, winner = NULL, win_line = NULL, status = 'waiting', starting_player = NULL, rev = rev + 1, updated_at = ?2
+      : `UPDATE rooms SET p2_token = NULL, p2_name = NULL, p2_streak = 0, grid = ?1, current_player = 1, game_over = 0, winner = NULL, win_line = NULL, status = 'waiting', starting_player = NULL, turn_started_at = NULL, rev = rev + 1, updated_at = ?2
          WHERE code = ?3 AND rev = ?4`
   ).bind(JSON.stringify(grid), now, code, room.rev).run();
 

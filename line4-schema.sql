@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS rooms (
   p2_name TEXT,
   p1_streak INTEGER NOT NULL DEFAULT 0,     -- consecutive wins by this slot's current occupant
   p2_streak INTEGER NOT NULL DEFAULT 0,
+  turn_started_at INTEGER,                  -- epoch ms; a turn open longer than TURN_TIMEOUT_MS forfeits (checked lazily in loadRoom)
   starting_player INTEGER,                  -- 1 | 2 | NULL
   grid TEXT NOT NULL,                       -- JSON-encoded 6x7 grid
   current_player INTEGER NOT NULL DEFAULT 1,

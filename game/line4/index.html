@@ -644,6 +644,12 @@
     gap: 8px;
     font-weight: 600;
   }
+  #turnTimeoutWarning {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: #f59e0b;
+    margin: -8px 0 12px;
+  }
   .turn-indicator {
     width: 22px;
     height: 22px;
@@ -881,6 +887,7 @@
     </div>
     <div id="modeLabel"></div>
     <div id="status"></div>
+    <div id="turnTimeoutWarning" class="hidden"></div>
     <div id="board-wrap">
       <div id="board"></div>
     </div>
@@ -1690,6 +1697,31 @@
   // — it never decides a win/turn locally the way the pvp/cpu modes do.
   const ONLINE_API = '/api/line4';
   const ONLINE_POLL_MS = 1300;
+
+  // Mirrors TURN_TIMEOUT_MS / the 30s warning point in src/line4-online.js —
+  // the server is what actually enforces the forfeit (checked lazily on the
+  // next /state poll from either side); this is purely the countdown display.
+  const TURN_TIMEOUT_MS = 60000;
+  const TURN_TIMEOUT_WARNING_MS = 30000;
+  setInterval(() => {
+    const warnEl = document.getElementById('turnTimeoutWarning');
+    if (mode !== 'online' || !online || gameOver || !online.turnStartedAt) {
+      warnEl.classList.add('hidden');
+      return;
+    }
+    const remaining = TURN_TIMEOUT_MS - (Date.now() - online.turnStartedAt);
+    if (remaining <= 0 || remaining > TURN_TIMEOUT_WARNING_MS) {
+      warnEl.classList.add('hidden');
+      return;
+    }
+    const seconds = Math.ceil(remaining / 1000);
+    const isMyTurn = currentPlayer === online.myPlayer;
+    warnEl.textContent = isMyTurn
+      ? `⏱ ${K(`あと${seconds}秒で時間切れになります`, `あと${seconds}びょうでじかんぎれになります`)}`
+      : `⏱ ${K(`相手が操作していません…あと${seconds}秒で不戦勝になります`, `あいてがそうさしていません…あと${seconds}びょうでふせんしょうになります`)}`;
+    warnEl.classList.remove('hidden');
+  }, 1000);
+
   const onlineScreenEl = document.getElementById('onlineScreen');
   const onlineMenuEl = document.getElementById('onlineMenu');
   const onlineWaitingEl = document.getElementById('onlineWaiting');
@@ -1957,6 +1989,7 @@
     mode = 'online';
     online.awaitingRematch = false;
     online.opponentName = online.myPlayer === 1 ? state.p2Name : state.p1Name;
+    online.turnStartedAt = state.turnStartedAt;
     const opponentStreak = online.myPlayer === 1 ? state.p2Streak : state.p1Streak;
     onlineScreenEl.classList.add('hidden');
     titleScreen.classList.add('hidden');
@@ -2010,6 +2043,7 @@
   function applyOnlineState(state) {
     if (!online || state.rev === online.rev) return;
     online.rev = state.rev;
+    online.turnStartedAt = state.turnStartedAt;
 
     // Find the single cell that changed since our local copy and animate it
     // the same way a local drop does, then adopt the server grid as-is.
