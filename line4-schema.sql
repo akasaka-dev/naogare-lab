@@ -5,6 +5,8 @@ CREATE TABLE IF NOT EXISTS rooms (
   status TEXT NOT NULL DEFAULT 'waiting',   -- 'waiting' | 'playing' | 'finished'
   p1_token TEXT NOT NULL,
   p2_token TEXT,
+  p1_name TEXT,                             -- display name, sanitizeName()-capped
+  p2_name TEXT,
   starting_player INTEGER,                  -- 1 | 2 | NULL
   grid TEXT NOT NULL,                       -- JSON-encoded 6x7 grid
   current_player INTEGER NOT NULL DEFAULT 1,

@@ -214,6 +214,26 @@
   #debugTrigger { user-select: none; }
 
   /* ---- Online multiplayer (create/join room) ---- */
+  .player-name-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-size: 0.85rem;
+    opacity: 0.9;
+    margin-top: -6px;
+  }
+  #playerNameInput {
+    background: #0f172a;
+    border: 2px solid #334155;
+    color: var(--text);
+    border-radius: 10px;
+    padding: 7px 12px;
+    font-size: 0.95rem;
+    width: 130px;
+    text-align: center;
+  }
+  #playerNameInput:focus { outline: none; border-color: var(--accent); }
   .online-join-row {
     display: flex;
     gap: 8px;
@@ -814,6 +834,10 @@
   <div id="titleScreen">
     <h1><span id="titlePrefix">黄昏のフォー・イン・ア・</span><span id="debugTrigger">ロ</span>ウ</h1>
     <p class="subtitle" id="titleSubtitle">遊び方を選んでください</p>
+    <div class="player-name-row">
+      <label for="playerNameInput" id="playerNameLabel"></label>
+      <input type="text" id="playerNameInput" maxlength="10" autocomplete="off">
+    </div>
     <div class="mode-options" id="modeOptions">
       <button class="mode-btn" id="pvpBtn"><span class="emoji">🧑‍🤝‍🧑</span><span id="pvpBtnLabel"></span></button>
       <button class="mode-btn" id="cpuBtn"><span class="emoji">🤖</span><span id="cpuBtnLabel"></span><br><span class="mode-btn-sub" id="cpuBtnSub"></span></button>
@@ -1131,6 +1155,31 @@
     refreshAudioButtons();
   });
 
+  // ---------- Player name: shown in place of "プレイヤー1" in CPU/online
+  // mode (PvP keeps the plain プレイヤー1/2 labels — there's no single
+  // "you" when two people share one screen), the ending's "あなた", and
+  // synced to the opponent in online play. Defaults to "ノア" so players
+  // who don't care can just ignore the field entirely.
+  const NAME_STORAGE_KEY = 'lineup4_player_name';
+  const DEFAULT_PLAYER_NAME = 'ノア';
+  const MAX_PLAYER_NAME_LENGTH = 10;
+  const playerNameInput = document.getElementById('playerNameInput');
+  playerNameInput.value = safeStorageGet(NAME_STORAGE_KEY) || DEFAULT_PLAYER_NAME;
+  playerNameInput.addEventListener('input', () => {
+    safeStorageSet(NAME_STORAGE_KEY, playerNameInput.value.slice(0, MAX_PLAYER_NAME_LENGTH));
+  });
+  function getPlayerName() {
+    return playerNameInput.value.trim().slice(0, MAX_PLAYER_NAME_LENGTH) || DEFAULT_PLAYER_NAME;
+  }
+  // Minimal HTML-escaping for the couple of spots that build a status string
+  // via innerHTML (for a colored-dot/avatar prefix) and splice a name into
+  // it — online mode means that name can be the OPPONENT's, so it must never
+  // be trusted as markup. Everywhere else a name is used with .textContent,
+  // which is already safe regardless.
+  function escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
   // ---------- Kana mode: UI text only (buttons, labels, status messages).
   // Character names/dialogue are left as-is — this is about making the game's
   // own chrome readable without kanji, not a full localization pass. K()
@@ -1165,6 +1214,7 @@
   function applyKanaMode() {
     document.getElementById('titlePrefix').textContent = K('黄昏のフォー・イン・ア・', 'たそがれのフォー・イン・ア・');
     document.getElementById('titleSubtitle').textContent = K('遊び方を選んでください', 'あそびかたをえらんでください');
+    document.getElementById('playerNameLabel').textContent = K('プレイヤー名', 'プレイヤーめい');
     document.getElementById('pvpBtnLabel').textContent = K('対人戦', 'たいじんせん');
     document.getElementById('cpuBtnLabel').textContent = K('CPU戦', 'CPUせん');
     document.getElementById('cpuBtnSub').textContent = K('LV1からの勝ち抜き', 'LV1からのかちぬき');
@@ -1659,7 +1709,7 @@
   function onlineErrorMessages() {
     return {
       room_not_found: K('部屋が見つかりませんでした。コードを確認してください。', 'へやがみつかりませんでした。コードをかくにんしてください。'),
-      room_full: K('その部屋にはすでに2人揃っています。', 'そのへやにはすでに2にんそろっています。'),
+      room_full: K('その部屋は現在対戦中です。', 'そのへやはげんざいたいせんちゅうです。'),
       invalid_body: K('コードを入力してください。', 'コードをにゅうりょくしてください。'),
       server_error: K('通信エラーが発生しました。もう一度お試しください。', 'つうしんエラーがはっせいしました。もういちどおためしください。'),
     };
@@ -1718,7 +1768,7 @@
 
   async function createOnlineRoom() {
     clearOnlineError();
-    const res = await apiPost('/room');
+    const res = await apiPost('/room', { name: getPlayerName() });
     if (!res.ok) { showOnlineError(res.error); return; }
     online = { code: res.code, token: res.token, myPlayer: 1, rev: res.state.rev, emoteRev: res.state.emoteRev || 0, timer: null, busy: false };
     onlineMenuEl.classList.add('hidden');
@@ -1743,7 +1793,7 @@
   async function joinOnlineRoom(code) {
     clearOnlineError();
     if (!code) { showOnlineError('invalid_body'); return; }
-    const res = await apiPost(`/room/${code}/join`);
+    const res = await apiPost(`/room/${code}/join`, { name: getPlayerName() });
     if (!res.ok) { showOnlineError(res.error); return; }
     online = { code, token: res.token, myPlayer: 2, rev: res.state.rev, emoteRev: res.state.emoteRev || 0, timer: null, busy: false };
     beginOnlineMatch(res.state);
@@ -1866,6 +1916,7 @@
 
   function beginOnlineMatch(state) {
     mode = 'online';
+    online.opponentName = online.myPlayer === 1 ? state.p2Name : state.p1Name;
     onlineScreenEl.classList.add('hidden');
     titleScreen.classList.add('hidden');
     gameScreen.classList.remove('hidden');
@@ -1943,8 +1994,8 @@
         updateStatus(K('引き分けです！', 'ひきわけです！'));
         SoundMgr.seDraw();
       } else {
-        const winnerLabel = state.winner === '1' ? K('プレイヤー1（赤）', 'プレイヤー1（あか）') : K('プレイヤー2（黄）', 'プレイヤー2（き）');
-        updateStatus(`🎉 ${winnerLabel}${K('の勝利！', 'のしょうり！')}`);
+        const winnerLabel = state.winner === '1' ? player1Label() : player2Label();
+        updateStatus(`🎉 ${escapeHtml(winnerLabel)}${K('の勝利！', 'のしょうり！')}`);
         if (iWon) SoundMgr.seWin(); else SoundMgr.seLose();
       }
       setTimeout(() => {
@@ -2076,14 +2127,14 @@
     '傀儡師はしばらく彼らを見つめると、\n初めて穏やかに笑った。',
     '「なるほど……」',
     '「操っていたつもりだったのは、\n私のほうだったのかもしれませんね」',
-    'あなたは何も言わず、彼らに背を向ける。',
+    '{name}は何も言わず、彼らに背を向ける。',
     '長かった戦いは終わった。',
-    '塔を降りていくあなたの背後で、\n小さな声が聞こえた。',
+    '塔を降りていく{name}の背後で、\n小さな声が聞こえた。',
     '「マスター、痛い？」',
     '「……少しだけね」',
     '「じゃあ、ここにいる」',
     '傀儡師は答えなかった。\nただ、四匹を見つめて微笑んだ。',
-    '黄昏の塔に、\n五つの影が寄り添っていた。',
+    '黄昏の塔。\nもう、彼らをつなぐ糸はない。\nそれでも彼の傍らには、四つの影が並んでいた。',
   ];
   const ENDING_TEXT_KANA = [
     'とうのちょうじょうに、ながいたたかいのおわりがおとずれた。',
@@ -2098,14 +2149,14 @@
     'くぐつしはしばらくかれらをみつめると、\nはじめておだやかにわらった。',
     '「なるほど……」',
     '「あやつっていたつもりだったのは、\nわたしのほうだったのかもしれませんね」',
-    'あなたはなにもいわず、かれらにせをむける。',
+    '{name}はなにもいわず、かれらにせをむける。',
     'ながかったたたかいはおわった。',
-    'とうをおりていくあなたのはいごで、\nちいさなこえがきこえた。',
+    'とうをおりていく{name}のはいごで、\nちいさなこえがきこえた。',
     '「マスター、いたい？」',
     '「……すこしだけね」',
     '「じゃあ、ここにいる」',
     'くぐつしはこたえなかった。\nただ、よんひきをみつめてほほえんだ。',
-    'たそがれのとうに、\nいつつのかげがよりそっていた。',
+    'たそがれのとう。\nもう、かれらをつなぐ糸はない。\nそれでもかれのかたわらには、よっつのかげがならんでいた',
   ];
 
   let endingCrawlAnim = null;
@@ -2132,7 +2183,7 @@
     crawl.innerHTML = '';
     lines.forEach(text => {
       const p = document.createElement('p');
-      p.textContent = text;
+      p.textContent = text.replace(/\{name\}/g, getPlayerName());
       crawl.appendChild(p);
     });
 
@@ -2273,9 +2324,7 @@
     const coin = document.getElementById('turnCoin');
     const textEl = document.getElementById('turnDecideText');
     const starter = forcedStarter != null ? forcedStarter : (Math.random() < 0.5 ? 1 : 2);
-    const starterLabel = starter === 1
-      ? (mode === 'cpu' ? K('あなた（赤）', 'あなた（あか）') : K('プレイヤー1（赤）', 'プレイヤー1（あか）'))
-      : (mode === 'cpu' ? opponentLabel() : K('プレイヤー2（黄）', 'プレイヤー2（き）'));
+    const starterLabel = starter === 1 ? player1Label() : player2Label();
 
     coin.classList.remove('settled');
     coin.style.background = 'var(--p1)';
@@ -2323,8 +2372,19 @@
     }
   }
 
-  function opponentLabel() {
-    return mode === 'cpu' && currentChar ? currentChar.name : K('プレイヤー2（黄）', 'プレイヤー2（き）');
+  // Player-1 side: PvP keeps the plain label (no single "you" when two
+  // people share a screen); CPU/online show the chosen player name instead
+  // — with no color suffix, since the turn indicator dot already conveys
+  // that everywhere this is used.
+  function player1Label() {
+    if (mode === 'pvp') return K('プレイヤー1（赤）', 'プレイヤー1（あか）');
+    if (mode === 'online') return online.myPlayer === 1 ? getPlayerName() : online.opponentName;
+    return getPlayerName();
+  }
+  function player2Label() {
+    if (mode === 'cpu') return currentChar ? currentChar.name : K('プレイヤー2（黄）', 'プレイヤー2（き）');
+    if (mode === 'online') return online.myPlayer === 2 ? getPlayerName() : online.opponentName;
+    return K('プレイヤー2（黄）', 'プレイヤー2（き）');
   }
 
   function updateStatus(message) {
@@ -2333,14 +2393,14 @@
       return;
     }
     let indicator = `<span class="turn-indicator" style="background:var(--p1)"></span>`;
-    let name = K('プレイヤー1（赤）', 'プレイヤー1（あか）');
+    let name = player1Label();
     if (currentPlayer === 2) {
-      name = opponentLabel();
+      name = player2Label();
       indicator = (mode === 'cpu' && currentChar)
         ? `<img class="turn-avatar" src="${currentChar.img}" alt="" onerror="this.outerHTML='<span class=&quot;turn-indicator&quot; style=&quot;background:var(--p2)&quot;></span>'">`
         : `<span class="turn-indicator" style="background:var(--p2)"></span>`;
     }
-    statusEl.innerHTML = `${indicator} ${name}${K('の番です', 'のばんです')}`;
+    statusEl.innerHTML = `${indicator} ${escapeHtml(name)}${K('の番です', 'のばんです')}`;
   }
 
   function handleColumnClick(col) {
@@ -2365,8 +2425,8 @@
       winLine.forEach(([r, c]) => cellEls[r][c].classList.add('win'));
       scores[player]++;
       updateScoreboard();
-      const name = player === 1 ? K('プレイヤー1（赤）', 'プレイヤー1（あか）') : opponentLabel();
-      updateStatus(`🎉 ${name}${K('の勝利！', 'のしょうり！')}`);
+      const name = player === 1 ? player1Label() : player2Label();
+      updateStatus(`🎉 ${escapeHtml(name)}${K('の勝利！', 'のしょうり！')}`);
       if (mode === 'cpu' && currentChar) {
         resetBtn.disabled = true; // re-enabled by initGame() once the next match actually starts
         if (player === 2) SoundMgr.seLose(); else SoundMgr.seWin();
@@ -2471,7 +2531,7 @@
     const thinkingAvatar = currentChar
       ? `<img class="turn-avatar" src="${currentChar.img}" alt="" onerror="this.outerHTML='<span class=&quot;turn-indicator&quot; style=&quot;background:var(--p2)&quot;></span>'">`
       : `<span class="turn-indicator" style="background:var(--p2)"></span>`;
-    updateStatus(`${thinkingAvatar} ${opponentLabel()}${K('が考え中...', 'がかんがえちゅう...')}`);
+    updateStatus(`${thinkingAvatar} ${escapeHtml(player2Label())}${K('が考え中...', 'がかんがえちゅう...')}`);
     setTimeout(() => {
       const col = getCpuMove();
       cpuThinking = false;
@@ -2516,8 +2576,8 @@
   }
 
   function updateScoreboard() {
-    score1El.textContent = `${K('プレイヤー1（赤）', 'プレイヤー1（あか）')}: ${scores[1]}${K('勝', 'しょう')}`;
-    score2El.textContent = `${opponentLabel()}: ${scores[2]}${K('勝', 'しょう')}`;
+    score1El.textContent = `${player1Label()}: ${scores[1]}${K('勝', 'しょう')}`;
+    score2El.textContent = `${player2Label()}: ${scores[2]}${K('勝', 'しょう')}`;
   }
 
   resetBtn.addEventListener('click', () => { SoundMgr.seClick(); initGame(); });

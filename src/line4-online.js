@@ -18,6 +18,19 @@ const COLS = 7;
 const ROOM_MAX_AGE_MS = 6 * 60 * 60 * 1000; // 6 hours — rooms older than this are swept on create
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I to avoid confusion
 const CODE_LENGTH = 6;
+const MAX_NAME_LENGTH = 10;
+const DEFAULT_NAME = 'プレイヤー';
+
+// Free text (unlike the emote whitelist), so it's capped and defaulted —
+// the client's own default is "ノア" but this is the backstop for anything
+// that skips the normal client flow. Displayed via .textContent on the
+// client (or HTML-escaped where it's spliced into an innerHTML string), so
+// no markup sanitization is needed here — length is the only real concern.
+function sanitizeName(raw) {
+  if (typeof raw !== 'string') return DEFAULT_NAME;
+  const trimmed = raw.trim().slice(0, MAX_NAME_LENGTH);
+  return trimmed || DEFAULT_NAME;
+}
 
 // Server-side whitelist so a client can't send arbitrary/oversized text through
 // the emote channel — must match the buttons offered in the client UI.
@@ -100,6 +113,8 @@ function rowToRoom(row) {
     status: row.status,
     p1Token: row.p1_token,
     p2Token: row.p2_token,
+    p1Name: row.p1_name,
+    p2Name: row.p2_name,
     startingPlayer: row.starting_player,
     grid: JSON.parse(row.grid),
     currentPlayer: row.current_player,
@@ -119,6 +134,8 @@ function publicState(room) {
     code: room.code,
     status: room.status,
     hasP2: !!room.p2Token,
+    p1Name: room.p1Name,
+    p2Name: room.p2Name,
     startingPlayer: room.startingPlayer,
     grid: room.grid,
     currentPlayer: room.currentPlayer,
@@ -140,7 +157,15 @@ async function loadRoom(env, code) {
 
 // ---- Route handlers ----
 
-async function handleCreate(env) {
+async function handleCreate(request, env) {
+  let body;
+  try {
+    body = await request.json();
+  } catch (e) {
+    body = null;
+  }
+  const p1Name = sanitizeName(body && body.name);
+
   // Opportunistic cleanup of old rooms so the table never grows unbounded.
   const cutoff = Date.now() - ROOM_MAX_AGE_MS;
   await env.LINE4_DB.prepare('DELETE FROM rooms WHERE created_at < ?1').bind(cutoff).run();
@@ -155,9 +180,9 @@ async function handleCreate(env) {
     code = randomRoomCode();
     try {
       await env.LINE4_DB.prepare(
-        `INSERT INTO rooms (code, status, p1_token, p2_token, starting_player, grid, current_player, game_over, winner, win_line, rev, created_at, updated_at)
-         VALUES (?1, 'waiting', ?2, NULL, NULL, ?3, 1, 0, NULL, NULL, 0, ?4, ?4)`
-      ).bind(code, token, JSON.stringify(grid), now).run();
+        `INSERT INTO rooms (code, status, p1_token, p2_token, p1_name, p2_name, starting_player, grid, current_player, game_over, winner, win_line, rev, created_at, updated_at)
+         VALUES (?1, 'waiting', ?2, NULL, ?3, NULL, NULL, ?4, 1, 0, NULL, NULL, 0, ?5, ?5)`
+      ).bind(code, token, p1Name, JSON.stringify(grid), now).run();
       inserted = true;
     } catch (e) {
       // Extremely unlikely PRIMARY KEY collision — retry with a new code.
@@ -169,7 +194,15 @@ async function handleCreate(env) {
   return jsonResponse({ ok: true, code, token, player: 1, state: publicState(room) });
 }
 
-async function handleJoin(env, code) {
+async function handleJoin(request, env, code) {
+  let body;
+  try {
+    body = await request.json();
+  } catch (e) {
+    body = null;
+  }
+  const p2Name = sanitizeName(body && body.name);
+
   const room = await loadRoom(env, code);
   if (!room) return errorResponse('room_not_found', 404);
   if (room.p2Token) return errorResponse('room_full', 409);
@@ -179,9 +212,9 @@ async function handleJoin(env, code) {
   const now = Date.now();
 
   const result = await env.LINE4_DB.prepare(
-    `UPDATE rooms SET p2_token = ?1, status = 'playing', starting_player = ?2, current_player = ?2, rev = rev + 1, updated_at = ?3
-     WHERE code = ?4 AND p2_token IS NULL`
-  ).bind(token, startingPlayer, now, code).run();
+    `UPDATE rooms SET p2_token = ?1, p2_name = ?2, status = 'playing', starting_player = ?3, current_player = ?3, rev = rev + 1, updated_at = ?4
+     WHERE code = ?5 AND p2_token IS NULL`
+  ).bind(token, p2Name, startingPlayer, now, code).run();
 
   if (!result.meta || result.meta.changes === 0) return errorResponse('room_full', 409);
 
@@ -295,14 +328,14 @@ export async function routeLine4(request, env, path) {
   if (path === '/api/line4/room') {
     if (request.method !== 'POST') return errorResponse('method_not_allowed', 405);
     if (!(await checkRateLimit(env, 'line4-create', request, 10, 600))) return errorResponse('rate_limited', 429);
-    return handleCreate(env);
+    return handleCreate(request, env);
   }
 
   const joinMatch = path.match(/^\/api\/line4\/room\/([A-Z0-9]{4,10})\/join$/);
   if (joinMatch) {
     if (request.method !== 'POST') return errorResponse('method_not_allowed', 405);
     if (!(await checkRateLimit(env, 'line4-join', request, 20, 600))) return errorResponse('rate_limited', 429);
-    return handleJoin(env, joinMatch[1]);
+    return handleJoin(request, env, joinMatch[1]);
   }
 
   const stateMatch = path.match(/^\/api\/line4\/room\/([A-Z0-9]{4,10})\/state$/);
