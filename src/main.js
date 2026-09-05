@@ -12,6 +12,7 @@ import { FloatingBodies } from './FloatingBodies.js';
 import { Clouds } from './Clouds.js';
 import { Birds } from './Birds.js';
 import { LyricParticles } from './LyricParticles.js';
+import { CometLyrics } from './CometLyrics.js';
 
 // ---------------------------------------------------------------------------
 //  Boot
@@ -173,6 +174,20 @@ const timeEnabled = new URLSearchParams(window.location.search).get('time') === 
 const lyricsEnabled = new URLSearchParams(window.location.search).get('lyrics') === '1';
 const lyricParticles = lyricsEnabled ? new LyricParticles(scene) : null;
 let lyricGuiState = null;
+
+// ---------------------------------------------------------------------------
+//  Comet Lyric V1 — opt-in via ?cometLyrics=1. When absent, none of this
+//  runs: no head/trail, no GUI folder, no camera/atmosphere override below.
+//  Keeps Lyric Particles V1 (above) fully intact and untouched.
+// ---------------------------------------------------------------------------
+const cometLyricsEnabled = new URLSearchParams(window.location.search).get('cometLyrics') === '1';
+const cometLyrics = cometLyricsEnabled ? new CometLyrics(scene) : null;
+// V1.1 visual-pass debug toggle — judge the comet by itself, lyric code
+// untouched (see CometLyrics.js's showLyrics flag).
+const cometOnlyRequested = new URLSearchParams(window.location.search).get('cometOnly') === '1';
+if (cometLyrics && cometOnlyRequested) cometLyrics.showLyrics = false;
+let cometGuiState = null;
+const cometFollowCam = { pos: new THREE.Vector3(), look: new THREE.Vector3(), inited: false };
 
 // Lights — only the dropped primitives (MeshStandardMaterial) use these; the
 // ocean/island/sky are raw ShaderMaterials and ignore scene lights.
@@ -542,6 +557,7 @@ const TOD_SATURATION = { day: 1.08, golden: 1.1, sunset: 1.12, twilight: 1.0, ni
 // Lyric Particles V1 (opt-in) — subtle per-stage tint only; particles must
 // stay recognizably the same entities across the whole cycle (spec 11).
 const TOD_LYRIC_TINT = { day: '#fbf6ea', golden: '#fff0d2', sunset: '#ffe9c9', twilight: '#eef1f5', night: '#e3ecf7' };
+const _cometTintTmp = new THREE.Color();
 
 const SUN_MAX_ELEVATION = 65;
 const SUN_AZ_START = 70, SUN_AZ_RANGE = 240; // lands near Crimson Sunset's az=250 at t=0.75
@@ -626,6 +642,13 @@ function setTimeOfDay(tRaw) {
   // Lyric Particles V1 (opt-in) — subtle colour response to time of day,
   // reusing the same stage weights rather than a parallel colour system.
   if (lyricParticles) todBlendColor(w, TOD_LYRIC_TINT, lyricParticles.uniforms.uColor.value);
+  // Comet Lyric V1 (opt-in) — same subtle per-stage tint table; setTint()
+  // also nudges the head colour toward white so it stays the brighter,
+  // more neutral object regardless of stage.
+  if (cometLyrics) {
+    todBlendColor(w, TOD_LYRIC_TINT, _cometTintTmp);
+    cometLyrics.setTint(_cometTintTmp);
+  }
 
   if (timeGuiState) timeGuiState.time = t;
 }
@@ -662,6 +685,30 @@ if (lyricsEnabled) {
   fLyrics.add({ assemble: () => lyricParticles.previewAssembled() }, 'assemble').name('Assemble');
   fLyrics.add(lyricGuiState, 'paused').name('Pause').onChange((v) => lyricParticles.setPaused(v));
   fLyrics.add({ restart: () => lyricParticles.restart() }, 'restart').name('Restart');
+}
+
+if (cometLyricsEnabled) {
+  cometGuiState = {
+    glow: cometLyrics.uniforms.uGlow.value,
+    trailLength: 1.0,
+    speed: cometLyrics.speed,
+    paused: false,
+    follow: true,
+    showLyrics: cometLyrics.showLyrics,
+  };
+  const fComet = gui.addFolder('Comet Lyrics');
+  fComet.add({ restart: () => cometLyrics.restart() }, 'restart').name('Restart');
+  fComet.add(cometGuiState, 'paused').name('Pause').onChange((v) => cometLyrics.setPaused(v));
+  fComet.add(cometGuiState, 'showLyrics').name('Show Lyrics').onChange((v) => { cometLyrics.showLyrics = v; });
+  fComet.add(cometGuiState, 'glow', 0.3, 2.5, 0.05).name('Glow').onChange((v) => {
+    cometLyrics.uniforms.uGlow.value = v;
+    cometLyrics.headUniforms.uGlow.value = v;
+  });
+  fComet.add(cometGuiState, 'trailLength', 0.4, 2.0, 0.05).name('Trail Length').onChange((v) => {
+    cometLyrics.uniforms.uPixelSize.value = 170 * v;
+  });
+  fComet.add(cometGuiState, 'speed', 0.25, 2.5, 0.05).name('Travel Speed').onChange((v) => { cometLyrics.speed = v; });
+  fComet.add(cometGuiState, 'follow').name('Follow Camera').onChange((v) => { cometFollowCam.inited = false; if (!v) controls.enabled = true; });
 }
 
 gui.add({ dive: () => diveTo(-12) }, 'dive').name('▼ dive under');
@@ -783,6 +830,11 @@ let lastNow = performance.now();
 let time = 0;
 let frame = 0;
 const invProjView = new THREE.Matrix4();
+const _cometHeadTmp = new THREE.Vector3();
+const _cometDesiredPos = new THREE.Vector3();
+const _cometLookTmp = new THREE.Vector3();
+const _cometRightTmp = new THREE.Vector3();
+const _cometUpWorld = new THREE.Vector3(0, 1, 0);
 
 function setVisible(underwater, refractionPass) {
   if (refractionPass) {
@@ -812,6 +864,10 @@ function animate() {
     if (timeSliderCtrl) timeSliderCtrl.updateDisplay();
   }
 
+  // Camera ownership: Bird Demo's own static pose wins when both modes are
+  // active (matching the pattern every other mode already follows) — the
+  // comet follow camera never fights it for control.
+  if (cometLyrics && cometGuiState && !birdDemoEnabled) controls.enabled = !cometGuiState.follow;
   controls.update();
 
   // Surface immersion test (exact wave height at the camera column).
@@ -832,6 +888,37 @@ function animate() {
     birdDemoState.time = Math.round((birdClock % birds.loopDuration) * 10) / 10;
   }
   if (lyricParticles) lyricParticles.update(dt, time, ocean);
+  if (cometLyrics) {
+    cometLyrics.update(dt, time, ocean);
+    if (cometGuiState && cometGuiState.follow && !birdDemoEnabled) {
+      controls.enabled = false;
+      const head = cometLyrics.getHeadPosition(_cometHeadTmp);
+      const dir = cometLyrics.travelDir;
+      // V1.1: diagonal rear/side chase instead of almost-straight-behind —
+      // a camera sitting directly on the travel axis looks straight down
+      // the tail's own length, collapsing it into a column of overlapping
+      // dots instead of a visible streak. Offsetting sideways (the comet's
+      // own right vector) shows the tail's actual length and direction, and
+      // aiming the look-target past the comet (not at it) keeps it off dead
+      // centre, roughly a rule-of-thirds composition.
+      const right = _cometRightTmp.crossVectors(dir, _cometUpWorld);
+      if (right.lengthSq() < 1e-6) right.set(1, 0, 0); else right.normalize();
+      const desiredPos = _cometDesiredPos.copy(head).addScaledVector(dir, -20).addScaledVector(right, 17);
+      desiredPos.y += 10;
+      const desiredLook = _cometLookTmp.copy(head).addScaledVector(dir, 8).addScaledVector(right, -5);
+      if (!cometFollowCam.inited) {
+        camera.position.copy(desiredPos);
+        cometFollowCam.look.copy(desiredLook);
+        cometFollowCam.inited = true;
+      } else {
+        const damp = 1 - Math.pow(0.0008, dt);
+        camera.position.lerp(desiredPos, damp);
+        cometFollowCam.look.lerp(desiredLook, damp);
+      }
+      camera.lookAt(cometFollowCam.look);
+      controls.target.copy(cometFollowCam.look);
+    }
+  }
 
   ocean.uniforms.uCameraUnderwater.value = underwater ? 1 : 0;
   ocean.uniforms.uProjMatrix.value.copy(camera.projectionMatrix);
@@ -928,6 +1015,11 @@ if (lyricsEnabled) {
   window.OCEAN.lyricParticles = lyricParticles;
   window.OCEAN.setLyricParticleTime = (t) => lyricParticles.setTime(t);
   window.OCEAN.setLyricParticlesPaused = (p) => lyricParticles.setPaused(p);
+}
+if (cometLyricsEnabled) {
+  window.OCEAN.cometLyrics = cometLyrics;
+  window.OCEAN.setCometLyricTime = (t) => { cometLyrics.setTime(t); cometFollowCam.inited = false; };
+  window.OCEAN.setCometLyricsPaused = (p) => cometLyrics.setPaused(p);
 }
 
 applySun();
@@ -1053,6 +1145,28 @@ if (lyricsEnabled) {
   if (!timeEnabled && !birdDemoEnabled && !nightEnabled) {
     camera.position.set(0, 11, 75);
     controls.target.set(0, 12, 300);
+    controls.update();
+  }
+  gui.controllersRecursive().forEach((c) => c.updateDisplay());
+}
+
+if (cometLyricsEnabled) {
+  // Default test environment: twilight reads best for a glowing traveler
+  // (spec 31) — reuse the Time-of-Day controller, same as Lyric Particles
+  // V1, only when nothing else already claimed the atmosphere.
+  if (!timeEnabled && !nightEnabled && !cinematicSunsetEnabled) {
+    setTimeOfDay(0.79);
+  }
+  // Base/static test framing (spec 14/39): looking down +Z across the head's
+  // approach-through-write path. The follow camera (on by default) overrides
+  // this every frame in animate() — this pose is what "Follow Camera" off
+  // (or the very first frame, before follow snaps in) actually shows.
+  if (!timeEnabled && !birdDemoEnabled && !nightEnabled) {
+    // Looking toward -Z, matching the head's own travel direction and the
+    // follow camera's convention (three.js's own default forward) — the
+    // lyric ribbon is only oriented to read correctly from this side.
+    camera.position.set(15, 18, 350);
+    controls.target.set(15, 12, 100);
     controls.update();
   }
   gui.controllersRecursive().forEach((c) => c.updateDisplay());

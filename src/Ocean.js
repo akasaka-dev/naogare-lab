@@ -459,6 +459,13 @@ export class Ocean {
             // forming a rectangle or a flat vertical column. Independent of
             // the sunset block above — sun and moon can coexist.
             if (uNightAmount > 0.0001) {
+              // Double-reflection-path fix (see common.js's matching comment):
+              // uNightAmount rises as soon as the sun dips just below the
+              // horizon, well before Sunset V2's own sustained glint fades —
+              // squaring it keeps this term a no-op once night is properly
+              // established (?night=1's uNightAmount=1 is unaffected) while
+              // suppressing it far more steeply during that early-dusk overlap.
+              float moonVisGate = uNightAmount * uNightAmount;
               vec3 RnMoon = normalize(R);
               float moonAlign = max(dot(RnMoon, uMoonDir), 0.0);
               float moonFocusExp = mix(4.0, 60.0, clamp(uMoonPathFocus, 0.0, 1.0));
@@ -466,7 +473,7 @@ export class Ocean {
               // Pale-blue fringe at the path's edges, brightening to a
               // silver-white core right at the moon's own reflection.
               vec3 moonPathColor = mix(uMoonColor * 0.6, vec3(0.88, 0.92, 1.0), clamp(moonPath * 1.6, 0.0, 1.0));
-              float moonReflWeight = clamp(uNightAmount * clamp(uMoonIntensity, 0.0, 3.0) * clamp(moonPath * 1.3, 0.0, 1.0), 0.0, 1.0);
+              float moonReflWeight = clamp(moonVisGate * clamp(uMoonIntensity, 0.0, 3.0) * clamp(moonPath * 1.3, 0.0, 1.0), 0.0, 1.0);
               float reflLumMoon = clamp(dot(reflection, vec3(0.2126, 0.7152, 0.0722)), 0.02, 1.2);
               vec3 moonReflection = mix(reflection, moonPathColor * reflLumMoon, moonReflWeight);
               // Same Fresnel re-application as the sunset path above: only
@@ -506,7 +513,7 @@ export class Ocean {
               float fhm = fresnelF(max(dot(Hm, V), 0.0), 0.02);
               float moonNoL = max(dot(Ns, uMoonDir), 0.0);
               color += vec3(0.80, 0.86, 0.96) * Dm * fhm * moonNoL * 1.1
-                     * clamp(uMoonIntensity, 0.0, 3.0) * uNightAmount * (1.0 - cs * 0.9);
+                     * clamp(uMoonIntensity, 0.0, 3.0) * (uNightAmount * uNightAmount) * (1.0 - cs * 0.9);
             }
 
           } else {

@@ -121,11 +121,23 @@ export const ATMOSPHERE = /* glsl */ `
     // below, but dimmer/tighter so it doesn't clip to a giant white blob.
     // Placed before cirrus/cumulus so clouds correctly occlude it too. ----
     if (uNightAmount > 0.0001){
+      // Double-reflection-path fix: uNightAmount alone is too weak a gate
+      // here — it starts rising as soon as the sun dips just below the
+      // horizon (smoothstep(-2,-18,sunElev)), while Sunset V2's own glint
+      // compensation keeps the SUN'S reflection sustained through that same
+      // window. That overlap let a small-but-nonzero moon disk/glow render
+      // into the sky texture SSR samples from, which mirrors it onto the
+      // water as its own bright glitter column — a second reflection path
+      // with no relation to Ocean.js's dedicated (correctly-gated) moon
+      // reflection term. Squaring the gate keeps it a no-op once night is
+      // properly established (uNightAmount=1 in ?night=1 is untouched) but
+      // suppresses the moon far more steeply during early dusk.
+      float moonVisGate = uNightAmount * uNightAmount;
       float moonAmt = max(dot(dir, uMoonDir), 0.0);
       float moonGlow = pow(moonAmt, 6.0) * 0.16 + pow(moonAmt, 300.0) * 0.35;
-      col += uMoonColor * moonGlow * uMoonIntensity * uNightAmount;
+      col += uMoonColor * moonGlow * uMoonIntensity * moonVisGate;
       float moonDisk = smoothstep(0.99988, 0.999945, moonAmt);
-      col += uMoonColor * moonDisk * uMoonIntensity * 2.0 * uNightAmount;
+      col += uMoonColor * moonDisk * uMoonIntensity * 2.0 * moonVisGate;
     }
 
     // ---- High wispy cirrus streaks (above the cumulus, always present) ----
