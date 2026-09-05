@@ -1962,6 +1962,16 @@
       });
       actions.appendChild(b);
     });
+    const endingBtn = document.createElement('button');
+    endingBtn.textContent = 'エンディング';
+    endingBtn.classList.add('secondary');
+    endingBtn.addEventListener('click', () => {
+      SoundMgr.seClick();
+      overlay.classList.add('hidden');
+      showEndingScreen();
+    });
+    actions.appendChild(endingBtn);
+
     const cancelBtn = document.createElement('button');
     cancelBtn.textContent = 'キャンセル';
     cancelBtn.classList.add('secondary');
