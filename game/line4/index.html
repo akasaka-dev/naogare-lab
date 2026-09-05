@@ -799,7 +799,7 @@
       <span class="audio-icon kana-icon">あ</span><span class="audio-label">かな</span>
     </button>
   </div>
-  <audio id="bgmAudio" loop preload="none"></audio>
+  <audio id="bgmAudio" preload="none"></audio>
 
   <div id="splashScreen">
     <img src="title.webp" alt="黄昏のフォー・イン・ア・ロウ タイトル">
@@ -1034,6 +1034,7 @@
           }
         };
         bgmEl.src = urlForKey(key);
+        bgmEl.loop = key !== 'ending'; // the ending theme plays once, not on repeat
         if (bgmOn && unlocked) {
           bgmEl.volume = 0;
           bgmEl.play().then(() => fadeVolume(BGM_VOLUME, 500)).catch(() => {});
