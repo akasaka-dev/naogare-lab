@@ -57,7 +57,28 @@ export const NOISE = /* glsl */ `
    radiance (the sun disk is intentionally very bright for bloom / glints). */
 export const ATMOSPHERE = /* glsl */ `
   // Requires fbm() (from NOISE) and a 'uTime' uniform to be declared by the
-  // shader that includes this chunk (used for drifting clouds).
+  // shader that includes this chunk (used for drifting clouds). Night V1
+  // additionally requires 'uNightAmount', 'uMoonDir', 'uMoonColor',
+  // 'uMoonIntensity' and 'uStarVisibility' to be declared by that shader —
+  // see Sky.js / Ocean.js.
+
+  // Cheap deterministic sparse point-stars: partitions direction-space into
+  // cells, jitters each cell's star within it and varies size/brightness per
+  // cell, so points read as scattered rather than an obvious grid.
+  float starField(vec3 d){
+    vec3 gp = d * 240.0;
+    vec3 gi = floor(gp);
+    vec3 gf = fract(gp) - 0.5;
+    float h = hash21(gi.xy * 12.9898 + gi.z * 78.233 + gi.yz * 3.77);
+    if (h > 0.05) return 0.0;             // only a sparse fraction of cells
+    vec2 jitter = vec2(hash21(gi.xy + 1.7), hash21(gi.yz + 3.1)) - 0.5;
+    float d2 = length(gf.xy + jitter * 0.6);
+    float size = mix(0.015, 0.08, hash21(gi.zx + 5.2));
+    float star = smoothstep(size, 0.0, d2);
+    float brightness = mix(0.2, 1.0, hash21(gi.xz + 9.4));
+    return star * brightness;
+  }
+
   vec3 atmosphere(vec3 dir, vec3 sunDir){
     dir = normalize(dir);
     float up      = clamp(dir.y, -1.0, 1.0);
@@ -68,6 +89,14 @@ export const ATMOSPHERE = /* glsl */ `
     // read as ocean-blue rather than washing out to white haze.
     vec3 zenith  = mix(vec3(0.06, 0.19, 0.52), vec3(0.09, 0.28, 0.66), sunElev);
     vec3 horizon = mix(vec3(0.44, 0.56, 0.75), vec3(0.60, 0.74, 0.90), sunElev);
+    // ---- Night V1 (opt-in) ----------------------------------------------
+    // A direct dark-navy override of the base gradient, gated by
+    // uNightAmount — mathematically a no-op at 0, so day/sunset are
+    // untouched. Everything below (warm band, ground haze, cirrus, cumulus,
+    // Mie glow, sun disk) then naturally operates on top of an already-dark
+    // sky instead of requiring each of those terms to be redesigned.
+    zenith  = mix(zenith,  vec3(0.010, 0.016, 0.045), uNightAmount);
+    horizon = mix(horizon, vec3(0.035, 0.055, 0.10),  uNightAmount);
     float h = pow(clamp(1.0 - up, 0.0, 1.0), 2.6);
     vec3 col = mix(zenith, horizon, h);
 
@@ -78,6 +107,27 @@ export const ATMOSPHERE = /* glsl */ `
     // Ground haze for reflection rays that point below the horizon.
     col = mix(col, vec3(0.05, 0.10, 0.15), smoothstep(0.0, -0.22, up));
 
+    // ---- Stars (Night V1) — added before cirrus/cumulus so opaque cloud
+    // coverage naturally occludes them via the existing mix() below. ----
+    if (uNightAmount > 0.0001 && up > 0.02){
+      float star = starField(dir) * uStarVisibility * uNightAmount;
+      // Wash out close to the moon's own glow rather than competing with it.
+      float moonAmtStar = max(dot(dir, uMoonDir), 0.0);
+      star *= 1.0 - smoothstep(0.9985, 0.9999, moonAmtStar) * 0.9;
+      col += vec3(0.9, 0.95, 1.0) * star;
+    }
+
+    // ---- Moon disk + glow (Night V1) — same treatment as the sun disk
+    // below, but dimmer/tighter so it doesn't clip to a giant white blob.
+    // Placed before cirrus/cumulus so clouds correctly occlude it too. ----
+    if (uNightAmount > 0.0001){
+      float moonAmt = max(dot(dir, uMoonDir), 0.0);
+      float moonGlow = pow(moonAmt, 6.0) * 0.16 + pow(moonAmt, 300.0) * 0.35;
+      col += uMoonColor * moonGlow * uMoonIntensity * uNightAmount;
+      float moonDisk = smoothstep(0.99988, 0.999945, moonAmt);
+      col += uMoonColor * moonDisk * uMoonIntensity * 2.0 * uNightAmount;
+    }
+
     // ---- High wispy cirrus streaks (above the cumulus, always present) ----
     if (up > 0.02){
       float tc = 2600.0 / max(up, 0.03);
@@ -86,6 +136,7 @@ export const ATMOSPHERE = /* glsl */ `
       float ci = fbm(vec2(cp2.x * 0.55, cp2.y * 3.2), 4);
       float cir = smoothstep(0.52, 0.82, ci) * smoothstep(0.02, 0.18, up);
       vec3 cirCol = mix(vec3(0.98, 1.0, 1.06), vec3(1.15, 0.88, 0.68), (1.0 - sunElev) * 0.75);
+      cirCol = mix(cirCol, vec3(0.05, 0.06, 0.09), uNightAmount);
       col = mix(col, cirCol, cir * 0.30);
     }
 
@@ -103,17 +154,23 @@ export const ATMOSPHERE = /* glsl */ `
       vec3 cloudDark = mix(vec3(0.36, 0.40, 0.50), vec3(0.55, 0.44, 0.42), (1.0 - sunElev));
       vec3 cloudCol  = mix(cloudDark, vec3(1.12, 1.08, 1.02), shade);
       cloudCol += vec3(1.0, 0.82, 0.55) * pow(sunAmt, 4.0) * 0.7; // silver lining
+      // Night: dark blue-grey body with a subtle cool moonlit edge instead of
+      // the frozen warm/white daylight palette.
+      vec3 nightCloudCol = mix(vec3(0.028, 0.035, 0.06), vec3(0.13, 0.15, 0.21), shade);
+      float moonAmtCloud = max(dot(dir, uMoonDir), 0.0);
+      nightCloudCol += uMoonColor * pow(moonAmtCloud, 6.0) * uMoonIntensity * 0.45;
+      cloudCol = mix(cloudCol, nightCloudCol, uNightAmount);
       col = mix(col, cloudCol, cov);
     }
 
     // Mie forward-scatter glow around the sun.
     vec3 sunTint = mix(vec3(1.00, 0.52, 0.24), vec3(1.00, 0.96, 0.88), sunElev);
     float glow = pow(sunAmt, 8.0) * 0.35 + pow(sunAmt, 90.0) * 0.6;
-    col += sunTint * glow * (0.6 + 0.4 * h);
+    col += sunTint * glow * (0.6 + 0.4 * h) * (1.0 - uNightAmount);
 
     // The sun disk itself — crisp and very bright (drives glints + bloom).
     float disk = smoothstep(0.99955, 0.99978, sunAmt);
-    col += sunTint * disk * 14.0;
+    col += sunTint * disk * 14.0 * (1.0 - uNightAmount);
 
     return max(col, vec3(0.0));
   }

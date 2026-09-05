@@ -67,6 +67,11 @@ export class Clouds {
         uSunColor: { value: new THREE.Color(1.0, 0.95, 0.86) }, // lit / scattered
         uHazeColor: { value: new THREE.Color(0.60, 0.74, 0.90) }, // horizon melt
         uSunDir: { value: new THREE.Vector3(0, 1, 0) },
+        // Night V1 (opt-in) — uMoonWeight = 0 is a no-op, so day/sunset are
+        // unaffected until Night mode raises it.
+        uMoonDir: { value: new THREE.Vector3(0, 1, 0) },
+        uMoonColor: { value: new THREE.Color(0xdfe6f0) },
+        uMoonWeight: { value: 0.0 },
       },
       vertexShader: /* glsl */ `
         varying vec2 vUv;
@@ -81,6 +86,8 @@ export class Clouds {
         uniform sampler2D tDepth;
         uniform mat4 uInvProj, uInvView;
         uniform vec3 uCameraPos, uFogColor, uSunColor, uHazeColor, uSunDir, uDrift;
+        uniform vec3 uMoonDir, uMoonColor;
+        uniform float uMoonWeight;
         uniform vec2 uWindDir;
         uniform float uTime, uFrame, uHalfXZ, uBase, uHeight, uHeightFalloff,
                       uDensity, uCoverage, uCoverageEdge, uNoiseScale, uDetail,
@@ -207,6 +214,11 @@ export class Clouds {
           // forward lobe + a small back lobe, flattening toward isotropic.
           float ph0 = mix(hg(cosT, uAniso), hg(cosT, -0.22), 0.22);
           float ph1 = mix(hg(cosT, uAniso * 0.55), 0.0796, 0.35);
+          // Night V1: a cheap, unshadowed moon phase term (no extra optical-
+          // depth march) — a directional moonlit tint on top of the existing
+          // sun lighting, not a full second light integration.
+          float cosTMoon = dot(rd, normalize(uMoonDir));
+          float phMoon = hg(cosTMoon, uAniso * 0.6);
           const float ph2 = 0.0796;
 
           // Per-frame jitter — the temporal resolve averages it to smoothness.
@@ -231,6 +243,7 @@ export class Clouds {
               // Ambient graded by height: sky-lit tops, occluded bases.
               vec3 amb = uFogColor * uAmbient * (0.35 + 0.65 * yl);
               vec3 lum = uSunColor * (uSunStrength * sunE * pw) + amb;
+              lum += uMoonColor * (phMoon * pw) * uMoonWeight;
               float ai = 1.0 - exp(-dens * stepLen);
               scatter += transmittance * ai * lum;
               transmittance *= 1.0 - ai;
@@ -335,6 +348,27 @@ export class Clouds {
     // horizon melt colour: warm at sunset → hazy blue at midday
     const k = Math.min(el * 2.2, 1.0);
     u.uHazeColor.value.setRGB(1.0 + (0.60 - 1.0) * k, 0.62 + (0.74 - 0.62) * k, 0.42 + (0.90 - 0.42) * k);
+
+    // Night V1: blend the (otherwise frozen-at-elevation-0) day palette
+    // toward a dark, cool night one. Done here rather than as a one-time
+    // external override so setSun() stays coherent no matter when or how
+    // often it's called (e.g. the "Time of day" GUI slider) while Night
+    // mode is active. No-op when _nightAmount is unset/0.
+    const na = this._nightAmount || 0;
+    if (na > 0.0001) {
+      u.uSunColor.value.lerp(new THREE.Color(0.05, 0.06, 0.10), na);
+      u.uFogColor.value.lerp(new THREE.Color(0.03, 0.035, 0.06), na);
+      u.uHazeColor.value.lerp(new THREE.Color(0.02, 0.025, 0.045), na);
+    }
+  }
+
+  // Night V1 (opt-in): 0..1, see setSun() above.
+  setNightAmount(amount) {
+    this._nightAmount = amount;
+  }
+
+  setMoon(moonDir) {
+    this.material.uniforms.uMoonDir.value.copy(moonDir);
   }
 
   render(dt, camera, depthTexture) {

@@ -75,6 +75,19 @@ function updateSunDir() {
 }
 updateSunDir();
 
+// Night V1 (opt-in) — an independent celestial direction alongside the sun
+// (not a replacement for it), so both can coexist. Same elevation/azimuth
+// convention as the sun; no motion/astronomical simulation for V1.
+const moonParams = { elevation: 20, azimuth: 255 };
+const moonDir = new THREE.Vector3();
+function updateMoonDir() {
+  const el = THREE.MathUtils.degToRad(moonParams.elevation);
+  const az = THREE.MathUtils.degToRad(moonParams.azimuth);
+  const h = Math.cos(el);
+  moonDir.set(Math.cos(az) * h, Math.sin(el), Math.sin(az) * h).normalize();
+}
+updateMoonDir();
+
 // ---------------------------------------------------------------------------
 //  Scene graph
 // ---------------------------------------------------------------------------
@@ -131,12 +144,30 @@ const birdDemoState = { time: 0 };
 const cinematicSunsetEnabled = new URLSearchParams(window.location.search).get('cinematicSunset') === '1';
 const SUNSET_START_AMOUNT = 0.75; // moderate-strong — natural-cinematic, not an extreme red sea
 
+// ---------------------------------------------------------------------------
+//  Night V1 — opt-in via ?night=1. When absent, uNightAmount stays 0 (see
+//  Ocean.js/Sky.js/Island.js/Floor.js) and none of this runs: no GUI folder,
+//  no state change, no other visual change.
+// ---------------------------------------------------------------------------
+const nightEnabled = new URLSearchParams(window.location.search).get('night') === '1';
+const NIGHT_SUN_ELEVATION = -35; // well below the horizon — sun contribution stays low but non-zero
+const NIGHT_MOON_INTENSITY = 0.52;
+const NIGHT_STAR_VISIBILITY = 0.55; // "high but not maximum"
+const NIGHT_EXPOSURE = 0.85;
+const NIGHT_BLOOM = 0.15; // dark backgrounds make bloom halos read much larger than in daylight
+const NIGHT_CLOUD_MOONLIGHT = 0.6;
+
 // Lights — only the dropped primitives (MeshStandardMaterial) use these; the
 // ocean/island/sky are raw ShaderMaterials and ignore scene lights.
 const sunLight = new THREE.DirectionalLight(0xfff2e0, 3.0);
 scene.add(sunLight, sunLight.target);
 const skyLight = new THREE.HemisphereLight(0xbfe4ff, 0x24424e, 1.1);
 scene.add(skyLight);
+// Night V1 (opt-in) — a separate, independent light so birds/dropped objects
+// can catch a dim, cool moonlit edge; intensity is 0 until Night mode raises
+// it, so normal/day/sunset lighting is unaffected.
+const moonLight = new THREE.DirectionalLight(0xdfe6f0, 0.0);
+scene.add(moonLight, moonLight.target);
 
 // Dropped, buoyant primitives (spheres / cubes).
 const bodies = new FloatingBodies(scene);
@@ -200,6 +231,19 @@ function applySun() {
   sunLight.position.copy(sunDir).multiplyScalar(300);
   sunLight.target.position.set(0, 0, 0);
   sunLight.intensity = 0.6 + 3.0 * Math.max(sunDir.y, 0.0);
+}
+
+// Night V1 (opt-in) — independent of applySun(); moonLight.intensity stays 0
+// (see its construction above) until Night mode raises it.
+function applyMoon() {
+  updateMoonDir();
+  sky.setMoon(moonDir);
+  ocean.setMoon(moonDir);
+  floor.setMoon(moonDir);
+  island.setMoon(moonDir);
+  clouds.setMoon(moonDir);
+  moonLight.position.copy(moonDir).multiplyScalar(300);
+  moonLight.target.position.set(0, 0, 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -393,6 +437,33 @@ if (cinematicSunsetEnabled) {
   fSunset.add(ocean.uniforms.uSunsetGlitterBoost, 'value', 0, 1, 0.01).name('Glitter Boost');
   fSunset.add(ocean.uniforms.uSunsetHorizonWarmth, 'value', 0, 1, 0.01).name('Horizon Warmth');
   addColorCtrl(fSunset, ocean.uniforms.uSunsetTint, 'Sunset Tint');
+}
+
+// Night V1 (opt-in) — a handful of consumers (Ocean/Sky/Island/Floor/the
+// moon THREE.light) each hold their own uMoonIntensity/uStarVisibility
+// uniform rather than sharing one by reference, so these two setters just
+// propagate a single GUI value to all of them.
+function setMoonIntensity(v) {
+  ocean.uniforms.uMoonIntensity.value = v;
+  sky.uniforms.uMoonIntensity.value = v;
+  island.uniforms.uMoonIntensity.value = v;
+  floor.uniforms.uMoonIntensity.value = v;
+  moonLight.intensity = nightEnabled ? v * 0.5 : 0;
+}
+function setStarVisibility(v) {
+  ocean.uniforms.uStarVisibility.value = v;
+  sky.uniforms.uStarVisibility.value = v;
+}
+
+if (nightEnabled) {
+  const fNight = gui.addFolder('Night');
+  fNight.add(moonParams, 'elevation', -10, 89, 0.5).name('Moon Elevation').onChange(applyMoon);
+  fNight.add(moonParams, 'azimuth', 0, 360, 1).name('Moon Azimuth').onChange(applyMoon);
+  fNight.add({ v: NIGHT_MOON_INTENSITY }, 'v', 0, 3, 0.05).name('Moon Intensity').onChange(setMoonIntensity);
+  fNight.add(ocean.uniforms.uMoonPathFocus, 'value', 0, 1, 0.01).name('Moon Path');
+  fNight.add({ v: NIGHT_STAR_VISIBILITY }, 'v', 0, 1, 0.01).name('Star Visibility').onChange(setStarVisibility);
+  fNight.add(post.compositeMat.uniforms.uExposure, 'value', 0.2, 1.5, 0.01).name('Night Exposure');
+  fNight.add(clouds.uniforms.uMoonWeight, 'value', 0, 2, 0.02).name('Cloud Moonlight');
 }
 
 gui.add({ dive: () => diveTo(-12) }, 'dive').name('▼ dive under');
@@ -639,6 +710,12 @@ if (birdDemoEnabled) {
   window.OCEAN.setBirdClock = (t) => { birdClock = t; };
   window.OCEAN.setBirdPaused = (p) => { birdPaused = p; };
 }
+if (nightEnabled) {
+  window.OCEAN.moonParams = moonParams;
+  window.OCEAN.applyMoon = applyMoon;
+  window.OCEAN.setMoonIntensity = setMoonIntensity;
+  window.OCEAN.setStarVisibility = setStarVisibility;
+}
 
 applySun();
 setCloudsEnabled(true); // volumetric clouds on by default (toggle in the GUI)
@@ -663,6 +740,79 @@ if (cinematicSunsetEnabled) {
   applyPreset('Crimson Sunset');
   ocean.uniforms.uSunsetAmount.value = SUNSET_START_AMOUNT;
   gui.controllersRecursive().forEach((c) => c.updateDisplay()); // sync the new sliders
+}
+
+if (nightEnabled) {
+  // Push the sun well below the horizon — this naturally drives the many
+  // existing sunDir-coupled terms (sunLight intensity, Island/Floor ndl,
+  // Ocean's SSS/sun-glint/waterCol-intensity, all already elevation-clamped
+  // at >= 0) to their already-existing dim floor, with no code changes.
+  // Only the sky/cloud COLOUR actually needed fixing (Ocean.js/Sky.js/
+  // Clouds.js/Island.js/Floor.js changes above) — everything else here is a
+  // direct, stable Night V1 state, not a continuous time-of-day system.
+  // clouds.setNightAmount() must run BEFORE applySun(): setSun()'s night
+  // colour blend (see Clouds.js) reads this flag, so calling applySun()
+  // first would silently apply the day/sunset cloud palette instead.
+  clouds.setNightAmount(1.0);
+  sunParams.elevation = NIGHT_SUN_ELEVATION;
+  applySun();
+  applyMoon();
+
+  const moonColor = new THREE.Color(0xdfe6f0);
+  ocean.uniforms.uNightAmount.value = 1.0;
+  ocean.uniforms.uMoonColor.value.copy(moonColor);
+  sky.uniforms.uNightAmount.value = 1.0;
+  sky.uniforms.uMoonColor.value.copy(moonColor);
+  island.uniforms.uNightAmount.value = 1.0;
+  island.uniforms.uMoonColor.value.copy(moonColor);
+  floor.uniforms.uNightAmount.value = 1.0;
+  floor.uniforms.uMoonColor.value.copy(moonColor);
+  setMoonIntensity(NIGHT_MOON_INTENSITY);
+  setStarVisibility(NIGHT_STAR_VISIBILITY);
+
+  clouds.setNightAmount(1.0);
+  clouds.uniforms.uMoonColor.value.copy(moonColor);
+  clouds.uniforms.uMoonWeight.value = NIGHT_CLOUD_MOONLIGHT;
+  clouds.uniforms.uSunStrength.value = 0.3;
+  clouds.uniforms.uAmbient.value = 0.35;
+
+  // Night camera: close to the water, island as a dark foreground silhouette,
+  // moon visible above it (partially threaded through cloud cover) with its
+  // glitter path leading down across the water toward camera. Skipped when
+  // Bird Demo is also active — birds fly in front of THEIR OWN camera pose
+  // (main.js's birdDemoEnabled block above), so keep that framing instead of
+  // pointing the camera away from where they are; the night sky/ocean/moon
+  // state still applies fully in that framing.
+  if (!birdDemoEnabled) {
+    camera.position.set(10, 3, 48);
+    controls.target.set(0, 2, 0);
+    controls.update();
+  }
+
+  // Night ocean palette: deep navy / near-black body, muted cool foam,
+  // subsurface scattering and sun glitter both nearly off (the moon supplies
+  // its own separate glitter/reflection path — see Ocean.js).
+  ocean.uniforms.uDeepColor.value.set('#020509');
+  ocean.uniforms.uShallowColor.value.set('#0a1830');
+  ocean.uniforms.uFoamColor.value.set('#c9d6e6');
+  ocean.uniforms.uSSSStrength.value = 0.06;
+  ocean.uniforms.uSunGlitter.value = 0.05;
+  ocean.uniforms.uCrestFoamStart.value = 1.6;
+
+  // Underwater: dim the shafts (they otherwise assume some real sunlight is
+  // always reaching the water column) and cool/darken the fog target — both
+  // already-exposed Post.js uniforms, so no Post.js code changes were needed.
+  post.underwaterMat.uniforms.uShaftDensity.value = 0.01;
+  post.underwaterMat.uniforms.uFogStrength.value = 0.5;
+  post.underwaterMat.uniforms.uDeepColor.value.set('#020509');
+
+  // Deterministic manual exposure/bloom — preserves moon-disk and star
+  // detail without crushing blacks or flooding the sky with bloom.
+  post.compositeMat.uniforms.uExposure.value = NIGHT_EXPOSURE;
+  post.compositeMat.uniforms.uBloom.value = NIGHT_BLOOM;
+  post.compositeMat.uniforms.uSaturation.value = 1.0;
+
+  gui.controllersRecursive().forEach((c) => c.updateDisplay());
 }
 
 animate();

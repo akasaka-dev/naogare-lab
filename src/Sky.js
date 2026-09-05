@@ -10,6 +10,13 @@ export class Sky {
       uSunDir: { value: sunDir.clone() },
       uTime: { value: 0 },
       uCloudCover: { value: 1.0 },
+      // Night V1 (opt-in) — see common.js atmosphere(). Neutral defaults so
+      // normal/day/sunset rendering is unaffected until Night mode sets them.
+      uNightAmount: { value: 0.0 },
+      uMoonDir: { value: new THREE.Vector3(0, 1, 0) },
+      uMoonColor: { value: new THREE.Color(0xdfe6f0) },
+      uMoonIntensity: { value: 1.0 },
+      uStarVisibility: { value: 0.0 },
     };
 
     const material = new THREE.ShaderMaterial({
@@ -32,6 +39,11 @@ export class Sky {
         uniform vec3 uSunDir;
         uniform float uTime;
         uniform float uCloudCover;
+        uniform float uNightAmount;
+        uniform vec3  uMoonDir;
+        uniform vec3  uMoonColor;
+        uniform float uMoonIntensity;
+        uniform float uStarVisibility;
         varying vec3 vWorldDir;
         ${NOISE}
         ${ATMOSPHERE}
@@ -56,5 +68,9 @@ export class Sky {
 
   setSun(sunDir) {
     this.uniforms.uSunDir.value.copy(sunDir);
+  }
+
+  setMoon(moonDir) {
+    this.uniforms.uMoonDir.value.copy(moonDir);
   }
 }

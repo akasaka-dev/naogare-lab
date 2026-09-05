@@ -19,6 +19,11 @@ export class Island {
       uSandDry: { value: new THREE.Color(0.64, 0.55, 0.39) },
       uSandWet: { value: new THREE.Color(0.24, 0.19, 0.13) },
       uCausticColor: { value: new THREE.Color(1.0, 0.98, 0.85) },
+      // Night V1 (opt-in) — neutral at uNightAmount = 0.
+      uNightAmount: { value: 0.0 },
+      uMoonDir: { value: new THREE.Vector3(0, 1, 0) },
+      uMoonColor: { value: new THREE.Color(0xdfe6f0) },
+      uMoonIntensity: { value: 1.0 },
       // Shared, by reference — auto-synced with the ocean's wave settings.
       uWindDir: waveUniforms.uWindDir,
       uWaveCount: waveUniforms.uWaveCount,
@@ -79,6 +84,10 @@ export class Island {
         uniform vec3  uSandDry;
         uniform vec3  uSandWet;
         uniform vec3  uCausticColor;
+        uniform float uNightAmount;
+        uniform vec3  uMoonDir;
+        uniform vec3  uMoonColor;
+        uniform float uMoonIntensity;
         ${NOISE}
         ${OCEAN_HEIGHT}
         ${CAUSTICS}
@@ -108,6 +117,16 @@ export class Island {
           vec3 sky = vec3(0.35, 0.5, 0.7);
           vec3 color = sand * (0.35 * sky + 1.05 * ndl);
 
+          // Night V1: replace the fixed daylight ambient + sun term with a
+          // dim cool ambient plus a genuine moonlight contribution, so the
+          // island darkens but stays barely readable rather than a flat cutout.
+          float moonNdl = clamp(dot(N, uMoonDir), 0.0, 1.0);
+          // A slightly stronger flat ambient than a real moonless night would
+          // have — keeps shadow-side slopes barely readable instead of a
+          // complete black cutout when the moon isn't behind the island.
+          vec3 nightColor = sand * (0.58 * vec3(0.09, 0.12, 0.19) + uMoonColor * moonNdl * uMoonIntensity * 0.5);
+          color = mix(color, nightColor, uNightAmount);
+
           // Caustics ONLY where water actually stands above the sand — they
           // fade in just under the waterline and attenuate with water depth.
           if (submerged > 0.0){
@@ -116,7 +135,9 @@ export class Island {
             float c2 = caustics(xz * 0.085 - flow * 0.7 + 15.0, uTime * 0.8);
             float caus = min(c1, c2) + 0.35 * c1 * c2;
             float edge = smoothstep(0.0, 0.5, submerged);      // no caustics on the film's edge
-            color += uCausticColor * caus * exp(-submerged * 0.06) * (0.4 + 0.8 * ndl) * edge;
+            // Night: caustics need real (moon)light to reach the sand too.
+            float causNight = mix(1.0, 0.2, uNightAmount);
+            color += uCausticColor * caus * exp(-submerged * 0.06) * (0.4 + 0.8 * ndl) * edge * causNight;
           } else {
             // Slight wet sheen on the exposed sand just above the waterline.
             float sheen = smoothstep(1.4, 0.0, y) * (1.0 - wetness * 0.4);
@@ -143,6 +164,10 @@ export class Island {
 
   setSun(sunDir) {
     this.uniforms.uSunDir.value.copy(sunDir);
+  }
+
+  setMoon(moonDir) {
+    this.uniforms.uMoonDir.value.copy(moonDir);
   }
 
   // CPU mirror of the GLSL islandHeight() above — the world-space terrain height

@@ -17,6 +17,11 @@ export class Floor {
       uSandColor: { value: new THREE.Color(0.66, 0.58, 0.44) },
       uSandColor2: { value: new THREE.Color(0.46, 0.41, 0.31) },
       uCausticColor: { value: new THREE.Color(1.0, 0.98, 0.85) },
+      // Night V1 (opt-in) — neutral at uNightAmount = 0.
+      uNightAmount: { value: 0.0 },
+      uMoonDir: { value: new THREE.Vector3(0, 1, 0) },
+      uMoonColor: { value: new THREE.Color(0xdfe6f0) },
+      uMoonIntensity: { value: 1.0 },
     };
 
     const material = new THREE.ShaderMaterial({
@@ -49,6 +54,10 @@ export class Floor {
         uniform vec3  uSandColor;
         uniform vec3  uSandColor2;
         uniform vec3  uCausticColor;
+        uniform float uNightAmount;
+        uniform vec3  uMoonDir;
+        uniform vec3  uMoonColor;
+        uniform float uMoonIntensity;
         varying vec3 vWorldPos;
 
         // Surface normal from the fbm dune/ripple field (analytic gradient).
@@ -82,6 +91,12 @@ export class Floor {
           // Diffuse sun term (softened; most light underwater is ambient).
           float ndl = clamp(dot(N, sunDir), 0.0, 1.0);
           float diffuse = 0.45 + 0.55 * ndl;
+          // Night V1: the 0.45 daylight-ambient floor above assumes there is
+          // always some sunlight reaching the seabed — at night that isn't
+          // true, so darken it and light the floor from the moon instead.
+          float moonNdl = clamp(dot(N, uMoonDir), 0.0, 1.0);
+          float nightDiffuse = 0.05 + 0.12 * moonNdl * clamp(uMoonIntensity, 0.0, 3.0);
+          diffuse = mix(diffuse, nightDiffuse, uNightAmount);
 
           // Two caustic layers, offset & counter-scrolling, combined sharply.
           float t = uTime * 0.6;
@@ -96,7 +111,13 @@ export class Floor {
           caus *= (0.4 + 0.9 * ndl);
 
           vec3 color = sand * diffuse;
-          color += uCausticColor * caus * (0.9 + 1.6 * reach);
+          // Night V1: the (0.9 + 1.6*reach) floor never goes below 0.9 even
+          // with reach = 0 (sun fully below the horizon) — caustics need a
+          // real light source, so give them a much dimmer, moon-driven
+          // ceiling at night instead.
+          float causDay = 0.9 + 1.6 * reach;
+          float causNight = 0.1 + 0.35 * moonNdl * clamp(uMoonIntensity, 0.0, 3.0);
+          color += uCausticColor * caus * mix(causDay, causNight, uNightAmount);
 
           gl_FragColor = vec4(color, 1.0);
         }
@@ -121,5 +142,9 @@ export class Floor {
 
   setSun(sunDir) {
     this.uniforms.uSunDir.value.copy(sunDir);
+  }
+
+  setMoon(moonDir) {
+    this.uniforms.uMoonDir.value.copy(moonDir);
   }
 }

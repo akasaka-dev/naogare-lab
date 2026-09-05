@@ -98,6 +98,15 @@ export class Ocean {
       uSunsetHorizonWarmth: { value: 0.9 },
       uSunsetGlitterBoost: { value: 0.5 },
 
+      // Cinematic night (Night V1, opt-in) — neutral at uNightAmount = 0, so
+      // default/day/sunset rendering is untouched until ?night=1 sets it.
+      uNightAmount: { value: 0.0 },
+      uMoonDir: { value: new THREE.Vector3(0, 1, 0) },
+      uMoonColor: { value: new THREE.Color(0xdfe6f0) },
+      uMoonIntensity: { value: 1.0 },
+      uMoonPathFocus: { value: 0.5 },
+      uStarVisibility: { value: 0.0 },
+
       // contact foam sources (filled from FloatingBodies every frame)
       uContactFoam: { value: c.contactFoam },
       uBodyCount: { value: 0 },
@@ -186,6 +195,12 @@ export class Ocean {
         uniform float uSunsetSunFocus;
         uniform float uSunsetHorizonWarmth;
         uniform float uSunsetGlitterBoost;
+        uniform float uNightAmount;
+        uniform vec3  uMoonDir;
+        uniform vec3  uMoonColor;
+        uniform float uMoonIntensity;
+        uniform float uMoonPathFocus;
+        uniform float uStarVisibility;
         uniform float uContactFoam;
         uniform int   uBodyCount;
         uniform vec4  uBodies[${MAX_FOAM_BODIES}];   // x, z, radius, foam strength
@@ -436,6 +451,30 @@ export class Ocean {
               sunsetGlitterTint = mix(vec3(1.0, 0.94, 0.82), glintRecolor, clamp(glitterBoost, 0.0, 1.0));
             }
 
+            // ============ CINEMATIC NIGHT: OCEAN MOON REFLECTION (Night V1) ============
+            // Reuses the exact reflection-vector approach validated by
+            // Cinematic Sunset V2: a per-fragment alignment between the
+            // wave-tilted reflection ray and the light direction, so the
+            // "moon road" fragments naturally across waves instead of
+            // forming a rectangle or a flat vertical column. Independent of
+            // the sunset block above — sun and moon can coexist.
+            if (uNightAmount > 0.0001) {
+              vec3 RnMoon = normalize(R);
+              float moonAlign = max(dot(RnMoon, uMoonDir), 0.0);
+              float moonFocusExp = mix(4.0, 60.0, clamp(uMoonPathFocus, 0.0, 1.0));
+              float moonPath = pow(moonAlign, moonFocusExp);
+              // Pale-blue fringe at the path's edges, brightening to a
+              // silver-white core right at the moon's own reflection.
+              vec3 moonPathColor = mix(uMoonColor * 0.6, vec3(0.88, 0.92, 1.0), clamp(moonPath * 1.6, 0.0, 1.0));
+              float moonReflWeight = clamp(uNightAmount * clamp(uMoonIntensity, 0.0, 3.0) * clamp(moonPath * 1.3, 0.0, 1.0), 0.0, 1.0);
+              float reflLumMoon = clamp(dot(reflection, vec3(0.2126, 0.7152, 0.0722)), 0.02, 1.2);
+              vec3 moonReflection = mix(reflection, moonPathColor * reflLumMoon, moonReflWeight);
+              // Same Fresnel re-application as the sunset path above: only
+              // the already-reflection-derived part of the pixel is
+              // displaced, so Fresnel/SSR/refraction structure is preserved.
+              color = mix(color, moonReflection, fres * moonReflWeight);
+            }
+
             // Shoreline: a textured, advecting foam band where water gets shallow.
             float shore = smoothstep(uShoreFoamWidth, 0.12, thickness);
             float sTex = fbm(vWorldPos.xz * 0.5 - uWindDir * uTime * 0.6, 4);
@@ -454,6 +493,22 @@ export class Ocean {
             // cinematic-sunset block above can recolour by glint intensity.)
             color += sunsetGlitterTint * D * fh * sunNoL * 3.0 * sunsetGlitterFactor * (1.0 - cs * 0.9);
 
+            // Moon GGX glint (Night V1): the same physically-shaped specular
+            // term as the sun's, evaluated against the moon direction with a
+            // tighter (more delicate) roughness and a dimmer, cool-silver
+            // tint — a separate additive sparkle on top of the broad moon
+            // reflection path above, so aligned wave facets catch a crisp
+            // highlight rather than the whole path reading uniformly bright.
+            if (uNightAmount > 0.0001) {
+              vec3 Hm = normalize(V + uMoonDir);
+              float roughMoon = clamp(rough * 0.6, 0.02, 0.6);
+              float Dm = dggx(max(dot(N, Hm), 0.0), roughMoon * roughMoon);
+              float fhm = fresnelF(max(dot(Hm, V), 0.0), 0.02);
+              float moonNoL = max(dot(Ns, uMoonDir), 0.0);
+              color += vec3(0.80, 0.86, 0.96) * Dm * fhm * moonNoL * 1.1
+                     * clamp(uMoonIntensity, 0.0, 3.0) * uNightAmount * (1.0 - cs * 0.9);
+            }
+
           } else {
             // ============ SEEN FROM BELOW (Snell's window) ============
             // Looking up, most of the upward cone shows the whole sky refracted
@@ -468,6 +523,11 @@ export class Ocean {
             // never near-black, so the ceiling reads clear instead of a porthole.
             vec3 waterGlow = mix(uShallowColor, vec3(0.72, 0.92, 0.96), 0.35)
                            * (0.55 + 0.85 * sunElev);
+            // Night V1: the daylight teal floor above is replaced with a dim,
+            // cool ambient so the Snell's-window ceiling darkens instead of
+            // staying tropical-bright regardless of how far the sun has set.
+            vec3 nightGlow = uShallowColor * 0.22 + uMoonColor * clamp(uMoonIntensity, 0.0, 3.0) * 0.05;
+            waterGlow = mix(waterGlow, nightGlow, uNightAmount);
 
             if (dot(refr, refr) < 1e-4){
               color = waterGlow;                            // total internal reflection
@@ -597,6 +657,10 @@ export class Ocean {
 
   setSun(sunDir) {
     this.uniforms.uSunDir.value.copy(sunDir);
+  }
+
+  setMoon(moonDir) {
+    this.uniforms.uMoonDir.value.copy(moonDir);
   }
 
   setResolution(w, h) {
