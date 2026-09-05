@@ -405,15 +405,26 @@
   }
   #endingScroll img {
     display: block;
-    width: 100%;
+    position: absolute;
+    left: 50%;
+    top: 0;
+    /* min-width/min-height (not plain width/height) is the pure-CSS
+       "cover" trick: the browser grows whichever axis is needed to fully
+       cover the screen, so no black #endingScreen background can ever
+       show through even on a phone taller than ending2.webp's own 2:1
+       ratio — it crops a bit off the sides instead. */
+    min-width: 100%;
+    min-height: 100%;
+    width: auto;
     height: auto;
+    transform: translate(-50%, 0); /* base centering, also the animation's 0% state */
   }
   #endingScroll img.pan {
     animation: endingPan 90s ease-in-out forwards;
   }
   @keyframes endingPan {
-    0%, 10% { transform: translateY(0); }
-    90%, 100% { transform: translateY(calc(-100% + 100vh)); }
+    0%, 10% { transform: translate(-50%, 0); }
+    90%, 100% { transform: translate(-50%, calc(-100% + 100vh)); }
   }
   /* Narration crawl overlaid on the artwork — see showEndingScreen(). Its
      start/end transform is set inline (via the Web Animations API) once the
@@ -917,12 +928,15 @@
     </div>
   </div>
 
-  <!-- All-clear ending: slow scroll through ending.webp with a narration
+  <!-- All-clear ending: slow scroll through ending2.webp with a narration
        crawl overlaid on top; ending.mp3 kicks in as the crawl nears its end.
+       ending2.webp is a tall (2:1) crop specifically so width:100% scaling
+       still covers portrait phone screens without gaps — see ending.webp
+       (kept alongside it, unused) for the original, shorter (~1.5:1) art.
        Click anywhere to return to title. -->
   <div id="endingScreen" class="hidden">
     <div id="endingScroll">
-      <img src="ending.webp" alt="エンディング">
+      <img src="ending2.webp" alt="エンディング">
       <div id="endingTextWrap"><div id="endingTextCrawl"></div></div>
     </div>
     <div class="ending-hint">クリックでタイトルへ</div>
@@ -2041,7 +2055,7 @@
     hideBubble();
   }
 
-  // ---------- All-clear ending: narration crawl over ending.webp ----------
+  // ---------- All-clear ending: narration crawl over ending2.webp ----------
   // Kanji/kana pairs, one entry per crawl paragraph — '\n' is an intentional
   // line break *within* a paragraph (rendered via CSS white-space:pre-line),
   // a blank line between entries is the paragraph gap.
