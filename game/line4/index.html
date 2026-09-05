@@ -417,14 +417,17 @@
     min-height: 100%;
     width: auto;
     height: auto;
-    transform: translate(-50%, 0); /* base centering, also the animation's 0% state */
+    /* Base centering, also the animation's 0% state — starts on the
+       BOTTOM of the artwork (feet) and pans up to the top (sky/faces) by
+       the end, so the scene doesn't close on a close-up of someone's boots. */
+    transform: translate(-50%, calc(-100% + 100vh));
   }
   #endingScroll img.pan {
     animation: endingPan 90s ease-in-out forwards;
   }
   @keyframes endingPan {
-    0%, 10% { transform: translate(-50%, 0); }
-    90%, 100% { transform: translate(-50%, calc(-100% + 100vh)); }
+    0%, 10% { transform: translate(-50%, calc(-100% + 100vh)); }
+    90%, 100% { transform: translate(-50%, 0); }
   }
   /* Narration crawl overlaid on the artwork — see showEndingScreen(). Its
      start/end transform is set inline (via the Web Animations API) once the
