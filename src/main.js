@@ -11,6 +11,7 @@ import { Post } from './Post.js';
 import { FloatingBodies } from './FloatingBodies.js';
 import { Clouds } from './Clouds.js';
 import { Birds } from './Birds.js';
+import { LyricParticles } from './LyricParticles.js';
 
 // ---------------------------------------------------------------------------
 //  Boot
@@ -164,6 +165,14 @@ const NIGHT_CLOUD_MOONLIGHT = 0.6;
 //  rather than a third parallel colour system. See setTimeOfDay() below.
 // ---------------------------------------------------------------------------
 const timeEnabled = new URLSearchParams(window.location.search).get('time') === '1';
+
+// ---------------------------------------------------------------------------
+//  Lyric Particles V1 — opt-in via ?lyrics=1. When absent, none of this runs:
+//  no particle flock, no GUI folder, no camera/atmosphere override below.
+// ---------------------------------------------------------------------------
+const lyricsEnabled = new URLSearchParams(window.location.search).get('lyrics') === '1';
+const lyricParticles = lyricsEnabled ? new LyricParticles(scene) : null;
+let lyricGuiState = null;
 
 // Lights — only the dropped primitives (MeshStandardMaterial) use these; the
 // ocean/island/sky are raw ShaderMaterials and ignore scene lights.
@@ -530,6 +539,9 @@ const TOD_FOG_STRENGTH = { day: 1.0, golden: 1.0, sunset: 1.1, twilight: 0.8, ni
 const TOD_EXPOSURE = { day: 1.05, golden: 1.15, sunset: 1.2, twilight: 1.0, night: NIGHT_EXPOSURE };
 const TOD_BLOOM = { day: 0.5, golden: 0.95, sunset: 1.0, twilight: 0.7, night: NIGHT_BLOOM };
 const TOD_SATURATION = { day: 1.08, golden: 1.1, sunset: 1.12, twilight: 1.0, night: 1.0 };
+// Lyric Particles V1 (opt-in) — subtle per-stage tint only; particles must
+// stay recognizably the same entities across the whole cycle (spec 11).
+const TOD_LYRIC_TINT = { day: '#fbf6ea', golden: '#fff0d2', sunset: '#ffe9c9', twilight: '#eef1f5', night: '#e3ecf7' };
 
 const SUN_MAX_ELEVATION = 65;
 const SUN_AZ_START = 70, SUN_AZ_RANGE = 240; // lands near Crimson Sunset's az=250 at t=0.75
@@ -611,6 +623,10 @@ function setTimeOfDay(tRaw) {
   post.compositeMat.uniforms.uBloom.value = todBlend(w, TOD_BLOOM);
   post.compositeMat.uniforms.uSaturation.value = todBlend(w, TOD_SATURATION);
 
+  // Lyric Particles V1 (opt-in) — subtle colour response to time of day,
+  // reusing the same stage weights rather than a parallel colour system.
+  if (lyricParticles) todBlendColor(w, TOD_LYRIC_TINT, lyricParticles.uniforms.uColor.value);
+
   if (timeGuiState) timeGuiState.time = t;
 }
 
@@ -636,6 +652,16 @@ if (timeEnabled) {
   timeSliderCtrl = fTime.add(timeGuiState, 'time', 0, 1, 0.001).name('Time').onChange(setTimeOfDay);
   fTime.add(timeGuiState, 'autoPlay').name('Auto Play');
   fTime.add(timeGuiState, 'speed', 0.005, 0.3, 0.005).name('Speed');
+}
+
+if (lyricsEnabled) {
+  lyricGuiState = { glow: lyricParticles.uniforms.uGlow.value, speed: lyricParticles.speed, paused: false };
+  const fLyrics = gui.addFolder('Lyric Particles');
+  fLyrics.add(lyricGuiState, 'glow', 0.3, 2.5, 0.05).name('Glow').onChange((v) => { lyricParticles.uniforms.uGlow.value = v; });
+  fLyrics.add(lyricGuiState, 'speed', 0.25, 3, 0.05).name('Travel Speed').onChange((v) => { lyricParticles.speed = v; });
+  fLyrics.add({ assemble: () => lyricParticles.previewAssembled() }, 'assemble').name('Assemble');
+  fLyrics.add(lyricGuiState, 'paused').name('Pause').onChange((v) => lyricParticles.setPaused(v));
+  fLyrics.add({ restart: () => lyricParticles.restart() }, 'restart').name('Restart');
 }
 
 gui.add({ dive: () => diveTo(-12) }, 'dive').name('▼ dive under');
@@ -805,6 +831,7 @@ function animate() {
     birds.update(birdClock);
     birdDemoState.time = Math.round((birdClock % birds.loopDuration) * 10) / 10;
   }
+  if (lyricParticles) lyricParticles.update(dt, time, ocean);
 
   ocean.uniforms.uCameraUnderwater.value = underwater ? 1 : 0;
   ocean.uniforms.uProjMatrix.value.copy(camera.projectionMatrix);
@@ -896,6 +923,11 @@ if (nightEnabled) {
 if (timeEnabled) {
   window.OCEAN.setTimeOfDay = setTimeOfDay;
   Object.defineProperty(window.OCEAN, 'timeOfDay', { get: () => timeOfDayValue });
+}
+if (lyricsEnabled) {
+  window.OCEAN.lyricParticles = lyricParticles;
+  window.OCEAN.setLyricParticleTime = (t) => lyricParticles.setTime(t);
+  window.OCEAN.setLyricParticlesPaused = (p) => lyricParticles.setPaused(p);
 }
 
 applySun();
@@ -1003,6 +1035,26 @@ if (timeEnabled) {
   // camera position. Skipped when Bird Demo is also active so its own
   // camera pose (set above) is left alone.
   setTimeOfDay(timeGuiState.time);
+  gui.controllersRecursive().forEach((c) => c.updateDisplay());
+}
+
+if (lyricsEnabled) {
+  // Default test environment: twilight/night reads best for glowing
+  // particles (spec 31) — reuse the SAME continuous Time-of-Day controller
+  // rather than a hand-rolled atmosphere, but only when nothing else has
+  // already claimed the sky/ocean palette. When ?time=1 is also active, that
+  // controller (and its own slider) remains authoritative (spec 31/37).
+  if (!timeEnabled && !nightEnabled && !cinematicSunsetEnabled) {
+    setTimeOfDay(0.79);
+  }
+  // Dedicated cinematic framing: open water, no island, room for the flock
+  // to approach from distance (spec 32). Skipped for the two combinations
+  // that already own the camera.
+  if (!timeEnabled && !birdDemoEnabled && !nightEnabled) {
+    camera.position.set(0, 11, 75);
+    controls.target.set(0, 12, 300);
+    controls.update();
+  }
   gui.controllersRecursive().forEach((c) => c.updateDisplay());
 }
 
