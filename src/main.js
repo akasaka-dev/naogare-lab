@@ -123,6 +123,14 @@ let birdClock = 0;
 let birdPaused = false;
 const birdDemoState = { time: 0 };
 
+// ---------------------------------------------------------------------------
+//  Cinematic Sunset V1 — opt-in via ?cinematicSunset=1. When absent, ocean
+//  uniforms default to a neutral uSunsetAmount = 0 (see Ocean.js) and none of
+//  this runs: no GUI folder, no preset override, no other visual change.
+// ---------------------------------------------------------------------------
+const cinematicSunsetEnabled = new URLSearchParams(window.location.search).get('cinematicSunset') === '1';
+const SUNSET_START_AMOUNT = 0.75; // moderate-strong — natural-cinematic, not an extreme red sea
+
 // Lights — only the dropped primitives (MeshStandardMaterial) use these; the
 // ocean/island/sky are raw ShaderMaterials and ignore scene lights.
 const sunLight = new THREE.DirectionalLight(0xfff2e0, 3.0);
@@ -375,6 +383,16 @@ if (birdDemoEnabled) {
   fBirdDemo.add({ restart: () => { birdClock = 0; } }, 'restart').name('Restart');
   fBirdDemo.add({ toggle: () => { birdPaused = !birdPaused; } }, 'toggle').name('Pause / Play');
   fBirdDemo.add(birdDemoState, 'time').name('timeline (s)').listen().disable();
+}
+
+if (cinematicSunsetEnabled) {
+  const fSunset = gui.addFolder('Cinematic Sunset');
+  fSunset.add(ocean.uniforms.uSunsetAmount, 'value', 0, 1, 0.01).name('Sunset Amount');
+  fSunset.add(ocean.uniforms.uSunsetOceanWarmth, 'value', 0, 1, 0.01).name('Ocean Warmth');
+  fSunset.add(ocean.uniforms.uSunsetSunFocus, 'value', 0, 1, 0.01).name('Sun Path');
+  fSunset.add(ocean.uniforms.uSunsetGlitterBoost, 'value', 0, 1, 0.01).name('Glitter Boost');
+  fSunset.add(ocean.uniforms.uSunsetHorizonWarmth, 'value', 0, 1, 0.01).name('Horizon Warmth');
+  addColorCtrl(fSunset, ocean.uniforms.uSunsetTint, 'Sunset Tint');
 }
 
 gui.add({ dive: () => diveTo(-12) }, 'dive').name('▼ dive under');
@@ -633,7 +651,18 @@ if (birdDemoEnabled) {
   camera.position.set(0, 9, 90);
   controls.target.set(0, 6, 220);
   controls.update();
-  applyPreset('Golden Hour');
+  // Cinematic Sunset (below) picks the preset instead, when both are active.
+  if (!cinematicSunsetEnabled) applyPreset('Golden Hour');
+}
+
+if (cinematicSunsetEnabled) {
+  // Start from the existing, unmodified Crimson Sunset preset, then layer
+  // the cinematic tint on top of it (Ocean.js). The preset itself is never
+  // edited, so plain Crimson Sunset (without the flag) stays exactly as it
+  // was.
+  applyPreset('Crimson Sunset');
+  ocean.uniforms.uSunsetAmount.value = SUNSET_START_AMOUNT;
+  gui.controllersRecursive().forEach((c) => c.updateDisplay()); // sync the new sliders
 }
 
 animate();

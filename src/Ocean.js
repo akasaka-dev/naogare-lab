@@ -86,6 +86,18 @@ export class Ocean {
       uCloudCover: { value: 1.0 },
       uProjMatrix: { value: new THREE.Matrix4() },
 
+      // Cinematic sunset tint (Sunset V2, opt-in) — every blend weight this
+      // drives is multiplied through by uSunsetAmount, so at 0 (the default,
+      // used everywhere the ?cinematicSunset=1 flag is absent) this whole
+      // feature is a mathematical no-op and default WaterThreeJS is
+      // untouched.
+      uSunsetAmount: { value: 0.0 },
+      uSunsetTint: { value: new THREE.Color(0xff4d1f) },
+      uSunsetOceanWarmth: { value: 0.5 },
+      uSunsetSunFocus: { value: 0.5 },
+      uSunsetHorizonWarmth: { value: 0.9 },
+      uSunsetGlitterBoost: { value: 0.5 },
+
       // contact foam sources (filled from FloatingBodies every frame)
       uContactFoam: { value: c.contactFoam },
       uBodyCount: { value: 0 },
@@ -168,6 +180,12 @@ export class Ocean {
         uniform float uSunGlitter;
         uniform float uRoughness;
         uniform float uCloudCover;
+        uniform float uSunsetAmount;
+        uniform vec3  uSunsetTint;
+        uniform float uSunsetOceanWarmth;
+        uniform float uSunsetSunFocus;
+        uniform float uSunsetHorizonWarmth;
+        uniform float uSunsetGlitterBoost;
         uniform float uContactFoam;
         uniform int   uBodyCount;
         uniform vec4  uBodies[${MAX_FOAM_BODIES}];   // x, z, radius, foam strength
@@ -294,6 +312,21 @@ export class Ocean {
 
             float fres = fresnelF(max(dot(N, V), 0.0), 0.02);
 
+            // GGX sun-glint terms — computed here (rather than after foam/
+            // SSS, where the additive contribution itself still lives) so
+            // the cinematic-sunset block below can recolour the glint by its
+            // own per-fragment intensity.
+            vec3 H = normalize(V + sunDir);
+            float rough = clamp(uRoughness + (1.0 - detFade) * 0.10, 0.02, 0.6);
+            float D = dggx(max(dot(N, H), 0.0), rough * rough);
+            float fh = fresnelF(max(dot(H, V), 0.0), 0.02);
+            float sunNoL = max(dot(Ns, sunDir), 0.0);
+
+            // Both overridden below in cinematic-sunset mode; identical to
+            // the original sun-glint factor/colour otherwise.
+            float sunsetGlitterFactor = sunElev;
+            vec3  sunsetGlitterTint = vec3(1.0, 0.94, 0.82);
+
             // Refraction of the pre-rendered scene, attenuated by water column.
             float waterEye = -vViewZ;
             vec2  rUV = clamp(screenUV + N.xz * uRefractStrength, vec2(0.001), vec2(0.999));
@@ -312,6 +345,97 @@ export class Ocean {
 
             color = mix(transmitted, reflection, fres);
 
+            // ============ CINEMATIC SUNSET TINT V2 (opt-in) ============
+            // Every weight below is driven by the reflection ray's OWN
+            // geometry (sunAlign / horizonAlign — functions of R and sunDir,
+            // not of camera distance or fres) and by uSunsetAmount, so at
+            // uSunsetAmount = 0 this is a mathematical no-op and default
+            // WaterThreeJS is untouched. Fresnel (fres) still only governs
+            // how much of the (now sunset-aware) reflection shows through at
+            // all — its existing role, and the existing atmosphere() call
+            // above, are both unchanged.
+            if (uSunsetAmount > 0.0001) {
+              vec3 Rn = normalize(R);
+              // How directly this facet's reflection points at the sun —
+              // drives the layered sun path. Varies wave-to-wave because Rn
+              // follows the (glitter-jittered) wave normal, not screen
+              // position.
+              float sunAlign = max(dot(Rn, sunDir), 0.0);
+              // How close this facet's reflection points at the horizon
+              // rather than the zenith — also purely a function of the
+              // wave-tilted reflection ray (Rsky.y). Distant "background"
+              // water therefore only warms where ITS wave facets happen to
+              // reflect near-horizontal sky, not simply because it is far
+              // away or near the screen-space horizon — this is what
+              // replaces V1's Fresnel-driven broad band.
+              float horizonAlign = 1.0 - clamp(abs(Rsky.y) * 1.3, 0.0, 1.0);
+
+              // A small palette derived from the single uSunsetTint control:
+              // a brightened white-gold core, and a magenta/purple horizon
+              // edge for the side of the sky facing away from the sun.
+              vec3 goldCore   = mix(vec3(1.0, 0.97, 0.90), uSunsetTint, 0.35);
+              vec3 purpleEdge = mix(uSunsetTint, vec3(0.30, 0.08, 0.34), 0.65);
+
+              // Layered sun path: a tight white-gold core inside a wider
+              // gold/orange halo, both scaled by uSunsetSunFocus (broad glow
+              // ↔ narrow streak) — two pow() bands of the SAME sunAlign, so
+              // the path stays centred on the sun's true reflection
+              // direction and fragments naturally with every wave tilt.
+              float focusExp  = mix(2.5, 40.0, clamp(uSunsetSunFocus, 0.0, 1.0));
+              float pathOuter = pow(sunAlign, focusExp);
+              float pathCore  = pow(sunAlign, focusExp * 3.2);
+              vec3 sunPathColor = mix(uSunsetTint, goldCore, clamp(pathCore * 1.6, 0.0, 1.0));
+
+              // Horizon glow: broad and weak, present only where the
+              // reflection ray is itself horizon-aligned, shifting from the
+              // purple edge (away from the sun) toward the tint colour
+              // (toward the sun) — different parts of the horizon read
+              // different hues instead of one flat wash.
+              vec3 horizonColor = mix(purpleEdge, uSunsetTint, sunAlign);
+              float horizonWeight = horizonAlign * clamp(uSunsetHorizonWarmth, 0.0, 1.0);
+
+              vec3 sunsetColor = mix(horizonColor, sunPathColor, clamp(pathOuter * 1.4, 0.0, 1.0));
+              float recolorWeight = uSunsetAmount * clamp(horizonWeight + pathOuter, 0.0, 1.0);
+
+              // Preserve luminance/shape (bright glow reads bright, dim sky
+              // reads dim) but clamp it — the atmosphere's sun disk is
+              // deliberately very bright HDR, and multiplying that straight
+              // through here would blow the tint back out to white.
+              float reflLum = clamp(dot(reflection, vec3(0.2126, 0.7152, 0.0722)), 0.12, 1.6);
+              vec3 warmReflection = mix(reflection, sunsetColor * reflLum, recolorWeight);
+              // Re-apply the SAME Fresnel weighting so the warm reflection
+              // only displaces the part of the colour that was already
+              // reflection-derived — Fresnel/SSR/refraction structure is
+              // preserved, just recoloured where reflection already shows.
+              color = mix(color, warmReflection, fres * recolorWeight);
+
+              // Ocean Warmth: a weak, broad hue SHIFT of the water body
+              // itself — blue toward indigo/dark purple — never a blend
+              // toward the bright orange tint, so it darkens/cools rather
+              // than repaints. This is the only sunset contribution that
+              // touches the transmitted/base-water side of the water model,
+              // and by itself it can never turn the sea red.
+              vec3 purpleShift = color * vec3(0.90, 0.62, 0.94) + vec3(0.01, 0.0, 0.02);
+              float warmthWeight = uSunsetAmount * clamp(uSunsetOceanWarmth, 0.0, 1.0) * 0.4;
+              color = mix(color, purpleShift, warmthWeight);
+
+              // Low-sun compensation for the GGX sun-glint term (applied
+              // further below, using the D/fh/sunNoL computed earlier):
+              // additive on top of the original sunElev factor, tapering out
+              // as the sun climbs so midday glitter is unaffected.
+              float glitterBoost = clamp(uSunsetGlitterBoost, 0.0, 1.0) * uSunsetAmount;
+              sunsetGlitterFactor = sunElev + glitterBoost * (1.0 - sunElev);
+              // Recolour by the glint's OWN intensity rather than a flat
+              // boost amount, so the hottest pixels stay white-gold while
+              // the weaker surrounding glint reads orange/red — this is what
+              // breaks the old solid-white-column look into a layered path.
+              float glintRaw = D * fh * sunNoL;
+              float glintNorm = clamp(glintRaw / (glintRaw + 0.12), 0.0, 1.0);
+              vec3 glintEdgeColor = mix(uSunsetTint, vec3(0.55, 0.10, 0.14), 0.35);
+              vec3 glintRecolor = mix(glintEdgeColor, goldCore, pow(glintNorm, 2.0));
+              sunsetGlitterTint = mix(vec3(1.0, 0.94, 0.82), glintRecolor, clamp(glitterBoost, 0.0, 1.0));
+            }
+
             // Shoreline: a textured, advecting foam band where water gets shallow.
             float shore = smoothstep(uShoreFoamWidth, 0.12, thickness);
             float sTex = fbm(vWorldPos.xz * 0.5 - uWindDir * uTime * 0.6, 4);
@@ -325,13 +449,10 @@ export class Ocean {
 
             // GGX sun glints: physically-shaped sparkle whose size follows the
             // micro-roughness; slightly rougher in the distance so the horizon
-            // reads as a soft streak instead of aliasing fireflies.
-            vec3 H = normalize(V + sunDir);
-            float rough = clamp(uRoughness + (1.0 - detFade) * 0.10, 0.02, 0.6);
-            float D = dggx(max(dot(N, H), 0.0), rough * rough);
-            float fh = fresnelF(max(dot(H, V), 0.0), 0.02);
-            float sunNoL = max(dot(Ns, sunDir), 0.0);
-            color += vec3(1.0, 0.94, 0.82) * D * fh * sunNoL * 3.0 * sunElev * (1.0 - cs * 0.9);
+            // reads as a soft streak instead of aliasing fireflies. (H, rough,
+            // D, fh, sunNoL are computed earlier, right after fres, so the
+            // cinematic-sunset block above can recolour by glint intensity.)
+            color += sunsetGlitterTint * D * fh * sunNoL * 3.0 * sunsetGlitterFactor * (1.0 - cs * 0.9);
 
           } else {
             // ============ SEEN FROM BELOW (Snell's window) ============
