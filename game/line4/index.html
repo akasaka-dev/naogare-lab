@@ -1743,7 +1743,11 @@
   });
   document.getElementById('onlineCancelBtn').addEventListener('click', () => {
     SoundMgr.seClick();
-    showOnlineMenu();
+    // Waiting for a *new challenger* after a win is a different context than
+    // waiting right after creating a room — cancelling there should abandon
+    // the streak and go home, not drop into the create/join menu.
+    if (online && online.awaitingRematch) goToTitle();
+    else showOnlineMenu();
   });
 
   function inviteUrl(code) {
@@ -1770,19 +1774,27 @@
     clearOnlineError();
     const res = await apiPost('/room', { name: getPlayerName() });
     if (!res.ok) { showOnlineError(res.error); return; }
-    online = { code: res.code, token: res.token, myPlayer: 1, rev: res.state.rev, emoteRev: res.state.emoteRev || 0, timer: null, busy: false };
+    online = { code: res.code, token: res.token, myPlayer: 1, rev: res.state.rev, emoteRev: res.state.emoteRev || 0, timer: null, busy: false, awaitingRematch: false };
     onlineMenuEl.classList.add('hidden');
     onlineWaitingEl.classList.remove('hidden');
     onlineRoomCodeEl.textContent = res.code;
+    // requestRematch() overwrites this with a streak message — reset it here
+    // so a fresh room never shows leftover text from an earlier rematch wait.
+    document.getElementById('onlineWaitingText').textContent = K('対戦相手を待っています…', 'たいせんあいてをまっています…');
     pollForOpponent();
   }
 
+  // Used both right after creating a room (waiting for p2) and after a win,
+  // once the winner opts to stay (waiting for a new challenger to fill
+  // whichever slot the loser just vacated) — so it checks "is the OTHER
+  // slot filled" symmetrically rather than assuming p2.
   function pollForOpponent() {
     online.timer = setInterval(async () => {
       if (!online) return;
       try {
         const res = await apiGet(`/room/${online.code}/state`);
-        if (res.ok && res.state.hasP2) {
+        const opponentSlotFilled = online.myPlayer === 1 ? res.state.hasP2 : res.state.hasP1;
+        if (res.ok && opponentSlotFilled) {
           stopOnlinePolling();
           beginOnlineMatch(res.state);
         }
@@ -1795,8 +1807,31 @@
     if (!code) { showOnlineError('invalid_body'); return; }
     const res = await apiPost(`/room/${code}/join`, { name: getPlayerName() });
     if (!res.ok) { showOnlineError(res.error); return; }
-    online = { code, token: res.token, myPlayer: 2, rev: res.state.rev, emoteRev: res.state.emoteRev || 0, timer: null, busy: false };
+    online = { code, token: res.token, myPlayer: res.player, rev: res.state.rev, emoteRev: res.state.emoteRev || 0, timer: null, busy: false, awaitingRematch: false };
     beginOnlineMatch(res.state);
+  }
+
+  // "Winner stays on": called from the win result overlay. Vacates the
+  // loser's slot server-side and reuses the same waiting-room UI/polling as
+  // a freshly created room while a new challenger joins via the same code.
+  async function requestRematch() {
+    try {
+      const res = await apiPost(`/room/${online.code}/rematch`, { token: online.token });
+      if (!res.ok) { goToTitle(); return; }
+      online.rev = res.state.rev;
+      online.awaitingRematch = true;
+      const myStreak = online.myPlayer === 1 ? res.state.p1Streak : res.state.p2Streak;
+      gameScreen.classList.add('hidden');
+      onlineScreenEl.classList.remove('hidden');
+      onlineMenuEl.classList.add('hidden');
+      onlineWaitingEl.classList.remove('hidden');
+      onlineRoomCodeEl.textContent = online.code;
+      document.getElementById('onlineWaitingText').textContent =
+        `${myStreak}${K('連勝中！次の挑戦者を待っています…', 'れんしょうちゅう！つぎのちょうせんしゃをまっています…')}`;
+      pollForOpponent();
+    } catch (e) {
+      goToTitle();
+    }
   }
 
   document.getElementById('onlineCreateBtn').addEventListener('click', () => { SoundMgr.seClick(); createOnlineRoom(); });
@@ -1916,7 +1951,9 @@
 
   function beginOnlineMatch(state) {
     mode = 'online';
+    online.awaitingRematch = false;
     online.opponentName = online.myPlayer === 1 ? state.p2Name : state.p1Name;
+    const opponentStreak = online.myPlayer === 1 ? state.p2Streak : state.p1Streak;
     onlineScreenEl.classList.add('hidden');
     titleScreen.classList.add('hidden');
     gameScreen.classList.remove('hidden');
@@ -1926,7 +1963,8 @@
     document.getElementById('onlineEmoteBar').classList.remove('hidden');
     setCharBackground(null);
     SoundMgr.playTrack('game');
-    modeLabelEl.textContent = `${K('オンライン対戦', 'オンラインたいせん')}（${K('部屋', 'へや')}: ${online.code}） ／ ${K('あなたは', 'あなたは')}${online.myPlayer === 1 ? K('赤', 'あか') : K('黄', 'き')}`;
+    modeLabelEl.textContent = `${K('オンライン対戦', 'オンラインたいせん')}（${K('部屋', 'へや')}: ${online.code}） ／ ${K('あなたは', 'あなたは')}${online.myPlayer === 1 ? K('赤', 'あか') : K('黄', 'き')}`
+      + (opponentStreak > 0 ? `（${K('相手は', 'あいては')}${opponentStreak}${K('連勝中', 'れんしょうちゅう')}）` : '');
 
     grid = state.grid;
     gameOver = false;
@@ -1998,12 +2036,24 @@
         updateStatus(`🎉 ${escapeHtml(winnerLabel)}${K('の勝利！', 'のしょうり！')}`);
         if (iWon) SoundMgr.seWin(); else SoundMgr.seLose();
       }
+      const myStreak = online.myPlayer === 1 ? state.p1Streak : state.p2Streak;
       setTimeout(() => {
-        showResultOverlay({
-          title: isDraw ? K('引き分け', 'ひきわけ') : (iWon ? K('勝利！', 'しょうり！') : K('敗北……', 'はいぼく……')),
-          message: isDraw ? K('オンライン対戦は引き分けに終わりました。', 'オンラインたいせんはひきわけにおわりました。') : (iWon ? K('相手に勝利しました！', 'あいてにしょうりしました！') : K('相手に敗れました……', 'あいてにやぶれました……')),
-          buttons: [{ label: K('タイトルに戻る', 'タイトルにもどる'), primary: true, onClick: goToTitle }],
-        });
+        if (iWon) {
+          showResultOverlay({
+            title: K('勝利！', 'しょうり！'),
+            message: `${K('相手に勝利しました！', 'あいてにしょうりしました！')}\n${myStreak}${K('連勝中！', 'れんしょうちゅう！')}`,
+            buttons: [
+              { label: K('次の挑戦者を待つ', 'つぎのちょうせんしゃをまつ'), primary: true, onClick: requestRematch },
+              { label: K('タイトルに戻る', 'タイトルにもどる'), onClick: goToTitle },
+            ],
+          });
+        } else {
+          showResultOverlay({
+            title: isDraw ? K('引き分け', 'ひきわけ') : K('敗北……', 'はいぼく……'),
+            message: isDraw ? K('オンライン対戦は引き分けに終わりました。', 'オンラインたいせんはひきわけにおわりました。') : K('相手に敗れました……', 'あいてにやぶれました……'),
+            buttons: [{ label: K('タイトルに戻る', 'タイトルにもどる'), primary: true, onClick: goToTitle }],
+          });
+        }
       }, 1200);
       return;
     }

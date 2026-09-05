@@ -3,10 +3,12 @@
 CREATE TABLE IF NOT EXISTS rooms (
   code TEXT PRIMARY KEY,
   status TEXT NOT NULL DEFAULT 'waiting',   -- 'waiting' | 'playing' | 'finished'
-  p1_token TEXT NOT NULL,
-  p2_token TEXT,
+  p1_token TEXT,                             -- nullable: "winner stays" (handleRematch) can
+  p2_token TEXT,                             -- vacate either slot, not just p2, between matches
   p1_name TEXT,                             -- display name, sanitizeName()-capped
   p2_name TEXT,
+  p1_streak INTEGER NOT NULL DEFAULT 0,     -- consecutive wins by this slot's current occupant
+  p2_streak INTEGER NOT NULL DEFAULT 0,
   starting_player INTEGER,                  -- 1 | 2 | NULL
   grid TEXT NOT NULL,                       -- JSON-encoded 6x7 grid
   current_player INTEGER NOT NULL DEFAULT 1,

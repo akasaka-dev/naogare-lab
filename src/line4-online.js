@@ -115,6 +115,8 @@ function rowToRoom(row) {
     p2Token: row.p2_token,
     p1Name: row.p1_name,
     p2Name: row.p2_name,
+    p1Streak: row.p1_streak,
+    p2Streak: row.p2_streak,
     startingPlayer: row.starting_player,
     grid: JSON.parse(row.grid),
     currentPlayer: row.current_player,
@@ -133,9 +135,12 @@ function publicState(room) {
   return {
     code: room.code,
     status: room.status,
+    hasP1: !!room.p1Token,
     hasP2: !!room.p2Token,
     p1Name: room.p1Name,
     p2Name: room.p2Name,
+    p1Streak: room.p1Streak,
+    p2Streak: room.p2Streak,
     startingPlayer: room.startingPlayer,
     grid: room.grid,
     currentPlayer: room.currentPlayer,
@@ -201,25 +206,32 @@ async function handleJoin(request, env, code) {
   } catch (e) {
     body = null;
   }
-  const p2Name = sanitizeName(body && body.name);
+  const name = sanitizeName(body && body.name);
 
   const room = await loadRoom(env, code);
   if (!room) return errorResponse('room_not_found', 404);
-  if (room.p2Token) return errorResponse('room_full', 409);
+  if (room.p1Token && room.p2Token) return errorResponse('room_full', 409);
 
+  // Fills whichever slot is empty — normally p2 (the room's original
+  // creator is always p1), but after a handleRematch() the *winner's*
+  // slot is the one still occupied, so a new challenger may be filling p1.
+  const fillingP1 = !room.p1Token;
   const token = randomToken();
   const startingPlayer = Math.random() < 0.5 ? 1 : 2;
   const now = Date.now();
 
   const result = await env.LINE4_DB.prepare(
-    `UPDATE rooms SET p2_token = ?1, p2_name = ?2, status = 'playing', starting_player = ?3, current_player = ?3, rev = rev + 1, updated_at = ?4
-     WHERE code = ?5 AND p2_token IS NULL`
-  ).bind(token, p2Name, startingPlayer, now, code).run();
+    fillingP1
+      ? `UPDATE rooms SET p1_token = ?1, p1_name = ?2, status = 'playing', starting_player = ?3, current_player = ?3, rev = rev + 1, updated_at = ?4
+         WHERE code = ?5 AND p1_token IS NULL`
+      : `UPDATE rooms SET p2_token = ?1, p2_name = ?2, status = 'playing', starting_player = ?3, current_player = ?3, rev = rev + 1, updated_at = ?4
+         WHERE code = ?5 AND p2_token IS NULL`
+  ).bind(token, name, startingPlayer, now, code).run();
 
   if (!result.meta || result.meta.changes === 0) return errorResponse('room_full', 409);
 
   const updated = await loadRoom(env, code);
-  return jsonResponse({ ok: true, token, player: 2, state: publicState(updated) });
+  return jsonResponse({ ok: true, token, player: fillingP1 ? 1 : 2, state: publicState(updated) });
 }
 
 async function handleState(env, code) {
@@ -258,20 +270,25 @@ async function handleMove(request, env, code) {
   let gameOver = false;
   let winner = null;
   let nextPlayer = player === 1 ? 2 : 1;
+  let p1Streak = room.p1Streak || 0;
+  let p2Streak = room.p2Streak || 0;
   if (winLine) {
     gameOver = true;
     winner = String(player);
+    if (player === 1) p1Streak += 1; else p2Streak += 1;
   } else if (isBoardFull(room.grid)) {
     gameOver = true;
     winner = 'draw';
+    p1Streak = 0;
+    p2Streak = 0;
   }
 
   const now = Date.now();
   // Guard on rev to make sure we're writing on top of the exact room state we
   // just validated the move against (protects against a rare double-submit race).
   const result = await env.LINE4_DB.prepare(
-    `UPDATE rooms SET grid = ?1, current_player = ?2, game_over = ?3, winner = ?4, win_line = ?5, rev = rev + 1, updated_at = ?6, status = ?7
-     WHERE code = ?8 AND rev = ?9`
+    `UPDATE rooms SET grid = ?1, current_player = ?2, game_over = ?3, winner = ?4, win_line = ?5, rev = rev + 1, updated_at = ?6, status = ?7, p1_streak = ?8, p2_streak = ?9
+     WHERE code = ?10 AND rev = ?11`
   ).bind(
     JSON.stringify(room.grid),
     gameOver ? room.currentPlayer : nextPlayer,
@@ -280,9 +297,56 @@ async function handleMove(request, env, code) {
     winLine ? JSON.stringify(winLine) : null,
     now,
     gameOver ? 'finished' : 'playing',
+    p1Streak,
+    p2Streak,
     code,
     room.rev
   ).run();
+
+  if (!result.meta || result.meta.changes === 0) return errorResponse('conflict_retry', 409);
+
+  const updated = await loadRoom(env, code);
+  return jsonResponse({ ok: true, state: publicState(updated) });
+}
+
+// "Winner stays on": called by the winning player after a decisive (non-draw)
+// finish. Clears the LOSER's slot (token/name/streak) so a new challenger can
+// join it via the same room code, keeps the winner's slot/streak untouched,
+// and resets the board for the next match. Only the winner may call this —
+// the loser's client just shows the defeat overlay and leaves.
+async function handleRematch(request, env, code) {
+  let body;
+  try {
+    body = await request.json();
+  } catch (e) {
+    return errorResponse('invalid_json');
+  }
+  const { token } = body || {};
+  if (typeof token !== 'string') return errorResponse('invalid_body');
+
+  const room = await loadRoom(env, code);
+  if (!room) return errorResponse('room_not_found', 404);
+  if (room.status !== 'finished' || room.winner !== '1' && room.winner !== '2') {
+    return errorResponse('not_finished', 409); // also covers draws — no one "stays" on a draw
+  }
+
+  const isP1 = room.p1Token === token;
+  const isP2 = room.p2Token === token;
+  if (!isP1 && !isP2) return errorResponse('invalid_token', 403);
+  const myPlayer = isP1 ? 1 : 2;
+  if (room.winner !== String(myPlayer)) return errorResponse('not_winner', 403);
+
+  const now = Date.now();
+  const grid = emptyGrid();
+  const loserIsP1 = myPlayer === 2;
+
+  const result = await env.LINE4_DB.prepare(
+    loserIsP1
+      ? `UPDATE rooms SET p1_token = NULL, p1_name = NULL, p1_streak = 0, grid = ?1, current_player = 1, game_over = 0, winner = NULL, win_line = NULL, status = 'waiting', starting_player = NULL, rev = rev + 1, updated_at = ?2
+         WHERE code = ?3 AND rev = ?4`
+      : `UPDATE rooms SET p2_token = NULL, p2_name = NULL, p2_streak = 0, grid = ?1, current_player = 1, game_over = 0, winner = NULL, win_line = NULL, status = 'waiting', starting_player = NULL, rev = rev + 1, updated_at = ?2
+         WHERE code = ?3 AND rev = ?4`
+  ).bind(JSON.stringify(grid), now, code, room.rev).run();
 
   if (!result.meta || result.meta.changes === 0) return errorResponse('conflict_retry', 409);
 
@@ -349,6 +413,13 @@ export async function routeLine4(request, env, path) {
     if (request.method !== 'POST') return errorResponse('method_not_allowed', 405);
     if (!(await checkRateLimit(env, 'line4-move', request, 120, 60))) return errorResponse('rate_limited', 429);
     return handleMove(request, env, moveMatch[1]);
+  }
+
+  const rematchMatch = path.match(/^\/api\/line4\/room\/([A-Z0-9]{4,10})\/rematch$/);
+  if (rematchMatch) {
+    if (request.method !== 'POST') return errorResponse('method_not_allowed', 405);
+    if (!(await checkRateLimit(env, 'line4-rematch', request, 20, 600))) return errorResponse('rate_limited', 429);
+    return handleRematch(request, env, rematchMatch[1]);
   }
 
   const emoteMatch = path.match(/^\/api\/line4\/room\/([A-Z0-9]{4,10})\/emote$/);
