@@ -409,12 +409,34 @@
     height: auto;
   }
   #endingScroll img.pan {
-    animation: endingPan 22s ease-in-out forwards;
+    animation: endingPan 90s ease-in-out forwards;
   }
   @keyframes endingPan {
     0%, 10% { transform: translateY(0); }
     90%, 100% { transform: translateY(calc(-100% + 100vh)); }
   }
+  /* Narration crawl overlaid on the artwork — see showEndingScreen(). Its
+     start/end transform is set inline (via the Web Animations API) once the
+     text is built and its rendered height is known, so it always scrolls
+     fully clear of the screen regardless of how much text is in it. */
+  #endingTextWrap {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  #endingTextCrawl {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    width: min(560px, 86vw);
+    text-align: center;
+    color: #f6f1e7;
+    font-size: clamp(0.95rem, 2.6vw, 1.1rem);
+    line-height: 1.9;
+    text-shadow: 0 2px 10px rgba(0,0,0,0.9), 0 0 4px rgba(0,0,0,0.9);
+  }
+  #endingTextCrawl p { margin: 0 0 2.6em; white-space: pre-line; }
   .ending-hint {
     position: fixed;
     left: 50%;
@@ -895,9 +917,14 @@
     </div>
   </div>
 
-  <!-- All-clear ending: slow scroll through ending.webp over ending.mp3, click anywhere to return to title -->
+  <!-- All-clear ending: slow scroll through ending.webp with a narration
+       crawl overlaid on top; ending.mp3 kicks in as the crawl nears its end.
+       Click anywhere to return to title. -->
   <div id="endingScreen" class="hidden">
-    <div id="endingScroll"><img src="ending.webp" alt="エンディング"></div>
+    <div id="endingScroll">
+      <img src="ending.webp" alt="エンディング">
+      <div id="endingTextWrap"><div id="endingTextCrawl"></div></div>
+    </div>
     <div class="ending-hint">クリックでタイトルへ</div>
   </div>
 
@@ -1991,6 +2018,7 @@
 
   function goToTitle() {
     if (ladderOutcomeTimer) { clearTimeout(ladderOutcomeTimer); ladderOutcomeTimer = null; }
+    stopEndingCrawl();
     SoundMgr.playTrack('title');
     stopOnlinePolling();
     online = null;
@@ -2003,9 +2031,64 @@
     hideBubble();
   }
 
-  // ---------- All-clear ending: slow scroll through ending.webp over ending.mp3 ----------
+  // ---------- All-clear ending: narration crawl over ending.webp ----------
+  // Kanji/kana pairs, one entry per crawl paragraph — '\n' is an intentional
+  // line break *within* a paragraph (rendered via CSS white-space:pre-line),
+  // a blank line between entries is the paragraph gap.
+  const ENDING_TEXT = [
+    '塔の頂上に、長い戦いの終わりが訪れた。',
+    '傀儡師は静かに倒れ、\nその手から、操り糸が離れていった。',
+    'すると、糸から解かれた四匹のパペットたちが、\n一斉に主人のもとへ駆け寄った。',
+    'フクロウは心配そうに顔をのぞき込み、\nフェネックは必死に頬をつつく。',
+    'アナグマは黙って傍らに座り、\nネズミは小さな手で、主人の指を握った。',
+    '「……おかしいですね」',
+    '傀儡師が、ゆっくりと目を開く。',
+    '「糸はもう、つながっていないというのに」',
+    '四匹は誰一人、彼のそばを離れなかった。',
+    '傀儡師はしばらく彼らを見つめると、\n初めて穏やかに笑った。',
+    '「なるほど……」',
+    '「操っていたつもりだったのは、\n私のほうだったのかもしれませんね」',
+    'あなたは何も言わず、彼らに背を向ける。',
+    '長かった戦いは終わった。',
+    '塔を降りていくあなたの背後で、\n小さな声が聞こえた。',
+    '「マスター、痛い？」',
+    '「……少しだけね」',
+    '「じゃあ、ここにいる」',
+    '傀儡師は答えなかった。\nただ、四匹を見つめて微笑んだ。',
+    '黄昏の塔に、\n五つの影が寄り添っていた。',
+  ];
+  const ENDING_TEXT_KANA = [
+    'とうのちょうじょうに、ながいたたかいのおわりがおとずれた。',
+    'かいらいしはしずかにたおれ、\nそのてから、あやつりいとがはなれていった。',
+    'すると、いとからほどかれたよんひきのパペットたちが、\nいっせいにしゅじんのもとへかけよった。',
+    'フクロウはしんぱいそうにかおをのぞきこみ、\nフェネックはひっしにほおをつつく。',
+    'アナグマはだまってかたわらにすわり、\nネズミはちいさなてで、しゅじんのゆびをにぎった。',
+    '「……おかしいですね」',
+    'かいらいしが、ゆっくりとめをひらく。',
+    '「いとはもう、つながっていないというのに」',
+    'よんひきはだれひとり、かれのそばをはなれなかった。',
+    'かいらいしはしばらくかれらをみつめると、\nはじめておだやかにわらった。',
+    '「なるほど……」',
+    '「あやつっていたつもりだったのは、\nわたしのほうだったのかもしれませんね」',
+    'あなたはなにもいわず、かれらにせをむける。',
+    'ながかったたたかいはおわった。',
+    'とうをおりていくあなたのはいごで、\nちいさなこえがきこえた。',
+    '「マスター、いたい？」',
+    '「……すこしだけね」',
+    '「じゃあ、ここにいる」',
+    'かいらいしはこたえなかった。\nただ、よんひきをみつめてほほえんだ。',
+    'たそがれのとうに、\nいつつのかげがよりそっていた。',
+  ];
+
+  let endingCrawlAnim = null;
+  let endingBgmTimer = null;
+
+  function stopEndingCrawl() {
+    if (endingCrawlAnim) { endingCrawlAnim.cancel(); endingCrawlAnim = null; }
+    if (endingBgmTimer) { clearTimeout(endingBgmTimer); endingBgmTimer = null; }
+  }
+
   function showEndingScreen() {
-    SoundMgr.playTrack('ending', 'title');
     const el = document.getElementById('endingScreen');
     const img = el.querySelector('img');
     img.classList.remove('pan');
@@ -2013,10 +2096,40 @@
     img.classList.add('pan');
     el.classList.remove('hidden');
     requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('show')));
+
+    stopEndingCrawl();
+    const wrap = document.getElementById('endingTextWrap');
+    const crawl = document.getElementById('endingTextCrawl');
+    const lines = kanaMode ? ENDING_TEXT_KANA : ENDING_TEXT;
+    crawl.innerHTML = '';
+    lines.forEach(text => {
+      const p = document.createElement('p');
+      p.textContent = text;
+      crawl.appendChild(p);
+    });
+
+    // Pace the crawl by how much text there actually is, so editing ENDING_TEXT
+    // later doesn't require re-tuning a hardcoded duration.
+    const charCount = lines.join('').length;
+    const totalMs = Math.max(45000, Math.min(120000, charCount * 150));
+    const startY = wrap.clientHeight;
+    const endY = -crawl.scrollHeight;
+    crawl.style.transform = `translate(-50%, ${startY}px)`;
+    endingCrawlAnim = crawl.animate(
+      [
+        { transform: `translate(-50%, ${startY}px)` },
+        { transform: `translate(-50%, ${endY}px)` },
+      ],
+      { duration: totalMs, easing: 'linear', fill: 'forwards' }
+    );
+    // Let the ending theme swell in a few seconds before the crawl finishes,
+    // rather than the moment the screen appears.
+    endingBgmTimer = setTimeout(() => SoundMgr.playTrack('ending', 'title'), Math.max(0, totalMs - 5000));
   }
 
   document.getElementById('endingScreen').addEventListener('click', () => {
     SoundMgr.seClick();
+    stopEndingCrawl();
     const el = document.getElementById('endingScreen');
     el.classList.remove('show');
     setTimeout(() => el.classList.add('hidden'), 500);
