@@ -729,6 +729,12 @@
   }
   button:hover { filter: brightness(1.1); }
   button:active { filter: brightness(0.9); }
+  button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    filter: none;
+    pointer-events: none;
+  }
   #titleBtn {
     background: transparent;
     border: 2px solid #475569;
@@ -2103,6 +2109,7 @@
     if (ladderOutcomeTimer) { clearTimeout(ladderOutcomeTimer); ladderOutcomeTimer = null; }
     grid = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
     gameOver = false;
+    resetBtn.disabled = false;
     cpuThinking = false;
     buildBoard();
     hideBubble();
@@ -2220,6 +2227,7 @@
       const name = player === 1 ? K('プレイヤー1（赤）', 'プレイヤー1（あか）') : opponentLabel();
       updateStatus(`🎉 ${name}${K('の勝利！', 'のしょうり！')}`);
       if (mode === 'cpu' && currentChar) {
+        resetBtn.disabled = true; // re-enabled by initGame() once the next match actually starts
         if (player === 2) SoundMgr.seLose(); else SoundMgr.seWin();
         const spokenMs = speak(currentChar, player === 2 ? 'victory' : 'defeat');
         ladderOutcomeTimer = setTimeout(() => handleLadderOutcome(player === 1 ? 'win' : 'lose'), Math.max(1800, spokenMs + 600));
@@ -2235,6 +2243,7 @@
       hideBubble();
       SoundMgr.seDraw();
       if (mode === 'cpu' && currentChar) {
+        resetBtn.disabled = true; // re-enabled by initGame() once the next match actually starts
         ladderOutcomeTimer = setTimeout(() => handleLadderOutcome('draw'), 1000);
       }
       return true;
