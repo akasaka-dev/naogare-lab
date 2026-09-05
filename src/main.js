@@ -157,6 +157,14 @@ const NIGHT_EXPOSURE = 0.85;
 const NIGHT_BLOOM = 0.15; // dark backgrounds make bloom halos read much larger than in daylight
 const NIGHT_CLOUD_MOONLIGHT = 0.6;
 
+// ---------------------------------------------------------------------------
+//  Time-of-Day V1 — opt-in via ?time=1. A single continuous setTimeOfDay(t)
+//  drives sun/moon position and (by continuously setting the SAME uniforms
+//  Sunset V2 / Night V1 already use) their existing tint/reflection systems,
+//  rather than a third parallel colour system. See setTimeOfDay() below.
+// ---------------------------------------------------------------------------
+const timeEnabled = new URLSearchParams(window.location.search).get('time') === '1';
+
 // Lights — only the dropped primitives (MeshStandardMaterial) use these; the
 // ocean/island/sky are raw ShaderMaterials and ignore scene lights.
 const sunLight = new THREE.DirectionalLight(0xfff2e0, 3.0);
@@ -448,12 +456,168 @@ function setMoonIntensity(v) {
   sky.uniforms.uMoonIntensity.value = v;
   island.uniforms.uMoonIntensity.value = v;
   floor.uniforms.uMoonIntensity.value = v;
-  moonLight.intensity = nightEnabled ? v * 0.5 : 0;
+  moonLight.intensity = (nightEnabled || timeEnabled) ? v * 0.5 : 0;
 }
 function setStarVisibility(v) {
   ocean.uniforms.uStarVisibility.value = v;
   sky.uniforms.uStarVisibility.value = v;
 }
+
+// ---------------------------------------------------------------------------
+//  Time-of-Day V1 (opt-in, ?time=1) — a single centralized controller.
+//
+//  Deliberately reuses the existing systems rather than building a third
+//  colour model: Sunset V2's uSunsetAmount and Night V1's uNightAmount (plus
+//  uMoonIntensity/uStarVisibility) are opt-in tint layers that are already
+//  mathematically neutral at 0 and already handle sun/moon reflection paths,
+//  cloud recolouring, island/floor dimming, etc. setTimeOfDay(t) just drives
+//  those SAME uniforms continuously from sun/moon elevation instead of a
+//  hand-picked preset value — no shader changes were needed for this file.
+// ---------------------------------------------------------------------------
+function smoothstepJS(e0, e1, x) {
+  const tt = Math.min(Math.max((x - e0) / (e1 - e0), 0), 1);
+  return tt * tt * (3 - tt * 2);
+}
+
+// Five reference stages, each a Gaussian weight peaked at its own sun
+// elevation (degrees) and normalized so all five sum to 1 — a smooth
+// partition-of-unity blend where only adjacent stages overlap meaningfully,
+// avoiding the "muddy" colours a naive sequential lerp could produce.
+const TOD_STAGES = ['day', 'golden', 'sunset', 'twilight', 'night'];
+const TOD_STAGE_ELEV = { day: 40, golden: 8, sunset: -2, twilight: -10, night: -30 };
+const TOD_STAGE_WIDTH = { day: 25, golden: 10, sunset: 6, twilight: 8, night: 15 };
+function todStageWeights(elevDeg) {
+  const w = {};
+  let sum = 0;
+  for (const s of TOD_STAGES) {
+    const d = (elevDeg - TOD_STAGE_ELEV[s]) / TOD_STAGE_WIDTH[s];
+    w[s] = Math.exp(-d * d);
+    sum += w[s];
+  }
+  if (sum > 0) for (const s of TOD_STAGES) w[s] /= sum;
+  return w;
+}
+function todBlend(w, values) {
+  let sum = 0;
+  for (const s of TOD_STAGES) sum += w[s] * values[s];
+  return sum;
+}
+const _todColorTmp = new THREE.Color();
+function todBlendColor(w, hexValues, target) {
+  let r = 0, g = 0, b = 0;
+  for (const s of TOD_STAGES) {
+    _todColorTmp.set(hexValues[s]);
+    r += w[s] * _todColorTmp.r;
+    g += w[s] * _todColorTmp.g;
+    b += w[s] * _todColorTmp.b;
+  }
+  target.setRGB(r, g, b);
+}
+
+// Base-water/foam keyframes per stage (before the Sunset V2 / Night V1 tint
+// layers are added on top — those are driven separately, below).
+const TOD_DEEP = { day: '#063049', golden: '#08283b', sunset: '#0e1524', twilight: '#0a1220', night: '#020509' };
+const TOD_SHALLOW = { day: '#5fc6c2', golden: '#3f9f9a', sunset: '#33707a', twilight: '#1c3550', night: '#0a1830' };
+const TOD_FOAM = { day: '#f6fdff', golden: '#fff1df', sunset: '#ffe4cf', twilight: '#c7d3e0', night: '#c9d6e6' };
+const TOD_SSS = { day: 0.35, golden: 0.55, sunset: 0.5, twilight: 0.25, night: 0.06 };
+const TOD_SUNGLITTER = { day: 0.0, golden: 0.55, sunset: 0.6, twilight: 0.3, night: 0.05 };
+const TOD_ROUGHNESS = { day: 0.06, golden: 0.09, sunset: 0.11, twilight: 0.12, night: 0.1 };
+const TOD_CRESTFOAM = { day: 1.4, golden: 1.5, sunset: 1.4, twilight: 1.5, night: 1.6 };
+const TOD_CLOUD_SUNSTRENGTH = { day: 3.0, golden: 3.2, sunset: 2.6, twilight: 1.2, night: 0.3 };
+const TOD_CLOUD_AMBIENT = { day: 0.85, golden: 0.9, sunset: 0.85, twilight: 0.6, night: 0.35 };
+const TOD_SHAFT_DENSITY = { day: 0.05, golden: 0.06, sunset: 0.05, twilight: 0.03, night: 0.01 };
+const TOD_FOG_STRENGTH = { day: 1.0, golden: 1.0, sunset: 1.1, twilight: 0.8, night: 0.5 };
+const TOD_EXPOSURE = { day: 1.05, golden: 1.15, sunset: 1.2, twilight: 1.0, night: NIGHT_EXPOSURE };
+const TOD_BLOOM = { day: 0.5, golden: 0.95, sunset: 1.0, twilight: 0.7, night: NIGHT_BLOOM };
+const TOD_SATURATION = { day: 1.08, golden: 1.1, sunset: 1.12, twilight: 1.0, night: 1.0 };
+
+const SUN_MAX_ELEVATION = 65;
+const SUN_AZ_START = 70, SUN_AZ_RANGE = 240; // lands near Crimson Sunset's az=250 at t=0.75
+const MOON_MAX_ELEVATION = 50;
+const MOON_AZ_START = 255, MOON_AZ_RANGE = -60; // independent sweep, opposite direction
+const TOD_SUNSET_PEAK = 0.85;
+const TOD_STAR_PEAK = NIGHT_STAR_VISIBILITY;
+
+let timeOfDayValue = 0.5;
+function setTimeOfDay(tRaw) {
+  const t = Math.min(Math.max(tRaw, 0), 1);
+  timeOfDayValue = t;
+
+  // Sun: rises ~t=0.25, peaks ~t=0.5 (noon), sets ~t=0.75, deepest at t=0/1.
+  // A single sine keeps the whole cycle continuous with no branch at the
+  // horizon crossing.
+  sunParams.elevation = SUN_MAX_ELEVATION * Math.sin(2 * Math.PI * (t - 0.25));
+  sunParams.azimuth = SUN_AZ_START + t * SUN_AZ_RANGE;
+  // Moon: independent motion, phase-shifted half a cycle from the sun (so it
+  // peaks near midnight) — a simple approximation, not astronomical.
+  moonParams.elevation = MOON_MAX_ELEVATION * Math.sin(2 * Math.PI * (t + 0.25));
+  moonParams.azimuth = MOON_AZ_START + t * MOON_AZ_RANGE;
+
+  const sunElevDeg = sunParams.elevation;
+  const moonElevDeg = moonParams.elevation;
+
+  // Continuous factors driving the EXISTING Sunset V2 / Night V1 tint
+  // layers. sunsetAmount peaks in a band spanning golden-hour through just
+  // below the horizon (so dawn gets the same warm glow as dusk, for free);
+  // nightAmount ramps in only once the sun is well below the horizon, so
+  // the two never peak together (satisfies "never both maximum at once").
+  const sunsetAmount = smoothstepJS(-14, 4, sunElevDeg) * (1 - smoothstepJS(4, 14, sunElevDeg)) * TOD_SUNSET_PEAK;
+  const nightAmount = smoothstepJS(-2, -18, sunElevDeg);
+  // Moon is visible once it's above ITS OWN horizon AND the sun has dropped
+  // low enough to allow twilight coexistence — not gated on full night.
+  const moonVisibility = smoothstepJS(-5, 5, moonElevDeg) * (1 - smoothstepJS(0, 25, sunElevDeg));
+  const starVisibility = nightAmount * TOD_STAR_PEAK;
+
+  // clouds.setNightAmount() must be set BEFORE applySun() — Clouds.js's
+  // setSun() reads it to decide how far to blend its palette toward night
+  // colours (see the Night V1 ordering fix), so calling applySun() first
+  // would apply it one frame late.
+  clouds.setNightAmount(nightAmount);
+  applySun();
+  applyMoon();
+
+  const w = todStageWeights(sunElevDeg);
+
+  // Ocean base body + foam + related surface parameters.
+  todBlendColor(w, TOD_DEEP, ocean.uniforms.uDeepColor.value);
+  todBlendColor(w, TOD_SHALLOW, ocean.uniforms.uShallowColor.value);
+  todBlendColor(w, TOD_FOAM, ocean.uniforms.uFoamColor.value);
+  ocean.uniforms.uSSSStrength.value = todBlend(w, TOD_SSS);
+  ocean.uniforms.uSunGlitter.value = todBlend(w, TOD_SUNGLITTER);
+  ocean.uniforms.uRoughness.value = todBlend(w, TOD_ROUGHNESS);
+  ocean.uniforms.uCrestFoamStart.value = todBlend(w, TOD_CRESTFOAM);
+
+  // Sunset V2 + Night V1 tint layers — see the block comment above.
+  ocean.uniforms.uSunsetAmount.value = sunsetAmount;
+  ocean.uniforms.uNightAmount.value = nightAmount;
+  sky.uniforms.uNightAmount.value = nightAmount;
+  island.uniforms.uNightAmount.value = nightAmount;
+  floor.uniforms.uNightAmount.value = nightAmount;
+  setMoonIntensity(NIGHT_MOON_INTENSITY * moonVisibility);
+  setStarVisibility(starVisibility);
+
+  // Volumetric clouds.
+  clouds.uniforms.uMoonWeight.value = NIGHT_CLOUD_MOONLIGHT * moonVisibility;
+  clouds.uniforms.uSunStrength.value = todBlend(w, TOD_CLOUD_SUNSTRENGTH);
+  clouds.uniforms.uAmbient.value = todBlend(w, TOD_CLOUD_AMBIENT);
+
+  // Underwater — existing Post.js uniforms only, no Post.js code changes.
+  post.underwaterMat.uniforms.uShaftDensity.value = todBlend(w, TOD_SHAFT_DENSITY);
+  post.underwaterMat.uniforms.uFogStrength.value = todBlend(w, TOD_FOG_STRENGTH);
+  todBlendColor(w, TOD_DEEP, post.underwaterMat.uniforms.uDeepColor.value);
+
+  // Deterministic manual exposure / bloom / saturation.
+  post.compositeMat.uniforms.uExposure.value = todBlend(w, TOD_EXPOSURE);
+  post.compositeMat.uniforms.uBloom.value = todBlend(w, TOD_BLOOM);
+  post.compositeMat.uniforms.uSaturation.value = todBlend(w, TOD_SATURATION);
+
+  if (timeGuiState) timeGuiState.time = t;
+}
+
+// GUI state + slider reference for Time-of-Day (declared before use above;
+// only populated when ?time=1 — see below).
+let timeGuiState = null;
+let timeSliderCtrl = null;
 
 if (nightEnabled) {
   const fNight = gui.addFolder('Night');
@@ -464,6 +628,14 @@ if (nightEnabled) {
   fNight.add({ v: NIGHT_STAR_VISIBILITY }, 'v', 0, 1, 0.01).name('Star Visibility').onChange(setStarVisibility);
   fNight.add(post.compositeMat.uniforms.uExposure, 'value', 0.2, 1.5, 0.01).name('Night Exposure');
   fNight.add(clouds.uniforms.uMoonWeight, 'value', 0, 2, 0.02).name('Cloud Moonlight');
+}
+
+if (timeEnabled) {
+  timeGuiState = { time: timeOfDayValue, autoPlay: false, speed: 0.05 };
+  const fTime = gui.addFolder('Time of Day');
+  timeSliderCtrl = fTime.add(timeGuiState, 'time', 0, 1, 0.001).name('Time').onChange(setTimeOfDay);
+  fTime.add(timeGuiState, 'autoPlay').name('Auto Play');
+  fTime.add(timeGuiState, 'speed', 0.005, 0.3, 0.005).name('Speed');
 }
 
 gui.add({ dive: () => diveTo(-12) }, 'dive').name('▼ dive under');
@@ -608,6 +780,11 @@ function animate() {
   time += dt;
   lastNow = now;
   if (birdDemoEnabled && !birdPaused) birdClock += dt;
+  if (timeEnabled && timeGuiState.autoPlay) {
+    timeGuiState.time = (timeGuiState.time + dt * timeGuiState.speed) % 1;
+    setTimeOfDay(timeGuiState.time);
+    if (timeSliderCtrl) timeSliderCtrl.updateDisplay();
+  }
 
   controls.update();
 
@@ -716,6 +893,10 @@ if (nightEnabled) {
   window.OCEAN.setMoonIntensity = setMoonIntensity;
   window.OCEAN.setStarVisibility = setStarVisibility;
 }
+if (timeEnabled) {
+  window.OCEAN.setTimeOfDay = setTimeOfDay;
+  Object.defineProperty(window.OCEAN, 'timeOfDay', { get: () => timeOfDayValue });
+}
 
 applySun();
 setCloudsEnabled(true); // volumetric clouds on by default (toggle in the GUI)
@@ -728,8 +909,9 @@ if (birdDemoEnabled) {
   camera.position.set(0, 9, 90);
   controls.target.set(0, 6, 220);
   controls.update();
-  // Cinematic Sunset (below) picks the preset instead, when both are active.
-  if (!cinematicSunsetEnabled) applyPreset('Golden Hour');
+  // Cinematic Sunset / Time-of-Day (below) pick the preset/state instead,
+  // when either is also active.
+  if (!cinematicSunsetEnabled && !timeEnabled) applyPreset('Golden Hour');
 }
 
 if (cinematicSunsetEnabled) {
@@ -812,6 +994,15 @@ if (nightEnabled) {
   post.compositeMat.uniforms.uBloom.value = NIGHT_BLOOM;
   post.compositeMat.uniforms.uSaturation.value = 1.0;
 
+  gui.controllersRecursive().forEach((c) => c.updateDisplay());
+}
+
+if (timeEnabled) {
+  // Neutral framing: the same default camera every other mode without its
+  // own explicit pose uses — Time-of-Day intentionally never couples to
+  // camera position. Skipped when Bird Demo is also active so its own
+  // camera pose (set above) is left alone.
+  setTimeOfDay(timeGuiState.time);
   gui.controllersRecursive().forEach((c) => c.updateDisplay());
 }
 

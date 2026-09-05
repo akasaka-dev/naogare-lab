@@ -124,7 +124,14 @@ export class Island {
           // A slightly stronger flat ambient than a real moonless night would
           // have — keeps shadow-side slopes barely readable instead of a
           // complete black cutout when the moon isn't behind the island.
-          vec3 nightColor = sand * (0.58 * vec3(0.09, 0.12, 0.19) + uMoonColor * moonNdl * uMoonIntensity * 0.5);
+          // Time-of-Day V1: the continuous moon sweeps through many more
+          // geometries than Night V1's single static test angle did, and a
+          // near-neutral uMoonColor times a warm sand albedo still reads as
+          // a warm (not cool) island whenever moonNdl is high. Push the
+          // ambient further toward blue and trim the moon term's weight so
+          // the island stays cool-toned across the whole moon path, not
+          // just the one angle Night V1 happened to be tuned against.
+          vec3 nightColor = sand * (0.58 * vec3(0.07, 0.10, 0.21) + uMoonColor * moonNdl * uMoonIntensity * 0.28);
           color = mix(color, nightColor, uNightAmount);
 
           // Caustics ONLY where water actually stands above the sand — they
