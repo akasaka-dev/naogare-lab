@@ -7,11 +7,11 @@ import * as THREE from 'three';
 // existing heightAt() API for wave-riding, and adds a single THREE.Points
 // object to the scene it's given. No Math.random() at runtime — every
 // per-particle variation is derived once, at construction, from a seeded PRNG
-// (mulberry32, same convention as Birds.js), and the whole cycle is a pure,
-// wrap-safe function of one deterministic clock (this.localTime).
+// (mulberry32), and the whole cycle is a pure, wrap-safe function of one
+// deterministic clock (this.localTime).
 
 // ---------------------------------------------------------------------------
-//  Small deterministic helpers (same conventions as Birds.js / main.js)
+//  Small deterministic helpers (project-wide convention)
 // ---------------------------------------------------------------------------
 function mulberry32(seed) {
   let a = seed >>> 0;

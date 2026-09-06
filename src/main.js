@@ -10,9 +10,8 @@ import { Particles } from './Particles.js';
 import { Post } from './Post.js';
 import { FloatingBodies } from './FloatingBodies.js';
 import { Clouds } from './Clouds.js';
-import { Birds } from './Birds.js';
 import { LyricParticles } from './LyricParticles.js';
-import { CometLyrics } from './CometLyrics.js';
+import { HeadParticleTrail } from './HeadParticleTrail.js';
 
 // ---------------------------------------------------------------------------
 //  Boot
@@ -129,16 +128,6 @@ const particles = new Particles(5000, 160);
 scene.add(particles.points);
 
 // ---------------------------------------------------------------------------
-//  Bird Demo V1 — opt-in via ?birds=1. When absent, none of this runs: no
-//  birds, no bird GUI, no camera/preset override. See Birds.js.
-// ---------------------------------------------------------------------------
-const birdDemoEnabled = new URLSearchParams(window.location.search).get('birds') === '1';
-const birds = birdDemoEnabled ? new Birds(scene, { seed: 1337, count: 3 }) : null;
-let birdClock = 0;
-let birdPaused = false;
-const birdDemoState = { time: 0 };
-
-// ---------------------------------------------------------------------------
 //  Cinematic Sunset V1 — opt-in via ?cinematicSunset=1. When absent, ocean
 //  uniforms default to a neutral uSunsetAmount = 0 (see Ocean.js) and none of
 //  this runs: no GUI folder, no preset override, no other visual change.
@@ -176,18 +165,15 @@ const lyricParticles = lyricsEnabled ? new LyricParticles(scene) : null;
 let lyricGuiState = null;
 
 // ---------------------------------------------------------------------------
-//  Comet Lyric V1 — opt-in via ?cometLyrics=1. When absent, none of this
-//  runs: no head/trail, no GUI folder, no camera/atmosphere override below.
-//  Keeps Lyric Particles V1 (above) fully intact and untouched.
+//  Head Particle Trail V1 — opt-in via ?headParticles=1. The accepted
+//  traveler effect: the head is the ONLY emitter, particles own their own
+//  world-space position once born, and there is no geometry connecting head
+//  to tail that could ever misalign with it.
 // ---------------------------------------------------------------------------
-const cometLyricsEnabled = new URLSearchParams(window.location.search).get('cometLyrics') === '1';
-const cometLyrics = cometLyricsEnabled ? new CometLyrics(scene) : null;
-// V1.1 visual-pass debug toggle — judge the comet by itself, lyric code
-// untouched (see CometLyrics.js's showLyrics flag).
-const cometOnlyRequested = new URLSearchParams(window.location.search).get('cometOnly') === '1';
-if (cometLyrics && cometOnlyRequested) cometLyrics.showLyrics = false;
-let cometGuiState = null;
-const cometFollowCam = { pos: new THREE.Vector3(), look: new THREE.Vector3(), inited: false };
+const headParticlesEnabled = new URLSearchParams(window.location.search).get('headParticles') === '1';
+const headParticleTrail = headParticlesEnabled ? new HeadParticleTrail(scene) : null;
+let headParticleGuiState = null;
+const headParticleFollowCam = { look: new THREE.Vector3(), inited: false };
 
 // Lights — only the dropped primitives (MeshStandardMaterial) use these; the
 // ocean/island/sky are raw ShaderMaterials and ignore scene lights.
@@ -195,9 +181,9 @@ const sunLight = new THREE.DirectionalLight(0xfff2e0, 3.0);
 scene.add(sunLight, sunLight.target);
 const skyLight = new THREE.HemisphereLight(0xbfe4ff, 0x24424e, 1.1);
 scene.add(skyLight);
-// Night V1 (opt-in) — a separate, independent light so birds/dropped objects
-// can catch a dim, cool moonlit edge; intensity is 0 until Night mode raises
-// it, so normal/day/sunset lighting is unaffected.
+// Night V1 (opt-in) — a separate, independent light so dropped objects can
+// catch a dim, cool moonlit edge; intensity is 0 until Night mode raises it,
+// so normal/day/sunset lighting is unaffected.
 const moonLight = new THREE.DirectionalLight(0xdfe6f0, 0.0);
 scene.add(moonLight, moonLight.target);
 
@@ -454,13 +440,6 @@ fPost.add(post.compositeMat.uniforms.uGrain, 'value', 0.0, 0.2, 0.005).name('fil
 fPost.add(post.compositeMat.uniforms.uCA, 'value', 0.0, 2.0, 0.05).name('lens fringe');
 fPost.add(post.compositeMat.uniforms.uVignetteAir, 'value', 0.0, 0.6, 0.02).name('vignette');
 
-if (birdDemoEnabled) {
-  const fBirdDemo = gui.addFolder('Bird Demo');
-  fBirdDemo.add({ restart: () => { birdClock = 0; } }, 'restart').name('Restart');
-  fBirdDemo.add({ toggle: () => { birdPaused = !birdPaused; } }, 'toggle').name('Pause / Play');
-  fBirdDemo.add(birdDemoState, 'time').name('timeline (s)').listen().disable();
-}
-
 if (cinematicSunsetEnabled) {
   const fSunset = gui.addFolder('Cinematic Sunset');
   fSunset.add(ocean.uniforms.uSunsetAmount, 'value', 0, 1, 0.01).name('Sunset Amount');
@@ -554,10 +533,11 @@ const TOD_FOG_STRENGTH = { day: 1.0, golden: 1.0, sunset: 1.1, twilight: 0.8, ni
 const TOD_EXPOSURE = { day: 1.05, golden: 1.15, sunset: 1.2, twilight: 1.0, night: NIGHT_EXPOSURE };
 const TOD_BLOOM = { day: 0.5, golden: 0.95, sunset: 1.0, twilight: 0.7, night: NIGHT_BLOOM };
 const TOD_SATURATION = { day: 1.08, golden: 1.1, sunset: 1.12, twilight: 1.0, night: 1.0 };
-// Lyric Particles V1 (opt-in) — subtle per-stage tint only; particles must
-// stay recognizably the same entities across the whole cycle (spec 11).
-const TOD_LYRIC_TINT = { day: '#fbf6ea', golden: '#fff0d2', sunset: '#ffe9c9', twilight: '#eef1f5', night: '#e3ecf7' };
-const _cometTintTmp = new THREE.Color();
+// Shared warm-traveler tint table — subtle per-stage tint used by every
+// glowing-traveler module (Lyric Particles, Head Particle Trail); each must
+// stay recognizably the same entity across the whole day/night cycle.
+const TOD_TRAVELER_TINT = { day: '#fbf6ea', golden: '#fff0d2', sunset: '#ffe9c9', twilight: '#eef1f5', night: '#e3ecf7' };
+const _todTintTmp = new THREE.Color();
 
 const SUN_MAX_ELEVATION = 65;
 const SUN_AZ_START = 70, SUN_AZ_RANGE = 240; // lands near Crimson Sunset's az=250 at t=0.75
@@ -641,13 +621,13 @@ function setTimeOfDay(tRaw) {
 
   // Lyric Particles V1 (opt-in) — subtle colour response to time of day,
   // reusing the same stage weights rather than a parallel colour system.
-  if (lyricParticles) todBlendColor(w, TOD_LYRIC_TINT, lyricParticles.uniforms.uColor.value);
-  // Comet Lyric V1 (opt-in) — same subtle per-stage tint table; setTint()
-  // also nudges the head colour toward white so it stays the brighter,
-  // more neutral object regardless of stage.
-  if (cometLyrics) {
-    todBlendColor(w, TOD_LYRIC_TINT, _cometTintTmp);
-    cometLyrics.setTint(_cometTintTmp);
+  if (lyricParticles) todBlendColor(w, TOD_TRAVELER_TINT, lyricParticles.uniforms.uColor.value);
+  // Head Particle Trail (opt-in) — same shared per-stage tint table;
+  // setTint() also nudges the head colour toward white so it stays the
+  // brighter, more neutral object regardless of stage.
+  if (headParticleTrail) {
+    todBlendColor(w, TOD_TRAVELER_TINT, _todTintTmp);
+    headParticleTrail.setTint(_todTintTmp);
   }
 
   if (timeGuiState) timeGuiState.time = t;
@@ -687,28 +667,45 @@ if (lyricsEnabled) {
   fLyrics.add({ restart: () => lyricParticles.restart() }, 'restart').name('Restart');
 }
 
-if (cometLyricsEnabled) {
-  cometGuiState = {
-    glow: cometLyrics.uniforms.uGlow.value,
-    trailLength: 1.0,
-    speed: cometLyrics.speed,
+if (headParticlesEnabled) {
+  headParticleGuiState = {
+    colorMode: 'gold',
+    // Default custom palette doubles as the ticket's own suggested
+    // white-clipping test (cyan head/young -> blue mid -> violet old).
+    headColor: '#66e0ff',
+    youngColor: '#66e0ff',
+    midColor: '#3366ff',
+    oldColor: '#8b5cf6',
+    rainbowSpeed: 0.15,
+    rainbowSaturation: 0.8,
+    brightness: 1.0,
+    particleBloom: 1.0,
+    headBloom: 1.0,
+    emissionRate: headParticleTrail.emissionRate,
+    speed: headParticleTrail.speed,
     paused: false,
     follow: true,
-    showLyrics: cometLyrics.showLyrics,
   };
-  const fComet = gui.addFolder('Comet Lyrics');
-  fComet.add({ restart: () => cometLyrics.restart() }, 'restart').name('Restart');
-  fComet.add(cometGuiState, 'paused').name('Pause').onChange((v) => cometLyrics.setPaused(v));
-  fComet.add(cometGuiState, 'showLyrics').name('Show Lyrics').onChange((v) => { cometLyrics.showLyrics = v; });
-  fComet.add(cometGuiState, 'glow', 0.3, 2.5, 0.05).name('Glow').onChange((v) => {
-    cometLyrics.uniforms.uGlow.value = v;
-    cometLyrics.headUniforms.uGlow.value = v;
-  });
-  fComet.add(cometGuiState, 'trailLength', 0.4, 2.0, 0.05).name('Trail Length').onChange((v) => {
-    cometLyrics.uniforms.uPixelSize.value = 170 * v;
-  });
-  fComet.add(cometGuiState, 'speed', 0.25, 2.5, 0.05).name('Travel Speed').onChange((v) => { cometLyrics.speed = v; });
-  fComet.add(cometGuiState, 'follow').name('Follow Camera').onChange((v) => { cometFollowCam.inited = false; if (!v) controls.enabled = true; });
+  const fHeadParticles = gui.addFolder('Head Particle Trail');
+  fHeadParticles.add({ restart: () => headParticleTrail.restart() }, 'restart').name('Restart');
+  fHeadParticles.add(headParticleGuiState, 'paused').name('Pause').onChange((v) => headParticleTrail.setPaused(v));
+  fHeadParticles.add(headParticleGuiState, 'colorMode', ['gold', 'custom', 'rainbow']).name('Color Mode').onChange((v) => headParticleTrail.setColorMode(v));
+  fHeadParticles.addColor(headParticleGuiState, 'headColor').name('Head Color').onChange((v) => headParticleTrail.setHeadColor(v));
+  fHeadParticles.addColor(headParticleGuiState, 'youngColor').name('Young Color').onChange((v) => headParticleTrail.setYoungColor(v));
+  fHeadParticles.addColor(headParticleGuiState, 'midColor').name('Mid Color').onChange((v) => headParticleTrail.setMidColor(v));
+  fHeadParticles.addColor(headParticleGuiState, 'oldColor').name('Old Color').onChange((v) => headParticleTrail.setOldColor(v));
+  fHeadParticles.add(headParticleGuiState, 'rainbowSpeed', 0.0, 1.0, 0.01).name('Rainbow Speed').onChange((v) => headParticleTrail.setRainbowSpeed(v));
+  fHeadParticles.add(headParticleGuiState, 'rainbowSaturation', 0.0, 1.0, 0.01).name('Rainbow Saturation').onChange((v) => headParticleTrail.setRainbowSaturation(v));
+  fHeadParticles.add(headParticleGuiState, 'brightness', 0.2, 2.0, 0.05).name('Brightness').onChange((v) => headParticleTrail.setBrightness(v));
+  fHeadParticles.add(headParticleGuiState, 'particleBloom', 0.0, 2.5, 0.05).name('Particle Bloom').onChange((v) => headParticleTrail.setParticleBloom(v));
+  fHeadParticles.add(headParticleGuiState, 'headBloom', 0.2, 2.5, 0.05).name('Head Bloom').onChange((v) => headParticleTrail.setHeadBloom(v));
+  fHeadParticles.add(headParticleGuiState, 'emissionRate', 40, 300, 5).name('Emission Rate').onChange((v) => headParticleTrail.setEmissionRate(v));
+  fHeadParticles.add(headParticleGuiState, 'speed', 0.25, 2.5, 0.05).name('Travel Speed').onChange((v) => { headParticleTrail.speed = v; });
+  fHeadParticles.add(headParticleGuiState, 'follow').name('Follow Camera').onChange((v) => { headParticleFollowCam.inited = false; if (!v) controls.enabled = true; });
+  // Apply the default custom palette to the uniforms immediately so
+  // switching Color Mode to "custom" shows the intended colours right away
+  // rather than the shader's own hardcoded initial defaults.
+  headParticleTrail.setColors({ head: headParticleGuiState.headColor, young: headParticleGuiState.youngColor, mid: headParticleGuiState.midColor, old: headParticleGuiState.oldColor });
 }
 
 gui.add({ dive: () => diveTo(-12) }, 'dive').name('▼ dive under');
@@ -830,11 +827,11 @@ let lastNow = performance.now();
 let time = 0;
 let frame = 0;
 const invProjView = new THREE.Matrix4();
-const _cometHeadTmp = new THREE.Vector3();
-const _cometDesiredPos = new THREE.Vector3();
-const _cometLookTmp = new THREE.Vector3();
-const _cometRightTmp = new THREE.Vector3();
-const _cometUpWorld = new THREE.Vector3(0, 1, 0);
+const _headParticleHeadTmp = new THREE.Vector3();
+const _headParticleDesiredPos = new THREE.Vector3();
+const _headParticleLookTmp = new THREE.Vector3();
+const _headParticleRightTmp = new THREE.Vector3();
+const _headParticleUpWorld = new THREE.Vector3(0, 1, 0);
 
 function setVisible(underwater, refractionPass) {
   if (refractionPass) {
@@ -857,17 +854,15 @@ function animate() {
   const dt = Math.min((now - lastNow) / 1000, 0.05);
   time += dt;
   lastNow = now;
-  if (birdDemoEnabled && !birdPaused) birdClock += dt;
   if (timeEnabled && timeGuiState.autoPlay) {
     timeGuiState.time = (timeGuiState.time + dt * timeGuiState.speed) % 1;
     setTimeOfDay(timeGuiState.time);
     if (timeSliderCtrl) timeSliderCtrl.updateDisplay();
   }
 
-  // Camera ownership: Bird Demo's own static pose wins when both modes are
-  // active (matching the pattern every other mode already follows) — the
-  // comet follow camera never fights it for control.
-  if (cometLyrics && cometGuiState && !birdDemoEnabled) controls.enabled = !cometGuiState.follow;
+  // Camera ownership: Head Particle Trail's follow camera takes over
+  // orbit-control input while its own Follow Camera GUI toggle is on.
+  if (headParticleTrail && headParticleGuiState) controls.enabled = !headParticleGuiState.follow;
   controls.update();
 
   // Surface immersion test (exact wave height at the camera column).
@@ -883,40 +878,39 @@ function animate() {
   particles.update(time, camera);
   sky.update(camera, time);
   bodies.update(dt, time, ocean, terrainAt);
-  if (birds) {
-    birds.update(birdClock);
-    birdDemoState.time = Math.round((birdClock % birds.loopDuration) * 10) / 10;
-  }
   if (lyricParticles) lyricParticles.update(dt, time, ocean);
-  if (cometLyrics) {
-    cometLyrics.update(dt, time, ocean);
-    if (cometGuiState && cometGuiState.follow && !birdDemoEnabled) {
+  if (headParticleTrail) {
+    headParticleTrail.update(dt, time, ocean, camera.position);
+    // Head Particle Trail local water glint (Ocean.js's block is gated
+    // behind uTravelerGlowIntensity > 0, defaulting to 0 — mathematically a
+    // no-op when Head Particle Trail mode is inactive). Reuses the exact
+    // same authoritative head position already computed for the visible
+    // head this frame — never a second/reconstructed position — so a
+    // detached water-glint blob (caused by a stale or separately-derived
+    // head position) cannot occur.
+    ocean.uniforms.uTravelerHeadPos.value.copy(headParticleTrail.getHeadPosition(_headParticleHeadTmp));
+    ocean.uniforms.uTravelerGlowIntensity.value = 1.0;
+    ocean.uniforms.uTravelerGlowColor.value.copy(headParticleTrail.waterGlintColor);
+    if (headParticleGuiState && headParticleGuiState.follow) {
       controls.enabled = false;
-      const head = cometLyrics.getHeadPosition(_cometHeadTmp);
-      const dir = cometLyrics.travelDir;
-      // V1.1: diagonal rear/side chase instead of almost-straight-behind —
-      // a camera sitting directly on the travel axis looks straight down
-      // the tail's own length, collapsing it into a column of overlapping
-      // dots instead of a visible streak. Offsetting sideways (the comet's
-      // own right vector) shows the tail's actual length and direction, and
-      // aiming the look-target past the comet (not at it) keeps it off dead
-      // centre, roughly a rule-of-thirds composition.
-      const right = _cometRightTmp.crossVectors(dir, _cometUpWorld);
+      const head = headParticleTrail.getHeadPosition(_headParticleHeadTmp);
+      const dir = headParticleTrail.travelDir;
+      const right = _headParticleRightTmp.crossVectors(dir, _headParticleUpWorld);
       if (right.lengthSq() < 1e-6) right.set(1, 0, 0); else right.normalize();
-      const desiredPos = _cometDesiredPos.copy(head).addScaledVector(dir, -20).addScaledVector(right, 17);
+      const desiredPos = _headParticleDesiredPos.copy(head).addScaledVector(dir, -22).addScaledVector(right, 18);
       desiredPos.y += 10;
-      const desiredLook = _cometLookTmp.copy(head).addScaledVector(dir, 8).addScaledVector(right, -5);
-      if (!cometFollowCam.inited) {
+      const desiredLook = _headParticleLookTmp.copy(head).addScaledVector(dir, 8).addScaledVector(right, -5);
+      if (!headParticleFollowCam.inited) {
         camera.position.copy(desiredPos);
-        cometFollowCam.look.copy(desiredLook);
-        cometFollowCam.inited = true;
+        headParticleFollowCam.look.copy(desiredLook);
+        headParticleFollowCam.inited = true;
       } else {
         const damp = 1 - Math.pow(0.0008, dt);
         camera.position.lerp(desiredPos, damp);
-        cometFollowCam.look.lerp(desiredLook, damp);
+        headParticleFollowCam.look.lerp(desiredLook, damp);
       }
-      camera.lookAt(cometFollowCam.look);
-      controls.target.copy(cometFollowCam.look);
+      camera.lookAt(headParticleFollowCam.look);
+      controls.target.copy(headParticleFollowCam.look);
     }
   }
 
@@ -996,11 +990,6 @@ function animate() {
 
 // Small handle for debugging / automation (harmless in production).
 window.OCEAN = { camera, controls, diveTo, sunParams, applySun, applyPreset, PRESETS, ocean, floor, island, post, bodies, dropObject, dropAtTarget, clouds, setCloudsEnabled };
-if (birdDemoEnabled) {
-  window.OCEAN.birds = birds;
-  window.OCEAN.setBirdClock = (t) => { birdClock = t; };
-  window.OCEAN.setBirdPaused = (p) => { birdPaused = p; };
-}
 if (nightEnabled) {
   window.OCEAN.moonParams = moonParams;
   window.OCEAN.applyMoon = applyMoon;
@@ -1016,27 +1005,22 @@ if (lyricsEnabled) {
   window.OCEAN.setLyricParticleTime = (t) => lyricParticles.setTime(t);
   window.OCEAN.setLyricParticlesPaused = (p) => lyricParticles.setPaused(p);
 }
-if (cometLyricsEnabled) {
-  window.OCEAN.cometLyrics = cometLyrics;
-  window.OCEAN.setCometLyricTime = (t) => { cometLyrics.setTime(t); cometFollowCam.inited = false; };
-  window.OCEAN.setCometLyricsPaused = (p) => cometLyrics.setPaused(p);
+if (headParticlesEnabled) {
+  window.OCEAN.headParticleTrail = headParticleTrail;
+  window.OCEAN.setHeadParticleTime = (t) => { headParticleTrail.setTime(t); headParticleFollowCam.inited = false; };
+  window.OCEAN.setHeadParticlePaused = (p) => headParticleTrail.setPaused(p);
+  window.OCEAN.setHeadParticleEmissionRate = (r) => headParticleTrail.setEmissionRate(r);
+  window.OCEAN.setHeadParticleColorMode = (m) => headParticleTrail.setColorMode(m);
+  window.OCEAN.setHeadParticleColors = (opts) => headParticleTrail.setColors(opts);
+  window.OCEAN.setHeadParticleBrightness = (v) => headParticleTrail.setBrightness(v);
+  window.OCEAN.setHeadParticleBloom = (v) => headParticleTrail.setParticleBloom(v);
+  window.OCEAN.setHeadParticleHeadBloom = (v) => headParticleTrail.setHeadBloom(v);
+  window.OCEAN.setHeadParticleRainbowSpeed = (v) => headParticleTrail.setRainbowSpeed(v);
+  window.OCEAN.setHeadParticleRainbowSaturation = (v) => headParticleTrail.setRainbowSaturation(v);
 }
 
 applySun();
 setCloudsEnabled(true); // volumetric clouds on by default (toggle in the GUI)
-
-if (birdDemoEnabled) {
-  // Bird Demo camera: looking out over open water in +Z, well clear of the
-  // island (which sits entirely at world Z <= 65, behind this framing) — a
-  // clean horizon + sky with room for the flock to cross. Static pose
-  // (OrbitControls stay usable, but this is where the shot starts).
-  camera.position.set(0, 9, 90);
-  controls.target.set(0, 6, 220);
-  controls.update();
-  // Cinematic Sunset / Time-of-Day (below) pick the preset/state instead,
-  // when either is also active.
-  if (!cinematicSunsetEnabled && !timeEnabled) applyPreset('Golden Hour');
-}
 
 if (cinematicSunsetEnabled) {
   // Start from the existing, unmodified Crimson Sunset preset, then layer
@@ -1084,16 +1068,10 @@ if (nightEnabled) {
 
   // Night camera: close to the water, island as a dark foreground silhouette,
   // moon visible above it (partially threaded through cloud cover) with its
-  // glitter path leading down across the water toward camera. Skipped when
-  // Bird Demo is also active — birds fly in front of THEIR OWN camera pose
-  // (main.js's birdDemoEnabled block above), so keep that framing instead of
-  // pointing the camera away from where they are; the night sky/ocean/moon
-  // state still applies fully in that framing.
-  if (!birdDemoEnabled) {
-    camera.position.set(10, 3, 48);
-    controls.target.set(0, 2, 0);
-    controls.update();
-  }
+  // glitter path leading down across the water toward camera.
+  camera.position.set(10, 3, 48);
+  controls.target.set(0, 2, 0);
+  controls.update();
 
   // Night ocean palette: deep navy / near-black body, muted cool foam,
   // subsurface scattering and sun glitter both nearly off (the moon supplies
@@ -1124,8 +1102,7 @@ if (nightEnabled) {
 if (timeEnabled) {
   // Neutral framing: the same default camera every other mode without its
   // own explicit pose uses — Time-of-Day intentionally never couples to
-  // camera position. Skipped when Bird Demo is also active so its own
-  // camera pose (set above) is left alone.
+  // camera position.
   setTimeOfDay(timeGuiState.time);
   gui.controllersRecursive().forEach((c) => c.updateDisplay());
 }
@@ -1140,9 +1117,9 @@ if (lyricsEnabled) {
     setTimeOfDay(0.79);
   }
   // Dedicated cinematic framing: open water, no island, room for the flock
-  // to approach from distance (spec 32). Skipped for the two combinations
-  // that already own the camera.
-  if (!timeEnabled && !birdDemoEnabled && !nightEnabled) {
+  // to approach from distance (spec 32). Skipped when Time-of-Day/Night
+  // already own the camera.
+  if (!timeEnabled && !nightEnabled) {
     camera.position.set(0, 11, 75);
     controls.target.set(0, 12, 300);
     controls.update();
@@ -1150,23 +1127,20 @@ if (lyricsEnabled) {
   gui.controllersRecursive().forEach((c) => c.updateDisplay());
 }
 
-if (cometLyricsEnabled) {
-  // Default test environment: twilight reads best for a glowing traveler
-  // (spec 31) — reuse the Time-of-Day controller, same as Lyric Particles
-  // V1, only when nothing else already claimed the atmosphere.
+if (headParticlesEnabled) {
+  // Default test environment: late golden hour reads strongly for a
+  // luminous traveler while keeping the ocean clearly visible — reuse the
+  // Time-of-Day controller, only when nothing else already claimed the
+  // atmosphere.
   if (!timeEnabled && !nightEnabled && !cinematicSunsetEnabled) {
-    setTimeOfDay(0.79);
+    setTimeOfDay(0.74);
   }
-  // Base/static test framing (spec 14/39): looking down +Z across the head's
-  // approach-through-write path. The follow camera (on by default) overrides
-  // this every frame in animate() — this pose is what "Follow Camera" off
-  // (or the very first frame, before follow snaps in) actually shows.
-  if (!timeEnabled && !birdDemoEnabled && !nightEnabled) {
-    // Looking toward -Z, matching the head's own travel direction and the
-    // follow camera's convention (three.js's own default forward) — the
-    // lyric ribbon is only oriented to read correctly from this side.
-    camera.position.set(15, 18, 350);
-    controls.target.set(15, 12, 100);
+  // Static/base framing: looking down -Z across the head's path. The follow
+  // camera (on by default) overrides this every frame — this pose is what
+  // "Follow Camera" off actually shows.
+  if (!timeEnabled && !nightEnabled) {
+    camera.position.set(10, 18, 370);
+    controls.target.set(10, 12, 120);
     controls.update();
   }
   gui.controllersRecursive().forEach((c) => c.updateDisplay());

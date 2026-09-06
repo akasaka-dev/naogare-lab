@@ -107,6 +107,17 @@ export class Ocean {
       uMoonPathFocus: { value: 0.5 },
       uStarVisibility: { value: 0.0 },
 
+      // Head Particle Trail local water glint (opt-in) — a single small,
+      // local, moving glow patch beneath the traveler's head. Originally
+      // built for the (now removed) Light Ribbon prototype, then reused
+      // as-is by Head Particle Trail. uTravelerGlowIntensity defaults to 0
+      // so this is a mathematically exact no-op (the whole block below is
+      // also gated behind it) whenever Head Particle Trail mode is inactive
+      // — main.js only raises it while ?headParticles=1 is active.
+      uTravelerHeadPos: { value: new THREE.Vector3(0, 0, 0) },
+      uTravelerGlowIntensity: { value: 0.0 },
+      uTravelerGlowColor: { value: new THREE.Color(0xffffff) },
+
       // contact foam sources (filled from FloatingBodies every frame)
       uContactFoam: { value: c.contactFoam },
       uBodyCount: { value: 0 },
@@ -201,6 +212,9 @@ export class Ocean {
         uniform float uMoonIntensity;
         uniform float uMoonPathFocus;
         uniform float uStarVisibility;
+        uniform vec3  uTravelerHeadPos;
+        uniform float uTravelerGlowIntensity;
+        uniform vec3  uTravelerGlowColor;
         uniform float uContactFoam;
         uniform int   uBodyCount;
         uniform vec4  uBodies[${MAX_FOAM_BODIES}];   // x, z, radius, foam strength
@@ -514,6 +528,46 @@ export class Ocean {
               float moonNoL = max(dot(Ns, uMoonDir), 0.0);
               color += vec3(0.80, 0.86, 0.96) * Dm * fhm * moonNoL * 1.1
                      * clamp(uMoonIntensity, 0.0, 3.0) * (uNightAmount * uNightAmount) * (1.0 - cs * 0.9);
+            }
+
+            // ============ HEAD PARTICLE TRAIL: LOCAL WATER GLINTS (opt-in) ========
+            // A handful of small, local, moving broken glints beneath the
+            // traveler's head — explicitly NOT a second sun/moon-style
+            // reflection road (see the double-light-path fix earlier this
+            // project). uTravelerGlowIntensity is 0 by default (main.js only
+            // raises it while ?headParticles=1 is active), so this whole
+            // block is a mathematically exact no-op — zero cost, zero
+            // visual change — for every other mode.
+            if (uTravelerGlowIntensity > 0.0001) {
+              float distXZ = length(vWorldPos.xz - uTravelerHeadPos.xz);
+              // Distance is only a soft REGION GATE (limits how far the
+              // effect can reach at all), never the shape of the brightness
+              // itself. Roughly 1.5m fully lit, fading to nothing by ~6m.
+              float gate = 1.0 - smoothstep(1.5, 6.0, distXZ);
+              // A plain N.L Lambertian term (even raised to a high power)
+              // still painted a smooth soft disc, because ocean wave
+              // normals barely deviate from "mostly up" at this scale —
+              // N.L doesn't vary sharply enough between neighbouring
+              // fragments to break into glints on its own. Real "broken
+              // glints" need the SAME physically-based specular technique
+              // already used for the sun/moon glitter above (reflection
+              // half-vector + GGX distribution + Fresnel) — that formula is
+              // inherently sharp (D peaks hard only near mirror-alignment),
+              // which is what actually scatters the response into a
+              // handful of bright points instead of a filled circle.
+              // Uses the real head Y (not a fake fixed height) — otherwise
+              // the light direction barely varies per fragment.
+              vec3 toHead = uTravelerHeadPos - vWorldPos;
+              vec3 toHeadN = normalize(toHead);
+              vec3 Hh = normalize(V + toHeadN);
+              float roughGlint = clamp(rough * 0.7, 0.05, 0.45);
+              float Dh = dggx(max(dot(N, Hh), 0.0), roughGlint * roughGlint);
+              float fhh = fresnelF(max(dot(Hh, V), 0.0), 0.02);
+              float ndl = max(dot(N, toHeadN), 0.0);
+              float glint = gate * Dh * fhh * ndl;
+              // Kept modest — the water response must never bloom as hard
+              // as the head itself.
+              color += uTravelerGlowColor * glint * 2.6 * uTravelerGlowIntensity;
             }
 
           } else {
