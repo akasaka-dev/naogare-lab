@@ -12,6 +12,7 @@ import { FloatingBodies } from './FloatingBodies.js';
 import { Clouds } from './Clouds.js';
 import { LyricParticles } from './LyricParticles.js';
 import { HeadParticleTrail } from './HeadParticleTrail.js';
+import { TrailLyrics } from './TrailLyrics.js';
 
 // ---------------------------------------------------------------------------
 //  Boot
@@ -174,6 +175,16 @@ const headParticlesEnabled = new URLSearchParams(window.location.search).get('he
 const headParticleTrail = headParticlesEnabled ? new HeadParticleTrail(scene) : null;
 let headParticleGuiState = null;
 const headParticleFollowCam = { look: new THREE.Vector3(), inited: false };
+
+// ---------------------------------------------------------------------------
+//  Trail Lyrics V1 — opt-in via ?trailLyrics=1, and only ever active alongside
+//  Head Particle Trail (?headParticles=1). Isolated prototype: does not read
+//  or modify HeadParticleTrail's own state beyond its public head position/
+//  travel-direction/path. See TrailLyrics.js for the full design.
+// ---------------------------------------------------------------------------
+const trailLyricsEnabled = headParticlesEnabled && new URLSearchParams(window.location.search).get('trailLyrics') === '1';
+const trailLyrics = trailLyricsEnabled ? new TrailLyrics(scene) : null;
+let trailLyricsGuiState = null;
 
 // Lights — only the dropped primitives (MeshStandardMaterial) use these; the
 // ocean/island/sky are raw ShaderMaterials and ignore scene lights.
@@ -629,6 +640,10 @@ function setTimeOfDay(tRaw) {
     todBlendColor(w, TOD_TRAVELER_TINT, _todTintTmp);
     headParticleTrail.setTint(_todTintTmp);
   }
+  if (trailLyrics) {
+    todBlendColor(w, TOD_TRAVELER_TINT, _todTintTmp);
+    trailLyrics.setTint(_todTintTmp);
+  }
 
   if (timeGuiState) timeGuiState.time = t;
 }
@@ -706,6 +721,43 @@ if (headParticlesEnabled) {
   // switching Color Mode to "custom" shows the intended colours right away
   // rather than the shader's own hardcoded initial defaults.
   headParticleTrail.setColors({ head: headParticleGuiState.headColor, young: headParticleGuiState.youngColor, mid: headParticleGuiState.midColor, old: headParticleGuiState.oldColor });
+}
+
+if (trailLyricsEnabled) {
+  trailLyricsGuiState = {
+    enabled: trailLyrics.enabled,
+    paused: false,
+    localTime: 0,
+    textScale: trailLyrics.textScale,
+    formationDistance: trailLyrics.formationDistance,
+    formationHeightOffset: trailLyrics.formationHeightOffset,
+    assembleDuration: trailLyrics.assembleDuration,
+    holdDuration: trailLyrics.holdDuration,
+    leaveDuration: trailLyrics.leaveDuration,
+    dissolveDuration: trailLyrics.dissolveDuration,
+    textGlow: trailLyrics.textGlow,
+    particleContribution: trailLyrics.particleContribution,
+    billboardRelease: trailLyrics.billboardRelease,
+    positionRelease: trailLyrics.positionRelease,
+    followSmoothing: trailLyrics.followSmoothing,
+  };
+  const fTrailLyrics = gui.addFolder('Trail Lyrics V1');
+  fTrailLyrics.add({ restart: () => trailLyrics.restart() }, 'restart').name('Restart');
+  fTrailLyrics.add(trailLyricsGuiState, 'enabled').name('Enabled').onChange((v) => { trailLyrics.enabled = v; });
+  fTrailLyrics.add(trailLyricsGuiState, 'paused').name('Pause').onChange((v) => trailLyrics.setPaused(v));
+  fTrailLyrics.add(trailLyricsGuiState, 'localTime', 0, 30, 0.05).name('Local Time').listen().onChange((v) => trailLyrics.setTime(v));
+  fTrailLyrics.add(trailLyricsGuiState, 'textScale', 0.4, 2.0, 0.02).name('Text Scale').onChange((v) => { trailLyrics.textScale = v; });
+  fTrailLyrics.add(trailLyricsGuiState, 'formationDistance', 0.2, 0.9, 0.02).name('Formation Distance').onChange((v) => { trailLyrics.formationDistance = v; });
+  fTrailLyrics.add(trailLyricsGuiState, 'formationHeightOffset', -6, 10, 0.25).name('Formation Offset').onChange((v) => { trailLyrics.formationHeightOffset = v; });
+  fTrailLyrics.add(trailLyricsGuiState, 'assembleDuration', 0.5, 4.0, 0.1).name('Assemble Duration').onChange((v) => { trailLyrics.assembleDuration = v; });
+  fTrailLyrics.add(trailLyricsGuiState, 'holdDuration', 0.5, 6.0, 0.1).name('Hold Duration').onChange((v) => { trailLyrics.holdDuration = v; });
+  fTrailLyrics.add(trailLyricsGuiState, 'leaveDuration', 0.5, 6.0, 0.1).name('Leave Duration').onChange((v) => { trailLyrics.leaveDuration = v; });
+  fTrailLyrics.add(trailLyricsGuiState, 'dissolveDuration', 0.5, 6.0, 0.1).name('Dissolve Duration').onChange((v) => { trailLyrics.dissolveDuration = v; });
+  fTrailLyrics.add(trailLyricsGuiState, 'textGlow', 0.2, 2.5, 0.05).name('Text Glow').onChange((v) => { trailLyrics.textGlow = v; });
+  fTrailLyrics.add(trailLyricsGuiState, 'particleContribution', 0.0, 1.5, 0.05).name('Particle Contribution').onChange((v) => { trailLyrics.particleContribution = v; });
+  fTrailLyrics.add(trailLyricsGuiState, 'billboardRelease', 0.0, 1.0, 0.02).name('Billboard Release').onChange((v) => { trailLyrics.billboardRelease = v; });
+  fTrailLyrics.add(trailLyricsGuiState, 'positionRelease', 0.0, 1.0, 0.02).name('Position Release').onChange((v) => { trailLyrics.positionRelease = v; });
+  fTrailLyrics.add(trailLyricsGuiState, 'followSmoothing', 0.5, 15.0, 0.25).name('Follow Smoothing').onChange((v) => { trailLyrics.followSmoothing = v; });
 }
 
 gui.add({ dive: () => diveTo(-12) }, 'dive').name('▼ dive under');
@@ -913,6 +965,13 @@ function animate() {
       controls.target.copy(headParticleFollowCam.look);
     }
   }
+  // Runs AFTER the Head Particle Trail block above so camera.quaternion
+  // already reflects this frame's follow-camera update (TrailLyrics reads
+  // the camera's live orientation to build/track its billboard plane).
+  if (trailLyrics) {
+    trailLyrics.update(dt, time, headParticleTrail, camera);
+    if (trailLyricsGuiState) trailLyricsGuiState.localTime = trailLyrics.localTime % trailLyrics.getCycleLength();
+  }
 
   ocean.uniforms.uCameraUnderwater.value = underwater ? 1 : 0;
   ocean.uniforms.uProjMatrix.value.copy(camera.projectionMatrix);
@@ -1017,6 +1076,11 @@ if (headParticlesEnabled) {
   window.OCEAN.setHeadParticleHeadBloom = (v) => headParticleTrail.setHeadBloom(v);
   window.OCEAN.setHeadParticleRainbowSpeed = (v) => headParticleTrail.setRainbowSpeed(v);
   window.OCEAN.setHeadParticleRainbowSaturation = (v) => headParticleTrail.setRainbowSaturation(v);
+}
+if (trailLyricsEnabled) {
+  window.OCEAN.trailLyrics = trailLyrics;
+  window.OCEAN.setTrailLyricTime = (t) => trailLyrics.setTime(t);
+  window.OCEAN.setTrailLyricsPaused = (p) => trailLyrics.setPaused(p);
 }
 
 applySun();

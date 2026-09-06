@@ -469,6 +469,33 @@ export class HeadParticleTrail {
   restart() { this.localTime = 0; this._reconstructAt(0, this._ocean); }
   getHeadPosition(out = new THREE.Vector3()) { return out.copy(this._headPos); }
 
+  // ---- V1.2 (Trail Lyrics): minimal read-only historical-trajectory
+  // sample, added so consumers outside this module (TrailLyrics) can place
+  // things ON the same curve the visible wake was drawn from, without
+  // reaching into `.path` directly or touching any trail state. Pure
+  // function of `t` and this module's own fixed path/ocean reference —
+  // deterministic, no mutation, no per-call allocation when `out` is
+  // supplied. Callers should pass a single live-read `t` (e.g.
+  // this.localTime at the moment of use) rather than maintaining their own
+  // separate clock and computing "t minus some elapsed time" from it —
+  // this trail's own clock and a caller's clock are independent timers
+  // that only happen to start together, and drift apart the moment either
+  // is scrubbed via setTime().
+  //
+  // Applies the SAME water-height Y correction as update()/_reconstructAt()
+  // (path.positionAt() alone only returns the raw control-point curve's Y,
+  // e.g. ~14-20 — a different value from the actual rendered wake, which
+  // always sits just above the live ocean surface, e.g. ~3-5). Without
+  // this correction, positions returned here sit ~10 world units away from
+  // where the visible trail particles actually are — verified via a
+  // nearest-neighbor check against the live trail pool. ----
+  getHeadPositionAtTime(t, out = new THREE.Vector3()) {
+    this.path.positionAt(t, out);
+    const waterY = this._ocean ? this._ocean.heightAt(out.x, out.z, t) : 0;
+    out.y = waterY + 3.0 + Math.sin(t * 0.35) * 1.5;
+    return out;
+  }
+
   // Note: setTime()/restart() don't take an `ocean` param (matching the
   // debug-API convention, e.g. `setHeadParticleTime(t)`), so reconstruction
   // reuses whichever `ocean` was last passed to update() — stored there
