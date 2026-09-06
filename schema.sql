@@ -36,3 +36,15 @@ CREATE TABLE IF NOT EXISTS rate_limits (
 );
 
 CREATE INDEX IF NOT EXISTS idx_rate_limits_window ON rate_limits (window_start);
+
+-- fuwao (たすけあいヒーロー ふわお) score ranking. Anti-cheat tokens for score
+-- submission and per-IP rate limiting reuse the generic game_sessions /
+-- rate_limits tables above (game_id = 'fuwao').
+CREATE TABLE IF NOT EXISTS fuwao_scores (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  score INTEGER NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_fuwao_scores_ranking ON fuwao_scores (score DESC, created_at ASC);

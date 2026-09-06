@@ -1,4 +1,5 @@
 import { routeLine4 } from './line4-online.js';
+import { routeFuwao } from './fuwao-ranking.js';
 import { checkRateLimit } from './rate-limit.js';
 
 const MAX_HAIKU_LENGTH = 300;
@@ -175,6 +176,17 @@ export default {
     if (path.startsWith('/api/line4/')) {
       try {
         const res = await routeLine4(request, env, path);
+        if (res) return res;
+      } catch (e) {
+        return jsonResponse({ ok: false, error: 'server_error' }, 500);
+      }
+    }
+
+    // fuwao score ranking — isolated in fuwao-ranking.js, own D1 table
+    // (fuwao_scores) but shares game_sessions/rate_limits with ikku-gozaru.
+    if (path.startsWith('/api/fuwao/')) {
+      try {
+        const res = await routeFuwao(request, env, path);
         if (res) return res;
       } catch (e) {
         return jsonResponse({ ok: false, error: 'server_error' }, 500);
