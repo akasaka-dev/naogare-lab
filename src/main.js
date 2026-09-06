@@ -13,6 +13,7 @@ import { Clouds } from './Clouds.js';
 import { LyricParticles } from './LyricParticles.js';
 import { HeadParticleTrail } from './HeadParticleTrail.js';
 import { TrailLyrics } from './TrailLyrics.js';
+import { AutoDirector } from './AutoDirector.js';
 
 // ---------------------------------------------------------------------------
 //  Boot
@@ -185,6 +186,21 @@ const headParticleFollowCam = { look: new THREE.Vector3(), inited: false };
 const trailLyricsEnabled = headParticlesEnabled && new URLSearchParams(window.location.search).get('trailLyrics') === '1';
 const trailLyrics = trailLyricsEnabled ? new TrailLyrics(scene) : null;
 let trailLyricsGuiState = null;
+
+// ---------------------------------------------------------------------------
+//  Auto Director V1 — opt-in via ?autoDirector=1, only ever active alongside
+//  Head Particle Trail (?headParticles=1). When absent, the existing Head
+//  Particle Trail follow camera behaves exactly as before — this module and
+//  its GUI/debug API simply don't exist. See AutoDirector.js for the full
+//  six-preset / seeded-scheduler design.
+// ---------------------------------------------------------------------------
+const autoDirectorEnabled = headParticlesEnabled && new URLSearchParams(window.location.search).get('autoDirector') === '1';
+const autoDirector = autoDirectorEnabled ? new AutoDirector({ seed: 1234 }) : null;
+if (autoDirector) {
+  autoDirector.enabled = true; // the URL opt-in itself activates the camera takeover, matching every other ?flag=1 module in this file
+  autoDirector.restart();
+}
+let autoDirectorGuiState = null;
 
 // Lights — only the dropped primitives (MeshStandardMaterial) use these; the
 // ocean/island/sky are raw ShaderMaterials and ignore scene lights.
@@ -760,6 +776,36 @@ if (trailLyricsEnabled) {
   fTrailLyrics.add(trailLyricsGuiState, 'followSmoothing', 0.5, 15.0, 0.25).name('Follow Smoothing').onChange((v) => { trailLyrics.followSmoothing = v; });
 }
 
+if (autoDirectorEnabled) {
+  autoDirectorGuiState = {
+    enabled: autoDirector.enabled,
+    auto: autoDirector.auto,
+    cameraMode: autoDirector.cameraMode,
+    seed: autoDirector.seed,
+    minShotDuration: autoDirector.minShotDuration,
+    maxShotDuration: autoDirector.maxShotDuration,
+    transitionTime: autoDirector.transitionTime,
+    allowCuts: autoDirector.allowCuts,
+    paused: autoDirector.paused,
+  };
+  const fAutoDirector = gui.addFolder('Auto Director');
+  fAutoDirector.add(autoDirectorGuiState, 'enabled').name('Enabled').onChange((v) => {
+    autoDirector.enabled = v;
+    if (!v) { headParticleFollowCam.inited = false; controls.enabled = !(headParticleGuiState && headParticleGuiState.follow); }
+  });
+  fAutoDirector.add(autoDirectorGuiState, 'auto').name('Auto').onChange((v) => { autoDirector.auto = v; });
+  fAutoDirector.add(autoDirectorGuiState, 'cameraMode', AutoDirector.presetLabels).name('Camera Mode').listen().onChange((v) => {
+    autoDirector.setMode(v, undefined, camera.position, controls.target);
+  });
+  fAutoDirector.add(autoDirectorGuiState, 'seed', 0, 99999, 1).name('Seed').onChange((v) => { autoDirector.seed = v >>> 0; autoDirector.restart(); });
+  fAutoDirector.add(autoDirectorGuiState, 'minShotDuration', 1, 15, 0.5).name('Min Shot Duration').onChange((v) => { autoDirector.minShotDuration = v; });
+  fAutoDirector.add(autoDirectorGuiState, 'maxShotDuration', 1, 20, 0.5).name('Max Shot Duration').onChange((v) => { autoDirector.maxShotDuration = v; });
+  fAutoDirector.add(autoDirectorGuiState, 'transitionTime', 0.1, 4.0, 0.1).name('Transition Time').onChange((v) => { autoDirector.transitionTime = v; });
+  fAutoDirector.add(autoDirectorGuiState, 'allowCuts').name('Allow Cuts').onChange((v) => { autoDirector.allowCuts = v; });
+  fAutoDirector.add(autoDirectorGuiState, 'paused').name('Pause').onChange((v) => { autoDirector.paused = v; });
+  fAutoDirector.add({ next: () => autoDirector.requestNextShot(camera.position, controls.target) }, 'next').name('Next Shot');
+}
+
 gui.add({ dive: () => diveTo(-12) }, 'dive').name('▼ dive under');
 gui.add({ surface: () => diveTo(14) }, 'surface').name('▲ back to surface');
 
@@ -912,9 +958,11 @@ function animate() {
     if (timeSliderCtrl) timeSliderCtrl.updateDisplay();
   }
 
-  // Camera ownership: Head Particle Trail's follow camera takes over
-  // orbit-control input while its own Follow Camera GUI toggle is on.
-  if (headParticleTrail && headParticleGuiState) controls.enabled = !headParticleGuiState.follow;
+  // Camera ownership: Head Particle Trail's follow camera (or, when active,
+  // Auto Director — see below) takes over orbit-control input.
+  const autoDirectorActive = !!(autoDirector && autoDirector.enabled);
+  if (headParticleTrail && headParticleGuiState) controls.enabled = !headParticleGuiState.follow && !autoDirectorActive;
+  else if (autoDirectorActive) controls.enabled = false;
   controls.update();
 
   // Surface immersion test (exact wave height at the camera column).
@@ -943,7 +991,13 @@ function animate() {
     ocean.uniforms.uTravelerHeadPos.value.copy(headParticleTrail.getHeadPosition(_headParticleHeadTmp));
     ocean.uniforms.uTravelerGlowIntensity.value = 1.0;
     ocean.uniforms.uTravelerGlowColor.value.copy(headParticleTrail.waterGlintColor);
-    if (headParticleGuiState && headParticleGuiState.follow) {
+    // Auto Director, when active, fully owns the camera instead of this
+    // diagonal follow camera (see the update() call below) — gating this
+    // block on !autoDirectorActive is what keeps "Follow Camera behavior
+    // unchanged when Auto Director is disabled" (spec 3/27) exactly true:
+    // when autoDirector is absent or its own Enabled toggle is off, this
+    // code path is byte-for-byte what ran before Auto Director existed.
+    if (headParticleGuiState && headParticleGuiState.follow && !autoDirectorActive) {
       controls.enabled = false;
       const head = headParticleTrail.getHeadPosition(_headParticleHeadTmp);
       const dir = headParticleTrail.travelDir;
@@ -964,6 +1018,20 @@ function animate() {
       camera.lookAt(headParticleFollowCam.look);
       controls.target.copy(headParticleFollowCam.look);
     }
+  }
+  // Auto Director (V1, opt-in) — runs after Head Particle Trail so it reads
+  // this frame's live head/travel-direction state, and BEFORE Trail Lyrics
+  // so camera.quaternion reflects Auto Director's own framing when a lyric
+  // billboard reads the live camera orientation this frame (same ordering
+  // rule the existing follow camera already relies on above).
+  if (autoDirector) {
+    autoDirector.update(dt, headParticleTrail, trailLyrics, camera, ocean, time);
+    if (autoDirectorGuiState) autoDirectorGuiState.cameraMode = autoDirector.cameraMode;
+    // Keep OrbitControls' target roughly in sync (even though controls are
+    // disabled while active) so re-enabling manual orbit control later
+    // doesn't snap from a stale target left over from before Auto Director
+    // took the camera over.
+    if (autoDirectorActive && headParticleTrail) controls.target.copy(headParticleTrail.getHeadPosition(_headParticleHeadTmp));
   }
   // Runs AFTER the Head Particle Trail block above so camera.quaternion
   // already reflects this frame's follow-camera update (TrailLyrics reads
@@ -1081,6 +1149,13 @@ if (trailLyricsEnabled) {
   window.OCEAN.trailLyrics = trailLyrics;
   window.OCEAN.setTrailLyricTime = (t) => trailLyrics.setTime(t);
   window.OCEAN.setTrailLyricsPaused = (p) => trailLyrics.setPaused(p);
+}
+if (autoDirectorEnabled) {
+  window.OCEAN.autoDirector = autoDirector;
+  window.OCEAN.setDirectorAuto = (b) => { autoDirector.auto = !!b; if (autoDirectorGuiState) autoDirectorGuiState.auto = autoDirector.auto; };
+  window.OCEAN.setDirectorMode = (name) => { autoDirector.setMode(name, undefined, camera.position, controls.target); };
+  window.OCEAN.setDirectorSeed = (seed) => { autoDirector.seed = seed >>> 0; autoDirector.restart(); if (autoDirectorGuiState) autoDirectorGuiState.seed = autoDirector.seed; };
+  window.OCEAN.nextDirectorShot = () => autoDirector.requestNextShot(camera.position, controls.target);
 }
 
 applySun();
