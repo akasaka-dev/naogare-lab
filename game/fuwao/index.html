@@ -191,9 +191,11 @@
   const FUWAO_API_BASE = '/api/fuwao';
   const RANKING_QUALIFY_COUNT = 10; // サーバー側のランキング表示件数と合わせる
   let fuwaoSessionToken = null; // スタート時に発行、スコア登録で一度だけ使う（不正投稿対策）
+  let fuwaoRankSubmitted = false; // 今回のプレイですでに登録済みか（ランキング画面から戻った時の二重表示防止）
 
   async function beginFuwaoSession(){
     fuwaoSessionToken = null;
+    fuwaoRankSubmitted = false;
     try {
       const res = await fetch(FUWAO_API_BASE + '/session', { method:'POST' });
       const data = await res.json();
@@ -1030,10 +1032,15 @@
     document.getElementById('rankingBtn').addEventListener('click', showRankingView);
     updateHud();
 
+    if(fuwaoRankSubmitted){
+      document.getElementById('rankArea').innerHTML = `<p style="color:#FFD36B;">とうろくしたよ！</p>`;
+      return;
+    }
+
     // ハイスコア判定は非同期で後から追記する（通信が遅くても操作を止めない）
     fetchFuwaoRanking().then(results=>{
       const area = document.getElementById('rankArea');
-      if(!area) return; // 戻る/やり直すが先に押されて上書きされた場合
+      if(!area || fuwaoRankSubmitted) return; // 戻る/やり直すが先に押された、または既に登録済み
       const isHighScore = finalScore > 0 &&
         (results.length < RANKING_QUALIFY_COUNT || finalScore > results[results.length-1].score);
       if(isHighScore) renderRankRegisterForm(area, finalScore);
@@ -1065,6 +1072,7 @@
         const data = await res.json();
         if(data && data.ok){
           fuwaoSessionToken = null; // 一度使ったトークンは使い切り
+          fuwaoRankSubmitted = true;
           area.innerHTML = `<p style="color:#FFD36B;">とうろくしたよ！</p>`;
         } else {
           btn.disabled = false;
