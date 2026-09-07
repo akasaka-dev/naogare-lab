@@ -3036,7 +3036,14 @@
   setupStageAssets();
   setupRankingUI();
   showScreen('title');
-  preloadAllImages();
+  // Defer background preloading until after the browser has painted this
+  // screen, so the (synchronous) loop of ~100 new Image() calls below can't
+  // delay first paint on slower devices.
+  if(window.requestAnimationFrame){
+    requestAnimationFrame(function(){ requestAnimationFrame(preloadAllImages); });
+  } else {
+    setTimeout(preloadAllImages, 0);
+  }
 })();
 </script>
 </body>
