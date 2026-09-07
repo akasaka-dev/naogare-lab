@@ -97,6 +97,18 @@
     border-radius:6px;
     --pan-distance:0px;
   }
+  .hero__spinner{
+    position:absolute;
+    top:50%; left:50%;
+    width:2.2rem; height:2.2rem;
+    margin:-1.1rem 0 0 -1.1rem;
+    border:3px solid rgba(247,241,226,.25);
+    border-top-color:var(--gold);
+    border-radius:50%;
+    animation:hero-spin .8s linear infinite;
+    z-index:1;
+  }
+  @keyframes hero-spin{ to{ transform:rotate(360deg); } }
   .hero__poster{
     display:block;
     position:absolute;
@@ -1110,7 +1122,7 @@
 
 <div class="board">
   <section id="screen-title" class="screen panel hero">
-    <div class="hero__poster-frame"><img class="hero__poster" id="heroPosterImg" src="" alt="一句ござる！ 五・七・五で、勝負せよ。">
+    <div class="hero__poster-frame"><div class="hero__spinner" id="heroSpinner"></div><img class="hero__poster" id="heroPosterImg" src="" alt="一句ござる！ 五・七・五で、勝負せよ。">
       <div class="version-label">v1.03</div>
       <div class="hero__actions">
         <button class="btn btn--ghost" id="btnTutorial" type="button">チュートリアル</button>
@@ -1803,6 +1815,7 @@
 
   var els = {
     heroPosterImg: document.getElementById('heroPosterImg'),
+    heroSpinner: document.getElementById('heroSpinner'),
     resultHeroRival: document.getElementById('resultHeroRival'),
     btnStart: document.getElementById('btnStart'),
     btnTrueWorld: document.getElementById('btnTrueWorld'),
@@ -3016,6 +3029,8 @@
     });
   }
 
+  els.heroPosterImg.addEventListener('load', function(){ els.heroSpinner.classList.add('hidden'); });
+  els.heroPosterImg.addEventListener('error', function(){ els.heroSpinner.classList.add('hidden'); });
   els.heroPosterImg.src = PLAY_ASSETS.title_poster;
   setupPosterPan();
   setupStageAssets();
