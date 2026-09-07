@@ -14,6 +14,9 @@ import { LyricParticles } from './LyricParticles.js';
 import { HeadParticleTrail } from './HeadParticleTrail.js';
 import { TrailLyrics } from './TrailLyrics.js';
 import { AutoDirector } from './AutoDirector.js';
+import { LyricTimeline } from './LyricTimeline.js';
+import { AudioController } from './AudioController.js';
+import { FOREVERMORE_EVENTS } from './ForeverMoreLyrics.js';
 
 // ---------------------------------------------------------------------------
 //  Boot
@@ -201,6 +204,68 @@ if (autoDirector) {
   autoDirector.restart();
 }
 let autoDirectorGuiState = null;
+
+// ---------------------------------------------------------------------------
+//  Lyric Timeline V1 — opt-in via ?lyricTimeline=1, only ever active
+//  alongside Trail Lyrics (?trailLyrics=1, itself requiring
+//  ?headParticles=1). A small data-driven scheduler (ForeverMoreLyrics.js
+//  for the event data, LyricTimeline.js for the controller) that triggers/
+//  configures the EXISTING Trail Lyrics system at real song times — it
+//  does not touch TrailLyrics' tail-emergence/assemble/leave-behind
+//  mechanism at all, only WHEN and WITH WHAT PARAMETERS it fires. When
+//  absent, TrailLyrics keeps its existing standalone auto-looping "Forever
+//  More" behavior completely unchanged (see TrailLyrics.loop).
+//
+//  Real Timing JSON Integration V1: event vocal timing comes from
+//  saikai-2026-02-22EngLast-lyrics-timing.json (manually measured against
+//  the real WAV, in the SAME absolute time domain as audio.currentTime — no
+//  offset/calibration layer). It's fetched once below and handed to
+//  LyricTimeline.setTimingData(), which resolves each event's
+//  `sourceCueIndex` (see ForeverMoreLyrics.js) against it.
+// ---------------------------------------------------------------------------
+const lyricTimelineEnabled = trailLyricsEnabled && new URLSearchParams(window.location.search).get('lyricTimeline') === '1';
+const LYRIC_TIMING_JSON_URL = './data/saikai-2026-02-22EngLast-lyrics-timing.json';
+const lyricTimeline = lyricTimelineEnabled
+  ? new LyricTimeline(trailLyrics, FOREVERMORE_EVENTS, {
+      // HERO events may request a stronger camera choice (spec 10); TRAIL
+      // events deliberately do nothing here and rely entirely on Auto
+      // Director's own existing lyric-safe restriction (trailLyrics.getPhase()
+      // gating during ASSEMBLE/HOLD) — never an aggressive override.
+      onEventStart: (event) => {
+        if (event.type === 'hero' && autoDirector && autoDirector.enabled) {
+          autoDirector.setMode(event.camera, 'cut', camera.position, controls.target);
+        }
+      },
+    })
+  : null;
+let lyricTimelineGuiState = null;
+let foreverMoreTimingData = null; // raw parsed JSON, kept for OCEAN.foreverMoreTiming (spec 11) — fetched once, never per-frame
+if (lyricTimelineEnabled) {
+  fetch(LYRIC_TIMING_JSON_URL)
+    .then((res) => res.json())
+    .then((data) => {
+      if (!Array.isArray(data.lyrics)) {
+        console.error('[LyricTimeline] timing JSON is missing a `lyrics` array:', LYRIC_TIMING_JSON_URL);
+        return;
+      }
+      foreverMoreTimingData = data;
+      lyricTimeline.setTimingData(data.lyrics);
+      if (lyricTimelineGuiState) lyricTimelineGuiState.loadedCues = data.lyrics.length;
+    })
+    .catch((err) => console.error('[LyricTimeline] failed to load timing JSON:', LYRIC_TIMING_JSON_URL, err));
+}
+
+// ---------------------------------------------------------------------------
+//  Audio Sync V1 — opt-in via ?audio=1, independent of Lyric Timeline (it's
+//  just a music player wrapper on its own — see AudioController.js). Its
+//  ONLY connection to Lyric Timeline is the "Sync Lyrics" toggle wired into
+//  animate() below, which decides — every frame — whether LyricTimeline's
+//  clock comes from audio.currentTime or its own dt-based clock. Nothing in
+//  AudioController or LyricTimeline itself knows the other exists.
+// ---------------------------------------------------------------------------
+const audioEnabled = new URLSearchParams(window.location.search).get('audio') === '1';
+const audioController = audioEnabled ? new AudioController('./audio/saikai-2026-02-22EngLast.wav') : null;
+let audioGuiState = null;
 
 // Lights — only the dropped primitives (MeshStandardMaterial) use these; the
 // ocean/island/sky are raw ShaderMaterials and ignore scene lights.
@@ -739,11 +804,25 @@ if (headParticlesEnabled) {
   headParticleTrail.setColors({ head: headParticleGuiState.headColor, young: headParticleGuiState.youngColor, mid: headParticleGuiState.midColor, old: headParticleGuiState.oldColor });
 }
 
+// Trail Lyrics Font Support V1 — small GUI dropdown for testing fonts live
+// (spec: "Add small GUI control for font family testing"). Each value is a
+// full CSS font-family stack ending in a generic fallback (spec: "Keep
+// fallback fonts"). "Missing Font" deliberately references a family that
+// doesn't exist anywhere, to exercise the ordinary CSS-fallback path (the
+// browser silently falls through to Georgia/serif — no special-case code
+// needed for that, canvas font resolution already works this way).
+const TRAIL_LYRICS_FONT_PRESETS = {
+  'Serif (default)': 'Georgia, "Times New Roman", serif',
+  'Sans-serif': '"Noto Sans", Arial, Helvetica, sans-serif',
+  'Japanese (Noto Sans JP)': '"Noto Sans JP", "Yu Gothic", Meiryo, sans-serif',
+  'Missing Font (fallback test)': '"NoSuchFontXYZ", Georgia, "Times New Roman", serif',
+};
 if (trailLyricsEnabled) {
   trailLyricsGuiState = {
     enabled: trailLyrics.enabled,
     paused: false,
     localTime: 0,
+    fontPreset: 'Serif (default)',
     textScale: trailLyrics.textScale,
     formationDistance: trailLyrics.formationDistance,
     formationHeightOffset: trailLyrics.formationHeightOffset,
@@ -774,6 +853,13 @@ if (trailLyricsEnabled) {
   fTrailLyrics.add(trailLyricsGuiState, 'billboardRelease', 0.0, 1.0, 0.02).name('Billboard Release').onChange((v) => { trailLyrics.billboardRelease = v; });
   fTrailLyrics.add(trailLyricsGuiState, 'positionRelease', 0.0, 1.0, 0.02).name('Position Release').onChange((v) => { trailLyrics.positionRelease = v; });
   fTrailLyrics.add(trailLyricsGuiState, 'followSmoothing', 0.5, 15.0, 0.25).name('Follow Smoothing').onChange((v) => { trailLyrics.followSmoothing = v; });
+  // Trail Lyrics Font Support V1 — setFont() waits for the Font Loading API
+  // (with a timeout, never hangs) before regenerating the glyph texture, so
+  // switching this mid-scene shows the new font's real metrics immediately
+  // rather than a stale fallback-font shape.
+  fTrailLyrics.add(trailLyricsGuiState, 'fontPreset', Object.keys(TRAIL_LYRICS_FONT_PRESETS)).name('Font (test)').onChange((label) => {
+    trailLyrics.setFont({ fontFamily: TRAIL_LYRICS_FONT_PRESETS[label] });
+  });
 }
 
 if (autoDirectorEnabled) {
@@ -804,6 +890,58 @@ if (autoDirectorEnabled) {
   fAutoDirector.add(autoDirectorGuiState, 'allowCuts').name('Allow Cuts').onChange((v) => { autoDirector.allowCuts = v; });
   fAutoDirector.add(autoDirectorGuiState, 'paused').name('Pause').onChange((v) => { autoDirector.paused = v; });
   fAutoDirector.add({ next: () => autoDirector.requestNextShot(camera.position, controls.target) }, 'next').name('Next Shot');
+}
+
+if (lyricTimelineEnabled) {
+  lyricTimelineGuiState = {
+    enabled: lyricTimeline.enabled,
+    time: 0,
+    paused: lyricTimeline.paused,
+    speed: lyricTimeline.speed,
+    currentEvent: '(none yet)',
+    timingSource: 'Manual JSON',
+    loadedCues: 0, // filled in once the fetch above resolves
+  };
+  const fLyricTimeline = gui.addFolder('Lyric Timeline');
+  fLyricTimeline.add(lyricTimelineGuiState, 'enabled').name('Enabled').onChange((v) => { lyricTimeline.enabled = v; });
+  // Range covers Event 4's real ~38-41s window (see FOREVERMORE REAL TIMING
+  // JSON INTEGRATION V1 report for the measured cue times).
+  fLyricTimeline.add(lyricTimelineGuiState, 'time', 0, 45, 0.05).name('Time').listen().onChange((v) => lyricTimeline.setTime(v));
+  fLyricTimeline.add(lyricTimelineGuiState, 'paused').name('Pause').onChange((v) => lyricTimeline.setPaused(v));
+  fLyricTimeline.add(lyricTimelineGuiState, 'speed', 0.1, 3.0, 0.05).name('Playback Speed').onChange((v) => { lyricTimeline.speed = v; });
+  fLyricTimeline.add(lyricTimelineGuiState, 'currentEvent').name('Current Event').listen().disable();
+  fLyricTimeline.add(lyricTimelineGuiState, 'timingSource').name('Timing Source').disable();
+  fLyricTimeline.add(lyricTimelineGuiState, 'loadedCues').name('Loaded Cues').listen().disable();
+  fLyricTimeline.add({ restart: () => lyricTimeline.restart() }, 'restart').name('Restart');
+  fLyricTimeline.add({ next: () => {
+    const ev = lyricTimeline.getNextEvent();
+    if (ev) lyricTimeline.setTime(ev.triggerTime);
+  } }, 'next').name('Next Event');
+}
+
+if (audioEnabled) {
+  audioGuiState = {
+    loaded: false,
+    playing: false,
+    time: 0,
+    volume: audioController.volume,
+    playbackRate: audioController.playbackRate,
+    syncLyrics: !!lyricTimelineEnabled,
+  };
+  const fAudio = gui.addFolder('Audio');
+  fAudio.add(audioGuiState, 'loaded').name('Loaded').listen().disable();
+  // A single checkbox toggling play/pause: onChange requests the change,
+  // and since `playing` is re-synced from audio.paused every frame below,
+  // a blocked play() (autoplay policy) simply snaps the box back to
+  // unchecked next frame rather than getting stuck out of sync with reality.
+  fAudio.add(audioGuiState, 'playing').name('Play / Pause').listen().onChange((v) => {
+    if (v) audioController.play(); else audioController.pause();
+  });
+  fAudio.add({ restart: () => audioController.restart() }, 'restart').name('Restart');
+  fAudio.add(audioGuiState, 'time', 0, 300, 0.1).name('Time').listen().onChange((v) => audioController.setTime(v));
+  fAudio.add(audioGuiState, 'volume', 0, 1, 0.01).name('Volume').onChange((v) => { audioController.setVolume(v); });
+  fAudio.add(audioGuiState, 'playbackRate', 0.5, 1.5, 0.01).name('Playback Rate').onChange((v) => { audioController.setPlaybackRate(v); });
+  fAudio.add(audioGuiState, 'syncLyrics').name('Sync Lyrics').listen().onChange((v) => { audioGuiState.syncLyrics = v; });
 }
 
 gui.add({ dive: () => diveTo(-12) }, 'dive').name('▼ dive under');
@@ -1033,6 +1171,37 @@ function animate() {
     // took the camera over.
     if (autoDirectorActive && headParticleTrail) controls.target.copy(headParticleTrail.getHeadPosition(_headParticleHeadTmp));
   }
+  // Audio Sync (V1, opt-in) — mirrors live playback state into the GUI every
+  // frame; does NOT touch LyricTimeline itself (see the block below for the
+  // actual clock hookup). Reading these straight off the HTMLAudioElement
+  // each frame means there is never a second "audio state" to drift from it.
+  if (audioController && audioGuiState) {
+    audioGuiState.loaded = audioController.loaded;
+    audioGuiState.playing = !audioController.paused;
+    audioGuiState.time = audioController.currentTime;
+  }
+  // Lyric Timeline (V1, opt-in) — runs BEFORE Trail Lyrics' own update() so
+  // that if this frame crosses an event's triggerTime, TrailLyrics starts
+  // consuming its fresh (post-beginEvent) cycle state this same frame.
+  //
+  // Audio Sync V1: when the GUI's "Sync Lyrics" toggle is on, the audio
+  // element's own currentTime IS the timeline clock — setTime() (the exact
+  // same method the manual Time slider already uses for seeking) is called
+  // every frame instead of the dt-based update(). Exactly one of the two
+  // ever runs per frame, so there is no second clock to drift out of sync:
+  // pausing the audio freezes lyric timing for free (currentTime just stops
+  // changing), and seeking/restarting the audio is indistinguishable from a
+  // manual timeline seek from LyricTimeline's point of view.
+  if (lyricTimeline) {
+    const audioSyncActive = !!(audioController && audioGuiState && audioGuiState.syncLyrics);
+    if (audioSyncActive) lyricTimeline.setTime(audioController.currentTime);
+    else lyricTimeline.update(dt);
+    if (lyricTimelineGuiState) {
+      lyricTimelineGuiState.time = lyricTimeline.time;
+      const active = lyricTimeline.getActiveEvent();
+      lyricTimelineGuiState.currentEvent = active ? `${active.id} (${active.type}) — ${trailLyrics.phase}` : '(none yet)';
+    }
+  }
   // Runs AFTER the Head Particle Trail block above so camera.quaternion
   // already reflects this frame's follow-camera update (TrailLyrics reads
   // the camera's live orientation to build/track its billboard plane).
@@ -1156,6 +1325,35 @@ if (autoDirectorEnabled) {
   window.OCEAN.setDirectorMode = (name) => { autoDirector.setMode(name, undefined, camera.position, controls.target); };
   window.OCEAN.setDirectorSeed = (seed) => { autoDirector.seed = seed >>> 0; autoDirector.restart(); if (autoDirectorGuiState) autoDirectorGuiState.seed = autoDirector.seed; };
   window.OCEAN.nextDirectorShot = () => autoDirector.requestNextShot(camera.position, controls.target);
+}
+if (lyricTimelineEnabled) {
+  window.OCEAN.lyricTimeline = lyricTimeline;
+  // Live getter (spec 6) rather than a plain snapshot value, so reading it
+  // from the console always reflects the current song-clock position.
+  Object.defineProperty(window.OCEAN, 'lyricTimelineTime', { configurable: true, get: () => lyricTimeline.time });
+  window.OCEAN.setLyricTimelineTime = (seconds) => {
+    lyricTimeline.setTime(seconds);
+    if (lyricTimelineGuiState) lyricTimelineGuiState.time = lyricTimeline.time;
+  };
+  window.OCEAN.setLyricTimelinePaused = (p) => {
+    lyricTimeline.setPaused(p);
+    if (lyricTimelineGuiState) lyricTimelineGuiState.paused = lyricTimeline.paused;
+  };
+  // Real Timing JSON Integration V1 (spec 11) — read-only inspection: the raw
+  // fetched timing JSON (once loaded — live getter, not a stale snapshot,
+  // since the fetch above resolves asynchronously) and a live getter for the
+  // four compiled events' resolved id/sourceCueIndex/sourceText/text/
+  // audioVocalTime/preRoll/triggerTime. No mutable internals exposed here —
+  // use setLyricTimelineTime()/setLyricTimelinePaused() above for control.
+  Object.defineProperty(window.OCEAN, 'foreverMoreTiming', { configurable: true, get: () => foreverMoreTimingData });
+  Object.defineProperty(window.OCEAN, 'lyricEvents', { configurable: true, get: () => lyricTimeline.getDebugEvents() });
+}
+if (audioEnabled) {
+  window.OCEAN.audio = audioController;
+  window.OCEAN.playAudio = () => audioController.play();
+  window.OCEAN.pauseAudio = () => audioController.pause();
+  window.OCEAN.setAudioTime = (seconds) => audioController.setTime(seconds);
+  window.OCEAN.setAudioSyncLyrics = (v) => { if (audioGuiState) audioGuiState.syncLyrics = !!v; };
 }
 
 applySun();

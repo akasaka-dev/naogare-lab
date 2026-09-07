@@ -1,3 +1,11 @@
+# ForeverMore Cinematic Lyrics — the user's manually-created lyric timing
+# export at the repo root (source/export artifact, not the runtime asset).
+# The runtime copy the app actually fetches lives at
+# public/data/saikai-2026-02-22EngLast-lyrics-timing.json and IS tracked —
+# this leading-slash anchor matters: it excludes only this root-level file,
+# not that same-named runtime copy.
+/saikai-2026-02-22EngLast-lyrics-timing.json
+
 # Logs
 logs
 *.log

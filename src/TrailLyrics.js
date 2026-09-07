@@ -46,6 +46,29 @@ function smoothstep(e0, e1, x) {
 }
 
 // ---------------------------------------------------------------------------
+//  Trail Lyrics Font Support V1 — wait for the CSS Font Loading API to
+//  either resolve `fontSpec` (a canvas-style font shorthand, e.g.
+//  '600 32px "Noto Sans JP"') or give up after `timeoutMs`, WITHOUT ever
+//  throwing or hanging indefinitely: a font that fails to load, doesn't
+//  exist, or is slow to fetch must never block app startup or a GUI font
+//  swap — the caller (setFont(), below) always proceeds to draw afterward,
+//  using whatever the browser resolves (the real webfont if it loaded in
+//  time, otherwise the next family in the CSS fallback stack).
+//  `sampleText` is passed to document.fonts.load() so the specific glyph
+//  subset this phrase actually needs (e.g. CJK ranges for Japanese lyrics)
+//  is what gets requested/awaited, not just the Latin default subset.
+// ---------------------------------------------------------------------------
+async function ensureFontReady(fontSpec, sampleText, timeoutMs = 3000) {
+  if (typeof document === 'undefined' || !document.fonts) return; // no Font Loading API — draw with whatever the browser resolves synchronously
+  const timeout = new Promise((resolve) => setTimeout(resolve, timeoutMs));
+  try {
+    await Promise.race([Promise.all([document.fonts.load(fontSpec, sampleText || ''), document.fonts.ready]), timeout]);
+  } catch (err) {
+    console.warn(`[TrailLyrics] font load failed for "${fontSpec}" — using fallback font stack instead:`, err);
+  }
+}
+
+// ---------------------------------------------------------------------------
 //  Text -> local plane-space target positions. Adapted from LyricParticles.js
 //  — same canvas-rasterise-then-decimate technique. Two differences from the
 //  original: (1) no x-negation (that flip existed only because LyricParticles
@@ -55,15 +78,42 @@ function smoothstep(e0, e1, x) {
 //  rasterising canvas itself, reused as-is for the smooth glyph texture
 //  layer below instead of rendering the text a second time.
 // ---------------------------------------------------------------------------
-function sampleTextTargets(text, { fontWeight = 600, fontFamily = 'Georgia, "Times New Roman", serif', targetCount = 650, worldWidth = 26, depthJitter = 0.4, seed = 99 } = {}) {
-  const fontSize = 120;
+function sampleTextTargets(text, { fontWeight = 600, fontFamily = 'Georgia, "Times New Roman", serif', fontSizeScale = 1.0, lineHeight: lineHeightMultiplier = 1.15, targetCount = 650, worldWidth = 26, depthJitter = 0.4, seed = 99 } = {}) {
+  // Trail Lyrics Font Support V1: fontSizeScale scales the RASTER font size
+  // used to draw glyphs to the canvas (crispness/stroke weight), not the
+  // final world-space size — that stays `worldWidth`'s job (and textScale's,
+  // applied by the caller), since worldScale below always normalizes the
+  // measured pixel width back to `worldWidth` regardless of fontSizeScale.
+  // Default 1.0 reproduces the original hardcoded 120px exactly.
+  const fontSize = 120 * fontSizeScale;
+  // Text is handled as an ordinary JS string throughout — split('\n') and
+  // canvas fillText()/measureText() are Unicode-native (no ASCII-only
+  // assumption anywhere here), so multi-line Japanese/CJK text takes the
+  // exact same code path as multi-line English text.
+  const lines = text.split('\n');
   const probe = document.createElement('canvas').getContext('2d');
   probe.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
-  const metrics = probe.measureText(text);
-
   const padding = fontSize * 0.18;
-  const width = Math.ceil(metrics.width + padding * 2);
-  const height = Math.ceil(fontSize * 1.3);
+
+  // Single-line sizing is IDENTICAL to the original V1/V1.2 formula at the
+  // default fontSizeScale (kept byte-for-byte at fontSizeScale=1 so every
+  // existing single-line phrase, including the accepted "Forever More"
+  // look, renders exactly as before). Multi-line (Lyric Timeline V1: needed
+  // for two-line lyric events) stacks lines as a vertically-centred block,
+  // sized from the widest line, with a configurable lineHeight multiplier
+  // (default 1.15 matches the original hardcoded value).
+  let width, height, lineHeight;
+  if (lines.length === 1) {
+    const metrics = probe.measureText(text);
+    width = Math.ceil(metrics.width + padding * 2);
+    height = Math.ceil(fontSize * 1.3);
+  } else {
+    let maxLineWidth = 0;
+    for (const line of lines) maxLineWidth = Math.max(maxLineWidth, probe.measureText(line).width);
+    lineHeight = fontSize * lineHeightMultiplier;
+    width = Math.ceil(maxLineWidth + padding * 2);
+    height = Math.ceil(lineHeight * lines.length + padding * 1.2);
+  }
 
   const canvas = document.createElement('canvas');
   canvas.width = width;
@@ -73,7 +123,12 @@ function sampleTextTargets(text, { fontWeight = 600, fontFamily = 'Georgia, "Tim
   ctx.fillStyle = '#ffffff';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(text, width / 2, height / 2);
+  if (lines.length === 1) {
+    ctx.fillText(text, width / 2, height / 2);
+  } else {
+    const blockTop = (height - lineHeight * lines.length) / 2;
+    lines.forEach((line, i) => ctx.fillText(line, width / 2, blockTop + lineHeight * (i + 0.5)));
+  }
 
   const img = ctx.getImageData(0, 0, width, height).data;
   const candidates = [];
@@ -131,6 +186,19 @@ export class TrailLyrics {
     this.localTime = 0;
     this.phase = 'travel';
 
+    // Trail Lyrics Font Support V1 — GUI/per-event-tunable font knobs.
+    // Defaults reproduce the pre-existing hardcoded values exactly (Georgia
+    // serif, weight 600, fontSize 120px, lineHeight multiplier 1.15), so
+    // every existing phrase (including the accepted "Forever More" look and
+    // the two-line fm-002 lyric event) renders byte-for-byte unchanged
+    // unless something explicitly calls setFont()/configure() with an
+    // override. See sampleTextTargets() for how each field is used, and
+    // setFont() for the async webfont-loading path.
+    this.fontFamily = 'Georgia, "Times New Roman", serif';
+    this.fontWeight = 600;
+    this.fontSizeScale = 1.0;
+    this.lineHeight = 1.15;
+
     // GUI-tunable (spec 12).
     this.textScale = 1.0;
     // Fraction of the camera-to-head distance, measured along the CAMERA's
@@ -186,58 +254,18 @@ export class TrailLyrics {
     // Debug metrics (spec 15), refreshed every _computeWakeScatter() call.
     this._lastTravelStats = { avgDistance: 0, maxDistance: 0, sourceWidth: 0, textWidth: 0 };
 
-    const { targets, canvas, worldWidth, worldHeight } = sampleTextTargets(text, { targetCount: PARTICLE_COUNT, worldWidth: 15, seed });
-    // Sort glyph targets by local X once, at construction (pure text-shape
-    // preprocessing, independent of any wake data) — this is the "sorted
-    // glyph targets" half of spec 8's low-travel mapping: wake source
-    // particles are sorted by local X too, each cycle, in
-    // _computeWakeScatter(), and paired index-for-index so the assignment
-    // is monotonic (left source -> left letter, right source -> right
-    // letter) instead of arbitrary/crossing.
-    targets.sort((a, b) => a.x - b.x);
-    this.count = targets.length;
-    this._textWorldWidth = worldWidth;
-    this._textWorldHeight = worldHeight;
+    // Lyric Timeline V1 — when true (the V1/V1.2 default, unchanged), a
+    // finished cycle simply wraps via modulo and repeats the SAME phrase
+    // forever, exactly as before. A timeline controller driving discrete,
+    // differently-timed/worded events sets this false so a finished cycle
+    // instead freezes at its own end (fully dissolved / invisible) and
+    // waits for the next explicit beginEvent() call, rather than looping —
+    // see update()/_recompute()'s use of this flag.
+    this.loop = true;
 
-    const rand = mulberry32(seed ^ 0x9e3779b9);
-
-    // ---- Per-particle constant attributes (built once; no per-frame CPU
-    // work over the particle set — the vertex shader does the scatter ->
-    // glyph -> dissolve blend entirely from a handful of uniforms).
-    // aScatter is intentionally left ZERO here: V1 baked a static random
-    // local cloud in at construction, but V1.2 derives it fresh every cycle
-    // from the live wake trajectory (_computeWakeScatter, called from
-    // _prepareFormation) — construction happens before any HeadParticleTrail
-    // reference exists, so there is nothing meaningful to sample yet. The
-    // buffer is harmless zero-filled until then because this.points stays
-    // invisible for the whole of TRAVEL. ----
-    const scatter = new Float32Array(this.count * 3);
-    const glyphTarget = new Float32Array(this.count * 3);
-    const stagger = new Float32Array(this.count);
-    const seedAttr = new Float32Array(this.count);
-    const sizeAttr = new Float32Array(this.count);
-    for (let i = 0; i < this.count; i++) {
-      const t = targets[i];
-      glyphTarget[i * 3 + 0] = t.x * this.textScale;
-      glyphTarget[i * 3 + 1] = t.y * this.textScale;
-      glyphTarget[i * 3 + 2] = t.z;
-      stagger[i] = rand() * 0.6;
-      seedAttr[i] = rand() * Math.PI * 2;
-      // Size distribution matched to HeadParticleTrail's own (mostly tiny,
-      // a few brighter highlights) so the lyric particles read as part of
-      // the same population before ASSEMBLE, not a visually distinct set.
-      const sizeRoll = rand();
-      sizeAttr[i] = sizeRoll < 0.7 ? 0.4 + rand() * 0.25 : sizeRoll < 0.95 ? 0.65 + rand() * 0.3 : 1.0 + rand() * 0.35;
-    }
-
+    this.count = 0; // setText() below establishes the real count
     const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(this.count * 3), 3).setUsage(THREE.DynamicDrawUsage));
-    geo.setAttribute('aScatter', new THREE.BufferAttribute(scatter, 3).setUsage(THREE.DynamicDrawUsage));
-    geo.setAttribute('aGlyphTarget', new THREE.BufferAttribute(glyphTarget, 3));
-    geo.setAttribute('aStagger', new THREE.BufferAttribute(stagger, 1));
-    geo.setAttribute('aSeed', new THREE.BufferAttribute(seedAttr, 1));
-    geo.setAttribute('aSize', new THREE.BufferAttribute(sizeAttr, 1));
-    this._aScatterAttr = geo.attributes.aScatter;
+    this._aScatterAttr = null;
 
     this.particleUniforms = {
       uAssembleProgress: { value: 0 },
@@ -329,12 +357,10 @@ export class TrailLyrics {
     // HDR-capable colour (component values may exceed 1.0 — this renderer
     // uses NoToneMapping + a custom HDR post pipeline, same convention as
     // every other glowing object in this project) so it can bloom like the
-    // rest of the traveler's light. ----
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.colorSpace = THREE.SRGBColorSpace;
+    // rest of the traveler's light. setText() below assigns the real
+    // texture/geometry for the initial (and every subsequent) text. ----
     this.glyphUniforms = { uOpacity: { value: 0 } };
     this.glyphMaterial = new THREE.MeshBasicMaterial({
-      map: texture,
       transparent: true,
       depthWrite: false,
       depthTest: true,
@@ -344,13 +370,12 @@ export class TrailLyrics {
       color: COLOR_GLYPH.clone(),
       opacity: 0,
     });
-    const glyphGeo = new THREE.PlaneGeometry(worldWidth * this.textScale, worldHeight * this.textScale);
-    this.glyphMesh = new THREE.Mesh(glyphGeo, this.glyphMaterial);
+    this.glyphMesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), this.glyphMaterial);
     this.glyphMesh.frustumCulled = false;
     this.glyphMesh.visible = false;
     scene.add(this.glyphMesh);
-    this._glyphBaseWidth = worldWidth;
-    this._glyphBaseHeight = worldHeight;
+    this._glyphBaseWidth = 1;
+    this._glyphBaseHeight = 1;
 
     // Shared plane frame (spec 6/7) — a world-space centre fixed once per
     // cycle at formation time, plus an orientation quaternion that tracks
@@ -369,16 +394,179 @@ export class TrailLyrics {
     // Scratch for _computeWakeScatter (reused once per CYCLE, not per
     // frame — formation only runs once every ~travel+assemble+hold+leave+
     // dissolve seconds — but still preallocated to keep that call
-    // allocation-free).
+    // allocation-free). Sized by setText() to match the current text's
+    // particle count.
     this._tmpInvQuat = new THREE.Quaternion();
     this._tmpWakePos = new THREE.Vector3();
-    this._wakeLocalX = new Float32Array(this.count);
-    this._wakeLocalPos = new Float32Array(this.count * 3);
-    this._wakeSortIndices = new Int32Array(this.count);
+    this._wakeLocalX = new Float32Array(0);
+    this._wakeLocalPos = new Float32Array(0);
+    this._wakeSortIndices = new Int32Array(0);
 
     this._ocean = null;
     this._headParticleTrail = null;
     this._camera = null;
+
+    this.currentText = null;
+    this.setText(text);
+  }
+
+  // ---- Lyric Timeline V1: (re)builds the particle/glyph geometry for a new
+  // text string, reusing the exact same materials/shaders/plane-frame
+  // machinery — only the DATA (glyph target positions, canvas texture,
+  // particle count) changes. This is what keeps TrailLyrics "a reusable
+  // renderer/animation system" rather than a one-phrase demo: a timeline
+  // controller can call this (via beginEvent(), below) once per lyric
+  // event without touching any of the tail-emergence/assemble/position-
+  // release mechanism. Safe to call at any time, including while already
+  // mid-cycle for a different text — callers that want a clean fresh cycle
+  // should follow it with a localTime/._cyclePrepared reset (beginEvent()
+  // does this for you). ----
+  setText(text, opts = {}) {
+    const seed = opts.seed !== undefined ? (opts.seed >>> 0) : this._seed;
+    this._seed = seed;
+    this.currentText = text;
+
+    const { targets, canvas, worldWidth, worldHeight } = sampleTextTargets(text, {
+      targetCount: PARTICLE_COUNT,
+      worldWidth: 15,
+      seed,
+      fontFamily: this.fontFamily,
+      fontWeight: this.fontWeight,
+      fontSizeScale: this.fontSizeScale,
+      lineHeight: this.lineHeight,
+    });
+    // Sort glyph targets by local X (pure text-shape preprocessing,
+    // independent of any wake data) — this is the "sorted glyph targets"
+    // half of spec 8's low-travel mapping: wake source particles are
+    // sorted by local X too, each cycle, in _computeWakeScatter(), and
+    // paired index-for-index so the assignment is monotonic (left source
+    // -> left letter, right source -> right letter) instead of
+    // arbitrary/crossing.
+    targets.sort((a, b) => a.x - b.x);
+    this.count = targets.length;
+    this._textWorldWidth = worldWidth;
+    this._textWorldHeight = worldHeight;
+
+    const rand = mulberry32(seed ^ 0x9e3779b9);
+
+    // ---- Per-particle constant attributes (built once per text; no
+    // per-frame CPU work over the particle set — the vertex shader does
+    // the scatter -> glyph -> dissolve blend entirely from a handful of
+    // uniforms). aScatter is intentionally left ZERO here: it is derived
+    // fresh every cycle from the live wake trajectory
+    // (_computeWakeScatter(), called from _prepareFormation()) — nothing
+    // meaningful to sample until then, harmless because points stays
+    // invisible for the whole of TRAVEL. ----
+    const scatter = new Float32Array(this.count * 3);
+    const glyphTarget = new Float32Array(this.count * 3);
+    const stagger = new Float32Array(this.count);
+    const seedAttr = new Float32Array(this.count);
+    const sizeAttr = new Float32Array(this.count);
+    for (let i = 0; i < this.count; i++) {
+      const t = targets[i];
+      glyphTarget[i * 3 + 0] = t.x * this.textScale;
+      glyphTarget[i * 3 + 1] = t.y * this.textScale;
+      glyphTarget[i * 3 + 2] = t.z;
+      stagger[i] = rand() * 0.6;
+      seedAttr[i] = rand() * Math.PI * 2;
+      // Size distribution matched to HeadParticleTrail's own (mostly tiny,
+      // a few brighter highlights) so the lyric particles read as part of
+      // the same population before ASSEMBLE, not a visually distinct set.
+      const sizeRoll = rand();
+      sizeAttr[i] = sizeRoll < 0.7 ? 0.4 + rand() * 0.25 : sizeRoll < 0.95 ? 0.65 + rand() * 0.3 : 1.0 + rand() * 0.35;
+    }
+
+    const geo = this.points.geometry;
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(this.count * 3), 3).setUsage(THREE.DynamicDrawUsage));
+    geo.setAttribute('aScatter', new THREE.BufferAttribute(scatter, 3).setUsage(THREE.DynamicDrawUsage));
+    geo.setAttribute('aGlyphTarget', new THREE.BufferAttribute(glyphTarget, 3));
+    geo.setAttribute('aStagger', new THREE.BufferAttribute(stagger, 1));
+    geo.setAttribute('aSeed', new THREE.BufferAttribute(seedAttr, 1));
+    geo.setAttribute('aSize', new THREE.BufferAttribute(sizeAttr, 1));
+    this._aScatterAttr = geo.attributes.aScatter;
+
+    // Swap the glyph plane's texture + geometry for the new text (disposing
+    // the old GPU resources first — a timeline can trigger many events per
+    // session).
+    if (this.glyphMaterial.map) this.glyphMaterial.map.dispose();
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    this.glyphMaterial.map = texture;
+    this.glyphMaterial.needsUpdate = true;
+
+    this.glyphMesh.geometry.dispose();
+    this.glyphMesh.geometry = new THREE.PlaneGeometry(worldWidth * this.textScale, worldHeight * this.textScale);
+    this._glyphBaseWidth = worldWidth;
+    this._glyphBaseHeight = worldHeight;
+
+    // Resize the wake-scratch arrays to match the new particle count.
+    this._wakeLocalX = new Float32Array(this.count);
+    this._wakeLocalPos = new Float32Array(this.count * 3);
+    this._wakeSortIndices = new Int32Array(this.count);
+  }
+
+  // ---- Lyric Timeline V1: bulk-apply GUI-tunable fields from a plain data
+  // object (e.g. a timeline event's per-type parameters) without the
+  // caller needing its own copy of the field list. Unknown/undefined keys
+  // are ignored, so callers can pass a partial config. ----
+  configure(opts = {}) {
+    const KEYS = [
+      'textScale', 'formationDistance', 'formationHeightOffset',
+      'travelDuration', 'assembleDuration', 'holdDuration', 'leaveDuration', 'dissolveDuration',
+      'textGlow', 'particleContribution', 'billboardRelease', 'positionRelease', 'followSmoothing',
+      'trailWindowMin', 'trailWindowMax', 'flowAmount',
+      // Trail Lyrics Font Support V1 (spec: "per-event font override from
+      // ForeverMoreLyrics.js") — a timeline event's trailLyricsConfig may
+      // include any of these to override the current font for that event
+      // only; setText() (called right after configure() by beginEvent())
+      // picks them straight up. Applied synchronously here, unlike
+      // setFont() below — a timeline event fires on the audio clock and
+      // must never await a webfont load mid-trigger, so per-event font
+      // overrides are only safe to use with fonts already warmed (e.g. via
+      // the GUI's font-family test control, which does the async wait).
+      'fontFamily', 'fontWeight', 'fontSizeScale', 'lineHeight',
+    ];
+    for (const k of KEYS) if (opts[k] !== undefined) this[k] = opts[k];
+  }
+
+  // ---- Lyric Timeline V1: the single entry point a timeline controller
+  // needs — swap in new text (setText()) and start a brand-new cycle for
+  // it RIGHT NOW (reset localTime/._cyclePrepared), rather than waiting for
+  // whatever cycle happened to be running to loop around. Callers that
+  // also want different timing/sizing for this event should call
+  // configure() first (or pass it here as `opts`, applied before the text
+  // swap so e.g. a HERO event's larger textScale is already in effect when
+  // the new glyph geometry is built). ----
+  beginEvent(text, opts = {}) {
+    this.configure(opts);
+    this.setText(text);
+    this.localTime = 0;
+    this._cyclePrepared = false;
+    this.phase = 'travel';
+  }
+
+  // Trail Lyrics Font Support V1 — the GUI's "font family test" control
+  // (and any other caller picking an arbitrary/possibly-not-yet-loaded
+  // webfont) should use THIS rather than configure()+setText() directly:
+  // it waits for the Font Loading API (with a timeout — see
+  // ensureFontReady()) before regenerating the CanvasTexture, so the very
+  // first frame with the new font already has real glyph metrics instead
+  // of a fallback-font canvas that then silently never gets refreshed.
+  // Fully async and never awaited by the per-frame update()/beginEvent()
+  // path — it does not touch or delay lyric timing/choreography in any way.
+  async setFont(opts = {}, timeoutMs = 3000) {
+    if (opts.fontFamily !== undefined) this.fontFamily = opts.fontFamily;
+    if (opts.fontWeight !== undefined) this.fontWeight = opts.fontWeight;
+    if (opts.fontSizeScale !== undefined) this.fontSizeScale = opts.fontSizeScale;
+    if (opts.lineHeight !== undefined) this.lineHeight = opts.lineHeight;
+    const fontSpec = `${this.fontWeight} 32px ${this.fontFamily}`;
+    await ensureFontReady(fontSpec, this.currentText, timeoutMs);
+    // Rebuild the glyph texture/particle targets with whatever font the
+    // browser resolved (the requested webfont if it loaded in time, else
+    // the next family in the fallback stack) — same regeneration path as
+    // any other setText() call, so it's still just DATA changing, not a
+    // new code path for TrailLyrics' animation/choreography.
+    if (this.currentText !== null) this.setText(this.currentText);
   }
 
   setTint(color) {
@@ -559,7 +747,17 @@ export class TrailLyrics {
   update(dt, sceneTime, headParticleTrail, camera) {
     this._headParticleTrail = headParticleTrail;
     this._camera = camera;
-    if (!this.paused && this.enabled) this.localTime += dt;
+    if (!this.paused && this.enabled) {
+      if (this.loop) {
+        this.localTime += dt;
+      } else {
+        // Lyric Timeline V1: once a non-looping cycle finishes, freeze at
+        // its own end (fully dissolved) instead of wrapping around and
+        // replaying the same phrase — the phrase stays dormant/invisible
+        // until the timeline's next explicit beginEvent() call.
+        this.localTime = Math.min(this.localTime + dt, this._bounds().cycle);
+      }
+    }
     this._recompute(headParticleTrail, camera, dt);
   }
 
@@ -571,7 +769,7 @@ export class TrailLyrics {
     }
 
     const { t1, t2, t3, t4, cycle } = this._bounds();
-    const lt = this.localTime % cycle;
+    const lt = this.loop ? (this.localTime % cycle) : this.localTime;
 
     if (lt < t1) {
       this.phase = 'travel';
