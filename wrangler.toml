@@ -5,6 +5,10 @@ main = "src/index.js"
 [assets]
 directory = "./"
 binding = "ASSETS"
+# BGM files are otherwise served directly by the edge without touching the
+# Worker; routing just these paths through fetch() first lets us reject
+# cross-site hotlinking via the Referer check below.
+run_worker_first = ["/game/*/bgm/*"]
 
 [[d1_databases]]
 binding = "DB"

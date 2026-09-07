@@ -22,6 +22,27 @@ function jsonResponse(data, status) {
   });
 }
 
+// BGM hotlink guard — SFX is left unprotected on purpose (only BGM matters).
+// A missing Referer is treated the same as a mismatched one: same-origin
+// audio loads always send one here (no restrictive referrer-policy is set
+// anywhere on the site), so "no Referer" almost always means a direct
+// fetch/curl rather than a real player, which is exactly the case we want
+// to block. The tradeoff is that the rare ultra-privacy browser that strips
+// Referer even for same-origin requests will silently get no BGM.
+function isProtectedBgmPath(path) {
+  return /^\/game\/[^/]+\/bgm\//.test(path);
+}
+
+function isSameOriginReferer(request, url) {
+  const referer = request.headers.get('Referer');
+  if (!referer) return false;
+  try {
+    return new URL(referer).origin === url.origin;
+  } catch (e) {
+    return false;
+  }
+}
+
 async function handleRanking(request, env) {
   const url = new URL(request.url);
   const stageParam = url.searchParams.get('stage');
@@ -129,6 +150,10 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const path = url.pathname;
+
+    if (isProtectedBgmPath(path) && !isSameOriginReferer(request, url)) {
+      return new Response('Forbidden', { status: 403 });
+    }
 
     if (path === '/api/ikku-gozaru/ranking') {
       if (request.method !== 'GET') return jsonResponse({ ok: false, error: 'method_not_allowed' }, 405);
