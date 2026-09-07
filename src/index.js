@@ -1,5 +1,6 @@
 import { routeLine4 } from './line4-online.js';
 import { routeFuwao } from './fuwao-ranking.js';
+import { routeSnake } from './snake-ranking.js';
 import { checkRateLimit } from './rate-limit.js';
 
 const MAX_HAIKU_LENGTH = 300;
@@ -187,6 +188,18 @@ export default {
     if (path.startsWith('/api/fuwao/')) {
       try {
         const res = await routeFuwao(request, env, path);
+        if (res) return res;
+      } catch (e) {
+        return jsonResponse({ ok: false, error: 'server_error' }, 500);
+      }
+    }
+
+    // snake (LUMEN SNAKE - CYBER) score ranking — isolated in
+    // snake-ranking.js, own D1 table (snake_scores) but shares
+    // game_sessions/rate_limits with ikku-gozaru.
+    if (path.startsWith('/api/snake/')) {
+      try {
+        const res = await routeSnake(request, env, path);
         if (res) return res;
       } catch (e) {
         return jsonResponse({ ok: false, error: 'server_error' }, 500);
