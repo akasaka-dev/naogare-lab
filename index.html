@@ -1,11 +1,429 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="ja" style="background:#0A0F1A">
 <head>
-  <meta charset="UTF-8">
-  <title>NAOGARE LAB</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0A0F1A">
+<title>NAOGARE LAB</title>
+<meta name="description" content="個人開発でつくる小さなゲームや実験を、思いついた順に流していくラボ。一句ござる！、黄昏のフォー・イン・ア・ロウ、たすけあいヒーロー ふわお、ほか公開中。">
+<meta property="og:type" content="website">
+<meta property="og:title" content="NAOGARE LAB">
+<meta property="og:description" content="個人開発でつくる小さなゲームや実験を、思いついた順に流していくラボ。">
+<meta property="og:image" content="assets/top/ikku.webp">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="NAOGARE LAB">
+<meta name="twitter:description" content="個人開発でつくる小さなゲームや実験を、思いついた順に流していくラボ。">
+<meta name="twitter:image" content="assets/top/ikku.webp">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@500;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" onload="this.onload=null;this.rel='stylesheet'">
+<noscript><link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@500;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"></noscript>
+<style>
+  :root{
+    --night: #0A0F1A;
+    --night-2: #121A2B;
+    --night-3: #1A2438;
+    --current: #4FD1C5;
+    --current-dim: #2E8B84;
+    --lantern: #F2A94E;
+    --lantern-dim: #B87A2E;
+    --mist: #E7ECF4;
+    --mist-dim: #8B96AC;
+    --border: rgba(79,209,197,0.16);
+  }
+
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--night);
+    color:var(--mist);
+    font-family:'Zen Kaku Gothic New','Hiragino Kaku Gothic ProN','Noto Sans JP',sans-serif;
+    line-height:1.7;
+    overflow-x:hidden;
+  }
+  img{display:block; max-width:100%;}
+  a{color:inherit;}
+
+  .wrap{max-width:1080px; margin:0 auto; padding:0 1.6rem;}
+
+  /* ---------- hero ---------- */
+  .hero{
+    position:relative;
+    padding:5rem 0 7rem;
+    overflow:hidden;
+    background:
+      radial-gradient(ellipse 900px 500px at 15% -10%, rgba(79,209,197,0.16), transparent 60%),
+      radial-gradient(ellipse 700px 500px at 90% 10%, rgba(242,169,78,0.10), transparent 55%),
+      var(--night);
+  }
+  .hero__eyebrow{
+    font-family:'JetBrains Mono',monospace;
+    font-size:0.78rem;
+    letter-spacing:0.28em;
+    color:var(--current);
+    text-transform:uppercase;
+    margin:0 0 1.4rem;
+  }
+  .hero__title{
+    font-family:'Shippori Mincho',serif;
+    font-weight:700;
+    font-size:clamp(2.6rem, 7vw, 4.6rem);
+    letter-spacing:0.03em;
+    margin:0 0 1.2rem;
+    color:var(--mist);
+    text-wrap:balance;
+  }
+  .hero__title em{
+    font-style:normal;
+    color:var(--current);
+  }
+  .hero__lede{
+    max-width:38rem;
+    font-size:1.05rem;
+    color:var(--mist-dim);
+    margin:0 0 2.4rem;
+  }
+  .hero__stats{
+    display:flex;
+    gap:2.2rem;
+    flex-wrap:wrap;
+  }
+  .hero__stat-num{
+    font-family:'JetBrains Mono',monospace;
+    font-size:1.9rem;
+    color:var(--lantern);
+    font-variant-numeric:tabular-nums;
+  }
+  .hero__stat-label{
+    font-size:0.8rem;
+    color:var(--mist-dim);
+    letter-spacing:0.04em;
+  }
+
+  .current-divider{
+    display:block;
+    width:100%;
+    height:64px;
+    margin-top:-1px;
+  }
+
+  /* ---------- section shell ---------- */
+  section{padding:4.4rem 0;}
+  .section__head{
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+    gap:1rem;
+    margin-bottom:2.6rem;
+    flex-wrap:wrap;
+  }
+  .section__title{
+    font-family:'Shippori Mincho',serif;
+    font-weight:700;
+    font-size:1.7rem;
+    margin:0;
+    color:var(--mist);
+  }
+  .section__title span{
+    font-family:'JetBrains Mono',monospace;
+    font-size:0.72rem;
+    color:var(--mist-dim);
+    letter-spacing:0.18em;
+    display:block;
+    margin-bottom:0.5rem;
+  }
+  .section__note{
+    font-size:0.88rem;
+    color:var(--mist-dim);
+  }
+
+  /* ---------- catalog ---------- */
+  .catalog{display:flex; flex-direction:column; gap:1.6rem;}
+  .entry{
+    position:relative;
+    display:grid;
+    grid-template-columns:280px 1fr;
+    gap:0;
+    background:var(--night-2);
+    border:1px solid var(--border);
+    border-radius:14px;
+    overflow:hidden;
+    text-decoration:none;
+    transition:border-color .18s ease, transform .18s ease, background .18s ease;
+  }
+  .entry:hover{
+    border-color:var(--current-dim);
+    background:var(--night-3);
+    transform:translateY(-2px);
+  }
+  .entry:focus-visible{outline:2px solid var(--current); outline-offset:2px;}
+  .entry__thumb{
+    position:relative;
+    aspect-ratio:16/10;
+    background:#000;
+  }
+  .entry__thumb img{width:100%; height:100%; object-fit:cover; opacity:0.92;}
+  .entry__num{
+    position:absolute; top:0.8rem; left:0.8rem;
+    font-family:'JetBrains Mono',monospace;
+    font-size:0.72rem;
+    letter-spacing:0.06em;
+    color:var(--night);
+    background:var(--current);
+    padding:0.2rem 0.55rem;
+    border-radius:999px;
+  }
+  .entry__body{
+    padding:1.5rem 1.8rem;
+    display:flex;
+    flex-direction:column;
+    justify-content:center;
+    gap:0.6rem;
+    min-width:0;
+  }
+  .entry__meta{
+    font-family:'JetBrains Mono',monospace;
+    font-size:0.72rem;
+    color:var(--mist-dim);
+    letter-spacing:0.06em;
+  }
+  .entry__title{
+    font-family:'Shippori Mincho',serif;
+    font-weight:700;
+    font-size:1.4rem;
+    color:var(--mist);
+    margin:0;
+  }
+  .entry__desc{
+    font-size:0.92rem;
+    color:var(--mist-dim);
+    margin:0;
+    max-width:34rem;
+  }
+  .entry__cta{
+    margin-top:0.3rem;
+    display:inline-flex;
+    align-items:center;
+    gap:0.4rem;
+    font-size:0.85rem;
+    color:var(--current);
+    font-weight:500;
+  }
+  .entry__cta svg{width:14px; height:14px;}
+
+  .entry--soon{
+    grid-template-columns:280px 1fr;
+    border-style:dashed;
+    background:transparent;
+  }
+  .entry--soon:hover{transform:none; background:transparent; border-color:var(--border);}
+  .entry--soon .entry__thumb{
+    display:flex; align-items:center; justify-content:center;
+    background:var(--night-2);
+  }
+  .entry--soon .entry__thumb-mark{
+    font-family:'Shippori Mincho',serif;
+    font-size:2.4rem;
+    color:var(--mist-dim);
+    opacity:0.5;
+  }
+  .entry--soon .entry__title{color:var(--mist-dim);}
+
+  @media (max-width:640px){
+    .entry, .entry--soon{grid-template-columns:1fr;}
+    .entry__thumb{aspect-ratio:16/9;}
+  }
+
+  /* ---------- channel ---------- */
+  .channel{
+    display:grid;
+    grid-template-columns:220px 1fr;
+    gap:2rem;
+    align-items:center;
+    background:var(--night-2);
+    border:1px solid var(--border);
+    border-radius:14px;
+    padding:2rem;
+  }
+  .channel__thumb{
+    width:100%;
+    aspect-ratio:1/1;
+    border-radius:12px;
+    overflow:hidden;
+    background:#000;
+  }
+  .channel__thumb img{width:100%; height:100%; object-fit:cover;}
+  .channel__eyebrow{
+    font-family:'JetBrains Mono',monospace;
+    font-size:0.72rem;
+    letter-spacing:0.18em;
+    color:var(--lantern);
+    margin:0 0 0.6rem;
+  }
+  .channel__title{
+    font-family:'Shippori Mincho',serif;
+    font-weight:700;
+    font-size:1.5rem;
+    margin:0 0 0.6rem;
+  }
+  .channel__desc{
+    color:var(--mist-dim);
+    font-size:0.92rem;
+    margin:0 0 1.2rem;
+    max-width:32rem;
+  }
+  .channel__link{
+    display:inline-flex;
+    align-items:center;
+    gap:0.5rem;
+    background:var(--lantern);
+    color:var(--night);
+    font-weight:700;
+    font-size:0.9rem;
+    padding:0.65rem 1.3rem;
+    border-radius:999px;
+    text-decoration:none;
+  }
+  .channel__link:hover{background:#ffbf63;}
+  @media (max-width:640px){
+    .channel{grid-template-columns:1fr; text-align:center;}
+    .channel__thumb{max-width:180px; margin:0 auto;}
+  }
+
+  /* ---------- footer ---------- */
+  footer{
+    padding:3rem 0 3.4rem;
+    border-top:1px solid var(--border);
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    flex-wrap:wrap;
+    gap:1rem;
+  }
+  .footer__mark{
+    font-family:'Shippori Mincho',serif;
+    font-size:1.1rem;
+    color:var(--mist-dim);
+  }
+  .footer__meta{
+    font-family:'JetBrains Mono',monospace;
+    font-size:0.72rem;
+    color:var(--mist-dim);
+    letter-spacing:0.04em;
+  }
+</style>
 </head>
 <body>
-  <h1>NAOGARE LAB</h1>
-  <p>Games, Music & Visual Experiments</p>
+
+<div class="hero">
+  <div class="wrap">
+    <p class="hero__eyebrow">GAMES · MUSIC · VISUAL EXPERIMENTS</p>
+    <h1 class="hero__title">流れゆく創作の<br><em>ラボ</em>、NAOGARE LAB</h1>
+    <p class="hero__lede">個人開発でつくる小さなゲームや実験を、思いついた順に流していく場所。今のところ3本のブラウザゲームと、音楽を投稿するYouTubeチャンネルがあります。</p>
+    <div class="hero__stats">
+      <div><div class="hero__stat-num">03</div><div class="hero__stat-label">公開中の作品</div></div>
+      <div><div class="hero__stat-num">01</div><div class="hero__stat-label">準備中</div></div>
+      <div><div class="hero__stat-num">2026</div><div class="hero__stat-label">始動年</div></div>
+    </div>
+  </div>
+  <svg class="current-divider" viewBox="0 0 1440 64" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M0,32 C 240,64 480,0 720,32 C 960,64 1200,0 1440,32 L1440,64 L0,64 Z" fill="#0A0F1A"></path>
+    <path d="M0,32 C 240,64 480,0 720,32 C 960,64 1200,0 1440,32" fill="none" stroke="#2E8B84" stroke-width="1.5" opacity="0.5"></path>
+  </svg>
+</div>
+
+<section id="catalog">
+  <div class="wrap">
+    <div class="section__head">
+      <h2 class="section__title"><span>RELEASE CATALOG</span>作品一覧</h2>
+      <p class="section__note">タップ / クリックでそれぞれのゲームへ</p>
+    </div>
+    <div class="catalog">
+
+      <a class="entry" href="/game/ikku-gozaru/">
+        <div class="entry__thumb">
+          <span class="entry__num">No.01</span>
+          <img src="assets/top/ikku.webp" alt="一句ござる！のタイトル画面" loading="lazy">
+        </div>
+        <div class="entry__body">
+          <p class="entry__meta">2026.08 · 和風対戦パズル</p>
+          <h3 class="entry__title">一句ござる！</h3>
+          <p class="entry__desc">言葉玉を並べて五・七・五を詠み、審査員の評とライバルの句を相手に句会で競う一句勝負。</p>
+          <span class="entry__cta">プレイする
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+          </span>
+        </div>
+      </a>
+
+      <a class="entry" href="/game/line4/">
+        <div class="entry__thumb">
+          <span class="entry__num">No.02</span>
+          <img src="assets/top/tasogare.webp" alt="黄昏のフォー・イン・ア・ロウのタイトル画面" loading="lazy">
+        </div>
+        <div class="entry__body">
+          <p class="entry__meta">2026.09 · 対戦パズル / オンライン対応</p>
+          <h3 class="entry__title">黄昏のフォー・イン・ア・ロウ</h3>
+          <p class="entry__desc">黄昏の塔を舞台にした四つ並べ対戦。CPU戦はもちろん、オンラインで友達と直接勝負もできる。</p>
+          <span class="entry__cta">プレイする
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+          </span>
+        </div>
+      </a>
+
+      <a class="entry" href="/game/fuwao/">
+        <div class="entry__thumb">
+          <span class="entry__num">No.03</span>
+          <img src="assets/top/fuwao.webp" alt="たすけあいヒーロー ふわおのタイトル画面" loading="lazy">
+        </div>
+        <div class="entry__body">
+          <p class="entry__meta">2026.09 · 2.5Dアクション</p>
+          <h3 class="entry__title">たすけあいヒーロー ふわお</h3>
+          <p class="entry__desc">ふわおと一緒に、困っている仲間を助けにいく2.5Dアクション。頼れば頼るほど心強い、助け合いの物語。</p>
+          <span class="entry__cta">プレイする
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+          </span>
+        </div>
+      </a>
+
+      <div class="entry entry--soon" aria-disabled="true">
+        <div class="entry__thumb"><span class="entry__thumb-mark">流</span></div>
+        <div class="entry__body">
+          <p class="entry__meta">COMING SOON</p>
+          <h3 class="entry__title">No.04 · 準備中</h3>
+          <p class="entry__desc">次の作品を仕込み中。完成したらここに並びます。</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<section id="channel">
+  <div class="wrap">
+    <div class="section__head">
+      <h2 class="section__title"><span>MUSIC</span>音楽もやってます</h2>
+    </div>
+    <div class="channel">
+      <div class="channel__thumb"><img src="assets/top/youtube.webp" alt="NM Labo YouTubeチャンネル" loading="lazy"></div>
+      <div>
+        <p class="channel__eyebrow">YOUTUBE</p>
+        <h3 class="channel__title">NM Labo</h3>
+        <p class="channel__desc">本業(趣味)の音楽ページはこちら。オリジナルやカバーなど。</p>
+        <a class="channel__link" href="https://www.youtube.com/@NMLabo" target="_blank" rel="noopener">
+          チャンネルを見る
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+        </a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem; width:100%;">
+    <div class="footer__mark">流 NAOGARE LAB</div>
+    <div class="footer__meta">© 2026 NAOGARE LAB — Games, Music &amp; Visual Experiments</div>
+  </div>
+</footer>
+
 </body>
 </html>
