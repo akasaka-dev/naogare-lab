@@ -293,7 +293,13 @@
   }
   function stopBgm(){ bgmAudio.pause(); bossBgmAudio.pause(); stopEndingBgm(); stopRankingBgm(); }
 
-  // 効果音はファイル未設置でもエラーにならないよう静かに失敗させる
+  // 効果音: Web Audio API で事前にデコードしたバッファを鳴らす。
+  // new Audio()を毎回生成して.play()する方式は、特にモバイルでは再生のたびに
+  // 取得・デコードのパイプラインが走り直しになり体感の遅延が大きい（ファイルを
+  // 短くしても改善しなかったのはこれが原因）。事前デコードしておけば再生開始は
+  // ほぼ即時になる。AudioContext / decodeAudioData 非対応の環境向けに
+  // new Audio() 方式へフォールバックする。ファイル未設置でもエラーにならないよう
+  // 静かに失敗させる。
   // sfx/help.mp3        … 町人を助けた時
   // sfx/hit.mp3         … ふわおがばい菌/ボスの弾に当たった時
   // sfx/person_hit.mp3  … 町人がボスの弾に当たって消える時
@@ -301,8 +307,45 @@
   // sfx/boss_clear.mp3  … 生き延びボーナス時
   // sfx/bakery_hit.mp3  … 家が欠ける時
   // sfx/game_over.mp3   … 力尽きた瞬間（昇天開始時）
+  const SFX_NAMES = ['help','hit','person_hit','boss_appear','boss_clear','bakery_hit','game_over'];
+  let audioCtx = null;
+  const sfxBuffers = {}; // name -> AudioBuffer（デコード完了後にセットされる）
+
+  function getAudioCtx(){
+    if(audioCtx) return audioCtx;
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+    catch(e){ audioCtx = null; }
+    return audioCtx;
+  }
+
+  function loadSfxBuffers(){
+    const ctx = getAudioCtx();
+    if(!ctx) return;
+    SFX_NAMES.forEach(name=>{
+      fetch('sfx/' + name + '.mp3')
+        .then(res => res.arrayBuffer())
+        .then(data => ctx.decodeAudioData(data))
+        .then(buf => { sfxBuffers[name] = buf; })
+        .catch(()=>{});
+    });
+  }
+  loadSfxBuffers();
+
   function playSfx(name){
     if(!sfxEnabled) return;
+    const ctx = getAudioCtx();
+    const buf = ctx && sfxBuffers[name];
+    if(ctx && buf){
+      if(ctx.state === 'suspended') ctx.resume().catch(()=>{});
+      try {
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        src.connect(ctx.destination);
+        src.start(0);
+        return;
+      } catch(e){}
+    }
+    // AudioContext未対応、またはまだデコードが終わっていない場合のフォールバック
     try {
       const a = new Audio('sfx/' + name + '.mp3');
       a.volume = 0.5;
@@ -1291,6 +1334,9 @@
     running=true;
     beginFuwaoSession();
     playBgm();
+    // iOS等はユーザー操作の中でAudioContextを再開しておかないと鳴らないことがある
+    const ctx = getAudioCtx();
+    if(ctx && ctx.state === 'suspended') ctx.resume().catch(()=>{});
   });
 
   resetGame();
