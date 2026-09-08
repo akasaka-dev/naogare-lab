@@ -1,6 +1,7 @@
 import { routeLine4 } from './line4-online.js';
 import { routeFuwao } from './fuwao-ranking.js';
 import { routeSnake } from './snake-ranking.js';
+import { routeLikes } from './likes.js';
 import { checkRateLimit } from './rate-limit.js';
 
 const MAX_HAIKU_LENGTH = 300;
@@ -225,6 +226,17 @@ export default {
     if (path.startsWith('/api/snake/')) {
       try {
         const res = await routeSnake(request, env, path);
+        if (res) return res;
+      } catch (e) {
+        return jsonResponse({ ok: false, error: 'server_error' }, 500);
+      }
+    }
+
+    // top-page catalog like counters — isolated in likes.js, own D1 table
+    // (game_likes), no per-visitor identity (dedup is client-side only).
+    if (path.startsWith('/api/likes')) {
+      try {
+        const res = await routeLikes(request, env, path);
         if (res) return res;
       } catch (e) {
         return jsonResponse({ ok: false, error: 'server_error' }, 500);

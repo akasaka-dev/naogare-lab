@@ -60,3 +60,11 @@ CREATE TABLE IF NOT EXISTS snake_scores (
 );
 
 CREATE INDEX IF NOT EXISTS idx_snake_scores_ranking ON snake_scores (score DESC, created_at ASC);
+
+-- Top-page catalog like counts, one row per game_id. No per-visitor identity
+-- is tracked server-side — "already liked" is enforced client-side via
+-- localStorage, so this is a simple popularity counter, not a vote system.
+CREATE TABLE IF NOT EXISTS game_likes (
+  game_id TEXT PRIMARY KEY,
+  count INTEGER NOT NULL DEFAULT 0
+);

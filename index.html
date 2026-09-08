@@ -228,6 +228,30 @@
     .entry__thumb{aspect-ratio:16/9;}
   }
 
+  /* ---------- like button ---------- */
+  .entry-row{display:flex; flex-direction:column; gap:0.5rem;}
+  .like-btn{
+    align-self:flex-end;
+    display:inline-flex;
+    align-items:center;
+    gap:0.4rem;
+    background:transparent;
+    border:1px solid var(--border);
+    border-radius:999px;
+    padding:0.35rem 0.75rem;
+    color:var(--mist-dim);
+    font-family:'JetBrains Mono',monospace;
+    font-size:0.78rem;
+    cursor:pointer;
+    transition:border-color .18s ease, color .18s ease;
+  }
+  .like-btn:hover{border-color:var(--current-dim); color:var(--mist);}
+  .like-btn:focus-visible{outline:2px solid var(--current); outline-offset:2px;}
+  .like-btn svg{width:15px; height:15px; fill:none; stroke:currentColor; stroke-width:2;}
+  .like-btn.is-liked{border-color:var(--lantern-dim); color:var(--lantern);}
+  .like-btn.is-liked svg{fill:var(--lantern); stroke:var(--lantern);}
+  .like-btn:disabled{cursor:default;}
+
   /* ---------- channel ---------- */
   .channel{
     display:grid;
@@ -341,65 +365,89 @@
     </div>
     <div class="catalog">
 
-      <a class="entry" href="/game/fuwao/">
-        <div class="entry__thumb">
-          <span class="entry__num">No.01</span>
-          <img src="assets/top/fuwao.webp" alt="たすけあいヒーロー ふわおのタイトル画面" loading="lazy">
-        </div>
-        <div class="entry__body">
-          <p class="entry__meta">2026.09.08 · 2.5Dアクション</p>
-          <h3 class="entry__title">たすけあいヒーロー ふわお</h3>
-          <p class="entry__desc">蒸しケーキヒーローふわおがばい菌から身を守りながら街の人々を飢餓から救うアクション。弾幕要素あり。ランキングあり</p>
-          <span class="entry__cta">プレイする
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
-          </span>
-        </div>
-      </a>
+      <div class="entry-row">
+        <a class="entry" href="/game/fuwao/">
+          <div class="entry__thumb">
+            <span class="entry__num">No.01</span>
+            <img src="assets/top/fuwao.webp" alt="たすけあいヒーロー ふわおのタイトル画面" loading="lazy">
+          </div>
+          <div class="entry__body">
+            <p class="entry__meta">2026.09.08 · 2.5Dアクション</p>
+            <h3 class="entry__title">たすけあいヒーロー ふわお</h3>
+            <p class="entry__desc">蒸しケーキヒーローふわおがばい菌から身を守りながら街の人々を飢餓から救うアクション。弾幕要素あり。ランキングあり</p>
+            <span class="entry__cta">プレイする
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+            </span>
+          </div>
+        </a>
+        <button class="like-btn" type="button" data-game="fuwao" aria-pressed="false" aria-label="たすけあいヒーロー ふわおにいいねする">
+          <svg viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+          <span class="like-btn__count">0</span>
+        </button>
+      </div>
 
-      <a class="entry" href="/game/line4/">
-        <div class="entry__thumb">
-          <span class="entry__num">No.02</span>
-          <img src="assets/top/tasogare.webp" alt="黄昏のフォー・イン・ア・ロウのタイトル画面" loading="lazy">
-        </div>
-        <div class="entry__body">
-          <p class="entry__meta">2026.09.08 · 対戦パズル / オンライン対応</p>
-          <h3 class="entry__title">黄昏のフォー・イン・ア・ロウ</h3>
-          <p class="entry__desc">黄昏の塔を舞台にした四つ並べ対戦。CPU戦はもちろん、オンラインで友達と直接勝負もできる。</p>
-          <span class="entry__cta">プレイする
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
-          </span>
-        </div>
-      </a>
+      <div class="entry-row">
+        <a class="entry" href="/game/line4/">
+          <div class="entry__thumb">
+            <span class="entry__num">No.02</span>
+            <img src="assets/top/tasogare.webp" alt="黄昏のフォー・イン・ア・ロウのタイトル画面" loading="lazy">
+          </div>
+          <div class="entry__body">
+            <p class="entry__meta">2026.09.08 · 対戦パズル / オンライン対応</p>
+            <h3 class="entry__title">黄昏のフォー・イン・ア・ロウ</h3>
+            <p class="entry__desc">黄昏の塔を舞台にした四つ並べ対戦。CPU戦はもちろん、オンラインで友達と直接勝負もできる。</p>
+            <span class="entry__cta">プレイする
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+            </span>
+          </div>
+        </a>
+        <button class="like-btn" type="button" data-game="line4" aria-pressed="false" aria-label="黄昏のフォー・イン・ア・ロウにいいねする">
+          <svg viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+          <span class="like-btn__count">0</span>
+        </button>
+      </div>
 
-      <a class="entry" href="/game/ikku-gozaru/">
-        <div class="entry__thumb">
-          <span class="entry__num">No.03</span>
-          <img src="assets/top/ikku.webp" alt="一句ござる！のタイトル画面" loading="lazy">
-        </div>
-        <div class="entry__body">
-          <p class="entry__meta">2026.09.08 · 和風対戦パズル</p>
-          <h3 class="entry__title">一句ござる！</h3>
-          <p class="entry__desc">言葉玉を並べて五・七・五を詠み、審査員の評とライバルの句を相手に句会で競う一句勝負。</p>
-          <span class="entry__cta">プレイする
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
-          </span>
-        </div>
-      </a>
+      <div class="entry-row">
+        <a class="entry" href="/game/ikku-gozaru/">
+          <div class="entry__thumb">
+            <span class="entry__num">No.03</span>
+            <img src="assets/top/ikku.webp" alt="一句ござる！のタイトル画面" loading="lazy">
+          </div>
+          <div class="entry__body">
+            <p class="entry__meta">2026.09.08 · 和風対戦パズル</p>
+            <h3 class="entry__title">一句ござる！</h3>
+            <p class="entry__desc">言葉玉を並べて五・七・五を詠み、審査員の評とライバルの句を相手に句会で競う一句勝負。</p>
+            <span class="entry__cta">プレイする
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+            </span>
+          </div>
+        </a>
+        <button class="like-btn" type="button" data-game="ikku-gozaru" aria-pressed="false" aria-label="一句ござる！にいいねする">
+          <svg viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+          <span class="like-btn__count">0</span>
+        </button>
+      </div>
 
-      <a class="entry" href="/game/snake/">
-        <div class="entry__thumb">
-          <span class="entry__num">No.04</span>
-          <img src="assets/top/lumensnake.webp" alt="LUMEN SNAKE - CYBERのタイトル画面" loading="lazy">
-        </div>
-        <div class="entry__body">
-          <p class="entry__meta">2026.09.08 · サイバーネオン・スネーク</p>
-          <h3 class="entry__title">LUMEN SNAKE - CYBER</h3>
-          <p class="entry__desc">光の軌跡を伸ばして進む、ネオン輝くサイバー空間のスネークゲーム。矢印キー/WASD、スマホはタッチのジョイスティックで操作、ランキングあり。</p>
-          <span class="entry__cta">プレイする
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
-          </span>
-        </div>
-      </a>
+      <div class="entry-row">
+        <a class="entry" href="/game/snake/">
+          <div class="entry__thumb">
+            <span class="entry__num">No.04</span>
+            <img src="assets/top/lumensnake.webp" alt="LUMEN SNAKE - CYBERのタイトル画面" loading="lazy">
+          </div>
+          <div class="entry__body">
+            <p class="entry__meta">2026.09.08 · サイバーネオン・スネーク</p>
+            <h3 class="entry__title">LUMEN SNAKE - CYBER</h3>
+            <p class="entry__desc">光の軌跡を伸ばして進む、ネオン輝くサイバー空間のスネークゲーム。矢印キー/WASD、スマホはタッチのジョイスティックで操作、ランキングあり。</p>
+            <span class="entry__cta">プレイする
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+            </span>
+          </div>
+        </a>
+        <button class="like-btn" type="button" data-game="snake" aria-pressed="false" aria-label="LUMEN SNAKE - CYBERにいいねする">
+          <svg viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+          <span class="like-btn__count">0</span>
+        </button>
+      </div>
 
       <div class="entry entry--soon" aria-disabled="true">
         <div class="entry__thumb"></div>
@@ -442,5 +490,55 @@
   </div>
 </footer>
 
+
+<script>
+(function(){
+  var LIKED_KEY_PREFIX = 'naogare_liked_';
+  var buttons = document.querySelectorAll('.like-btn');
+  if(!buttons.length) return;
+
+  function setLiked(btn, liked){
+    btn.classList.toggle('is-liked', liked);
+    btn.disabled = liked;
+    btn.setAttribute('aria-pressed', liked ? 'true' : 'false');
+  }
+
+  buttons.forEach(function(btn){
+    var liked = false;
+    try { liked = localStorage.getItem(LIKED_KEY_PREFIX + btn.dataset.game) === '1'; } catch(e){}
+    setLiked(btn, liked);
+  });
+
+  fetch('/api/likes').then(function(res){ return res.json(); }).then(function(data){
+    if(!data || !data.ok) return;
+    buttons.forEach(function(btn){
+      var count = data.counts[btn.dataset.game];
+      var countEl = btn.querySelector('.like-btn__count');
+      if(countEl && typeof count === 'number') countEl.textContent = count;
+    });
+  }).catch(function(){});
+
+  buttons.forEach(function(btn){
+    btn.addEventListener('click', function(){
+      if(btn.disabled) return;
+      var gameId = btn.dataset.game;
+      btn.disabled = true;
+      fetch('/api/likes/' + encodeURIComponent(gameId), { method: 'POST' })
+        .then(function(res){ return res.json(); })
+        .then(function(data){
+          if(data && data.ok){
+            var countEl = btn.querySelector('.like-btn__count');
+            if(countEl) countEl.textContent = data.count;
+            setLiked(btn, true);
+            try { localStorage.setItem(LIKED_KEY_PREFIX + gameId, '1'); } catch(e){}
+          } else {
+            btn.disabled = false;
+          }
+        })
+        .catch(function(){ btn.disabled = false; });
+    });
+  });
+})();
+</script>
 </body>
 </html>

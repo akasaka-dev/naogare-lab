@@ -1,0 +1,4 @@
+CREATE TABLE IF NOT EXISTS game_likes (
+  game_id TEXT PRIMARY KEY,
+  count INTEGER NOT NULL DEFAULT 0
+);
