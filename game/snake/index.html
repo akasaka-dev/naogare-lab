@@ -110,9 +110,7 @@
   <div id="hint">壁(外枠)と自分の軌跡にはぶつからないように</div>
 </div>
 
-<audio id="bgmAudio" loop preload="auto">
-  <source src="bgm/cyber.mp3" type="audio/mpeg">
-</audio>
+<audio id="bgmAudio" loop preload="auto"></audio>
 
 <script>
 (function(){
@@ -130,9 +128,12 @@
   const muteBtn = document.getElementById('muteBtn');
   const bgmAudio = document.getElementById('bgmAudio');
   bgmAudio.volume = 0.55;
+  const BGM_TRACKS = ['bgm/cyber1.mp3', 'bgm/cyber2.mp3'];
 
   let muted=false;
   function startBgm(){
+    const track = BGM_TRACKS[Math.floor(Math.random()*BGM_TRACKS.length)];
+    if(!bgmAudio.src.endsWith(track)) bgmAudio.src = track;
     bgmAudio.currentTime = 0;
     bgmAudio.play().catch(()=>{});
   }
