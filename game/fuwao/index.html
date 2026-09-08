@@ -138,9 +138,6 @@
 <audio id="bossBgmAudio" loop preload="auto">
   <source src="bgm/boss.mp3" type="audio/mpeg">
 </audio>
-<audio id="rankingBgmAudio" loop preload="auto">
-  <source src="bgm/ranking.mp3" type="audio/mpeg">
-</audio>
 
 <script src="lib/three.min.js"></script>
 <script>
@@ -182,8 +179,6 @@
   bgmAudio.volume = 0.5;
   const bossBgmAudio = document.getElementById('bossBgmAudio');
   bossBgmAudio.volume = 0.5;
-  const rankingBgmAudio = document.getElementById('rankingBgmAudio');
-  rankingBgmAudio.volume = 0.5;
   const ENDING_BGM_FILES = ['bgm/ending1.mp3', 'bgm/ending2.mp3']; // ゲームオーバー画面でランダム再生
   let currentEndingAudio = null; // 効果音と同じく、再生のたびに新しいAudioを生成する（file://での使い回しによる不具合を避けるため）
 
@@ -269,15 +264,6 @@
     bossBgmAudio.currentTime = 0;
     bossBgmAudio.play().catch(()=>{});
   }
-  function playRankingBgm(){
-    bgmAudio.pause();
-    bossBgmAudio.pause();
-    stopEndingBgm();
-    if(!bgmEnabled) return;
-    rankingBgmAudio.currentTime = 0;
-    rankingBgmAudio.play().catch(()=>{});
-  }
-  function stopRankingBgm(){ rankingBgmAudio.pause(); }
   function playEndingBgm(){
     bgmAudio.pause();
     bossBgmAudio.pause();
@@ -291,7 +277,7 @@
     a.play().catch(()=>{});
     currentEndingAudio = a;
   }
-  function stopBgm(){ bgmAudio.pause(); bossBgmAudio.pause(); stopEndingBgm(); stopRankingBgm(); }
+  function stopBgm(){ bgmAudio.pause(); bossBgmAudio.pause(); stopEndingBgm(); }
 
   // 効果音: Web Audio API で事前にデコードしたバッファを鳴らす。
   // new Audio()を毎回生成して.play()する方式は、特にモバイルでは再生のたびに
@@ -1052,6 +1038,12 @@
   function doGameOver(){
     running=false;
     playEndingBgm();
+    renderGameOverScreen();
+  }
+
+  // ランキング画面から「もどる」で結果画面へ戻る時に呼ぶ。BGM(エンディング曲)は
+  // 一度鳴らしたら止めずに継続させたいので、ここでは触らない（doGameOver()と分離）。
+  function renderGameOverScreen(){
     const finalScore = Math.floor(score);
     overlay.style.display='flex';
     overlay.innerHTML = `
@@ -1072,7 +1064,7 @@
       beginFuwaoSession();
       playBgm();
     });
-    document.getElementById('rankingBtn').addEventListener('click', showRankingView);
+    document.getElementById('rankingBtn').addEventListener('click', renderRankingScreen);
     updateHud();
 
     if(fuwaoRankSubmitted){
@@ -1128,17 +1120,15 @@
     });
   }
 
-  function showRankingView(){
-    playRankingBgm();
+  // ゲームオーバー画面とランキング画面の行き来ではBGM(エンディング曲)を止めずに
+  // 継続再生する（タイトルに戻る時だけオフになる想定）。
+  function renderRankingScreen(){
     overlay.innerHTML = `
       <h1>🏆 ランキング</h1>
       <div id="rankList"><p id="rankEmpty">よみこみちゅう…</p></div>
       <button class="mainbtn" id="rankBackBtn">もどる</button>
     `;
-    document.getElementById('rankBackBtn').addEventListener('click', ()=>{
-      stopRankingBgm();
-      doGameOver();
-    });
+    document.getElementById('rankBackBtn').addEventListener('click', renderGameOverScreen);
     fetchFuwaoRanking().then(results=>{
       const listEl = document.getElementById('rankList');
       if(!listEl) return; // 戻るが先に押された場合
