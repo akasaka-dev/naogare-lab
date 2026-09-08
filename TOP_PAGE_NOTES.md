@@ -7,15 +7,34 @@
 
 - リポジトリ: https://github.com/akasaka-dev/naogare-lab
 - Cloudflare Workers + Static Assets + D1 でホスティング
-- トップページ本体: リポジトリ直下の `index.html`
+- トップページ本体: リポジトリ直下の `index.html`（日本語版）と `en/index.html`（英語版）
 - トップページ用画像: `assets/top/*.webp`
 
 **このトップページには開発用の別コピーはありません。**
-`index.html` を直接編集して commit / push するだけで完結します。
+`index.html` / `en/index.html` を直接編集して commit / push するだけで完結します。
 
 （各ゲーム `game/<name>/` は `ClaudePj/game/<name>` に開発用コピーを持ち、そちらを
 編集してから `naogare-lab/game/<name>` へコピーする2段構えですが、トップページは
 このリポジトリが唯一の場所です）
+
+## 日本語版・英語版の同期
+
+`index.html`（`/`）と `en/index.html`（`/en/`）は独立したファイルで、ビルド時に
+自動生成されるものではありません。**カタログのゲーム内容・並び順・日付・
+`.hero__stats` の数字・フッターなど、中身に関わる変更は必ず両方のファイルに
+同じ内容を反映すること。** 文言（説明文・見出し）は英語版では英訳し、ゲームの
+タイトルも読めるよう英訳したものを使っている（例: 「一句ござる！」→
+"Ikku Gozaru! – Haiku Duel"、「たすけあいヒーロー ふわお」→ "Fuwao: Mutual Aid
+Hero"）。実際にプレイする `/game/<name>/` のゲーム本体は日本語版しかないので、
+英語版のカタログ `.entry__meta` には `· Japanese UI` を付けて期待値のズレを防いで
+いる。
+
+`en/index.html` は `/en/` 配下にあるため、画像パスは `assets/top/...` のような
+相対パスではなく `/assets/top/...` のようにルート相対で書くこと（日本語版は
+リポジトリ直下にあるので相対パスのままでよい）。`<head>` には両ファイルとも
+`hreflang="ja"` / `hreflang="en"` / `hreflang="x-default"` の `<link rel="alternate">`
+を置いてある。ヘッダー右上の「EN」/「日本語」リンク（`.lang-switch`）で相互に
+行き来できる。
 
 ## デプロイ
 
@@ -25,6 +44,10 @@
 - 本番URL: https://naogare-lab.naogare.workers.dev/
 
 ## 新しいゲームをカタログに追加する手順
+
+**この手順は `index.html` と `en/index.html` の両方に対して行うこと**
+（英語版は説明文・タイトルを英訳し、`.entry__meta` に `· Japanese UI` を付ける。
+画像パスはルート相対 `/assets/top/...` にする）。
 
 カタログの**表示順は新着順**（一番新しいゲームが一番上）ですが、`No.0X` は
 「追加された順」に割り振られる固定の通し番号で、一度付いたら変わりません
