@@ -336,6 +336,24 @@
     color:var(--mist-dim);
     opacity:0.7;
   }
+  .footer__right{
+    display:flex;
+    align-items:center;
+    gap:1rem;
+    flex-wrap:wrap;
+  }
+  .footer__social{
+    display:flex;
+    align-items:center;
+    gap:0.85rem;
+  }
+  .footer__social a{
+    display:inline-flex;
+    color:var(--mist-dim);
+    transition:color .18s ease;
+  }
+  .footer__social a:hover{color:var(--current);}
+  .footer__social svg{width:17px; height:17px;}
 </style>
 </head>
 <body>
@@ -485,7 +503,17 @@
 <footer>
   <div class="wrap" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem; width:100%;">
     <div class="footer__mark">流 NAOGARE LAB</div>
-    <div class="footer__meta">© 2026 NAOGARE LAB — Games, Music &amp; Visual Experiments</div>
+    <div class="footer__right">
+      <div class="footer__meta">© 2026 NAOGARE LAB — Games, Music &amp; Visual Experiments</div>
+      <div class="footer__social">
+        <a href="https://x.com/neoharp" target="_blank" rel="noopener" aria-label="X（旧Twitter）">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+        </a>
+        <a href="https://www.instagram.com/neoharp/" target="_blank" rel="noopener" aria-label="Instagram">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="2" width="20" height="20" rx="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><circle cx="17.5" cy="6.5" r="0.9" fill="currentColor" stroke="none"/></svg>
+        </a>
+      </div>
+    </div>
     <div class="footer__notice">※素材等は透かしが入っている可能性があります。無断転載・二次利用禁止</div>
   </div>
 </footer>
