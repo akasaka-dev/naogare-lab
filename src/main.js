@@ -13,10 +13,11 @@ import { Clouds } from './Clouds.js';
 import { LyricParticles } from './LyricParticles.js';
 import { HeadParticleTrail } from './HeadParticleTrail.js';
 import { TrailLyrics } from './TrailLyrics.js';
+import { TrailLyricsManager } from './TrailLyricsManager.js';
 import { AutoDirector } from './AutoDirector.js';
 import { LyricTimeline } from './LyricTimeline.js';
 import { AudioController } from './AudioController.js';
-import { FOREVERMORE_EVENTS } from './ForeverMoreLyrics.js';
+import { getChoreography, baseTrailLyricsConfig, HOLD_TRAIL, HOLD_HERO } from './ForeverMoreLyrics.js';
 
 // ---------------------------------------------------------------------------
 //  Boot
@@ -189,6 +190,17 @@ const headParticleFollowCam = { look: new THREE.Vector3(), inited: false };
 const trailLyricsEnabled = headParticlesEnabled && new URLSearchParams(window.location.search).get('trailLyrics') === '1';
 const trailLyrics = trailLyricsEnabled ? new TrailLyrics(scene) : null;
 let trailLyricsGuiState = null;
+// TrailLyrics Multi-Instance V1: this standalone `trailLyrics` instance is
+// ONLY the auto-looping "Forever More" demo used when ?trailLyrics=1 is set
+// WITHOUT ?lyricTimeline=1. Once Lyric Timeline mode is enabled (below), a
+// separate TrailLyricsManager owns its own independent TrailLyrics
+// instances (one per concurrently-active phrase) — this standalone
+// instance is simply left permanently disabled/dormant rather than driven,
+// so it neither renders nor competes with the timeline's real phrases. Its
+// GUI folder and OCEAN.trailLyrics/setTrailLyricTime debug API (below)
+// stay bound to it exactly as before for the demo-only case; see
+// OCEAN.trailLyricsManager/activeLyricPhrases for the timeline's real
+// active phrase set.
 
 // ---------------------------------------------------------------------------
 //  Auto Director V1 — opt-in via ?autoDirector=1, only ever active alongside
@@ -216,23 +228,43 @@ let autoDirectorGuiState = null;
 //  absent, TrailLyrics keeps its existing standalone auto-looping "Forever
 //  More" behavior completely unchanged (see TrailLyrics.loop).
 //
-//  Real Timing JSON Integration V1: event vocal timing comes from
-//  saikai-2026-02-22EngLast-lyrics-timing.json (manually measured against
-//  the real WAV, in the SAME absolute time domain as audio.currentTime — no
-//  offset/calibration layer). It's fetched once below and handed to
-//  LyricTimeline.setTimingData(), which resolves each event's
-//  `sourceCueIndex` (see ForeverMoreLyrics.js) against it.
+//  MusicLyricsTimeMark timing JSON: event vocal timing comes from
+//  saikai-2026-02-22EngLast-lyrics-timing.json (authored/measured against
+//  the real WAV via the MusicLyricsTimeMark tool, in the SAME absolute time
+//  domain as audio.currentTime — no offset/calibration layer). It's fetched
+//  once below and handed to LyricTimeline.setTimingData(), which groups and
+//  resolves the cues itself — see LyricTimeline.js's class comment.
+//
+//  MusicLyricsTimeMark V2 Integration: MusicLyricsTimeMark's exported JSON
+//  is now the sole source of truth for lyric text/time/endTime/group.
+//  LyricTimeline builds its own phrase list at setTimingData() time by
+//  grouping adjacent same-`group` cues (see LyricTimeline.js's class
+//  comment) — ForeverMoreLyrics.js only supplies the `getChoreography()`
+//  lookup (designType/preRoll/camera/leaveBehind per source cue index) and
+//  the base trailLyricsConfig builder; it no longer hand-authors which
+//  cues get grouped into a phrase.
 // ---------------------------------------------------------------------------
 const lyricTimelineEnabled = trailLyricsEnabled && new URLSearchParams(window.location.search).get('lyricTimeline') === '1';
 const LYRIC_TIMING_JSON_URL = './data/saikai-2026-02-22EngLast-lyrics-timing.json';
+// TrailLyrics Multi-Instance V1: a dedicated manager owning a SET of
+// independent TrailLyrics instances (one per concurrently-active phrase),
+// entirely separate from the standalone `trailLyrics` demo instance above
+// — see its own comment. Permanently disable that standalone instance the
+// moment the timeline takes over, so it never auto-loops in the
+// background competing with the timeline's real phrases.
+const trailLyricsManager = lyricTimelineEnabled ? new TrailLyricsManager(scene) : null;
+if (lyricTimelineEnabled && trailLyrics) trailLyrics.enabled = false;
 const lyricTimeline = lyricTimelineEnabled
-  ? new LyricTimeline(trailLyrics, FOREVERMORE_EVENTS, {
-      // HERO events may request a stronger camera choice (spec 10); TRAIL
-      // events deliberately do nothing here and rely entirely on Auto
-      // Director's own existing lyric-safe restriction (trailLyrics.getPhase()
-      // gating during ASSEMBLE/HOLD) — never an aggressive override.
+  ? new LyricTimeline(trailLyricsManager, {
+      getChoreography,
+      baseTrailLyricsConfig,
+      legacyHoldDefaults: { trail: HOLD_TRAIL, hero: HOLD_HERO },
+      // HERO events may request a stronger camera choice; TRAIL events
+      // deliberately do nothing here and rely entirely on Auto Director's
+      // own existing lyric-safe restriction (trailLyrics.getPhase() gating
+      // during ASSEMBLE/HOLD) — never an aggressive override.
       onEventStart: (event) => {
-        if (event.type === 'hero' && autoDirector && autoDirector.enabled) {
+        if (event.runtimeType === 'hero' && autoDirector && autoDirector.enabled) {
           autoDirector.setMode(event.camera, 'cut', camera.position, controls.target);
         }
       },
@@ -249,8 +281,67 @@ if (lyricTimelineEnabled) {
         return;
       }
       foreverMoreTimingData = data;
+      // MusicLyricsTimeMark V2 Integration (spec 17) — validate the raw
+      // JSON itself before ever grouping/scheduling it.
+      const rawJsonSnapshot = JSON.stringify(data.lyrics); // to later confirm grouping never mutates the source (spec 17)
+      if (!Array.isArray(data.lyrics) || data.lyrics.length !== 44) {
+        console.error('[LyricTimeline] expected exactly 44 raw source cues, found', data.lyrics ? data.lyrics.length : 'none');
+      }
+      const seenIndices = new Set();
+      for (const c of data.lyrics || []) {
+        if (seenIndices.has(c.index)) console.error('[LyricTimeline] duplicate raw cue index', c.index);
+        seenIndices.add(c.index);
+        if (typeof c.time !== 'number' || !Number.isFinite(c.time) || c.time < 0) {
+          console.error('[LyricTimeline] cue', c.index, 'has an invalid time:', c.time);
+        }
+        if (c.endTime !== undefined && c.endTime !== null) {
+          if (typeof c.endTime !== 'number' || !Number.isFinite(c.endTime)) console.error('[LyricTimeline] cue', c.index, 'has a non-finite endTime:', c.endTime);
+          else if (c.endTime <= c.time) console.error('[LyricTimeline] cue', c.index, 'endTime (' + c.endTime + ') is not > time (' + c.time + ')');
+        }
+        if (c.group !== undefined && c.group !== null && typeof c.group !== 'number' && typeof c.group !== 'string') {
+          console.error('[LyricTimeline] cue', c.index, 'has an invalid group id:', c.group);
+        }
+      }
+
       lyricTimeline.setTimingData(data.lyrics);
       if (lyricTimelineGuiState) lyricTimelineGuiState.loadedCues = data.lyrics.length;
+
+      // Grouping/scheduling must never mutate the source array (spec 17).
+      if (JSON.stringify(data.lyrics) !== rawJsonSnapshot) {
+        console.error('[LyricTimeline] setTimingData() mutated the raw source cues array — this must never happen.');
+      }
+      // No raw cue may disappear during grouping (spec 17): every one of
+      // the 44 indices must appear in exactly one scheduled OR disabled
+      // debug entry's sourceCueIndices.
+      const fullScore = lyricTimeline.resolveDesignScore(data.lyrics);
+      const coveredIndices = new Set();
+      for (const p of fullScore) for (const i of p.sourceCueIndices) coveredIndices.add(i);
+      for (const c of data.lyrics || []) {
+        if (!coveredIndices.has(c.index)) console.error('[LyricTimeline] raw cue', c.index, 'disappeared during grouping/resolution.');
+      }
+      // This test file's known group 1 must resolve to exactly cues [18,19].
+      const group1Phrase = fullScore.find((p) => p.group === 1);
+      if (group1Phrase && (group1Phrase.sourceCueIndices.length !== 2 || group1Phrase.sourceCueIndices[0] !== 18 || group1Phrase.sourceCueIndices[1] !== 19)) {
+        console.error('[LyricTimeline] group 1 resolved to', group1Phrase.sourceCueIndices, 'instead of the expected [18, 19].');
+      }
+
+      // Lyric Phrase Timeline invariants — setTimingData()/_resolveEndTimes()
+      // already fail visibly per-phrase (console.error/warn) for unresolved
+      // cues, invalid endTimes, and overlap; this checks the remaining
+      // structural invariants across the final scheduled list.
+      if (lyricTimeline.timingErrors.length > 0) {
+        console.error('[LyricTimeline] phrase score has unresolved phrases:', lyricTimeline.timingErrors);
+      }
+      for (let i = 0; i < lyricTimeline.events.length; i++) {
+        const e = lyricTimeline.events[i];
+        if (i > 0 && e.triggerTime < lyricTimeline.events[i - 1].triggerTime) {
+          console.error('[LyricTimeline] scheduled phrases are NOT sorted by triggerTime at', lyricTimeline.events[i - 1].id, '->', e.id);
+        }
+        if (!Number.isFinite(e.triggerTime)) console.error('[LyricTimeline] phrase "' + e.id + '": triggerTime is not finite');
+        if (!Number.isFinite(e.endTime)) console.error('[LyricTimeline] phrase "' + e.id + '": endTime is not finite');
+        if (e.endTime <= e.firstVocalTime) console.error('[LyricTimeline] phrase "' + e.id + '": endTime does not exceed its own firstVocalTime');
+        if (e.endTime <= e.triggerTime) console.error('[LyricTimeline] phrase "' + e.id + '": endTime does not exceed triggerTime');
+      }
     })
     .catch((err) => console.error('[LyricTimeline] failed to load timing JSON:', LYRIC_TIMING_JSON_URL, err));
 }
@@ -904,9 +995,11 @@ if (lyricTimelineEnabled) {
   };
   const fLyricTimeline = gui.addFolder('Lyric Timeline');
   fLyricTimeline.add(lyricTimelineGuiState, 'enabled').name('Enabled').onChange((v) => { lyricTimeline.enabled = v; });
-  // Range covers Event 4's real ~38-41s window (see FOREVERMORE REAL TIMING
-  // JSON INTEGRATION V1 report for the measured cue times).
-  fLyricTimeline.add(lyricTimelineGuiState, 'time', 0, 45, 0.05).name('Time').listen().onChange((v) => lyricTimeline.setTime(v));
+  // Full Song Lyric Events V1 (spec 21): range widened to cover the whole
+  // ~311s track (was 0-45, sized only for the original 4-event prototype)
+  // so manual review can seek anywhere in the full song, including the
+  // wordless 60s finale tail after the last cue.
+  fLyricTimeline.add(lyricTimelineGuiState, 'time', 0, 315, 0.05).name('Time').listen().onChange((v) => lyricTimeline.setTime(v));
   fLyricTimeline.add(lyricTimelineGuiState, 'paused').name('Pause').onChange((v) => lyricTimeline.setPaused(v));
   fLyricTimeline.add(lyricTimelineGuiState, 'speed', 0.1, 3.0, 0.05).name('Playback Speed').onChange((v) => { lyricTimeline.speed = v; });
   fLyricTimeline.add(lyricTimelineGuiState, 'currentEvent').name('Current Event').listen().disable();
@@ -938,7 +1031,9 @@ if (audioEnabled) {
     if (v) audioController.play(); else audioController.pause();
   });
   fAudio.add({ restart: () => audioController.restart() }, 'restart').name('Restart');
-  fAudio.add(audioGuiState, 'time', 0, 300, 0.1).name('Time').listen().onChange((v) => audioController.setTime(v));
+  // Widened to cover the full ~311.07s track (spec 21) — was 0-300, just
+  // short of the real duration.
+  fAudio.add(audioGuiState, 'time', 0, 315, 0.1).name('Time').listen().onChange((v) => audioController.setTime(v));
   fAudio.add(audioGuiState, 'volume', 0, 1, 0.01).name('Volume').onChange((v) => { audioController.setVolume(v); });
   fAudio.add(audioGuiState, 'playbackRate', 0.5, 1.5, 0.01).name('Playback Rate').onChange((v) => { audioController.setPlaybackRate(v); });
   fAudio.add(audioGuiState, 'syncLyrics').name('Sync Lyrics').listen().onChange((v) => { audioGuiState.syncLyrics = v; });
@@ -1163,7 +1258,16 @@ function animate() {
   // billboard reads the live camera orientation this frame (same ordering
   // rule the existing follow camera already relies on above).
   if (autoDirector) {
-    autoDirector.update(dt, headParticleTrail, trailLyrics, camera, ocean, time);
+    // TrailLyrics Multi-Instance V1: camera lyric-safety follows whichever
+    // phrase is newest/currently forming-or-being-read (see
+    // TrailLyricsManager.getNewestActivePhrase()) rather than every older
+    // phrase still lingering behind as a leave-behind object — this is the
+    // ONLY change AutoDirector.js's own lyric-safety gating needed; it
+    // already just reads .getPhase() off whatever single object is passed
+    // here. Falls back to the standalone demo `trailLyrics` instance when
+    // the timeline isn't running (unchanged from before).
+    const lyricSafetySource = trailLyricsManager ? trailLyricsManager.getNewestActivePhrase() : trailLyrics;
+    autoDirector.update(dt, headParticleTrail, lyricSafetySource, camera, ocean, time);
     if (autoDirectorGuiState) autoDirectorGuiState.cameraMode = autoDirector.cameraMode;
     // Keep OrbitControls' target roughly in sync (even though controls are
     // disabled while active) so re-enabling manual orbit control later
@@ -1198,8 +1302,17 @@ function animate() {
     else lyricTimeline.update(dt);
     if (lyricTimelineGuiState) {
       lyricTimelineGuiState.time = lyricTimeline.time;
-      const active = lyricTimeline.getActiveEvent();
-      lyricTimelineGuiState.currentEvent = active ? `${active.id} (${active.type}) — ${trailLyrics.phase}` : '(none yet)';
+      // TrailLyrics Multi-Instance V1: report the full active COUNT plus
+      // the newest phrase's own phase (read from its own TrailLyrics
+      // instance via the manager) — a single-line readout can't show every
+      // coexisting phrase, but should at least reflect that more than one
+      // may be alive right now rather than implying only one ever is.
+      const activeEvents = lyricTimeline.getActiveEvents();
+      const newest = activeEvents.length ? activeEvents[activeEvents.length - 1] : null;
+      const newestInstance = trailLyricsManager ? trailLyricsManager.getNewestActivePhrase() : null;
+      lyricTimelineGuiState.currentEvent = newest
+        ? `${newest.id} (${newest.designType}/${newest.runtimeType}) — ${newestInstance ? newestInstance.getPhase() : '?'}${activeEvents.length > 1 ? ` [+${activeEvents.length - 1} more active]` : ''}`
+        : '(none yet)';
     }
   }
   // Runs AFTER the Head Particle Trail block above so camera.quaternion
@@ -1208,6 +1321,22 @@ function animate() {
   if (trailLyrics) {
     trailLyrics.update(dt, time, headParticleTrail, camera);
     if (trailLyricsGuiState) trailLyricsGuiState.localTime = trailLyrics.localTime % trailLyrics.getCycleLength();
+  }
+  // TrailLyrics Multi-Instance V1 — advances every currently-active phrase
+  // instance the manager owns (spawned/despawned by the Lyric Timeline
+  // block above this same frame). Same ordering rationale as the
+  // standalone `trailLyrics.update()` call above: runs after Head Particle
+  // Trail/Auto Director so camera.quaternion is already this frame's final
+  // value when a brand-new instance's own formation reads it.
+  if (trailLyricsManager) {
+    // Reading-Order Layout + Particle Dissolve V2: the manager's dissolve
+    // system needs the SAME absolute clock every phrase's own
+    // triggerTime/endTime already live in (LyricTimeline's), not a
+    // separately-accumulating clock, so a raw seek reconstructs dissolve
+    // state exactly rather than drifting relative to it. Passed as
+    // `undefined` (harmless no-op inside update()) when the timeline isn't
+    // enabled at all.
+    trailLyricsManager.update(dt, headParticleTrail, camera, lyricTimeline ? lyricTimeline.time : undefined);
   }
 
   ocean.uniforms.uCameraUnderwater.value = underwater ? 1 : 0;
@@ -1339,14 +1468,46 @@ if (lyricTimelineEnabled) {
     lyricTimeline.setPaused(p);
     if (lyricTimelineGuiState) lyricTimelineGuiState.paused = lyricTimeline.paused;
   };
-  // Real Timing JSON Integration V1 (spec 11) — read-only inspection: the raw
-  // fetched timing JSON (once loaded — live getter, not a stale snapshot,
-  // since the fetch above resolves asynchronously) and a live getter for the
-  // four compiled events' resolved id/sourceCueIndex/sourceText/text/
-  // audioVocalTime/preRoll/triggerTime. No mutable internals exposed here —
-  // use setLyricTimelineTime()/setLyricTimelinePaused() above for control.
+  // Read-only inspection: the raw fetched timing JSON (once loaded — live
+  // getter, not a stale snapshot, since the fetch above resolves
+  // asynchronously). `foreverMoreTiming.lyrics` is the original 44 SOURCE
+  // CUES, unchanged — see lyricPhrases below for the separate VISUAL PHRASE
+  // score built on top of them (spec 18: "distinguish SOURCE CUES from
+  // VISUAL PHRASES").
   Object.defineProperty(window.OCEAN, 'foreverMoreTiming', { configurable: true, get: () => foreverMoreTimingData });
-  Object.defineProperty(window.OCEAN, 'lyricEvents', { configurable: true, get: () => lyricTimeline.getDebugEvents() });
+  Object.defineProperty(window.OCEAN, 'lyricSourceCues', { configurable: true, get: () => (foreverMoreTimingData ? foreverMoreTimingData.lyrics : []) });
+  // MusicLyricsTimeMark V2 Integration (spec 16) — the COMPLETE resolved
+  // phrase score (including disabled TITLE/CREDIT cues, as null-timing
+  // singleton entries), each with id/sourceCueIndices/sourceTexts/
+  // sourceTimes/sourceEndTimes/displayLines/group/designType/runtimeType/
+  // firstVocalTime/lastVocalTime/authoredEndTime/preRoll/triggerTime/
+  // endTime/duration/camera/leaveBehind. A live getter (recomputed on every
+  // access, not cached) so it's always accurate once the timing JSON has
+  // loaded, and harmless (empty) before it has. No mutable renderer
+  // internals exposed — this is a fresh plain-object array every call, not
+  // a reference into TrailLyrics/LyricTimeline's own state.
+  Object.defineProperty(window.OCEAN, 'lyricPhrases', {
+    configurable: true,
+    get: () => lyricTimeline.resolveDesignScore(foreverMoreTimingData ? foreverMoreTimingData.lyrics : []),
+  });
+  // TrailLyrics Multi-Instance V1 — the manager itself (spawn/despawn/
+  // getActivePhrases()/getNewestActivePhrase(), see TrailLyricsManager.js),
+  // and a live getter for exactly which phrases are coexisting RIGHT NOW
+  // (as opposed to lyricPhrases' full design score). Both read-only in the
+  // sense that mutating what they return doesn't affect the running
+  // scene — actual control stays through setLyricTimelineTime()/
+  // setLyricTimelinePaused() above.
+  window.OCEAN.trailLyricsManager = trailLyricsManager;
+  Object.defineProperty(window.OCEAN, 'activeLyricPhrases', { configurable: true, get: () => trailLyricsManager.getActivePhrases() });
+  // Testing/inspection convenience: force every currently-active phrase
+  // instance's own local animation clock forward by `t` seconds in one
+  // call (this environment's rAF can be throttled while a devtools/
+  // automation tab is occluded, so a real per-frame update() may not run
+  // for a while — this bypasses that deterministically, exactly like
+  // calling .setTime() on a single instance already does elsewhere).
+  window.OCEAN.setActiveLyricLocalTimes = (t) => {
+    for (const entry of trailLyricsManager.getActiveEntries()) entry.instance.setTime(t);
+  };
 }
 if (audioEnabled) {
   window.OCEAN.audio = audioController;

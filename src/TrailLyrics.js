@@ -78,7 +78,7 @@ async function ensureFontReady(fontSpec, sampleText, timeoutMs = 3000) {
 //  rasterising canvas itself, reused as-is for the smooth glyph texture
 //  layer below instead of rendering the text a second time.
 // ---------------------------------------------------------------------------
-function sampleTextTargets(text, { fontWeight = 600, fontFamily = 'Georgia, "Times New Roman", serif', fontSizeScale = 1.0, lineHeight: lineHeightMultiplier = 1.15, targetCount = 650, worldWidth = 26, depthJitter = 0.4, seed = 99 } = {}) {
+function sampleTextTargets(text, { fontWeight = 600, fontFamily = 'Georgia, "Times New Roman", serif', fontSizeScale = 1.0, lineHeight: lineHeightMultiplier = 1.15, targetCount = 650, worldWidth = 26, fixedWorldScale = null, depthJitter = 0.4, seed = 99 } = {}) {
   // Trail Lyrics Font Support V1: fontSizeScale scales the RASTER font size
   // used to draw glyphs to the canvas (crispness/stroke weight), not the
   // final world-space size — that stays `worldWidth`'s job (and textScale's,
@@ -141,7 +141,20 @@ function sampleTextTargets(text, { fontWeight = 600, fontFamily = 'Georgia, "Tim
   const totalCandidates = candidates.length / 2;
   const keepRatio = targetCount / Math.max(totalCandidates, 1);
   const rand = mulberry32(seed);
-  const worldScale = worldWidth / width;
+  // Reading-Order Layout V2 — Fixed Font Size: when `fixedWorldScale` is
+  // given, it is used DIRECTLY as world-units-per-raster-pixel instead of
+  // being back-derived from a target total plane WIDTH. That is the actual
+  // bug behind "font sizes vary to fit": normalizing every phrase to the
+  // same total `worldWidth` (the pre-existing default path, unchanged
+  // below) means a longer phrase's raster is squeezed into the same 15
+  // units, rendering its LETTERS visibly smaller than a short phrase's —
+  // exactly backwards from ordinary typography, where font SIZE stays
+  // constant and total WIDTH grows with character count. With a fixed
+  // scale, `resultWidth` below varies naturally with text length while
+  // `worldHeight` (driven by the same fixed raster `fontSize` for every
+  // phrase) stays identical across every simultaneous lyric.
+  const worldScale = fixedWorldScale != null ? fixedWorldScale : worldWidth / width;
+  const resultWidth = fixedWorldScale != null ? width * worldScale : worldWidth;
   const worldHeight = height * worldScale;
 
   const targets = [];
@@ -158,7 +171,68 @@ function sampleTextTargets(text, { fontWeight = 600, fontFamily = 'Georgia, "Tim
       z: (rand() - 0.5) * depthJitter,
     });
   }
-  return { targets, canvas, worldWidth, worldHeight };
+  return { targets, canvas, worldWidth: resultWidth, worldHeight };
+}
+
+// ---------------------------------------------------------------------------
+//  Reading-Order Layout V2 — deterministic text measurement/wrapping, kept
+//  separate from sampleTextTargets() (which rasterises + decimates pixels,
+//  a much heavier operation) since layout needs only cheap pixel-width
+//  measurements to decide single- vs multi-column and per-phrase wrapping,
+//  reused by TrailLyricsManager without spinning up a TrailLyrics instance.
+// ---------------------------------------------------------------------------
+let _measureCtx = null;
+function getMeasureCtx() {
+  if (!_measureCtx && typeof document !== 'undefined') _measureCtx = document.createElement('canvas').getContext('2d');
+  return _measureCtx;
+}
+
+function fontSpecFor({ fontWeight = 600, fontFamily = 'Georgia, "Times New Roman", serif', fontSizeScale = 1.0 } = {}) {
+  return `${fontWeight} ${120 * fontSizeScale}px ${fontFamily}`;
+}
+
+// Pixel width of `text` at the given font settings — the SAME fontSize
+// formula sampleTextTargets() uses internally, so a caller comparing this
+// against a pixel-space column width gets an answer consistent with what
+// will actually be rasterised.
+export function measureTextWidthPx(text, fontOpts) {
+  const ctx = getMeasureCtx();
+  if (!ctx) return text.length * 66; // non-browser fallback — never hit in practice, just avoids a hard crash
+  ctx.font = fontSpecFor(fontOpts);
+  return ctx.measureText(text).width;
+}
+
+// Deterministic greedy word-wrap of ONE logical line into sub-lines that
+// each fit `maxWidthPx`. A single word wider than maxWidthPx on its own is
+// kept whole (never hyphenated/broken mid-word) — the ticket's own
+// "unless absolutely necessary" escape hatch for line-count/width limits.
+export function wrapLineToWidth(line, maxWidthPx, fontOpts) {
+  const words = line.split(' ').filter((w) => w.length > 0);
+  if (words.length === 0) return [line];
+  const lines = [];
+  let current = words[0];
+  for (let i = 1; i < words.length; i++) {
+    const candidate = `${current} ${words[i]}`;
+    if (measureTextWidthPx(candidate, fontOpts) <= maxWidthPx) {
+      current = candidate;
+    } else {
+      lines.push(current);
+      current = words[i];
+    }
+  }
+  lines.push(current);
+  return lines;
+}
+
+// Word-wraps EVERY authored logical line (displayLines may already contain
+// more than one line from MusicLyricsTimeMark grouping) independently, then
+// concatenates the results — preserving authored line breaks while fixing
+// overly-wide individual lines. Deterministic and seek-safe: a pure
+// function of (text, maxWidthPx, fontOpts), never of when/how it's called.
+export function wrapDisplayLines(displayLines, maxWidthPx, fontOpts) {
+  const out = [];
+  for (const line of displayLines) out.push(...wrapLineToWidth(line, maxWidthPx, fontOpts));
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -170,6 +244,34 @@ const DEFAULT_TIMING = { travel: 3.0, assemble: 1.5, hold: 2.0, leave: 2.5, diss
 const PARTICLE_COUNT = 650;
 const WORLD_UP = new THREE.Vector3(0, 1, 0);
 
+// Reading-Order Layout V2 — a screen-locked (authored-endTime) phrase is
+// anchored at this FIXED distance from the camera along its forward axis,
+// not a live, ever-changing fraction of camera-to-head distance (the old
+// Screen-Lock Hold V1 formula). Fixing the depth is what makes the layout
+// math exact: a given (right, up) world-unit offset always subtends the
+// SAME on-screen (NDC) position/size regardless of how far the traveler
+// currently is, so TrailLyricsManager can compute safe-area bounds and
+// column widths analytically from the camera's own FOV/aspect instead of
+// approximating against a moving target.
+export const LAYOUT_FIXED_DEPTH = 20;
+// World units per raster pixel for EVERY screen-locked phrase's glyph —
+// see sampleTextTargets()'s `fixedWorldScale` doc comment for why this
+// replaces the old fixed-total-plane-WIDTH approach. Tuned so a typical
+// (~20 character) phrase renders at roughly its previous on-screen size.
+export const LAYOUT_FIXED_WORLD_SCALE = 0.007;
+// Uniform font size for every screen-locked phrase, overriding whatever
+// per-choreography textScale (e.g. HERO's 1.3x) would otherwise apply —
+// LyricTimeline forces this for any phrase with an authored endTime (see
+// its _resolveEndTimes()), satisfying "one fixed scale... HERO/TRAIL
+// differences must not cause inconsistent lyric font size" for the
+// simultaneous readable layout.
+export const LAYOUT_FIXED_TEXT_SCALE = 1.0;
+// Damping rate for easing `_slotOffset` toward `_slotTargetOffset` (see
+// _recompute()) — tuned so the transition reaches ~95% of the way to a new
+// target in ~0.55s, inside the ticket's "approximately 0.4-0.7 seconds"
+// smooth-reflow window.
+const SLOT_TRANSITION_RATE = 0.8;
+
 // Warm-gold palette matched to Head Particle Trail's own Gold identity
 // (spec 9: "Gold compatibility is the priority") — same hex values as
 // HeadParticleTrail's COLOR_HEAD_INNER/COLOR_HEAD_OUTER.
@@ -180,6 +282,11 @@ export class TrailLyrics {
   constructor(scene, opts = {}) {
     const { text = 'Forever More', seed = 777 } = opts;
     this._seed = seed >>> 0;
+    // TrailLyrics Multi-Instance V1: kept only so dispose() (below) can
+    // remove this instance's own objects from the scene it was added to —
+    // never used for anything else, and never a second way to reach shared
+    // scene state.
+    this._scene = scene;
 
     this.enabled = true;
     this.paused = false;
@@ -230,6 +337,54 @@ export class TrailLyrics {
     // position instead.
     this.positionRelease = 0.4; // fraction of HOLD spent still position-following before releasing
     this.followSmoothing = 6.0; // exponential follow rate (1/s) at full positionInfluence; scales down with influence so the lyric loses momentum rather than snapping
+    // Spatial Placement Fix V1 (see the TRAILLYRICS SPATIAL PLACEMENT
+    // INVESTIGATION report): `positionRelease` above is a FRACTION of
+    // holdDuration — fine when holds were always ~2-3s (the position-chase
+    // window this class was originally tuned around), but MusicLyricsTimeMark
+    // V2's explicit endTime can now authorize holds of 10-17+ seconds. Left
+    // unchanged, that fraction would stretch the camera-relative chase (see
+    // _computeDesiredCenter()) to 7-18+ seconds — long enough that a SECOND,
+    // independently-triggered phrase forming during that window chases the
+    // exact same live camera-relative target and converges to within a few
+    // units of the first, regardless of how far the traveler had actually
+    // moved between their two trigger moments (measured and confirmed in the
+    // investigation). This caps the chase window to an ABSOLUTE maximum,
+    // independent of holdDuration — the phrase still stays fully readable
+    // for its entire authored hold (unaffected), it just stops chasing the
+    // camera and freezes in world space after this many seconds, exactly as
+    // every phrase already did before long MusicLyricsTimeMark V2 holds
+    // existed. Orientation/billboard release (billboardRelease, above) is
+    // NOT touched — it already reaches 0 exactly at the end of HOLD by
+    // design, and this fix does not need to change that.
+    this.maxPositionChaseSeconds = 2.0;
+
+    // Reading-Order Layout V2 (formerly Screen-Lock Hold V1 — see the
+    // TRAILLYRICS OVERLAPPING-LIFETIME PLACEMENT and TRAIL LYRICS READABLE
+    // LAYOUT tickets) — for a phrase with an authored `endTime`, "left
+    // behind in world space" is the wrong behavior: MusicLyricsTimeMark V2
+    // authored that phrase to stay READABLE until endTime. When true, this
+    // instance's position/orientation for the whole ASSEMBLE+HOLD span
+    // tracks a fixed-distance camera-relative anchor (see
+    // _computeLayoutCenter()) offset by TrailLyricsManager's own
+    // reading-order column layout, so it is guaranteed on-screen and
+    // camera-facing until endTime regardless of camera movement/cuts. It
+    // freezes into an ordinary world-space point at the start of LEAVE
+    // exactly as any other phrase does, then hands off to the dissolve
+    // particle system (see TrailLyricsManager). Defaults false: a phrase
+    // with no authored endTime (legacy fallback) and the standalone demo
+    // instance are both completely unaffected, byte-for-byte.
+    this.screenLock = false;
+    // The camera-relative (right, up) world-unit offset from
+    // _computeLayoutCenter()'s fixed-depth anchor. `_slotOffset` is the
+    // CURRENT, per-frame-eased value actually rendered with; `_slotTargetOffset`
+    // is the latest value TrailLyricsManager's layout algorithm assigned —
+    // set instantly, then smoothly approached over ~0.5s (see _recompute())
+    // so a layout reflow (a sibling entering/leaving the readable set)
+    // never teleports this phrase, per the ticket's explicit "no teleport"
+    // rule. {0,0} (both fields) renders at the exact centre of
+    // _computeLayoutCenter's fixed anchor.
+    this._slotOffset = { right: 0, up: 0 };
+    this._slotTargetOffset = { right: 0, up: 0 };
 
     // V1.2 — source region for the lyric particles' pre-assemble positions:
     // a recent WINDOW of the head's own path (spec 5), not an arbitrary
@@ -360,10 +515,48 @@ export class TrailLyrics {
     // rest of the traveler's light. setText() below assigns the real
     // texture/geometry for the initial (and every subsequent) text. ----
     this.glyphUniforms = { uOpacity: { value: 0 } };
+    // Cloud Occlusion Fix V1 — depthWrite is deliberately TRUE here (unlike
+    // every other transparent/additive material in this project, which
+    // uses depthWrite:false to blend correctly with itself regardless of
+    // draw order). Root cause: Clouds.js's volumetric raymarch clips its
+    // march distance to whatever the shared depth texture (hdrRT.depthTexture)
+    // says is in front of the sky at each pixel — with depthWrite:false,
+    // this plane never told that buffer it was there, so the cloud march
+    // ran straight through it to the actual cloud layer and Post.js's
+    // cloud composite then painted that (wrongly-computed) cloud density
+    // straight over the already-rendered glyph pixels, washing the text
+    // out wherever a cloud happened to be in that screen direction —
+    // confirmed by toggling this flag live and watching the wash-out
+    // disappear. A single flat, non-self-overlapping plane is a safe
+    // candidate for this (unlike the particle system below, left
+    // untouched — many overlapping point sprites in one draw call is the
+    // classic case where transparent depth-writing causes self-occlusion
+    // artifacts); the reading-order layout already guarantees simultaneous
+    // phrases never overlap on screen, so this doesn't introduce new
+    // inter-phrase occlusion either. depthTest stays true (unchanged) —
+    // ocean/island still correctly occlude the glyph exactly as before.
+    //
+    // Cloud Occlusion Fix V2 — depthWrite:true alone wrote depth for the
+    // WHOLE rectangular plane, including the fully-transparent CanvasTexture
+    // background between/around letters (measured: ~78% of this canvas's
+    // pixels are exact alpha=0), producing a visible rectangular
+    // cloud-clearing box. `alphaTest` fixes this at the fragment-shader
+    // level: a fragment whose final alpha (this material's `opacity`
+    // uniform × the CanvasTexture's own per-texel alpha) falls below the
+    // threshold is discarded entirely — no color write AND no depth write,
+    // since discard happens before both. Only texels with actual glyph
+    // coverage (the letter body and its anti-aliased edge ring) pass and
+    // write depth; the transparent background never does, regardless of
+    // depthWrite. 0.08 was chosen from this canvas's own measured alpha
+    // histogram: background is ~100% exactly 0, the anti-aliased edge band
+    // (10%-90% alpha) is a thin ~2.8% ring, so 0.08 (~20/255) clears the
+    // background cleanly while keeping nearly all of that edge gradient —
+    // low enough that letter edges stay visually smooth, not jagged.
     this.glyphMaterial = new THREE.MeshBasicMaterial({
       transparent: true,
-      depthWrite: false,
+      depthWrite: true,
       depthTest: true,
+      alphaTest: 0.08,
       toneMapped: false,
       blending: THREE.AdditiveBlending,
       side: THREE.DoubleSide,
@@ -390,6 +583,11 @@ export class TrailLyrics {
     this._tmpOffset = new THREE.Vector3();
     this._tmpTangent = new THREE.Vector3();
     this._tmpDesired = new THREE.Vector3();
+    // Screen-Lock Hold V1 — camera basis vectors, extracted fresh each frame
+    // a slot offset is actually in effect (see _computeDesiredCenter()).
+    this._tmpCamRight = new THREE.Vector3();
+    this._tmpCamUp = new THREE.Vector3();
+    this._tmpCamFwd = new THREE.Vector3();
 
     // Scratch for _computeWakeScatter (reused once per CYCLE, not per
     // frame — formation only runs once every ~travel+assemble+hold+leave+
@@ -426,15 +624,24 @@ export class TrailLyrics {
     this._seed = seed;
     this.currentText = text;
 
-    const { targets, canvas, worldWidth, worldHeight } = sampleTextTargets(text, {
+    // Reading-Order Layout V2: a screen-locked phrase uses the FIXED
+    // world-scale raster mode (letter size constant, plane width varies
+    // with character count) instead of the legacy fixed-total-width mode
+    // (plane width constant, letter size varies with character count) —
+    // see sampleTextTargets()'s `fixedWorldScale` doc comment. Every
+    // non-screen-locked phrase (legacy fallback, standalone demo) is
+    // completely unaffected — this branch never fires for them.
+    const rasterOpts = {
       targetCount: PARTICLE_COUNT,
-      worldWidth: 15,
       seed,
       fontFamily: this.fontFamily,
       fontWeight: this.fontWeight,
       fontSizeScale: this.fontSizeScale,
       lineHeight: this.lineHeight,
-    });
+    };
+    if (this.screenLock) rasterOpts.fixedWorldScale = LAYOUT_FIXED_WORLD_SCALE;
+    else rasterOpts.worldWidth = 15;
+    const { targets, canvas, worldWidth, worldHeight } = sampleTextTargets(text, rasterOpts);
     // Sort glyph targets by local X (pure text-shape preprocessing,
     // independent of any wake data) — this is the "sorted glyph targets"
     // half of spec 8's low-travel mapping: wake source particles are
@@ -514,6 +721,7 @@ export class TrailLyrics {
       'textScale', 'formationDistance', 'formationHeightOffset',
       'travelDuration', 'assembleDuration', 'holdDuration', 'leaveDuration', 'dissolveDuration',
       'textGlow', 'particleContribution', 'billboardRelease', 'positionRelease', 'followSmoothing',
+      'maxPositionChaseSeconds', 'screenLock',
       'trailWindowMin', 'trailWindowMax', 'flowAmount',
       // Trail Lyrics Font Support V1 (spec: "per-event font override from
       // ForeverMoreLyrics.js") — a timeline event's trailLyricsConfig may
@@ -543,6 +751,13 @@ export class TrailLyrics {
     this.localTime = 0;
     this._cyclePrepared = false;
     this.phase = 'travel';
+    // Reading-Order Layout V2: a fresh event always starts at its own
+    // natural (unshifted) slot AND already targeting it (no reflow
+    // animation from a prior text's leftover offset) — TrailLyricsManager
+    // calls setLayoutTarget() right after this, with the real column
+    // position, once the new active set's layout has been computed.
+    this._slotOffset = { right: 0, up: 0 };
+    this._slotTargetOffset = { right: 0, up: 0 };
   }
 
   // Trail Lyrics Font Support V1 — the GUI's "font family test" control
@@ -602,6 +817,51 @@ export class TrailLyrics {
   // representation ever changes.
   getPhase() { return this.phase; }
 
+  // Reading-Order Layout V2 — TrailLyricsManager calls this every time it
+  // recomputes the readable-set column layout (a phrase entering/leaving,
+  // or an existing phrase's own column position shifting to close a gap).
+  // Only sets the TARGET; _recompute() eases _slotOffset toward it over
+  // ~0.5s every frame (see the ticket's "no teleport" rule) — calling this
+  // repeatedly with the same value is a harmless no-op.
+  setLayoutTarget(offset) {
+    this._slotTargetOffset.right = offset.right;
+    this._slotTargetOffset.up = offset.up;
+  }
+  // This instance's actual rendered glyph-plane size in world units
+  // (already includes textScale) — used by TrailLyricsManager's layout
+  // algorithm for the final hard-bounds verification/clamp pass against
+  // the REAL rendered size, not just the pre-render pixel-width estimate
+  // used to decide wrapping/column layout.
+  getGlyphSize() {
+    return { width: this._glyphBaseWidth * this.textScale, height: this._glyphBaseHeight * this.textScale };
+  }
+
+  // Particle Dissolve V2 — deterministically samples `count` of this
+  // phrase's OWN already-computed glyph target positions (the exact local
+  // points ASSEMBLE condenses particles into — see setText()'s
+  // `aGlyphTarget` attribute) and converts them to WORLD space using the
+  // plane frame's CURRENT _planeCenter/_planeQuat. Only ever called once
+  // LEAVE has begun, at which point both are already frozen (positionInfluence/
+  // orientationInfluence are 0), so this reads a stable, unmoving pose —
+  // "particles originate from the text glyph area" with zero new
+  // text-sampling work, reusing data TrailLyrics already had. Seeded (not
+  // Math.random) so the same phrase always detaches into the same relative
+  // dust pattern.
+  sampleDissolveOrigins(count, seed) {
+    const glyphArr = this.points.geometry.attributes.aGlyphTarget.array;
+    const total = this.count;
+    if (total === 0) return [];
+    const rand = mulberry32(seed >>> 0);
+    const out = [];
+    for (let i = 0; i < count; i++) {
+      const idx = Math.floor(rand() * total) % total;
+      const local = new THREE.Vector3(glyphArr[idx * 3 + 0], glyphArr[idx * 3 + 1], glyphArr[idx * 3 + 2]);
+      local.applyQuaternion(this._planeQuat).add(this._planeCenter);
+      out.push(local);
+    }
+    return out;
+  }
+
   // ---- The "readable centre" formula (spec 4/6): a world-space point
   // built along the live follow camera's OWN forward axis, scaled by a
   // FRACTION of the live camera-to-head distance, nudged down slightly.
@@ -633,6 +893,27 @@ export class TrailLyrics {
     const distToHead = camera.position.distanceTo(headPos);
     out.copy(camera.position).addScaledVector(camForward, distToHead * this.formationDistance);
     out.y -= this.formationHeightOffset;
+    return out;
+  }
+
+  // ---- Reading-Order Layout V2 — the anchor a screen-locked (authored
+  // endTime) phrase chases for its whole ASSEMBLE+HOLD span, replacing
+  // Screen-Lock Hold V1's live head-distance-based chase. Built at a FIXED
+  // distance along the camera's own forward axis (see LAYOUT_FIXED_DEPTH's
+  // doc comment for why fixing the depth matters), offset by this
+  // instance's current (eased) reading-order column position. Because both
+  // this offset and the CAMERA are re-read fresh every frame, the phrase's
+  // on-screen position stays correct across any camera movement/cut —
+  // there is nothing here that could go stale between frames. ----
+  _computeLayoutCenter(camera, out) {
+    camera.matrixWorld.extractBasis(this._tmpCamRight, this._tmpCamUp, this._tmpCamFwd);
+    // extractBasis's third axis is the camera's local +Z (its BACK, since a
+    // THREE.Camera looks down its own -Z) — negate for forward, matching
+    // camera.getWorldDirection()'s own convention.
+    out.copy(camera.position)
+      .addScaledVector(this._tmpCamFwd, -LAYOUT_FIXED_DEPTH)
+      .addScaledVector(this._tmpCamRight, this._slotOffset.right)
+      .addScaledVector(this._tmpCamUp, this._slotOffset.up);
     return out;
   }
 
@@ -795,7 +1076,16 @@ export class TrailLyrics {
     // of LEAVE — so LEAVE/DISSOLVE are always already fully world-locked.
     const orientLockEnd = t2 + (t3 - t2) * THREE.MathUtils.clamp(this.billboardRelease, 0, 1);
     let orientationInfluence;
-    if (lt <= orientLockEnd) orientationInfluence = 1.0;
+    if (this.screenLock && lt < t3) {
+      // Screen-Lock Hold V1: stay fully camera-facing for the ENTIRE hold
+      // (not just the first billboardRelease fraction of it) — an authored
+      // endTime means "readable until then", and readable requires still
+      // facing the camera, however long that hold runs or however many
+      // camera cuts happen during it. Freezes at t3 (start of LEAVE) exactly
+      // like every other phrase — this only changes the shape of the ramp
+      // during HOLD, never what happens after it.
+      orientationInfluence = 1.0;
+    } else if (lt <= orientLockEnd) orientationInfluence = 1.0;
     else if (lt <= t3) orientationInfluence = 1.0 - smoothstep(orientLockEnd, t3, lt);
     else orientationInfluence = 0.0;
 
@@ -805,14 +1095,36 @@ export class TrailLyrics {
     }
     // orientationInfluence === 0 -> plane quaternion is simply left untouched (frozen).
 
-    // Position-influence envelope (V1.1, spec 5/8) — same shape as the
-    // orientation envelope by default (both tunable independently via
-    // positionRelease/billboardRelease), so ASSEMBLE and early HOLD both
-    // stay fully locked before releasing across the remainder of HOLD.
-    const posLockEnd = t2 + (t3 - t2) * THREE.MathUtils.clamp(this.positionRelease, 0, 1);
+    // Reading-Order Layout V2: a screen-locked phrase's own reading-order
+    // column position (`_slotTargetOffset`, set by TrailLyricsManager) is
+    // eased toward smoothly — never teleported — over roughly half a
+    // second any time the manager reflows the layout (a sibling entering
+    // or leaving the readable set). `SLOT_TRANSITION_RATE` is tuned so this
+    // settles within the ticket's "approximately 0.4-0.7 seconds" window.
+    if (this.screenLock) {
+      const slotDamp = 1 - Math.pow(0.0008, dt * SLOT_TRANSITION_RATE);
+      const d = Math.min(1, slotDamp);
+      this._slotOffset.right += (this._slotTargetOffset.right - this._slotOffset.right) * d;
+      this._slotOffset.up += (this._slotTargetOffset.up - this._slotOffset.up) * d;
+    }
+
+    // Position-influence envelope (V1.1, spec 5/8) for the LEGACY (non
+    // screen-locked) path — unchanged, byte-for-byte the original formula.
+    // A screen-locked phrase instead tracks _computeLayoutCenter() at full
+    // influence for its entire ASSEMBLE+HOLD span: unlike the old live
+    // head-distance chase, the layout anchor is already a fixed, distinct,
+    // collision-free target per phrase (TrailLyricsManager's column
+    // layout), so there is no more "runaway convergence with a sibling"
+    // risk to cap a chase window against — maxPositionChaseSeconds
+    // continues to govern only the legacy fallback path below.
+    const positionChaseWindow = Math.min(this.holdDuration, this.maxPositionChaseSeconds);
+    const posLockEnd = t2 + positionChaseWindow * THREE.MathUtils.clamp(this.positionRelease, 0, 1);
+    const posReleaseEnd = t2 + positionChaseWindow;
+    const screenLockActive = this.screenLock && lt < t3;
     let positionInfluence;
-    if (lt <= posLockEnd) positionInfluence = 1.0;
-    else if (lt <= t3) positionInfluence = 1.0 - smoothstep(posLockEnd, t3, lt);
+    if (screenLockActive) positionInfluence = 1.0;
+    else if (lt <= posLockEnd) positionInfluence = 1.0;
+    else if (lt <= posReleaseEnd) positionInfluence = 1.0 - smoothstep(posLockEnd, posReleaseEnd, lt);
     else positionInfluence = 0.0;
 
     if (positionInfluence > 0.001) {
@@ -821,7 +1133,8 @@ export class TrailLyrics {
       // the plane visibly loses momentum relative to the live desired
       // centre rather than following at full speed until an abrupt cutoff
       // (spec 6/7: "the phrase appears to lose momentum ... no snapping").
-      this._computeDesiredCenter(headParticleTrail, camera, this._tmpDesired);
+      if (screenLockActive) this._computeLayoutCenter(camera, this._tmpDesired);
+      else this._computeDesiredCenter(headParticleTrail, camera, this._tmpDesired);
       const followRate = this.followSmoothing * positionInfluence;
       const posDamp = 1 - Math.pow(0.0008, dt * Math.max(followRate, 0.0001));
       this._planeCenter.lerp(this._tmpDesired, Math.min(1, posDamp));
@@ -856,5 +1169,39 @@ export class TrailLyrics {
     // the readable text) on top of the GUI's own manual control.
     const autoParticleFade = 1.0 - glyphOpacity * 0.5;
     this.particleUniforms.uParticleContribution.value = this.particleContribution * autoParticleFade;
+  }
+
+  // TrailLyrics Multi-Instance V1 — releases every GPU/scene resource THIS
+  // instance owns (its own particle geometry+material, its own glyph
+  // geometry+material+CanvasTexture, and removes both objects from the
+  // scene they were added to in the constructor). Idempotent (safe to call
+  // twice) and touches nothing outside this instance — no shared
+  // WaterThreeJS resource (ocean/sky/HeadParticleTrail/etc) is ever
+  // referenced here, only `this.points`/`this.glyphMesh` and their own
+  // geometry/material/texture. After calling this, the instance must not
+  // be used again (update()/setTime()/etc are not guaranteed safe post-
+  // dispose — a manager should simply drop its reference).
+  //
+  // Existing single-instance callers (e.g. the standalone `?trailLyrics=1`
+  // demo without a timeline) are entirely unaffected: nothing calls
+  // dispose() on the one long-lived instance they create, so its lifetime
+  // is unchanged.
+  dispose() {
+    if (this._disposed) return;
+    this._disposed = true;
+
+    if (this._scene) {
+      this._scene.remove(this.points);
+      this._scene.remove(this.glyphMesh);
+    }
+
+    this.points.geometry.dispose();
+    this.points.material.dispose();
+
+    this.glyphMesh.geometry.dispose();
+    if (this.glyphMaterial.map) this.glyphMaterial.map.dispose();
+    this.glyphMaterial.dispose();
+
+    this.enabled = false;
   }
 }

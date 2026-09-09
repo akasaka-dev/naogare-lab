@@ -6,6 +6,11 @@
 # not that same-named runtime copy.
 /saikai-2026-02-22EngLast-lyrics-timing.json
 
+# ForeverMore Cinematic Lyrics — the local runtime WAV (large source audio,
+# not committed to the repo). Exact path only, so no other audio asset is
+# accidentally swept up by a broader rule. Never delete/move this file.
+/public/audio/saikai-2026-02-22EngLast.wav
+
 # Logs
 logs
 *.log
