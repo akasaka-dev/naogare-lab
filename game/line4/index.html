@@ -1114,6 +1114,11 @@
       },
       playTrack,
       playLevelTrack,
+      stop() {
+        fadeVolume(0, 250);
+        setTimeout(() => bgmEl.pause(), 260);
+        currentTrackKey = null; // so a later playTrack() re-inits fully instead of just resuming
+      },
       setBgmOn(v) {
         bgmOn = v;
         safeStorageSet(STORAGE_BGM, v ? '1' : '0');
@@ -2256,6 +2261,8 @@
   }
 
   function showEndingScreen() {
+    SoundMgr.stop(); // the previous track (e.g. LV5's battle theme) would
+                      // otherwise just keep looping until ending.mp3 kicks in
     const el = document.getElementById('endingScreen');
     const img = el.querySelector('img');
     img.classList.remove('pan');
