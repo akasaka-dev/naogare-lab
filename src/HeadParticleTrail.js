@@ -402,6 +402,13 @@ export class HeadParticleTrail {
     this._emitCount = 0; // total particles ever emitted (monotonic)
     this._writeCursor = 0; // next pool slot to overwrite (ring buffer)
 
+    // Traveler Altitude V1: a persistent vertical offset added on top of the
+    // wave-relative hover height below, owned entirely by this class so
+    // every consumer of _headPos (live update, seek reconstruction, and the
+    // historical getHeadPositionAtTime() query) agrees on the same altitude.
+    // Input handling lives in main.js; this class only stores the value.
+    this.altitudeOffset = 0;
+
     // Scratch (reused every frame — no per-frame allocation).
     this._headPos = new THREE.Vector3();
     this._tangent = new THREE.Vector3();
@@ -465,6 +472,8 @@ export class HeadParticleTrail {
     this.emissionRate = Math.max(1, r);
   }
 
+  setAltitudeOffset(value) { this.altitudeOffset = value; }
+
   setPaused(p) { this.paused = !!p; }
   restart() { this.localTime = 0; this._reconstructAt(0, this._ocean); }
   getHeadPosition(out = new THREE.Vector3()) { return out.copy(this._headPos); }
@@ -492,7 +501,7 @@ export class HeadParticleTrail {
   getHeadPositionAtTime(t, out = new THREE.Vector3()) {
     this.path.positionAt(t, out);
     const waterY = this._ocean ? this._ocean.heightAt(out.x, out.z, t) : 0;
-    out.y = waterY + 3.0 + Math.sin(t * 0.35) * 1.5;
+    out.y = waterY + 3.0 + Math.sin(t * 0.35) * 1.5 + this.altitudeOffset;
     return out;
   }
 
@@ -565,7 +574,7 @@ export class HeadParticleTrail {
     // newly-emitted particles simply inherit this already-correct head
     // position, so no per-particle ocean sampling ever happens.
     const waterY = ocean ? ocean.heightAt(this._headPos.x, this._headPos.z, t) : 0;
-    this._headPos.y = waterY + 3.0 + Math.sin(t * 0.35) * 1.5;
+    this._headPos.y = waterY + 3.0 + Math.sin(t * 0.35) * 1.5 + this.altitudeOffset;
 
     this.headMesh.geometry.attributes.position.array[0] = this._headPos.x;
     this.headMesh.geometry.attributes.position.array[1] = this._headPos.y;
@@ -636,7 +645,7 @@ export class HeadParticleTrail {
       this.path.positionAt(birthTimeVal, this._reconHead);
       this.path.tangentAt(birthTimeVal, this._reconTan);
       const waterY = ocean ? ocean.heightAt(this._reconHead.x, this._reconHead.z, birthTimeVal) : 0;
-      this._reconHead.y = waterY + 3.0 + Math.sin(birthTimeVal * 0.35) * 1.5;
+      this._reconHead.y = waterY + 3.0 + Math.sin(birthTimeVal * 0.35) * 1.5 + this.altitudeOffset;
       const slot = writeIndex % POOL_SIZE;
       this._emitOneInto(slot, birthTimeVal, this._reconHead, this._reconTan, rand);
       writeIndex++;
@@ -649,7 +658,7 @@ export class HeadParticleTrail {
     this.path.tangentAt(T, this._tangent);
     this.travelDir.copy(this._tangent);
     const waterYHead = ocean ? ocean.heightAt(this._headPos.x, this._headPos.z, T) : 0;
-    this._headPos.y = waterYHead + 3.0 + Math.sin(T * 0.35) * 1.5;
+    this._headPos.y = waterYHead + 3.0 + Math.sin(T * 0.35) * 1.5 + this.altitudeOffset;
     this.headMesh.geometry.attributes.position.array[0] = this._headPos.x;
     this.headMesh.geometry.attributes.position.array[1] = this._headPos.y;
     this.headMesh.geometry.attributes.position.array[2] = this._headPos.z;

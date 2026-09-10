@@ -28,6 +28,7 @@ const hintEl = document.getElementById('hint');
 const depthEl = document.getElementById('depth');
 const depthStateEl = document.getElementById('depth-state');
 const depthValEl = document.getElementById('depth-val');
+const travelerAltValEl = document.getElementById('traveler-alt-val');
 
 const sizeW = () => window.innerWidth;
 const sizeH = () => window.innerHeight;
@@ -115,6 +116,37 @@ controls.screenSpacePanning = true; // let vertical pan carry the camera under
 controls.autoRotateSpeed = 0.4;    // used by the cinematic-camera toggle
 
 const FLOOR_DEPTH = 22;
+
+// ---------------------------------------------------------------------------
+//  Traveler Altitude V1 — Space press-and-hold changes the flight altitude
+//  of the moving head particle/light itself (HeadParticleTrail.altitudeOffset),
+//  NOT camera.position. See HeadParticleTrail.setAltitudeOffset().
+// ---------------------------------------------------------------------------
+const TRAVELER_ALTITUDE_SPEED = 7.0;
+const MIN_TRAVELER_ALTITUDE_OFFSET = -8.0;
+const MAX_TRAVELER_ALTITUDE_OFFSET = 80.0;
+let travelerAltitudeOffset = 0;
+let travelerAltitudeDirection = 1; // +1 UP, -1 DOWN — next hold's direction
+let travelerAltitudeSpaceHeld = false;
+
+window.addEventListener('keydown', (event) => {
+  if (event.code !== 'Space') return;
+  event.preventDefault();
+  if (event.repeat) return;
+  if (travelerAltitudeSpaceHeld) return;
+  travelerAltitudeSpaceHeld = true;
+});
+
+window.addEventListener('keyup', (event) => {
+  if (event.code !== 'Space') return;
+  event.preventDefault();
+  travelerAltitudeSpaceHeld = false;
+  travelerAltitudeDirection *= -1; // next press moves the other way
+});
+
+window.addEventListener('blur', () => {
+  travelerAltitudeSpaceHeld = false; // do NOT toggle direction here
+});
 
 const sky = new Sky(sunDir);
 scene.add(sky.mesh);
@@ -1213,6 +1245,17 @@ function animate() {
   bodies.update(dt, time, ocean, terrainAt);
   if (lyricParticles) lyricParticles.update(dt, time, ocean);
   if (headParticleTrail) {
+    // Traveler Altitude V1: accumulate while Space is held, clamp, then push
+    // into HeadParticleTrail BEFORE update() so this frame's live head
+    // position and newly emitted trail particles use the new altitude.
+    if (travelerAltitudeSpaceHeld) {
+      travelerAltitudeOffset += travelerAltitudeDirection * TRAVELER_ALTITUDE_SPEED * dt;
+      travelerAltitudeOffset = Math.min(MAX_TRAVELER_ALTITUDE_OFFSET, Math.max(MIN_TRAVELER_ALTITUDE_OFFSET, travelerAltitudeOffset));
+    }
+    headParticleTrail.setAltitudeOffset(travelerAltitudeOffset);
+    if (travelerAltValEl) {
+      travelerAltValEl.textContent = (travelerAltitudeOffset >= 0 ? '+' : '') + travelerAltitudeOffset.toFixed(1) + ' / ' + (travelerAltitudeDirection > 0 ? 'UP' : 'DOWN');
+    }
     headParticleTrail.update(dt, time, ocean, camera.position);
     // Head Particle Trail local water glint (Ocean.js's block is gated
     // behind uTravelerGlowIntensity > 0, defaulting to 0 — mathematically a

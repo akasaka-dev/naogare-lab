@@ -271,6 +271,13 @@ export const LAYOUT_FIXED_TEXT_SCALE = 1.0;
 // target in ~0.55s, inside the ticket's "approximately 0.4-0.7 seconds"
 // smooth-reflow window.
 const SLOT_TRANSITION_RATE = 0.8;
+// Fade-Out Tuning V2 — how long AFTER authored endTime the glyph's own
+// visual opacity takes to reach 0. Deliberately short and independent of
+// leaveDuration/dissolveDuration (still 2.5s/2.5s, untouched) — see
+// _recompute()'s glyphFadeOutEnd for why: the frozen glyph leaves the
+// camera frustum in ~1.1-1.5s regardless, so the fade only needs to be
+// visible within that window, not across the whole 5s leave+dissolve span.
+const GLYPH_FADE_OUT_SECONDS = 0.75;
 
 // Warm-gold palette matched to Head Particle Trail's own Gold identity
 // (spec 9: "Gold compatibility is the priority") — same hex values as
@@ -547,16 +554,26 @@ export class TrailLyrics {
     // since discard happens before both. Only texels with actual glyph
     // coverage (the letter body and its anti-aliased edge ring) pass and
     // write depth; the transparent background never does, regardless of
-    // depthWrite. 0.08 was chosen from this canvas's own measured alpha
-    // histogram: background is ~100% exactly 0, the anti-aliased edge band
-    // (10%-90% alpha) is a thin ~2.8% ring, so 0.08 (~20/255) clears the
-    // background cleanly while keeping nearly all of that edge gradient —
-    // low enough that letter edges stay visually smooth, not jagged.
+    // depthWrite. Originally 0.08, chosen from this canvas's own measured
+    // alpha histogram (background is ~100% exactly 0, the anti-aliased edge
+    // band is a thin ~2.8% ring) back when `opacity` only ever sat at its
+    // full faded-in value while the glyph was visible at all.
+    //
+    // Fade-Out Tuning V1 — `opacity` now sweeps continuously from 1 to 0
+    // across LEAVE+DISSOLVE (see _recompute()'s glyphFadeOut), so alphaTest
+    // also gates the LAST moment of that fade: once `opacity` itself drops
+    // below the threshold, even the most solid glyph texel (texture
+    // alpha ~1) discards, and the WHOLE plane disappears in one frame
+    // rather than finishing the fade smoothly to 0. Lowered to 0.02 (from
+    // 0.08) so that residual pop happens at ~2% opacity — already all but
+    // invisible — instead of ~8%; the background is still a clean exact-0
+    // everywhere (per the same histogram), so this remains just as
+    // effective at preventing the cloud-occlusion rectangle.
     this.glyphMaterial = new THREE.MeshBasicMaterial({
       transparent: true,
       depthWrite: true,
       depthTest: true,
-      alphaTest: 0.08,
+      alphaTest: 0.02,
       toneMapped: false,
       blending: THREE.AdditiveBlending,
       side: THREE.DoubleSide,
@@ -1157,10 +1174,24 @@ export class TrailLyrics {
 
     // Glyph fades in near the very end of ASSEMBLE, once the particle
     // letter structure already reads (V1.2 spec 9: reduce the sense of a
-    // finished sign suddenly fading in — tightened from V1's 0.6s window)
-    // and fades out across DISSOLVE.
+    // finished sign suddenly fading in — tightened from V1's 0.6s window).
     const glyphFadeIn = smoothstep(t2 - Math.min(0.4, this.assembleDuration), t2, lt);
-    const glyphFadeOut = 1 - dissolveProgress;
+    // Fade-Out Tuning V2 — the text itself is the PRIMARY disappearance
+    // mechanic: it starts fading exactly AT authored endTime (t3, the start
+    // of LEAVE) and reaches 0 only GLYPH_FADE_OUT_SECONDS later — a fixed,
+    // short window, independent of leaveDuration/dissolveDuration/cycle
+    // (which keep governing phase transitions, the particle system's own
+    // uDissolveProgress below, and the world-space freeze exactly as
+    // before). V1 faded the glyph across the WHOLE leave+dissolve span
+    // (5s), but measurement showed the frozen glyph drifts out of the
+    // camera frustum in only ~1.1-1.5s (camera panning away, not being
+    // "passed") — at that point it was still ~79-88% opaque, so the fade
+    // was real but visually ineffective: the glyph simply left the screen
+    // before it had faded appreciably. Shortening ONLY this window makes
+    // the fade finish well inside that on-screen lifetime instead.
+    const glyphFadeOutEnd = t3 + GLYPH_FADE_OUT_SECONDS;
+    const glyphDepartureProgress = smoothstep(t3, glyphFadeOutEnd, lt);
+    const glyphFadeOut = 1 - glyphDepartureProgress;
     const glyphOpacity = glyphFadeIn * glyphFadeOut;
     this.glyphMaterial.opacity = glyphOpacity * this.textGlow;
 
