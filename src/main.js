@@ -7,6 +7,7 @@ import { Ocean, OCEAN_CONFIG, MAX_FOAM_BODIES } from './Ocean.js';
 import { Floor } from './Floor.js';
 import { Island } from './Island.js';
 import { Particles } from './Particles.js';
+import { Rain } from './Rain.js';
 import { Post } from './Post.js';
 import { FloatingBodies } from './FloatingBodies.js';
 import { Clouds } from './Clouds.js';
@@ -164,6 +165,21 @@ scene.add(island.mesh);
 
 const particles = new Particles(5000, 160);
 scene.add(particles.points);
+
+// ---------------------------------------------------------------------------
+//  Rain V1 — opt-in via ?rain=1 (OFF by default), toggleable at runtime with
+//  the R key. Camera-local box, single draw call — see Rain.js. Does not
+//  touch ocean/clouds/time-of-day/AutoDirector/HeadParticleTrail/TrailLyrics
+//  /audio/post-processing; only reads the frame's existing `underwater` test.
+// ---------------------------------------------------------------------------
+const rainEnabled = new URLSearchParams(window.location.search).get('rain') === '1';
+const rain = new Rain(scene);
+rain.setEnabled(rainEnabled);
+window.addEventListener('keydown', (event) => {
+  if (event.code !== 'KeyR') return;
+  if (event.repeat) return;
+  rain.toggle();
+});
 
 // ---------------------------------------------------------------------------
 //  Cinematic Sunset V1 — opt-in via ?cinematicSunset=1. When absent, ocean
@@ -1203,11 +1219,13 @@ function setVisible(underwater, refractionPass) {
     sky.mesh.visible = true;
     floor.mesh.visible = true;
     particles.points.visible = false;
+    rain.mesh.visible = false;
   } else {
     ocean.mesh.visible = true;
     sky.mesh.visible = !underwater;
     floor.mesh.visible = true;
     particles.points.visible = underwater;
+    rain.mesh.visible = rain.enabled && !underwater;
   }
 }
 
@@ -1318,6 +1336,11 @@ function animate() {
     // took the camera over.
     if (autoDirectorActive && headParticleTrail) controls.target.copy(headParticleTrail.getHeadPosition(_headParticleHeadTmp));
   }
+  // Rain V1: updated here, after AutoDirector (and the Head Particle Trail
+  // follow-camera above it) have finalized camera.position for this frame,
+  // so the rain volume is centred on wherever the camera actually ends up —
+  // never a stale pre-AutoDirector position.
+  rain.update(time, camera);
   // Audio Sync (V1, opt-in) — mirrors live playback state into the GUI every
   // frame; does NOT touch LyricTimeline itself (see the block below for the
   // actual clock hookup). Reading these straight off the HTMLAudioElement
