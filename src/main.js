@@ -3,17 +3,14 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import GUI from 'lil-gui';
 
 import { Sky } from './Sky.js';
-import { Ocean, OCEAN_CONFIG, MAX_FOAM_BODIES } from './Ocean.js';
+import { Ocean, OCEAN_CONFIG } from './Ocean.js';
 import { Floor } from './Floor.js';
 import { Island } from './Island.js';
 import { Particles } from './Particles.js';
 import { Rain } from './Rain.js';
 import { Post } from './Post.js';
-import { FloatingBodies } from './FloatingBodies.js';
 import { Clouds } from './Clouds.js';
-import { LyricParticles } from './LyricParticles.js';
 import { HeadParticleTrail } from './HeadParticleTrail.js';
-import { TrailLyrics } from './TrailLyrics.js';
 import { TrailLyricsManager } from './TrailLyricsManager.js';
 import { AutoDirector } from './AutoDirector.js';
 import { LyricTimeline } from './LyricTimeline.js';
@@ -211,14 +208,6 @@ const NIGHT_CLOUD_MOONLIGHT = 0.6;
 const timeEnabled = new URLSearchParams(window.location.search).get('time') === '1';
 
 // ---------------------------------------------------------------------------
-//  Lyric Particles V1 — opt-in via ?lyrics=1. When absent, none of this runs:
-//  no particle flock, no GUI folder, no camera/atmosphere override below.
-// ---------------------------------------------------------------------------
-const lyricsEnabled = new URLSearchParams(window.location.search).get('lyrics') === '1';
-const lyricParticles = lyricsEnabled ? new LyricParticles(scene) : null;
-let lyricGuiState = null;
-
-// ---------------------------------------------------------------------------
 //  Head Particle Trail V1 — opt-in via ?headParticles=1. The accepted
 //  traveler effect: the head is the ONLY emitter, particles own their own
 //  world-space position once born, and there is no geometry connecting head
@@ -230,25 +219,15 @@ let headParticleGuiState = null;
 const headParticleFollowCam = { look: new THREE.Vector3(), inited: false };
 
 // ---------------------------------------------------------------------------
-//  Trail Lyrics V1 — opt-in via ?trailLyrics=1, and only ever active alongside
-//  Head Particle Trail (?headParticles=1). Isolated prototype: does not read
-//  or modify HeadParticleTrail's own state beyond its public head position/
-//  travel-direction/path. See TrailLyrics.js for the full design.
+//  Trail Lyrics gate — ?trailLyrics=1, required alongside Head Particle
+//  Trail (?headParticles=1) before Lyric Timeline mode (below) can activate
+//  the real production lyric pipeline (TrailLyricsManager + LyricTimeline +
+//  ForeverMoreLyrics). This flag no longer creates a standalone TrailLyrics
+//  instance itself — TrailLyricsManager owns every TrailLyrics instance
+//  that ever renders (one per concurrently-active phrase); see its own
+//  comment and LyricTimeline.js.
 // ---------------------------------------------------------------------------
 const trailLyricsEnabled = headParticlesEnabled && new URLSearchParams(window.location.search).get('trailLyrics') === '1';
-const trailLyrics = trailLyricsEnabled ? new TrailLyrics(scene) : null;
-let trailLyricsGuiState = null;
-// TrailLyrics Multi-Instance V1: this standalone `trailLyrics` instance is
-// ONLY the auto-looping "Forever More" demo used when ?trailLyrics=1 is set
-// WITHOUT ?lyricTimeline=1. Once Lyric Timeline mode is enabled (below), a
-// separate TrailLyricsManager owns its own independent TrailLyrics
-// instances (one per concurrently-active phrase) — this standalone
-// instance is simply left permanently disabled/dormant rather than driven,
-// so it neither renders nor competes with the timeline's real phrases. Its
-// GUI folder and OCEAN.trailLyrics/setTrailLyricTime debug API (below)
-// stay bound to it exactly as before for the demo-only case; see
-// OCEAN.trailLyricsManager/activeLyricPhrases for the timeline's real
-// active phrase set.
 
 // ---------------------------------------------------------------------------
 //  Auto Director V1 — opt-in via ?autoDirector=1, only ever active alongside
@@ -272,9 +251,7 @@ let autoDirectorGuiState = null;
 //  for the event data, LyricTimeline.js for the controller) that triggers/
 //  configures the EXISTING Trail Lyrics system at real song times — it
 //  does not touch TrailLyrics' tail-emergence/assemble/leave-behind
-//  mechanism at all, only WHEN and WITH WHAT PARAMETERS it fires. When
-//  absent, TrailLyrics keeps its existing standalone auto-looping "Forever
-//  More" behavior completely unchanged (see TrailLyrics.loop).
+//  mechanism at all, only WHEN and WITH WHAT PARAMETERS it fires.
 //
 //  MusicLyricsTimeMark timing JSON: event vocal timing comes from
 //  saikai-2026-02-22EngLast-lyrics-timing.json (authored/measured against
@@ -295,13 +272,8 @@ let autoDirectorGuiState = null;
 const lyricTimelineEnabled = trailLyricsEnabled && new URLSearchParams(window.location.search).get('lyricTimeline') === '1';
 const LYRIC_TIMING_JSON_URL = './data/saikai-2026-02-22EngLast-lyrics-timing.json';
 // TrailLyrics Multi-Instance V1: a dedicated manager owning a SET of
-// independent TrailLyrics instances (one per concurrently-active phrase),
-// entirely separate from the standalone `trailLyrics` demo instance above
-// — see its own comment. Permanently disable that standalone instance the
-// moment the timeline takes over, so it never auto-loops in the
-// background competing with the timeline's real phrases.
+// independent TrailLyrics instances, one per concurrently-active phrase.
 const trailLyricsManager = lyricTimelineEnabled ? new TrailLyricsManager(scene) : null;
-if (lyricTimelineEnabled && trailLyrics) trailLyrics.enabled = false;
 const lyricTimeline = lyricTimelineEnabled
   ? new LyricTimeline(trailLyricsManager, {
       getChoreography,
@@ -406,29 +378,18 @@ const audioEnabled = new URLSearchParams(window.location.search).get('audio') ==
 const audioController = audioEnabled ? new AudioController('./audio/saikai-2026-02-22EngLast.wav') : null;
 let audioGuiState = null;
 
-// Lights — only the dropped primitives (MeshStandardMaterial) use these; the
-// ocean/island/sky are raw ShaderMaterials and ignore scene lights.
+// Lights — kept for any future MeshStandardMaterial/lit object (the ocean/
+// island/sky are raw ShaderMaterials and ignore scene lights); the
+// interactive floating-object feature that used to be their only consumer
+// has been removed, so these are currently inert but harmless.
 const sunLight = new THREE.DirectionalLight(0xfff2e0, 3.0);
 scene.add(sunLight, sunLight.target);
 const skyLight = new THREE.HemisphereLight(0xbfe4ff, 0x24424e, 1.1);
 scene.add(skyLight);
-// Night V1 (opt-in) — a separate, independent light so dropped objects can
-// catch a dim, cool moonlit edge; intensity is 0 until Night mode raises it,
-// so normal/day/sunset lighting is unaffected.
+// Night V1 (opt-in) — a separate, independent light; intensity is 0 until
+// Night mode raises it, so normal/day/sunset lighting is unaffected.
 const moonLight = new THREE.DirectionalLight(0xdfe6f0, 0.0);
 scene.add(moonLight, moonLight.target);
-
-// Dropped, buoyant primitives (spheres / cubes).
-const bodies = new FloatingBodies(scene);
-const terrainAt = (x, z) => island.heightAt(x, z);
-
-function dropObject(type, x, z) {
-  bodies.spawn(type, x, z, ocean.heightAt(x, z, time));
-}
-function dropAtTarget(type) {
-  const t = controls.target;
-  dropObject(type, t.x + (Math.random() - 0.5) * 10, t.z + (Math.random() - 0.5) * 10);
-}
 
 // ---------------------------------------------------------------------------
 //  Render targets  (full-res, half-float, with depth textures)
@@ -634,12 +595,6 @@ fFoam.add(ocean.uniforms.uCrestFoamStart, 'value', 0.3, 3.0, 0.05).name('whiteca
 fFoam.add(ocean.uniforms.uFoamThreshold, 'value', 0.0, 1.0, 0.02).name('breaking foam');
 fFoam.add(ocean.uniforms.uShoreFoamWidth, 'value', 0.0, 8.0, 0.1).name('shore foam width');
 fFoam.add(ocean.uniforms.uContactFoam, 'value', 0.0, 2.0, 0.05).name('object foam / wakes');
-
-const fObj = gui.addFolder('Objects').close();
-fObj.add({ s: () => dropAtTarget('sphere') }, 's').name('drop sphere');
-fObj.add({ c: () => dropAtTarget('cube') }, 'c').name('drop cube');
-fObj.add({ x: () => bodies.clear() }, 'x').name('clear objects');
-fObj.add(bodies, 'gravity', 0, 45, 0.5).name('gravity');
 
 const fClouds = gui.addFolder('Volumetric clouds').close();
 const cu = clouds.uniforms;
@@ -850,19 +805,12 @@ function setTimeOfDay(tRaw) {
   post.compositeMat.uniforms.uBloom.value = todBlend(w, TOD_BLOOM);
   post.compositeMat.uniforms.uSaturation.value = todBlend(w, TOD_SATURATION);
 
-  // Lyric Particles V1 (opt-in) — subtle colour response to time of day,
-  // reusing the same stage weights rather than a parallel colour system.
-  if (lyricParticles) todBlendColor(w, TOD_TRAVELER_TINT, lyricParticles.uniforms.uColor.value);
   // Head Particle Trail (opt-in) — same shared per-stage tint table;
   // setTint() also nudges the head colour toward white so it stays the
   // brighter, more neutral object regardless of stage.
   if (headParticleTrail) {
     todBlendColor(w, TOD_TRAVELER_TINT, _todTintTmp);
     headParticleTrail.setTint(_todTintTmp);
-  }
-  if (trailLyrics) {
-    todBlendColor(w, TOD_TRAVELER_TINT, _todTintTmp);
-    trailLyrics.setTint(_todTintTmp);
   }
 
   if (timeGuiState) timeGuiState.time = t;
@@ -890,16 +838,6 @@ if (timeEnabled) {
   timeSliderCtrl = fTime.add(timeGuiState, 'time', 0, 1, 0.001).name('Time').onChange(setTimeOfDay);
   fTime.add(timeGuiState, 'autoPlay').name('Auto Play');
   fTime.add(timeGuiState, 'speed', 0.005, 0.3, 0.005).name('Speed');
-}
-
-if (lyricsEnabled) {
-  lyricGuiState = { glow: lyricParticles.uniforms.uGlow.value, speed: lyricParticles.speed, paused: false };
-  const fLyrics = gui.addFolder('Lyric Particles');
-  fLyrics.add(lyricGuiState, 'glow', 0.3, 2.5, 0.05).name('Glow').onChange((v) => { lyricParticles.uniforms.uGlow.value = v; });
-  fLyrics.add(lyricGuiState, 'speed', 0.25, 3, 0.05).name('Travel Speed').onChange((v) => { lyricParticles.speed = v; });
-  fLyrics.add({ assemble: () => lyricParticles.previewAssembled() }, 'assemble').name('Assemble');
-  fLyrics.add(lyricGuiState, 'paused').name('Pause').onChange((v) => lyricParticles.setPaused(v));
-  fLyrics.add({ restart: () => lyricParticles.restart() }, 'restart').name('Restart');
 }
 
 if (headParticlesEnabled) {
@@ -943,63 +881,6 @@ if (headParticlesEnabled) {
   headParticleTrail.setColors({ head: headParticleGuiState.headColor, young: headParticleGuiState.youngColor, mid: headParticleGuiState.midColor, old: headParticleGuiState.oldColor });
 }
 
-// Trail Lyrics Font Support V1 — small GUI dropdown for testing fonts live
-// (spec: "Add small GUI control for font family testing"). Each value is a
-// full CSS font-family stack ending in a generic fallback (spec: "Keep
-// fallback fonts"). "Missing Font" deliberately references a family that
-// doesn't exist anywhere, to exercise the ordinary CSS-fallback path (the
-// browser silently falls through to Georgia/serif — no special-case code
-// needed for that, canvas font resolution already works this way).
-const TRAIL_LYRICS_FONT_PRESETS = {
-  'Serif (default)': 'Georgia, "Times New Roman", serif',
-  'Sans-serif': '"Noto Sans", Arial, Helvetica, sans-serif',
-  'Japanese (Noto Sans JP)': '"Noto Sans JP", "Yu Gothic", Meiryo, sans-serif',
-  'Missing Font (fallback test)': '"NoSuchFontXYZ", Georgia, "Times New Roman", serif',
-};
-if (trailLyricsEnabled) {
-  trailLyricsGuiState = {
-    enabled: trailLyrics.enabled,
-    paused: false,
-    localTime: 0,
-    fontPreset: 'Serif (default)',
-    textScale: trailLyrics.textScale,
-    formationDistance: trailLyrics.formationDistance,
-    formationHeightOffset: trailLyrics.formationHeightOffset,
-    assembleDuration: trailLyrics.assembleDuration,
-    holdDuration: trailLyrics.holdDuration,
-    leaveDuration: trailLyrics.leaveDuration,
-    dissolveDuration: trailLyrics.dissolveDuration,
-    textGlow: trailLyrics.textGlow,
-    particleContribution: trailLyrics.particleContribution,
-    billboardRelease: trailLyrics.billboardRelease,
-    positionRelease: trailLyrics.positionRelease,
-    followSmoothing: trailLyrics.followSmoothing,
-  };
-  const fTrailLyrics = gui.addFolder('Trail Lyrics V1');
-  fTrailLyrics.add({ restart: () => trailLyrics.restart() }, 'restart').name('Restart');
-  fTrailLyrics.add(trailLyricsGuiState, 'enabled').name('Enabled').onChange((v) => { trailLyrics.enabled = v; });
-  fTrailLyrics.add(trailLyricsGuiState, 'paused').name('Pause').onChange((v) => trailLyrics.setPaused(v));
-  fTrailLyrics.add(trailLyricsGuiState, 'localTime', 0, 30, 0.05).name('Local Time').listen().onChange((v) => trailLyrics.setTime(v));
-  fTrailLyrics.add(trailLyricsGuiState, 'textScale', 0.4, 2.0, 0.02).name('Text Scale').onChange((v) => { trailLyrics.textScale = v; });
-  fTrailLyrics.add(trailLyricsGuiState, 'formationDistance', 0.2, 0.9, 0.02).name('Formation Distance').onChange((v) => { trailLyrics.formationDistance = v; });
-  fTrailLyrics.add(trailLyricsGuiState, 'formationHeightOffset', -6, 10, 0.25).name('Formation Offset').onChange((v) => { trailLyrics.formationHeightOffset = v; });
-  fTrailLyrics.add(trailLyricsGuiState, 'assembleDuration', 0.5, 4.0, 0.1).name('Assemble Duration').onChange((v) => { trailLyrics.assembleDuration = v; });
-  fTrailLyrics.add(trailLyricsGuiState, 'holdDuration', 0.5, 6.0, 0.1).name('Hold Duration').onChange((v) => { trailLyrics.holdDuration = v; });
-  fTrailLyrics.add(trailLyricsGuiState, 'leaveDuration', 0.5, 6.0, 0.1).name('Leave Duration').onChange((v) => { trailLyrics.leaveDuration = v; });
-  fTrailLyrics.add(trailLyricsGuiState, 'dissolveDuration', 0.5, 6.0, 0.1).name('Dissolve Duration').onChange((v) => { trailLyrics.dissolveDuration = v; });
-  fTrailLyrics.add(trailLyricsGuiState, 'textGlow', 0.2, 2.5, 0.05).name('Text Glow').onChange((v) => { trailLyrics.textGlow = v; });
-  fTrailLyrics.add(trailLyricsGuiState, 'particleContribution', 0.0, 1.5, 0.05).name('Particle Contribution').onChange((v) => { trailLyrics.particleContribution = v; });
-  fTrailLyrics.add(trailLyricsGuiState, 'billboardRelease', 0.0, 1.0, 0.02).name('Billboard Release').onChange((v) => { trailLyrics.billboardRelease = v; });
-  fTrailLyrics.add(trailLyricsGuiState, 'positionRelease', 0.0, 1.0, 0.02).name('Position Release').onChange((v) => { trailLyrics.positionRelease = v; });
-  fTrailLyrics.add(trailLyricsGuiState, 'followSmoothing', 0.5, 15.0, 0.25).name('Follow Smoothing').onChange((v) => { trailLyrics.followSmoothing = v; });
-  // Trail Lyrics Font Support V1 — setFont() waits for the Font Loading API
-  // (with a timeout, never hangs) before regenerating the glyph texture, so
-  // switching this mid-scene shows the new font's real metrics immediately
-  // rather than a stale fallback-font shape.
-  fTrailLyrics.add(trailLyricsGuiState, 'fontPreset', Object.keys(TRAIL_LYRICS_FONT_PRESETS)).name('Font (test)').onChange((label) => {
-    trailLyrics.setFont({ fontFamily: TRAIL_LYRICS_FONT_PRESETS[label] });
-  });
-}
 
 if (autoDirectorEnabled) {
   autoDirectorGuiState = {
@@ -1129,76 +1010,6 @@ function onResize() {
 }
 window.addEventListener('resize', onResize);
 
-// Double-click the water to drop an object there (Shift = cube). Double-click
-// avoids clashing with single-drag orbiting.
-const _ray = new THREE.Raycaster();
-const _ndc = new THREE.Vector2();
-const _plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-const _hit = new THREE.Vector3();
-renderer.domElement.addEventListener('dblclick', (ev) => {
-  const rect = renderer.domElement.getBoundingClientRect();
-  _ndc.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
-  _ndc.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
-  _ray.setFromCamera(_ndc, camera);
-  if (_ray.ray.intersectPlane(_plane, _hit)) {
-    dropObject(ev.shiftKey ? 'cube' : 'sphere', _hit.x, _hit.z);
-  }
-});
-
-// Click-drag an object to move it (drag on empty water still orbits the camera).
-let dragBody = null;
-const _dragPlane = new THREE.Plane();
-const _dragHit = new THREE.Vector3();
-const _dragVel = new THREE.Vector3();
-let _dragPrev = null;
-
-function pointerNDC(ev) {
-  const rect = renderer.domElement.getBoundingClientRect();
-  _ndc.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
-  _ndc.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
-}
-
-renderer.domElement.addEventListener('pointerdown', (ev) => {
-  if (ev.button !== 0) return;
-  pointerNDC(ev);
-  _ray.setFromCamera(_ndc, camera);
-  const hits = _ray.intersectObjects(bodies.bodies.map((b) => b.mesh), false);
-  if (!hits.length) return;                      // missed → let OrbitControls orbit
-  dragBody = bodies.bodies.find((b) => b.mesh === hits[0].object);
-  if (!dragBody) return;
-  controls.enabled = false;                      // OrbitControls bails when disabled
-  dragBody.dragging = true;
-  dragBody.vx = dragBody.vy = dragBody.vz = 0;
-  _dragPlane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 1, 0), dragBody.mesh.position);
-  _dragPrev = null;
-  renderer.domElement.setPointerCapture(ev.pointerId);
-}, { capture: true });
-
-window.addEventListener('pointermove', (ev) => {
-  if (!dragBody) return;
-  pointerNDC(ev);
-  _ray.setFromCamera(_ndc, camera);
-  if (!_ray.ray.intersectPlane(_dragPlane, _dragHit)) return;
-  const now = performance.now();
-  if (_dragPrev) {
-    const ddt = Math.max((now - _dragPrev.t) / 1000, 1 / 240);
-    _dragVel.set((_dragHit.x - _dragPrev.x) / ddt, 0, (_dragHit.z - _dragPrev.z) / ddt);
-  }
-  _dragPrev = { x: _dragHit.x, z: _dragHit.z, t: now };
-  dragBody.mesh.position.x = _dragHit.x;
-  dragBody.mesh.position.z = _dragHit.z;
-});
-
-window.addEventListener('pointerup', () => {
-  if (!dragBody) return;
-  dragBody.dragging = false;
-  dragBody.vx = THREE.MathUtils.clamp(_dragVel.x, -25, 25); // fling with the drag motion
-  dragBody.vz = THREE.MathUtils.clamp(_dragVel.z, -25, 25);
-  dragBody = null;
-  controls.enabled = true;
-  _dragVel.set(0, 0, 0);
-});
-
 // ---------------------------------------------------------------------------
 //  Render loop
 // ---------------------------------------------------------------------------
@@ -1260,8 +1071,6 @@ function animate() {
   island.update(time);
   particles.update(time, camera);
   sky.update(camera, time);
-  bodies.update(dt, time, ocean, terrainAt);
-  if (lyricParticles) lyricParticles.update(dt, time, ocean);
   if (headParticleTrail) {
     // Traveler Altitude V1: accumulate while Space is held, clamp, then push
     // into HeadParticleTrail BEFORE update() so this frame's live head
@@ -1325,9 +1134,9 @@ function animate() {
     // phrase still lingering behind as a leave-behind object — this is the
     // ONLY change AutoDirector.js's own lyric-safety gating needed; it
     // already just reads .getPhase() off whatever single object is passed
-    // here. Falls back to the standalone demo `trailLyrics` instance when
-    // the timeline isn't running (unchanged from before).
-    const lyricSafetySource = trailLyricsManager ? trailLyricsManager.getNewestActivePhrase() : trailLyrics;
+    // here. null when the timeline isn't running (AutoDirector's own
+    // lyric-safe gating treats a null source as "no lyric currently up").
+    const lyricSafetySource = trailLyricsManager ? trailLyricsManager.getNewestActivePhrase() : null;
     autoDirector.update(dt, headParticleTrail, lyricSafetySource, camera, ocean, time);
     if (autoDirectorGuiState) autoDirectorGuiState.cameraMode = autoDirector.cameraMode;
     // Keep OrbitControls' target roughly in sync (even though controls are
@@ -1381,19 +1190,13 @@ function animate() {
         : '(none yet)';
     }
   }
-  // Runs AFTER the Head Particle Trail block above so camera.quaternion
-  // already reflects this frame's follow-camera update (TrailLyrics reads
-  // the camera's live orientation to build/track its billboard plane).
-  if (trailLyrics) {
-    trailLyrics.update(dt, time, headParticleTrail, camera);
-    if (trailLyricsGuiState) trailLyricsGuiState.localTime = trailLyrics.localTime % trailLyrics.getCycleLength();
-  }
   // TrailLyrics Multi-Instance V1 — advances every currently-active phrase
   // instance the manager owns (spawned/despawned by the Lyric Timeline
-  // block above this same frame). Same ordering rationale as the
-  // standalone `trailLyrics.update()` call above: runs after Head Particle
-  // Trail/Auto Director so camera.quaternion is already this frame's final
-  // value when a brand-new instance's own formation reads it.
+  // block above this same frame). Runs AFTER the Head Particle Trail/Auto
+  // Director blocks above so camera.quaternion is already this frame's
+  // final value when a brand-new instance's own formation reads it
+  // (TrailLyrics reads the camera's live orientation to build/track its
+  // billboard plane).
   if (trailLyricsManager) {
     // Reading-Order Layout + Particle Dissolve V2: the manager's dissolve
     // system needs the SAME absolute clock every phrase's own
@@ -1409,22 +1212,7 @@ function animate() {
   ocean.uniforms.uProjMatrix.value.copy(camera.projectionMatrix);
   post.underwaterMat.uniforms.uTime.value = time;
 
-  // Feed floating bodies into the ocean's contact-foam field (rings, wakes,
-  // splash bursts). Strength blends wetness, speed and any recent splash.
   const ou = ocean.uniforms;
-  const blist = bodies.bodies;
-  const bn = Math.min(blist.length, MAX_FOAM_BODIES);
-  ou.uBodyCount.value = bn;
-  for (let i = 0; i < bn; i++) {
-    const b = blist[i];
-    const spd = Math.hypot(b.vx, b.vz);
-    const wet = b.wet || 0;
-    const strength = wet > 0.02
-      ? Math.min(2, (0.3 + spd * 0.22 + (b.splash || 0)) * Math.min(wet * 3, 1))
-      : Math.min(2, b.splash || 0);
-    ou.uBodies.value[i].set(b.mesh.position.x, b.mesh.position.z, b.r * 1.15, strength);
-    ou.uBodyVel.value[i].set(b.vx, b.vz);
-  }
 
   // Sync the sea's cloud shadows with the volumetric layer (drift, coverage).
   if (clouds.enabled) {
@@ -1480,7 +1268,7 @@ function animate() {
 }
 
 // Small handle for debugging / automation (harmless in production).
-window.OCEAN = { camera, controls, diveTo, sunParams, applySun, applyPreset, PRESETS, ocean, floor, island, post, bodies, dropObject, dropAtTarget, clouds, setCloudsEnabled };
+window.OCEAN = { camera, controls, diveTo, sunParams, applySun, applyPreset, PRESETS, ocean, floor, island, post, clouds, setCloudsEnabled };
 if (nightEnabled) {
   window.OCEAN.moonParams = moonParams;
   window.OCEAN.applyMoon = applyMoon;
@@ -1490,11 +1278,6 @@ if (nightEnabled) {
 if (timeEnabled) {
   window.OCEAN.setTimeOfDay = setTimeOfDay;
   Object.defineProperty(window.OCEAN, 'timeOfDay', { get: () => timeOfDayValue });
-}
-if (lyricsEnabled) {
-  window.OCEAN.lyricParticles = lyricParticles;
-  window.OCEAN.setLyricParticleTime = (t) => lyricParticles.setTime(t);
-  window.OCEAN.setLyricParticlesPaused = (p) => lyricParticles.setPaused(p);
 }
 if (headParticlesEnabled) {
   window.OCEAN.headParticleTrail = headParticleTrail;
@@ -1508,11 +1291,6 @@ if (headParticlesEnabled) {
   window.OCEAN.setHeadParticleHeadBloom = (v) => headParticleTrail.setHeadBloom(v);
   window.OCEAN.setHeadParticleRainbowSpeed = (v) => headParticleTrail.setRainbowSpeed(v);
   window.OCEAN.setHeadParticleRainbowSaturation = (v) => headParticleTrail.setRainbowSaturation(v);
-}
-if (trailLyricsEnabled) {
-  window.OCEAN.trailLyrics = trailLyrics;
-  window.OCEAN.setTrailLyricTime = (t) => trailLyrics.setTime(t);
-  window.OCEAN.setTrailLyricsPaused = (p) => trailLyrics.setPaused(p);
 }
 if (autoDirectorEnabled) {
   window.OCEAN.autoDirector = autoDirector;
@@ -1668,26 +1446,6 @@ if (timeEnabled) {
   // own explicit pose uses — Time-of-Day intentionally never couples to
   // camera position.
   setTimeOfDay(timeGuiState.time);
-  gui.controllersRecursive().forEach((c) => c.updateDisplay());
-}
-
-if (lyricsEnabled) {
-  // Default test environment: twilight/night reads best for glowing
-  // particles (spec 31) — reuse the SAME continuous Time-of-Day controller
-  // rather than a hand-rolled atmosphere, but only when nothing else has
-  // already claimed the sky/ocean palette. When ?time=1 is also active, that
-  // controller (and its own slider) remains authoritative (spec 31/37).
-  if (!timeEnabled && !nightEnabled && !cinematicSunsetEnabled) {
-    setTimeOfDay(0.79);
-  }
-  // Dedicated cinematic framing: open water, no island, room for the flock
-  // to approach from distance (spec 32). Skipped when Time-of-Day/Night
-  // already own the camera.
-  if (!timeEnabled && !nightEnabled) {
-    camera.position.set(0, 11, 75);
-    controls.target.set(0, 12, 300);
-    controls.update();
-  }
   gui.controllersRecursive().forEach((c) => c.updateDisplay());
 }
 

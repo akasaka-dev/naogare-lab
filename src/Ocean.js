@@ -108,17 +108,19 @@ export class Ocean {
       uStarVisibility: { value: 0.0 },
 
       // Head Particle Trail local water glint (opt-in) — a single small,
-      // local, moving glow patch beneath the traveler's head. Originally
-      // built for the (now removed) Light Ribbon prototype, then reused
-      // as-is by Head Particle Trail. uTravelerGlowIntensity defaults to 0
-      // so this is a mathematically exact no-op (the whole block below is
-      // also gated behind it) whenever Head Particle Trail mode is inactive
-      // — main.js only raises it while ?headParticles=1 is active.
+      // local, moving glow patch beneath the traveler's head.
+      // uTravelerGlowIntensity defaults to 0 so this is a mathematically
+      // exact no-op (the whole block below is also gated behind it)
+      // whenever Head Particle Trail mode is inactive — main.js only raises
+      // it while ?headParticles=1 is active.
       uTravelerHeadPos: { value: new THREE.Vector3(0, 0, 0) },
       uTravelerGlowIntensity: { value: 0.0 },
       uTravelerGlowColor: { value: new THREE.Color(0xffffff) },
 
-      // contact foam sources (filled from FloatingBodies every frame)
+      // Contact foam sources — previously filled every frame from the
+      // interactive floating-object feature (now removed from main.js), so
+      // uBodyCount currently stays at its default 0 and this is inert; the
+      // ocean-side contact-foam capability itself is otherwise unchanged.
       uContactFoam: { value: c.contactFoam },
       uBodyCount: { value: 0 },
       uBodies: { value: Array.from({ length: MAX_FOAM_BODIES }, () => new THREE.Vector4()) },

@@ -1,15 +1,14 @@
 import * as THREE from 'three';
 
-// Head Particle Trail V1 — replaces the Light Ribbon's mesh-based tail with
-// a fundamentally different architecture: THE HEAD IS THE EMITTER. Particles
-// are born at the head's exact current world position, then become fully
-// independent — each owns its own world-space position from that moment on
-// and is NEVER recomputed from where the head currently is. The tail is not
-// built, drawn, or connected to the head in any way; it is simply the
-// accumulation of particles that were born a few seconds ago and haven't
-// faded out yet. This directly answers the Light Ribbon's rejected flaw (a
-// ribbon mesh that could visibly detach/misalign from the head) by removing
-// the very idea of head-to-tail geometry: there is no geometry to misalign.
+// Head Particle Trail V1 — THE HEAD IS THE EMITTER. Particles are born at
+// the head's exact current world position, then become fully independent —
+// each owns its own world-space position from that moment on and is NEVER
+// recomputed from where the head currently is. The tail is not built,
+// drawn, or connected to the head in any way; it is simply the accumulation
+// of particles that were born a few seconds ago and haven't faded out yet.
+// Deliberately avoids any head-to-tail geometry (e.g. a ribbon mesh), which
+// can visibly detach/misalign from the head — there is no geometry to
+// misalign.
 //
 // Determinism: every particle's properties are a pure function of its own
 // global EMISSION INDEX (birth order number), via emissionRand() below — not
@@ -104,9 +103,9 @@ const POOL_SIZE = 600; // preallocated particle pool (spec 7: 400-900, start 600
 const MAX_LIFETIME = 4.0; // hard upper bound across the lifetime distribution (spec 9)
 const SPAWN_JITTER = 0.22; // world units — much smaller than the head's visible halo (spec 11)
 
-// Warm gold/ivory palette (lessons from Light Ribbon V1.3: keep the base
-// colours meaningfully saturated and the environment-tint lerp weight low,
-// or ACES tonemapping + additive bloom will wash everything back to white).
+// Warm gold/ivory palette — keep the base colours meaningfully saturated and
+// the environment-tint lerp weight low, or ACES tonemapping + additive
+// bloom will wash everything back to white.
 const COLOR_HEAD_CORE = new THREE.Color(0xfffaf5); // near-white
 const COLOR_HEAD_INNER = new THREE.Color(0xffe0a3); // white-gold
 const COLOR_HEAD_OUTER = new THREE.Color(0xffcf85); // pale amber-gold
@@ -122,9 +121,7 @@ export class HeadParticleTrail {
     this.emissionRate = 150; // particles/second (spec 8: 120-180 suggested)
     this.phase = 'flight';
 
-    // ---- Head path: identical control points/timing to Light Ribbon's, so
-    // the two experiments move through the same world for a fair comparison
-    // (spec 22). ----
+    // ---- Head path (spec 22). ----
     this.path = new HeadPath(
       [
         new THREE.Vector3(-70, 18, 420),
@@ -137,11 +134,11 @@ export class HeadParticleTrail {
       [0, 5, 9, 13, 17, 21]
     );
 
-    // ---- Head sprite: reused appearance from Light Ribbon V1.3 (spec 4) —
-    // three spatially EXCLUSIVE colour bands (never summed at the same
-    // pixel) so the near-white core never dilutes the visibly gold halo,
-    // and vice versa. This is an independent copy, not a shared class, per
-    // the project's convention of zero cross-module runtime dependencies. ----
+    // ---- Head sprite (spec 4) — three spatially EXCLUSIVE colour bands
+    // (never summed at the same pixel) so the near-white core never dilutes
+    // the visibly gold halo, and vice versa. This is an independent copy,
+    // not a shared class, per the project's convention of zero cross-module
+    // runtime dependencies. ----
     this.headUniforms = {
       uColorCore: { value: COLOR_HEAD_CORE.clone() },
       uColorInner: { value: COLOR_HEAD_INNER.clone() },
@@ -196,9 +193,9 @@ export class HeadParticleTrail {
           float outerRaw = smoothstep(1.0, 0.22, r);
           float twinkle = 0.94 + 0.06 * sin(uTime * 4.0);
           float shapeAlpha = clamp(coreRaw * 1.0 + innerRaw * 0.6 + outerRaw * 0.24, 0.0, 1.0) * twinkle;
-          // Exclusive bands (Light Ribbon V1.3 fix): a ring never also
-          // carries the core's contribution, so the halo survives ACES
-          // tonemapping instead of being summed into near-white.
+          // Exclusive bands: a ring never also carries the core's
+          // contribution, so the halo survives ACES tonemapping instead of
+          // being summed into near-white.
           float core = coreRaw;
           float inner = clamp(innerRaw - coreRaw, 0.0, 1.0);
           float outer = clamp(outerRaw - innerRaw, 0.0, 1.0);
