@@ -182,6 +182,28 @@ window.addEventListener('keydown', (event) => {
 });
 
 // ---------------------------------------------------------------------------
+//  Presentation Mode V1 — press H to hide non-MV editor UI (lil-gui panel,
+//  debug HUD, helper text) for clean MV playback/recording. A single CSS
+//  class toggle on <body> (see index.html's `.editor-ui` rule) — nothing is
+//  destroyed/recreated, so GUI state (open folders, slider values, etc.)
+//  survives toggling untouched. Starts OFF (editor-friendly) on every load;
+//  never auto-enabled on playback start in this V1.
+// ---------------------------------------------------------------------------
+let presentationMode = false;
+function setPresentationMode(enabled) {
+  presentationMode = enabled;
+  document.body.classList.toggle('presentation-mode', enabled);
+}
+window.addEventListener('keydown', (event) => {
+  if (event.code !== 'KeyH') return;
+  if (event.repeat) return;
+  const t = event.target;
+  const tag = t && t.tagName;
+  if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || (t && t.isContentEditable)) return;
+  setPresentationMode(!presentationMode);
+});
+
+// ---------------------------------------------------------------------------
 //  Cinematic Sunset V1 — opt-in via ?cinematicSunset=1. When absent, ocean
 //  uniforms default to a neutral uSunsetAmount = 0 (see Ocean.js) and none of
 //  this runs: no GUI folder, no preset override, no other visual change.
@@ -542,6 +564,7 @@ function applyPreset(name) {
 //  GUI
 // ---------------------------------------------------------------------------
 const gui = new GUI({ title: 'Ocean' });
+gui.domElement.classList.add('editor-ui'); // hidden by Presentation Mode (H key) — see index.html's .editor-ui rule
 
 const colorCtrls = [];
 function refreshColorCtrls() {

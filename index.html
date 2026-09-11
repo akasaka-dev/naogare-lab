@@ -93,6 +93,15 @@
         opacity: 0;
       }
 
+      /* Presentation Mode V1 — press H to hide non-MV editor UI (lil-gui
+         panel, debug HUD, helper text) for clean MV playback/recording.
+         A single class toggle on <body>; every element that should
+         disappear just needs the .editor-ui marker class. Never applied to
+         #titleCredit, the canvas, or any WebGL-rendered MV content. */
+      body.presentation-mode .editor-ui {
+        display: none;
+      }
+
       /* ---- Menu (lil-gui) — cinematic glass theme ---- */
       .lil-gui {
         --background-color: rgba(9, 20, 30, 0.55);
@@ -171,14 +180,14 @@
       <div id="tc-credit"></div>
     </div>
 
-    <div id="depth" hidden>
+    <div id="depth" class="editor-ui" hidden>
       <div><span class="k">STATE</span> &nbsp;<span class="v" id="depth-state">ABOVE</span></div>
       <div><span class="k">DEPTH</span> &nbsp;<span class="v" id="depth-val">0.0 m</span></div>
       <!-- Traveler Altitude V1 debug readout -->
       <div><span class="k">LIGHT ALT</span> &nbsp;<span class="v" id="traveler-alt-val">+0.0 / UP</span></div>
     </div>
 
-    <div id="hint"><b>Drag</b> to orbit &nbsp;·&nbsp; Scroll to zoom &nbsp;·&nbsp; Dive <b>below</b></div>
+    <div id="hint" class="editor-ui"><b>Drag</b> to orbit &nbsp;·&nbsp; Scroll to zoom &nbsp;·&nbsp; Dive <b>below</b></div>
 
     <div id="boot">
       <h1>Ocean</h1>
