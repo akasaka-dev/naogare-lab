@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://naogare-lab.naogare.workers.dev/sitemap.xml
