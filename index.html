@@ -59,6 +59,40 @@
       #depth .k { opacity: 0.5; }
       #depth .v { color: #9be7ff; }
 
+      /* Title / Credit Overlay V1 — dedicated DOM overlay for the metadata
+         cues (1-3) that are intentionally excluded from the TrailLyrics
+         wake-emergence renderer. Fixed, centered, non-interactive (never
+         intercepts mouse/touch), sized with clamp() so it stays readable on
+         mobile without ever affecting page layout. Opacity is driven purely
+         from JS (see TitleCreditOverlay.js) so it tracks the authored
+         fade-in/out curve exactly, not a CSS transition. */
+      #titleCredit {
+        position: fixed; inset: 0; z-index: 12;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        pointer-events: none;
+        text-align: center;
+        padding: 0 24px;
+      }
+      #tc-title {
+        font-family: Georgia, "Times New Roman", serif;
+        font-weight: 400;
+        font-size: clamp(28px, 5vw, 56px);
+        letter-spacing: 0.04em;
+        color: rgba(255, 255, 255, 0.96);
+        text-shadow: 0 2px 18px rgba(0, 0, 0, 0.55), 0 1px 3px rgba(0, 0, 0, 0.6);
+        opacity: 0;
+      }
+      #tc-credit {
+        margin-top: 10px;
+        font-family: Georgia, "Times New Roman", serif;
+        font-weight: 400;
+        font-size: clamp(13px, 1.6vw, 18px);
+        letter-spacing: 0.08em;
+        color: rgba(222, 228, 234, 0.8);
+        text-shadow: 0 1px 10px rgba(0, 0, 0, 0.5);
+        opacity: 0;
+      }
+
       /* ---- Menu (lil-gui) — cinematic glass theme ---- */
       .lil-gui {
         --background-color: rgba(9, 20, 30, 0.55);
@@ -131,6 +165,11 @@
   </head>
   <body>
     <div id="app"></div>
+
+    <div id="titleCredit" aria-hidden="true">
+      <div id="tc-title"></div>
+      <div id="tc-credit"></div>
+    </div>
 
     <div id="depth" hidden>
       <div><span class="k">STATE</span> &nbsp;<span class="v" id="depth-state">ABOVE</span></div>

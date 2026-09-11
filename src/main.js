@@ -14,6 +14,7 @@ import { HeadParticleTrail } from './HeadParticleTrail.js';
 import { TrailLyricsManager } from './TrailLyricsManager.js';
 import { AutoDirector } from './AutoDirector.js';
 import { LyricTimeline } from './LyricTimeline.js';
+import { TitleCreditOverlay } from './TitleCreditOverlay.js';
 import { AudioController } from './AudioController.js';
 import { getChoreography, baseTrailLyricsConfig, HOLD_TRAIL, HOLD_HERO } from './ForeverMoreLyrics.js';
 
@@ -27,6 +28,8 @@ const depthEl = document.getElementById('depth');
 const depthStateEl = document.getElementById('depth-state');
 const depthValEl = document.getElementById('depth-val');
 const travelerAltValEl = document.getElementById('traveler-alt-val');
+const tcTitleEl = document.getElementById('tc-title');
+const tcCreditEl = document.getElementById('tc-credit');
 
 const sizeW = () => window.innerWidth;
 const sizeH = () => window.innerHeight;
@@ -291,6 +294,11 @@ const lyricTimeline = lyricTimelineEnabled
     })
   : null;
 let lyricTimelineGuiState = null;
+// Title / Credit Overlay V1 — drives the two DOM elements above from the
+// exact same lyricTimeline.time clock (see the update() call below); kept
+// entirely separate from TrailLyrics/TrailLyricsManager (cues 1-3 stay
+// excluded from those per ForeverMoreLyrics.js, unchanged).
+const titleCreditOverlay = lyricTimelineEnabled ? new TitleCreditOverlay(tcTitleEl, tcCreditEl) : null;
 let foreverMoreTimingData = null; // raw parsed JSON, kept for OCEAN.foreverMoreTiming (spec 11) — fetched once, never per-frame
 if (lyricTimelineEnabled) {
   fetch(LYRIC_TIMING_JSON_URL)
@@ -1175,6 +1183,11 @@ function animate() {
     const audioSyncActive = !!(audioController && audioGuiState && audioGuiState.syncLyrics);
     if (audioSyncActive) lyricTimeline.setTime(audioController.currentTime);
     else lyricTimeline.update(dt);
+    // Title / Credit Overlay V1: reads the SAME lyricTimeline.time this
+    // frame's setTime()/update() above just produced — correct immediately
+    // after any seek, with no separate clock of its own — and the SAME
+    // already-fetched timing JSON (no second fetch; null until it resolves).
+    if (titleCreditOverlay) titleCreditOverlay.update(lyricTimeline.time, foreverMoreTimingData ? foreverMoreTimingData.lyrics : null);
     if (lyricTimelineGuiState) {
       lyricTimelineGuiState.time = lyricTimeline.time;
       // TrailLyrics Multi-Instance V1: report the full active COUNT plus
