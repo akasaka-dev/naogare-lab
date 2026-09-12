@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemap.org/schemas/sitemap/0.9"
+        xmlns:xhtml="http://www.w3.org/1999/xhtml">
+  <url>
+    <loc>https://naogare-lab.naogare.workers.dev/</loc>
+    <xhtml:link rel="alternate" hreflang="ja" href="https://naogare-lab.naogare.workers.dev/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://naogare-lab.naogare.workers.dev/en/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://naogare-lab.naogare.workers.dev/"/>
+  </url>
+  <url>
+    <loc>https://naogare-lab.naogare.workers.dev/en/</loc>
+    <xhtml:link rel="alternate" hreflang="ja" href="https://naogare-lab.naogare.workers.dev/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://naogare-lab.naogare.workers.dev/en/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://naogare-lab.naogare.workers.dev/"/>
+  </url>
+  <url>
+    <loc>https://naogare-lab.naogare.workers.dev/game/ikku-gozaru/</loc>
+  </url>
+  <url>
+    <loc>https://naogare-lab.naogare.workers.dev/game/line4/</loc>
+  </url>
+  <url>
+    <loc>https://naogare-lab.naogare.workers.dev/game/fuwao/</loc>
+  </url>
+  <url>
+    <loc>https://naogare-lab.naogare.workers.dev/game/snake/</loc>
+  </url>
+</urlset>
