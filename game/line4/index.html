@@ -414,6 +414,7 @@
     overflow: hidden;
     cursor: grab;
     touch-action: none; /* the crawl is drag-scrubbed by hand, not natively scrolled */
+    user-select: none; /* otherwise a mouse-drag over the crawl text selects it instead of scrubbing */
     opacity: 0;
     transition: opacity 0.9s ease;
   }
@@ -2258,6 +2259,7 @@
   let endingCrawlAnim = null;
   let endingBgmTimer = null;
   let endingCrawlTotalMs = 0;
+  let endingCrawlFinished = false; // click-to-title is only honored once this is true
 
   function stopEndingCrawl() {
     if (endingCrawlAnim) { endingCrawlAnim.cancel(); endingCrawlAnim = null; }
@@ -2276,6 +2278,7 @@
     requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('show')));
 
     stopEndingCrawl();
+    endingCrawlFinished = false;
     const wrap = document.getElementById('endingTextWrap');
     const crawl = document.getElementById('endingTextCrawl');
     const lines = kanaMode ? ENDING_TEXT_KANA : ENDING_TEXT;
@@ -2301,6 +2304,7 @@
       ],
       { duration: totalMs, easing: 'linear', fill: 'forwards' }
     );
+    endingCrawlAnim.onfinish = () => { endingCrawlFinished = true; };
     // Let the ending theme swell in a few seconds before the crawl finishes,
     // rather than the moment the screen appears.
     endingBgmTimer = setTimeout(() => SoundMgr.playTrack('ending', 'title'), Math.max(0, totalMs - 5000));
@@ -2345,12 +2349,21 @@
       isDown = false;
       screen.classList.remove('dragging');
       if (dragged && endingCrawlAnim) {
-        endingCrawlAnim.play();
-        // Re-time the BGM cue relative to the scrubbed position, or it'd
-        // fire on the original schedule regardless of where the crawl is now.
         if (endingBgmTimer) { clearTimeout(endingBgmTimer); endingBgmTimer = null; }
-        const remaining = endingCrawlTotalMs - endingCrawlAnim.currentTime;
-        endingBgmTimer = setTimeout(() => SoundMgr.playTrack('ending', 'title'), Math.max(0, remaining - 5000));
+        if (endingCrawlAnim.currentTime >= endingCrawlTotalMs) {
+          // .play() on an animation already at its end rewinds it to the
+          // start instead of finishing it (per spec) — .finish() is what
+          // actually fires onfinish here, so dragged-to-the-end doesn't
+          // silently restart the whole crawl.
+          endingCrawlAnim.finish();
+          SoundMgr.playTrack('ending', 'title');
+        } else {
+          endingCrawlAnim.play();
+          // Re-time the BGM cue relative to the scrubbed position, or it'd
+          // fire on the original schedule regardless of where the crawl is now.
+          const remaining = endingCrawlTotalMs - endingCrawlAnim.currentTime;
+          endingBgmTimer = setTimeout(() => SoundMgr.playTrack('ending', 'title'), Math.max(0, remaining - 5000));
+        }
       }
     }
     screen.addEventListener('pointerup', endDrag);
@@ -2359,6 +2372,7 @@
 
     screen.addEventListener('click', () => {
       if (dragged) { dragged = false; return; } // that was a drag, not a tap
+      if (!endingCrawlFinished) return; // a slightly-off drag can register as a click — ignore it until the crawl has actually played through
       SoundMgr.seClick();
       stopEndingCrawl();
       screen.classList.remove('show');
