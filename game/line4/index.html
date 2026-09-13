@@ -412,10 +412,12 @@
     z-index: 9;
     background: #000;
     overflow: hidden;
-    cursor: pointer;
+    cursor: grab;
+    touch-action: none; /* the crawl is drag-scrubbed by hand, not natively scrolled */
     opacity: 0;
     transition: opacity 0.9s ease;
   }
+  #endingScreen.dragging { cursor: grabbing; }
   #endingScreen.show { opacity: 1; }
   #endingScroll {
     width: 100%;
@@ -973,7 +975,7 @@
       <img src="ending2.webp" alt="エンディング">
       <div id="endingTextWrap"><div id="endingTextCrawl"></div></div>
     </div>
-    <div class="ending-hint">クリックでタイトルへ</div>
+    <div class="ending-hint" id="endingHint"></div>
   </div>
 
 <script>
@@ -1246,6 +1248,7 @@
     document.getElementById('onlineCopyBtn').textContent = K('招待URLをコピー', 'しょうたいURLをコピー');
     document.getElementById('onlineWaitingText').textContent = K('対戦相手を待っています…', 'たいせんあいてをまっています…');
     document.getElementById('onlineCancelBtn').textContent = 'キャンセル';
+    document.getElementById('endingHint').textContent = K('ドラッグで読み返せます／クリックでタイトルへ', 'ドラッグでよみかえせます／クリックでタイトルへ');
 
     resetBtn.textContent = K('最初からやり直す', 'さいしょからやりなおす');
     titleBtn.textContent = K('タイトルに戻る', 'タイトルにもどる');
@@ -2254,6 +2257,7 @@
 
   let endingCrawlAnim = null;
   let endingBgmTimer = null;
+  let endingCrawlTotalMs = 0;
 
   function stopEndingCrawl() {
     if (endingCrawlAnim) { endingCrawlAnim.cancel(); endingCrawlAnim = null; }
@@ -2286,6 +2290,7 @@
     // later doesn't require re-tuning a hardcoded duration.
     const charCount = lines.join('').length;
     const totalMs = Math.max(45000, Math.min(120000, charCount * 150));
+    endingCrawlTotalMs = totalMs;
     const startY = wrap.clientHeight;
     const endY = -crawl.scrollHeight;
     crawl.style.transform = `translate(-50%, ${startY}px)`;
@@ -2301,14 +2306,66 @@
     endingBgmTimer = setTimeout(() => SoundMgr.playTrack('ending', 'title'), Math.max(0, totalMs - 5000));
   }
 
-  document.getElementById('endingScreen').addEventListener('click', () => {
-    SoundMgr.seClick();
-    stopEndingCrawl();
-    const el = document.getElementById('endingScreen');
-    el.classList.remove('show');
-    setTimeout(() => el.classList.add('hidden'), 500);
-    goToTitle();
-  });
+  // Drag up/down to scrub the crawl back and forth (a young player found the
+  // auto-pace too fast to read) — pauses the WAAPI animation and scrubs its
+  // currentTime while dragging, then resumes auto-play on release. Shares
+  // the "was this a drag or a tap" pattern already used by the emote
+  // scroller, since a plain tap still needs to return to the title screen.
+  (function setupEndingCrawlDrag() {
+    const screen = document.getElementById('endingScreen');
+    let isDown = false;
+    let dragged = false;
+    let startClientY = 0;
+    let startTime = 0;
+
+    screen.addEventListener('pointerdown', (e) => {
+      if (!endingCrawlAnim) return;
+      isDown = true;
+      dragged = false;
+      startClientY = e.clientY;
+      startTime = endingCrawlAnim.currentTime || 0;
+      endingCrawlAnim.pause();
+    });
+    screen.addEventListener('pointermove', (e) => {
+      if (!isDown || !endingCrawlAnim) return;
+      const dy = e.clientY - startClientY;
+      if (Math.abs(dy) > 6) dragged = true;
+      if (!dragged) return;
+      screen.classList.add('dragging');
+      const wrap = document.getElementById('endingTextWrap');
+      const crawl = document.getElementById('endingTextCrawl');
+      const travelPx = wrap.clientHeight + crawl.scrollHeight;
+      // Dragging down (positive dy) reveals earlier text — i.e. rewinds.
+      const deltaTime = travelPx > 0 ? -(dy / travelPx) * endingCrawlTotalMs : 0;
+      const newTime = Math.max(0, Math.min(endingCrawlTotalMs, startTime + deltaTime));
+      endingCrawlAnim.currentTime = newTime;
+    });
+    function endDrag() {
+      if (!isDown) return;
+      isDown = false;
+      screen.classList.remove('dragging');
+      if (dragged && endingCrawlAnim) {
+        endingCrawlAnim.play();
+        // Re-time the BGM cue relative to the scrubbed position, or it'd
+        // fire on the original schedule regardless of where the crawl is now.
+        if (endingBgmTimer) { clearTimeout(endingBgmTimer); endingBgmTimer = null; }
+        const remaining = endingCrawlTotalMs - endingCrawlAnim.currentTime;
+        endingBgmTimer = setTimeout(() => SoundMgr.playTrack('ending', 'title'), Math.max(0, remaining - 5000));
+      }
+    }
+    screen.addEventListener('pointerup', endDrag);
+    screen.addEventListener('pointercancel', endDrag);
+    screen.addEventListener('pointerleave', endDrag);
+
+    screen.addEventListener('click', () => {
+      if (dragged) { dragged = false; return; } // that was a drag, not a tap
+      SoundMgr.seClick();
+      stopEndingCrawl();
+      screen.classList.remove('show');
+      setTimeout(() => screen.classList.add('hidden'), 500);
+      goToTitle();
+    });
+  })();
 
   titleBtn.addEventListener('click', () => { SoundMgr.seClick(); goToTitle(); });
 
