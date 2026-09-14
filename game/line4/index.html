@@ -431,6 +431,7 @@
     position: absolute;
     left: 50%;
     top: 0;
+    -webkit-user-drag: none; /* native image drag would otherwise hijack the crawl-scrub gesture on desktop */
     /* min-width/min-height (not plain width/height) is the pure-CSS
        "cover" trick: the browser grows whichever axis is needed to fully
        cover the screen, so no black #endingScreen background can ever
@@ -973,7 +974,7 @@
        Click anywhere to return to title. -->
   <div id="endingScreen" class="hidden">
     <div id="endingScroll">
-      <img src="ending2.webp" alt="エンディング">
+      <img src="ending2.webp" alt="エンディング" draggable="false">
       <div id="endingTextWrap"><div id="endingTextCrawl"></div></div>
     </div>
     <div class="ending-hint" id="endingHint"></div>
