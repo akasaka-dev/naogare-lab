@@ -149,6 +149,54 @@ window.addEventListener('blur', () => {
   travelerAltitudeSpaceHeld = false; // do NOT toggle direction here
 });
 
+// ---------------------------------------------------------------------------
+//  Manual A/D Steering V1 — A/D press-and-hold biases the traveler's
+//  automatic horizontal steering (HeadParticleTrail.manualTurnInput), fully
+//  independent of Space/altitude (Y). Input handling only lives here (held-
+//  key state, resolved to -1/0/+1 every frame below); the actual turn-rate
+//  integration is HeadParticleTrail's own (see its update()), matching the
+//  same "main.js owns input, the trail class owns the resulting motion"
+//  split already used for Traveler Altitude V1 above.
+// ---------------------------------------------------------------------------
+let travelerTurnLeftHeld = false;  // KeyA
+let travelerTurnRightHeld = false; // KeyD
+
+window.addEventListener('keydown', (event) => {
+  if (event.code === 'KeyA') { event.preventDefault(); travelerTurnLeftHeld = true; }
+  else if (event.code === 'KeyD') { event.preventDefault(); travelerTurnRightHeld = true; }
+});
+
+window.addEventListener('keyup', (event) => {
+  if (event.code === 'KeyA') { event.preventDefault(); travelerTurnLeftHeld = false; }
+  else if (event.code === 'KeyD') { event.preventDefault(); travelerTurnRightHeld = false; }
+});
+
+window.addEventListener('blur', () => {
+  // Same tab-switch safety as Traveler Altitude V1 above — never leave
+  // manual steering stuck engaged after focus loss.
+  travelerTurnLeftHeld = false;
+  travelerTurnRightHeld = false;
+});
+
+// ---------------------------------------------------------------------------
+//  Free Navigation V1 — deliberately NOT a new steering/turning algorithm:
+//  it only decides WHICH input value to feed into the exact same
+//  HeadParticleTrail.setManualTurnInput(-1/0/+1) entry point Manual A/D
+//  Steering V1 already uses above, so the resulting turn-rate integration,
+//  smoothing, and motion are byte-for-byte identical to a person physically
+//  holding A/D. Every Steering Interval seconds, one of the three states is
+//  picked uniformly at random (repeats allowed) and then held constant —
+//  Math.random() is called only at that switch, never per frame. Vertical
+//  motion (see the animate() loop) is a fully separate additive sine term on
+//  top of Traveler Altitude V1's own travelerAltitudeOffset, so Space still
+//  works unchanged whether or not Free Navigation is active.
+// ---------------------------------------------------------------------------
+const FREE_NAV_STATES = [-1, 0, 1];
+let freeNavState = 0;
+let freeNavTimer = 0;
+let freeNavVerticalTheta = 0; // continuous phase for the vertical sine wave — advanced by dt, never reassigned from elapsed time
+let freeNavWasEnabled = false; // edge-detected in animate() so enabling always starts from a clean state/phase
+
 const sky = new Sky(sunDir);
 scene.add(sky.mesh);
 
@@ -241,6 +289,7 @@ const timeEnabled = new URLSearchParams(window.location.search).get('time') === 
 const headParticlesEnabled = new URLSearchParams(window.location.search).get('headParticles') === '1';
 const headParticleTrail = headParticlesEnabled ? new HeadParticleTrail(scene) : null;
 let headParticleGuiState = null;
+let freeNavGuiState = null;
 const headParticleFollowCam = { look: new THREE.Vector3(), inited: false };
 
 // ---------------------------------------------------------------------------
@@ -763,6 +812,41 @@ const MOON_AZ_START = 255, MOON_AZ_RANGE = -60; // independent sweep, opposite d
 const TOD_SUNSET_PEAK = 0.85;
 const TOD_STAR_PEAK = NIGHT_STAR_VISIBILITY;
 
+// Time Warp V1 — GUI: "Sunset Length" (timeGuiState.sunsetStretch, default
+// 1 = off). Slows only the RATE at which `t` advances while the sun sits
+// within the exact same elevation band already used for uSunsetAmount above
+// (-14..14 degrees, peaking at 4 — see setTimeOfDay()), so the golden-hour/
+// sunset TINT itself gets proportionally more real time to play out. This
+// deliberately does not touch setTimeOfDay()'s own colour/elevation
+// formulas at all (they still map `t` -> elevation/colour exactly as
+// before) — only how fast `t` itself is advanced toward and through that
+// band changes (see animate()'s own autoPlay block). Returns 1 (normal
+// speed) outside the band, smoothly down to 1/stretch at the band's own
+// peak elevation.
+function todTimeWarpFactor(elevDeg, stretch) {
+  const band = smoothstepJS(-14, 4, elevDeg) * (1 - smoothstepJS(4, 14, elevDeg));
+  const slow = 1 / Math.max(1, stretch);
+  return 1 - band * (1 - slow);
+}
+
+// Speed V2 — the "Speed" GUI field is now a log-scaled 0..1 slider instead
+// of a linear t-units/sec value directly (was 0.005..0.3): a LINEAR slider
+// cannot usefully span real-time (~1/86400 t-units/sec — one full day/night
+// cycle per real 24h) up to a fast cinematic pace in the same control,
+// since real-time is ~26000x slower than the old top end and would be
+// indistinguishable from 0 on a linear scale. On this log scale, equal drag
+// distance means equal SPEED RATIO instead of equal absolute speed, so
+// real-time (slider = 0) through fast (slider = 1) are all comfortably
+// reachable. todSpeedFromSlider() converts the slider position to the
+// actual t-units/sec speed consumed by animate()'s autoPlay tick; nothing
+// else about how that speed is used changed.
+const TOD_SPEED_REALTIME = 1 / 86400; // one full day/night cycle per real 24 hours — the slider's 0 end
+const TOD_SPEED_MAX = 0.3; // the slider's 1 end — same fastest pace the old linear slider topped out at
+function todSpeedFromSlider(slider) {
+  const s = Math.min(Math.max(slider, 0), 1);
+  return TOD_SPEED_REALTIME * Math.pow(TOD_SPEED_MAX / TOD_SPEED_REALTIME, s);
+}
+
 let timeOfDayValue = 0.5;
 function setTimeOfDay(tRaw) {
   const t = Math.min(Math.max(tRaw, 0), 1);
@@ -864,11 +948,24 @@ if (nightEnabled) {
 }
 
 if (timeEnabled) {
-  timeGuiState = { time: timeOfDayValue, autoPlay: false, speed: 0.05 };
-  const fTime = gui.addFolder('Time of Day');
+  timeGuiState = { time: timeOfDayValue, autoPlay: true, speed: 0.52, sunsetStretch: 4.4 };
+  const fTime = gui.addFolder('Day Animation');
   timeSliderCtrl = fTime.add(timeGuiState, 'time', 0, 1, 0.001).name('Time').onChange(setTimeOfDay);
   fTime.add(timeGuiState, 'autoPlay').name('Auto Play');
-  fTime.add(timeGuiState, 'speed', 0.005, 0.3, 0.005).name('Speed');
+  // Speed V2 (see todSpeedFromSlider()) — 0 = real time (one day/night
+  // cycle per real 24h), 1 = fastest (one cycle in ~3.3s).
+  fTime.add(timeGuiState, 'speed', 0, 1, 0.005).name('Speed');
+  // Time Warp V1 (see todTimeWarpFactor()) — 1 = off (byte-for-byte the old
+  // uniform-speed behaviour); >1 slows `t` specifically while passing
+  // through the golden/horizon elevation band, stretching that band's own
+  // real-time duration without changing the Speed slider's meaning
+  // elsewhere in the cycle. Applies equally at BOTH crossings of that band
+  // (sunrise ~t=0.25 AND sunset ~t=0.75) — todTimeWarpFactor() is a pure
+  // function of the current sun elevation only, with no notion of "rising"
+  // vs "setting", so both get the exact same stretch. Named "Sunrise/
+  // Sunset Length" (not just "Sunset") specifically to avoid implying
+  // otherwise.
+  fTime.add(timeGuiState, 'sunsetStretch', 1.0, 8.0, 0.1).name('Sunrise/Sunset Length');
 }
 
 if (headParticlesEnabled) {
@@ -889,6 +986,7 @@ if (headParticlesEnabled) {
     speed: headParticleTrail.speed,
     paused: false,
     follow: true,
+    meanderStrength: 1.0,
   };
   const fHeadParticles = gui.addFolder('Head Particle Trail');
   fHeadParticles.add({ restart: () => headParticleTrail.restart() }, 'restart').name('Restart');
@@ -905,11 +1003,30 @@ if (headParticlesEnabled) {
   fHeadParticles.add(headParticleGuiState, 'headBloom', 0.2, 2.5, 0.05).name('Head Bloom').onChange((v) => headParticleTrail.setHeadBloom(v));
   fHeadParticles.add(headParticleGuiState, 'emissionRate', 40, 300, 5).name('Emission Rate').onChange((v) => headParticleTrail.setEmissionRate(v));
   fHeadParticles.add(headParticleGuiState, 'speed', 0.25, 2.5, 0.05).name('Travel Speed').onChange((v) => { headParticleTrail.speed = v; });
+  // Organic Meander V1 debug control (0 = pure base Catmull-Rom path, 1 =
+  // intended V1 feel, 2 = exaggerated diagnostic).
+  fHeadParticles.add(headParticleGuiState, 'meanderStrength', 0.0, 2.0, 0.05).name('Meander Strength').onChange((v) => headParticleTrail.setMeanderStrength(v));
   fHeadParticles.add(headParticleGuiState, 'follow').name('Follow Camera').onChange((v) => { headParticleFollowCam.inited = false; if (!v) controls.enabled = true; });
   // Apply the default custom palette to the uniforms immediately so
   // switching Color Mode to "custom" shows the intended colours right away
   // rather than the shader's own hardcoded initial defaults.
   headParticleTrail.setColors({ head: headParticleGuiState.headColor, young: headParticleGuiState.youngColor, mid: headParticleGuiState.midColor, old: headParticleGuiState.oldColor });
+
+  // Free Navigation V1 GUI — see its own state-block comment further above
+  // for the design (reuses Manual A/D Steering V1 verbatim; no new turning
+  // algorithm). All four fields are read live from animate() every frame;
+  // there is nothing to wire an onChange() to here.
+  freeNavGuiState = {
+    enabled: false,
+    steeringInterval: 5.0,
+    verticalAmplitude: 6.0,
+    verticalPeriod: 20.0,
+  };
+  const fFreeNav = gui.addFolder('Free Navigation');
+  fFreeNav.add(freeNavGuiState, 'enabled').name('Free Navigation');
+  fFreeNav.add(freeNavGuiState, 'steeringInterval', 1.0, 20.0, 0.5).name('Steering Interval');
+  fFreeNav.add(freeNavGuiState, 'verticalAmplitude', 0.0, 30.0, 0.5).name('Vertical Amplitude');
+  fFreeNav.add(freeNavGuiState, 'verticalPeriod', 2.0, 60.0, 0.5).name('Vertical Period');
 }
 
 
@@ -970,6 +1087,43 @@ if (lyricTimelineEnabled) {
     const ev = lyricTimeline.getNextEvent();
     if (ev) lyricTimeline.setTime(ev.triggerTime);
   } }, 'next').name('Next Event');
+
+  // Trail Lyrics Style GUI — development-time-only controls for every
+  // lyric's glyph texture (see TrailLyrics.js's sampleTextTargets()).
+  //   Text Color — the glyph fill color (default '#ffffff', matching
+  //     #tc-title's color; e.g. '#000000' for black text). Never
+  //     time-of-day tinted.
+  //   Shadow Color — the canvas-drawn two-layer shadow's color (default
+  //     '#000000', matching #tc-title's own black shadow), independent of
+  //     Text Color — the two are never auto-inverted relative to each
+  //     other (e.g. black text + the default black shadow will look mostly
+  //     shadow-less, which is expected).
+  //   Shadow Strength — scales that same shadow's alpha (no outline
+  //     control: the title itself uses no stroke/outline, so neither does
+  //     TrailLyrics).
+  //   Font Family — a free-text CSS font-family string passed directly
+  //     into the Canvas 2D font declaration (default matches the existing
+  //     title-matched serif look: 'Georgia, "Times New Roman", serif').
+  //     Unlike the other three controls, changing this ALSO reflows the
+  //     particle target positions (the glyph shapes themselves changed —
+  //     see TrailLyrics.setGlyphStyle()'s own comment on why).
+  // All four immediately update every currently active phrase's texture,
+  // not just future ones — see TrailLyricsManager.setGlyphStyle().
+  const trailLyricsStyleGuiState = {
+    textColor: '#ffffff',
+    shadowColor: '#000000',
+    shadowStrength: 1.0,
+    fontFamily: 'Georgia, "Times New Roman", serif',
+  };
+  const fTrailLyricsStyle = gui.addFolder('Trail Lyrics Style');
+  fTrailLyricsStyle.addColor(trailLyricsStyleGuiState, 'textColor').name('Text Color')
+    .onChange((v) => trailLyricsManager.setGlyphStyle({ textColor: v }));
+  fTrailLyricsStyle.addColor(trailLyricsStyleGuiState, 'shadowColor').name('Shadow Color')
+    .onChange((v) => trailLyricsManager.setGlyphStyle({ shadowColor: v }));
+  fTrailLyricsStyle.add(trailLyricsStyleGuiState, 'shadowStrength', 0.0, 1.0, 0.05).name('Shadow Strength')
+    .onChange((v) => trailLyricsManager.setGlyphStyle({ shadowStrength: v }));
+  fTrailLyricsStyle.add(trailLyricsStyleGuiState, 'fontFamily').name('Font Family')
+    .onFinishChange((v) => trailLyricsManager.setGlyphStyle({ fontFamily: v }));
 }
 
 if (audioEnabled) {
@@ -1078,7 +1232,11 @@ function animate() {
   time += dt;
   lastNow = now;
   if (timeEnabled && timeGuiState.autoPlay) {
-    timeGuiState.time = (timeGuiState.time + dt * timeGuiState.speed) % 1;
+    // Time Warp V1 (see todTimeWarpFactor()) — reads sunParams.elevation as
+    // it stood after LAST frame's setTimeOfDay() call (one-frame lag,
+    // imperceptible) to decide how fast `t` should advance THIS frame.
+    const warp = todTimeWarpFactor(sunParams.elevation, timeGuiState.sunsetStretch);
+    timeGuiState.time = (timeGuiState.time + dt * todSpeedFromSlider(timeGuiState.speed) * warp) % 1;
     setTimeOfDay(timeGuiState.time);
     if (timeSliderCtrl) timeSliderCtrl.updateDisplay();
   }
@@ -1110,10 +1268,52 @@ function animate() {
       travelerAltitudeOffset += travelerAltitudeDirection * TRAVELER_ALTITUDE_SPEED * dt;
       travelerAltitudeOffset = Math.min(MAX_TRAVELER_ALTITUDE_OFFSET, Math.max(MIN_TRAVELER_ALTITUDE_OFFSET, travelerAltitudeOffset));
     }
-    headParticleTrail.setAltitudeOffset(travelerAltitudeOffset);
+
+    // Free Navigation V1 vertical motion — a plain sine wave over a
+    // continuously-advancing phase (theta += dt * angularSpeed, never a
+    // position/time formula), fully independent of horizontal steering and
+    // additive on top of Space's own travelerAltitudeOffset above (never
+    // replacing it), so Space still works exactly as before regardless of
+    // Free Navigation's on/off state. Enabling (rising edge) resets the
+    // phase to 0 so the sine wave always starts from 0 contribution — no
+    // instantaneous jump into whatever phase a background clock would
+    // otherwise have drifted to.
+    const freeNavEnabled = !!(freeNavGuiState && freeNavGuiState.enabled);
+    let freeNavVerticalOffset = 0;
+    if (freeNavEnabled) {
+      if (!freeNavWasEnabled) {
+        freeNavVerticalTheta = 0;
+        freeNavState = FREE_NAV_STATES[Math.floor(Math.random() * FREE_NAV_STATES.length)];
+        freeNavTimer = freeNavGuiState.steeringInterval;
+      }
+      freeNavTimer -= dt;
+      if (freeNavTimer <= 0) {
+        freeNavState = FREE_NAV_STATES[Math.floor(Math.random() * FREE_NAV_STATES.length)];
+        freeNavTimer += freeNavGuiState.steeringInterval;
+      }
+      freeNavVerticalTheta += dt * (Math.PI * 2 / Math.max(0.001, freeNavGuiState.verticalPeriod));
+      freeNavVerticalOffset = freeNavGuiState.verticalAmplitude * Math.sin(freeNavVerticalTheta);
+    }
+    freeNavWasEnabled = freeNavEnabled;
+
+    headParticleTrail.setAltitudeOffset(travelerAltitudeOffset + freeNavVerticalOffset);
     if (travelerAltValEl) {
       travelerAltValEl.textContent = (travelerAltitudeOffset >= 0 ? '+' : '') + travelerAltitudeOffset.toFixed(1) + ' / ' + (travelerAltitudeDirection > 0 ? 'UP' : 'DOWN');
     }
+    // Manual A/D Steering V1 input source: resolves to -1/0/+1 and pushes
+    // into HeadParticleTrail BEFORE update(), same ordering reason as
+    // altitude above — this frame's live steering integration reads it
+    // immediately. Free Navigation V1, when enabled, REPLACES the user's
+    // own held-key state with its own generated value here — same entry
+    // point, same downstream turn-rate integration/smoothing, no separate
+    // turning system. Physical A/D state is still tracked above regardless
+    // of Free Navigation's on/off state, so turning Free Navigation back
+    // off immediately and correctly resumes whatever the user is currently
+    // (or isn't) physically holding.
+    const travelerManualTurnInput = freeNavEnabled
+      ? freeNavState
+      : (travelerTurnLeftHeld ? -1 : 0) + (travelerTurnRightHeld ? 1 : 0);
+    headParticleTrail.setManualTurnInput(travelerManualTurnInput);
     headParticleTrail.update(dt, time, ocean, camera.position);
     // Head Particle Trail local water glint (Ocean.js's block is gated
     // behind uTravelerGlowIntensity > 0, defaulting to 0 — mathematically a

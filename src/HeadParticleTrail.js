@@ -42,13 +42,57 @@ function smoothstep(e0, e1, x) {
 }
 
 // ---------------------------------------------------------------------------
-//  Head path — a seconds-parameterised Catmull-Rom spline with linear
-//  extrapolation past the last control point (the traveler never stops) plus
-//  a broad, low-frequency flow-curvature term baked directly into the path
-//  itself, so the head's own motion already flows/curves gently and every
-//  consumer (head, particles) reads from the exact same curved line. Owned
-//  entirely by this module — no shared import — matching the project-wide
-//  convention that every cinematic module owns its own path.
+//  Smooth Horizontal Steering V1 — replaces the earlier "Organic Meander"
+//  design, which displaced the traveler SIDEWAYS from the base Catmull-Rom
+//  path using a basis rebuilt every call from that base path's own
+//  (changing) tangent. Because the sideways basis itself rotated as the
+//  base path curved, the effective direction the traveler appeared to move
+//  in could visibly snap frame-to-frame — most noticeable exactly where the
+//  base path curved fastest. There is no such basis here to rotate: the
+//  traveler's horizontal motion is its own persistent heading/turnRate
+//  state, closer to steering a boat than sliding a point sideways off a
+//  fixed rail — the same "current + smooth change = next" shape as the
+//  existing Space-key altitude control (see main.js), just applied to X/Z
+//  instead of Y, and fully independent of it (see
+//  HeadParticleTrail.setAltitudeOffset() / setMeanderStrength()).
+// ---------------------------------------------------------------------------
+const STEER_BASE_SPEED = 19.0; // world units/sec — matches the old authored path's own average pace (~396 units of control-point-to-control-point distance over its 21s span)
+const STEER_DT = 0.05; // seconds — fixed simulation step for HeadPath._simulate() below (never the render frame's own dt). V1 used 0.5s; that was fine for the desired TURN-RATE curve (its own periods are >>10s) but too coarse once fed through cos/sin into POSITION — visible as an occasional faceted "kaku" step. 0.05s removes that at a still-modest cost (see STEER_CHECKPOINT_DT below for how that cost is kept bounded).
+const STEER_CHECKPOINT_DT = 1.0; // seconds — see HeadPath's checkpoint cache in _simulate(): reconstructing from t=0 on every call got 10x more expensive when STEER_DT dropped from 0.5 to 0.05, and TrailLyrics samples HeadParticleTrail.getHeadPositionAtTime() up to PARTICLE_COUNT times per phrase — this bounds that to "at most STEER_CHECKPOINT_DT/STEER_DT fresh steps" per call instead of "t/STEER_DT".
+const STEER_TURN_SMOOTHING = 0.35; // 1/seconds — rate turnRate chases desiredTurnRate (see damp() below); ~2.9s time constant, tuned only for "no twitching", not physically meaningful
+const MANUAL_TURN_SPEED = 0.55; // rad/sec — A/D manual turn-rate contribution (see "Manual A/D Steering V1" below); a named, live-input-only constant, entirely separate from the automatic turnRate above
+// Two non-commensurate, very-low-frequency sine terms (periods ~31s and
+// ~90s) summed into one desired turn rate — deterministic (a pure function
+// of t), never Math.random(), and with no small-integer ratio between them
+// so their sum drifts rather than visibly repeating within a practical
+// viewing window.
+const STEER_TURN_AMP_LARGE = 0.08; // rad/sec
+const STEER_TURN_FREQ_LARGE = 0.20;
+const STEER_TURN_PHASE_LARGE = 0.8;
+const STEER_TURN_AMP_SMALL = 0.03; // rad/sec — keeps the broad turn from reading as one clean sine
+const STEER_TURN_FREQ_SMALL = 0.07;
+const STEER_TURN_PHASE_SMALL = 2.1;
+
+// The desired (pre-smoothing) turn rate at time t — scaled by `strength`
+// (GUI: Meander Strength, 0..2): 0 yields a desired turn rate of exactly 0
+// everywhere, i.e. no automatic turning at all (a straight line from the
+// traveler's starting heading); 1 is the intended gentle-wander feel; 2 an
+// exaggerated, more sharply curving diagnostic.
+function desiredTurnRate(t, strength) {
+  const large = Math.sin(t * STEER_TURN_FREQ_LARGE + STEER_TURN_PHASE_LARGE) * STEER_TURN_AMP_LARGE;
+  const small = Math.sin(t * STEER_TURN_FREQ_SMALL + STEER_TURN_PHASE_SMALL) * STEER_TURN_AMP_SMALL;
+  return (large + small) * strength;
+}
+
+// ---------------------------------------------------------------------------
+//  Head path — the base Catmull-Rom spline is kept only to seed the
+//  traveler's starting position/heading (constructor below) so the journey
+//  still begins exactly where and facing the same way it always has; from
+//  t=0 onward the base curve is never consulted again — the persistent
+//  heading/turnRate simulation (_simulate()) is the sole source of the
+//  traveler's horizontal position. Owned entirely by this module — no
+//  shared import — matching the project-wide convention that every
+//  cinematic module owns its own path.
 // ---------------------------------------------------------------------------
 class HeadPath {
   constructor(points, times) {
@@ -56,43 +100,134 @@ class HeadPath {
     this.times = times;
     this.total = times[times.length - 1];
     this._n = points.length;
+    // Smooth Horizontal Steering V1 strength multiplier — 0 disables
+    // automatic turning entirely (straight line from the start heading), 1
+    // is the intended feel, 2 an exaggerated diagnostic. See
+    // HeadParticleTrail.setMeanderStrength(). Renaming this GUI-facing
+    // field would touch main.js's existing "Meander Strength" control for
+    // no benefit, so it keeps its original name.
+    this.meanderStrength = 1.0;
+
+    // Seed state, read once here from the raw Catmull-Rom curve's own
+    // start point/tangent — never touched again after this.
+    const p0 = this.curve.getPoint(0);
+    const tan0 = this.curve.getTangent(0);
+    this._startX = p0.x;
+    this._startZ = p0.z;
+    this._startHeading = Math.atan2(tan0.z, tan0.x);
+
+    // Checkpoint cache for _simulate() below — one entry per
+    // STEER_CHECKPOINT_DT of song time reached so far, append-only (never
+    // trimmed), seeded with the t=0 start state itself so index 0 always
+    // exists. Invalidated (see _invalidateCheckpoints()) whenever
+    // meanderStrength changes, since a cached checkpoint's state is only
+    // valid for the strength it was computed under.
+    this._checkpoints = [{ t: 0, x: this._startX, z: this._startZ, heading: this._startHeading, turnRate: 0 }];
+
+    // `_simulate(t)` always fully re-derives its result from the nearest
+    // checkpoint (see its own comment) — this just avoids paying even that
+    // reduced cost twice for the extremely common same-frame pattern of
+    // positionAt(t) immediately followed by tangentAt(t) for the SAME t.
+    this._lastSimT = null;
+    this._lastSimResult = null;
   }
 
-  _u(t) {
-    const times = this.times;
-    const n = this._n;
-    if (t <= times[0]) return 0;
-    if (t >= this.total) return 1;
-    for (let i = 0; i < n - 1; i++) {
-      if (t >= times[i] && t <= times[i + 1]) {
-        const localT = (t - times[i]) / (times[i + 1] - times[i]);
-        return (i + localT) / (n - 1);
+  // GUI-facing strength setter — routed through here (rather than a plain
+  // field write) so a mid-playback change correctly invalidates the
+  // checkpoint cache below, which would otherwise keep serving
+  // stale-strength state for any song time already reached.
+  setMeanderStrength(value) {
+    this.meanderStrength = value;
+    this._invalidateCheckpoints();
+  }
+
+  _invalidateCheckpoints() {
+    this._checkpoints.length = 1; // keep only the t=0 seed
+    this._lastSimT = null;
+  }
+
+  // Deterministic re-simulation of the traveler's own heading + horizontal
+  // position up to `t`, using a FIXED simulation step (STEER_DT) — never
+  // the caller's/render frame's own dt, and no state carried over between
+  // calls — so the exact same `t` always reproduces the exact same result
+  // regardless of when, how often, or in what order it is queried (spec:
+  // seeking must not create a different path; the same song time must
+  // always reconstruct the same traveler position and heading). This is
+  // the "fixed-step reconstruction from a known initial state" strategy —
+  // simpler and more robust for this project than deriving a closed-form
+  // analytic heading/position pair.
+  //
+  // Resumes from the nearest checkpoint at or before `t` instead of always
+  // restarting at t=0: without this, dropping STEER_DT from 0.5s to 0.05s
+  // (to remove the visible faceted "kaku" stepping the coarser step left in
+  // POSITION — see STEER_DT's own comment) would have made every call 10x
+  // more expensive, and this is called once per DISTINCT historical time a
+  // caller asks for — up to PARTICLE_COUNT times in a single burst whenever
+  // a TrailLyrics phrase samples the recent wake. Checkpoints are cached at
+  // fixed STEER_CHECKPOINT_DT boundaries only (never at an arbitrary
+  // requested `t`), so resuming from one is exactly as deterministic as
+  // restarting from t=0 — it's the same fixed sequence of steps, just not
+  // recomputed from scratch every time.
+  _simulate(t) {
+    if (t === this._lastSimT) return this._lastSimResult;
+    const target = Math.max(0, t);
+    const strength = this.meanderStrength;
+    const checkpoints = this._checkpoints;
+    const startIdx = Math.min(Math.floor(target / STEER_CHECKPOINT_DT), checkpoints.length - 1);
+    const start = checkpoints[startIdx];
+    let simTime = start.t;
+    let heading = start.heading;
+    let turnRate = start.turnRate;
+    let x = start.x;
+    let z = start.z;
+    while (simTime < target) {
+      // Advance to whichever comes first: the next checkpoint boundary, or
+      // the final target — so a freshly-crossed checkpoint is exactly
+      // grid-aligned (never mid-step) before it's cached.
+      const nextBoundary = (Math.floor(simTime / STEER_CHECKPOINT_DT) + 1) * STEER_CHECKPOINT_DT;
+      const segmentEnd = Math.min(target, nextBoundary);
+      while (simTime < segmentEnd) {
+        const step = Math.min(STEER_DT, segmentEnd - simTime);
+        const desired = desiredTurnRate(simTime, strength);
+        // Frame-rate-independent exponential damp toward `desired` — the
+        // same "current + smooth change = next" shape as the Space-key
+        // altitude control, just approached asymptotically instead of
+        // linearly so turnRate itself never jumps.
+        const k = 1 - Math.exp(-STEER_TURN_SMOOTHING * step);
+        turnRate += (desired - turnRate) * k;
+        heading += turnRate * step;
+        x += Math.cos(heading) * STEER_BASE_SPEED * step;
+        z += Math.sin(heading) * STEER_BASE_SPEED * step;
+        simTime += step;
+      }
+      simTime = segmentEnd; // discard any float drift from the inner loop before the boundary check below
+      if (simTime === nextBoundary) {
+        const idx = Math.round(simTime / STEER_CHECKPOINT_DT);
+        if (idx === checkpoints.length) checkpoints.push({ t: simTime, x, z, heading, turnRate });
       }
     }
-    return 1;
+    this._lastSimT = t;
+    this._lastSimResult = { x, z, heading, turnRate };
+    return this._lastSimResult;
   }
 
+  // Horizontal position only — Y is irrelevant here regardless, since every
+  // caller (HeadParticleTrail) immediately overwrites it with a live
+  // water-height sample, exactly as before this ticket.
   positionAt(t, out = new THREE.Vector3()) {
-    if (t <= this.total) {
-      this.curve.getPoint(this._u(t), out);
-    } else {
-      const pEnd = this.curve.getPoint(1);
-      const pNear = this.curve.getPoint(this._u(this.total - 0.5));
-      out.copy(pEnd).addScaledVector(pEnd.clone().sub(pNear).divideScalar(0.5), t - this.total);
-    }
-    // Broad, low-frequency lateral drift baked into the path itself (same
-    // technique as Light Ribbon V1.3) so the head's own motion already
-    // flows/curves gently — the trail then records that curvature for free.
-    out.x += Math.sin(t * 0.5 + 0.6) * 6.0 + Math.sin(t * 0.19 + 2.3) * 4.0;
+    const s = this._simulate(t);
+    out.set(s.x, 0, s.z);
     return out;
   }
 
+  // Derived DIRECTLY from the simulated heading — no finite-difference
+  // needed (unlike the old meander design, which had to re-sample
+  // positionAt() twice per tangent query): heading already IS the
+  // traveler's exact direction of travel at `t`.
   tangentAt(t, out = new THREE.Vector3()) {
-    const a = this.positionAt(Math.max(t - 0.05, 0), this._tmpA || (this._tmpA = new THREE.Vector3()));
-    const b = this.positionAt(t + 0.05, this._tmpB || (this._tmpB = new THREE.Vector3()));
-    out.copy(b).sub(a);
-    if (out.lengthSq() < 1e-8) out.set(0, 0, -1);
-    return out.normalize();
+    const s = this._simulate(t);
+    out.set(Math.cos(s.heading), 0, Math.sin(s.heading));
+    return out;
   }
 }
 
@@ -133,6 +268,35 @@ export class HeadParticleTrail {
       ],
       [0, 5, 9, 13, 17, 21]
     );
+
+    // ---- Manual A/D Steering V1 — see setManualTurnInput()/update(). ----
+    // Expected values: -1 (turn left), 0 (no input), +1 (turn right); set
+    // every frame by main.js from the live KeyA/KeyD held state, exactly
+    // like altitudeOffset is for Space. Purely a live input value — it is
+    // NOT part of the deterministic automatic path (see update()'s own
+    // comment on why) and is never itself reconstructed from song time.
+    this.manualTurnInput = 0;
+
+    // ---- Live horizontal steering state (spec: "current + smooth change =
+    // next", same shape as the Space-key altitude control) — this is the
+    // ACTUAL rendered head position/heading during live playback, advanced
+    // every frame in update() using the real frame dt, combining the
+    // automatic turnRate (see desiredTurnRate()) with any live manual A/D
+    // input. This is DELIBERATELY separate from HeadPath._simulate(), which
+    // stays a pure, automatic-only, deterministic function of t used for
+    // reconstruction (setTime()/_reconstructAt(), and TrailLyrics' wake
+    // sampling via getHeadPositionAtTime()) — manual A/D input has no
+    // history to replay from song time alone (spec 7), so it can only ever
+    // be layered onto the LIVE state, not the reconstructable one. Seeded
+    // here, and re-seeded on every setTime()/restart() (see
+    // _reconstructAt()), from HeadPath._simulate() at that same time, so
+    // that absent any A/D input the live path exactly follows the
+    // deterministic automatic one.
+    const liveSeed = this.path._simulate(0);
+    this._liveX = liveSeed.x;
+    this._liveZ = liveSeed.z;
+    this._liveHeading = liveSeed.heading;
+    this._liveTurnRate = liveSeed.turnRate;
 
     // ---- Head sprite (spec 4) — three spatially EXCLUSIVE colour bands
     // (never summed at the same pixel) so the near-white core never dilutes
@@ -471,6 +635,23 @@ export class HeadParticleTrail {
 
   setAltitudeOffset(value) { this.altitudeOffset = value; }
 
+  // Smooth Horizontal Steering V1 debug control — 0 disables automatic
+  // turning entirely (straight line from the traveler's start heading), 1
+  // is the intended gentle-wander feel, 2 an exaggerated, more sharply
+  // curving diagnostic. Scales TURNING amount (desiredTurnRate), never a
+  // direct positional offset, and never forward speed (see
+  // STEER_BASE_SPEED, unaffected by this value). Delegates to the path
+  // itself, which owns the steering math (and its own checkpoint-cache
+  // invalidation, via HeadPath.setMeanderStrength()).
+  setMeanderStrength(value) { this.path.setMeanderStrength(value); }
+
+  // Manual A/D Steering V1 — expects -1 (KeyA held), 0 (neither/both), or
+  // +1 (KeyD held); set every frame from main.js's own held-key state,
+  // exactly like setAltitudeOffset() is for Space. See update()'s own
+  // comment and this.manualTurnInput's doc in the constructor for how this
+  // combines with the automatic turnRate and why it is live-only.
+  setManualTurnInput(value) { this.manualTurnInput = value; }
+
   setPaused(p) { this.paused = !!p; }
   restart() { this.localTime = 0; this._reconstructAt(0, this._ocean); }
   getHeadPosition(out = new THREE.Vector3()) { return out.copy(this._headPos); }
@@ -494,8 +675,38 @@ export class HeadParticleTrail {
   // always sits just above the live ocean surface, e.g. ~3-5). Without
   // this correction, positions returned here sit ~10 world units away from
   // where the visible trail particles actually are — verified via a
-  // nearest-neighbor check against the live trail pool. ----
+  // nearest-neighbor check against the live trail pool.
+  //
+  // Free Navigation V1 / Manual A/D Steering V1 compatibility — this now
+  // looks up the NEAREST actually-emitted trail particle's own recorded
+  // birth position/time (this._birthPos/_birthTime, already written by
+  // _emitOneInto every frame — no new state added) instead of always
+  // recomputing from HeadPath's pure automatic-only path. Manual A/D input
+  // (whether from a person or Free Navigation feeding the same input) has
+  // no reconstructable history (see update()'s own comment on why), so once
+  // any manual turning has happened, `this.path`'s deterministic curve can
+  // sit arbitrarily far from where the visible wake actually is at the same
+  // historical t. this._birthPos already holds the EXACT live position each
+  // particle was emitted from, so this reproduces the real recent wake
+  // instead of a possibly long-diverged phantom path. After a setTime()
+  // seek, _reconstructAt() has already repopulated the whole pool from the
+  // pure deterministic path anyway (seeking intentionally discards manual
+  // detours), so both branches agree in that case too. Falls back to the
+  // deterministic path only when no pool particle is close enough (e.g.
+  // queried before the first particle has been emitted).
   getHeadPositionAtTime(t, out = new THREE.Vector3()) {
+    let bestSlot = -1;
+    let bestDiff = Infinity;
+    for (let i = 0; i < POOL_SIZE; i++) {
+      const bt = this._birthTime[i];
+      if (bt < 0) continue; // never emitted / long dead
+      const diff = Math.abs(bt - t);
+      if (diff < bestDiff) { bestDiff = diff; bestSlot = i; }
+    }
+    if (bestSlot >= 0 && bestDiff < 1.0) {
+      out.set(this._birthPos[bestSlot * 3], this._birthPos[bestSlot * 3 + 1], this._birthPos[bestSlot * 3 + 2]);
+      return out;
+    }
     this.path.positionAt(t, out);
     const waterY = this._ocean ? this._ocean.heightAt(out.x, out.z, t) : 0;
     out.y = waterY + 3.0 + Math.sin(t * 0.35) * 1.5 + this.altitudeOffset;
@@ -563,8 +774,33 @@ export class HeadParticleTrail {
     const t = this.localTime;
     this.phase = t < 2 ? 'approach' : 'flight';
 
-    this.path.positionAt(t, this._headPos);
-    this.path.tangentAt(t, this._tangent);
+    // Live horizontal steering (Manual A/D Steering V1) — advances the
+    // ACTUAL rendered head position/heading using the real frame `dt`,
+    // never HeadPath's own fixed STEER_DT and never HeadPath._simulate()
+    // itself. This is deliberately NOT "read the deterministic automatic
+    // path at time t": manual A/D input has no reconstructable history, so
+    // it can only ever be integrated live, frame by frame — exactly the
+    // "current + smooth change = next" shape as the Space-key altitude
+    // control, just for X/Z instead of Y. `this._liveTurnRate` mirrors the
+    // SAME desiredTurnRate()-chasing automatic behaviour HeadPath._simulate()
+    // uses for reconstruction (so absent any A/D input the two stay in
+    // close visual agreement — both are the same continuous system, just
+    // discretised at a different step size: real frame dt here, fixed
+    // STEER_DT there), then the live, instant manual contribution is added
+    // on top before integrating heading — a step change in turnRate only
+    // changes the SLOPE of heading, never heading itself, so A/D produces
+    // smooth broad turns with no snap, no extra damping required (spec 3).
+    if (!this.paused) {
+      const desired = desiredTurnRate(t, this.path.meanderStrength);
+      const k = 1 - Math.exp(-STEER_TURN_SMOOTHING * dt);
+      this._liveTurnRate += (desired - this._liveTurnRate) * k;
+      const manualRate = this.manualTurnInput * MANUAL_TURN_SPEED;
+      this._liveHeading += (this._liveTurnRate + manualRate) * dt;
+      this._liveX += Math.cos(this._liveHeading) * STEER_BASE_SPEED * dt;
+      this._liveZ += Math.sin(this._liveHeading) * STEER_BASE_SPEED * dt;
+    }
+    this._headPos.set(this._liveX, 0, this._liveZ);
+    this._tangent.set(Math.cos(this._liveHeading), 0, Math.sin(this._liveHeading));
     this.travelDir.copy(this._tangent);
 
     // ONE ocean sample per frame (spec 39) — the head's own hover height;
@@ -650,12 +886,25 @@ export class HeadParticleTrail {
     this._emitCount = lastIndex + 1;
     this._writeCursor = writeIndex % POOL_SIZE;
 
-    // Recompute the visible head at T itself.
+    // Recompute the visible head at T itself, from the deterministic
+    // automatic path.
     this.path.positionAt(T, this._headPos);
     this.path.tangentAt(T, this._tangent);
     this.travelDir.copy(this._tangent);
     const waterYHead = ocean ? ocean.heightAt(this._headPos.x, this._headPos.z, T) : 0;
     this._headPos.y = waterYHead + 3.0 + Math.sin(T * 0.35) * 1.5 + this.altitudeOffset;
+
+    // Re-seed the LIVE steering state (see update()'s own comment) from
+    // that same deterministic automatic reconstruction — any prior manual
+    // A/D detour is intentionally discarded on a seek (spec 7: manual
+    // steering has no history to reconstruct from song time alone), so
+    // playback resumes exactly on the automatic path from here, until/
+    // unless A/D is used again.
+    const liveSeed = this.path._simulate(T);
+    this._liveX = liveSeed.x;
+    this._liveZ = liveSeed.z;
+    this._liveHeading = liveSeed.heading;
+    this._liveTurnRate = liveSeed.turnRate;
     this.headMesh.geometry.attributes.position.array[0] = this._headPos.x;
     this.headMesh.geometry.attributes.position.array[1] = this._headPos.y;
     this.headMesh.geometry.attributes.position.array[2] = this._headPos.z;

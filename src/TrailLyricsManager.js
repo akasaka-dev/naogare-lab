@@ -152,6 +152,15 @@ export class TrailLyricsManager {
     }
     const seed = hashSeed(phrase.id);
     const config = { ...phrase.trailLyricsConfig };
+    // Trail Lyrics Style GUI — apply the current GUI-set glyph style (if
+    // any) to every newly-spawned phrase too, not just the ones already
+    // active when the GUI was touched. Each is undefined until the GUI
+    // actually calls setGlyphStyle() with that property — in that case
+    // TrailLyrics' own constructor defaults apply, unchanged.
+    if (this._glyphShadowStrength !== undefined) config.shadowStrength = this._glyphShadowStrength;
+    if (this._glyphTextColor !== undefined) config.textColor = this._glyphTextColor;
+    if (this._glyphShadowColor !== undefined) config.shadowColor = this._glyphShadowColor;
+    if (this._glyphFontFamily !== undefined) config.fontFamily = this._glyphFontFamily;
 
     // Reading-Order Layout V2: word-wrap ONCE here, conservatively, to the
     // NARROWER of the two possible column widths (i.e. assume MULTI_COLUMN
@@ -190,6 +199,27 @@ export class TrailLyricsManager {
     // where that might not yet be true. Idempotent/harmless otherwise.
     this.dissolve.releasePhrase(id);
     if (entry.instance.screenLock) this._recomputeLayout();
+  }
+
+  // Trail Lyrics Style GUI — a GUI-facing convenience: stores whichever
+  // value(s) are given so every FUTURE spawn() picks them up (see spawn()'s
+  // own comment), AND immediately re-rasterises every CURRENTLY active
+  // instance's glyph texture with the new value(s) (TrailLyrics.
+  // setGlyphStyle() — cheap, does not touch particle targets/geometry/
+  // layout/timing, EXCEPT fontFamily, which naturally reflows glyph shape/
+  // particle targets since the letterforms themselves changed), so a GUI
+  // change is visible on-screen right away, not just for the next phrase.
+  // Takes a single options object ({ textColor, shadowColor,
+  // shadowStrength, fontFamily }, any subset optional) matching
+  // TrailLyrics.setGlyphStyle()'s own shape — a caller only sets the
+  // property that changed; every other property is left untouched
+  // everywhere (both here and inside TrailLyrics.setGlyphStyle()).
+  setGlyphStyle({ textColor, shadowColor, shadowStrength, fontFamily } = {}) {
+    if (textColor !== undefined) this._glyphTextColor = textColor;
+    if (shadowColor !== undefined) this._glyphShadowColor = shadowColor;
+    if (shadowStrength !== undefined) this._glyphShadowStrength = shadowStrength;
+    if (fontFamily !== undefined) this._glyphFontFamily = fontFamily;
+    for (const entry of this._active) entry.instance.setGlyphStyle({ textColor, shadowColor, shadowStrength, fontFamily });
   }
 
   // Per-frame advance for every currently active instance, plus (Reading-

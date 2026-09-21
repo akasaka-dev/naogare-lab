@@ -45,6 +45,18 @@ function smoothstep(e0, e1, x) {
   return t * t * (3 - 2 * t);
 }
 
+// Configurable Text Color V1 — a plain hex ('#rgb' or '#rrggbb') -> integer
+// RGB parse, used only to build the Canvas 2D fillStyle string below. A
+// direct parse (rather than routing through THREE.Color) guarantees the
+// hex value the GUI's color picker shows is reproduced byte-for-byte as the
+// canvas fill color, with no colour-management/rounding in between.
+function hexToRgb(hex) {
+  const h = hex.replace('#', '');
+  const full = h.length === 3 ? h.split('').map((c) => c + c).join('') : h;
+  const n = parseInt(full, 16);
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+}
+
 // ---------------------------------------------------------------------------
 //  Trail Lyrics Font Support V1 — wait for the CSS Font Loading API to
 //  either resolve `fontSpec` (a canvas-style font shorthand, e.g.
@@ -78,7 +90,7 @@ async function ensureFontReady(fontSpec, sampleText, timeoutMs = 3000) {
 //  rasterising canvas itself, reused as-is for the smooth glyph texture
 //  layer below instead of rendering the text a second time.
 // ---------------------------------------------------------------------------
-function sampleTextTargets(text, { fontWeight = 600, fontFamily = 'Georgia, "Times New Roman", serif', fontSizeScale = 1.0, lineHeight: lineHeightMultiplier = 1.15, targetCount = 650, worldWidth = 26, fixedWorldScale = null, depthJitter = 0.4, seed = 99 } = {}) {
+function sampleTextTargets(text, { fontWeight = 600, fontFamily = 'Georgia, "Times New Roman", serif', fontSizeScale = 1.0, lineHeight: lineHeightMultiplier = 1.15, targetCount = 650, worldWidth = 26, fixedWorldScale = null, depthJitter = 0.4, seed = 99, shadowStrength = 1.0, textColor = '#ffffff', shadowColor = '#000000' } = {}) {
   // Trail Lyrics Font Support V1: fontSizeScale scales the RASTER font size
   // used to draw glyphs to the canvas (crispness/stroke weight), not the
   // final world-space size — that stays `worldWidth`'s job (and textScale's,
@@ -123,12 +135,19 @@ function sampleTextTargets(text, { fontWeight = 600, fontFamily = 'Georgia, "Tim
   ctx.fillStyle = '#ffffff';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  if (lines.length === 1) {
-    ctx.fillText(text, width / 2, height / 2);
-  } else {
-    const blockTop = (height - lineHeight * lines.length) / 2;
-    lines.forEach((line, i) => ctx.fillText(line, width / 2, blockTop + lineHeight * (i + 0.5)));
-  }
+  // Drawn once per logical line whichever way the caller needs (plain fill
+  // for particle-candidate sampling below, then again with outline/shadow
+  // for the final glyph texture) — kept as one small helper so both passes
+  // stay byte-for-byte positioned identically.
+  const drawLines = (drawFn) => {
+    if (lines.length === 1) {
+      drawFn(text, width / 2, height / 2);
+    } else {
+      const blockTop = (height - lineHeight * lines.length) / 2;
+      lines.forEach((line, i) => drawFn(line, width / 2, blockTop + lineHeight * (i + 0.5)));
+    }
+  };
+  drawLines((t, x, y) => ctx.fillText(t, x, y));
 
   const img = ctx.getImageData(0, 0, width, height).data;
   const candidates = [];
@@ -137,6 +156,79 @@ function sampleTextTargets(text, { fontWeight = 600, fontFamily = 'Georgia, "Tim
       if (img[(y * width + x) * 4 + 3] > 80) candidates.push(x, y);
     }
   }
+
+  // Forevermore Title Match V1 — matches src/index.html's #tc-title CSS
+  // treatment exactly as the canonical visual reference:
+  //   color: rgba(255, 255, 255, 0.96)
+  //   text-shadow: 0 2px 18px rgba(0,0,0,0.55), 0 1px 3px rgba(0,0,0,0.6)
+  // No stroke/outline: the title itself uses none, so this deliberately
+  // draws no outline either (a prior experiment added a black/red outline
+  // that has no counterpart in the title and has been removed). CSS
+  // text-shadow supports an arbitrary LIST of shadow layers; Canvas 2D's
+  // shadowColor/shadowBlur/shadowOffsetX/shadowOffsetY only describe ONE
+  // shadow per draw call, so each layer is cast with its own separate
+  // fillText pass (shadow-casting fillStyle here is irrelevant — every
+  // pixel it touches is fully overpainted by the real, opaque fill drawn
+  // last below — only the blurred/offset shadow spilling past each glyph's
+  // edge remains visible). Candidate sampling above already ran against
+  // the plain fill, so none of this can shift particle target positions.
+  // shadowStrength (GUI: "Shadow Strength", default 1.0) scales both
+  // layers' alpha together; 0 renders with no shadow at all. Pixel sizes
+  // scale with the raster fontSize (reference: 120px, this file's existing
+  // convention) — raster-canvas-then-3D-plane space and the title's CSS px
+  // space are different coordinate systems, so this is a proportional
+  // approximation of the title's look, not a pixel-exact port. Letter-
+  // spacing (title: 0.04em) has NO Canvas 2D fillText equivalent without a
+  // custom per-character glyph layout; not implemented here (would also
+  // require redoing the particle-candidate sampling pass) — a reportable,
+  // deliberately accepted limitation, not a visually critical one for a
+  // 1-2 word phrase held briefly on screen.
+  // Configurable Shadow Color V1 — shadowColor defaults to '#000000'
+  // (matches #tc-title's own black text-shadow); the alpha multipliers
+  // (0.55/0.60) and blur/offset values below are unchanged from the
+  // title-matched design, only the hardcoded black RGB is replaced by the
+  // configured color. shadowColor is controlled entirely independently of
+  // textColor (see this.shadowColor's own comment) — never auto-inverted.
+  const shadowRgb = hexToRgb(shadowColor);
+  ctx.clearRect(0, 0, width, height);
+  if (shadowStrength > 0) {
+    const scale = fontSize / 120;
+    ctx.save();
+    // PASS A — shadow silhouette. Per the Canvas 2D spec, a shadow's colour
+    // comes ENTIRELY from shadowColor (alpha-multiplied by the shape's own
+    // rendered alpha/coverage) — the shape's own fillStyle never bleeds
+    // into the shadow's colour. The dummy fill below is therefore fully
+    // opaque and its own colour is irrelevant on-screen: every pixel it
+    // touches is completely overpainted by PASS C's opaque fill at the
+    // identical position — only the blurred/offset shadow spilling PAST
+    // each glyph's edge (where PASS C draws nothing) remains visible.
+    ctx.fillStyle = shadowColor;
+    ctx.shadowColor = `rgba(${shadowRgb.r}, ${shadowRgb.g}, ${shadowRgb.b}, ${(0.55 * shadowStrength).toFixed(3)})`;
+    ctx.shadowBlur = 20 * scale;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 3 * scale;
+    drawLines((t, x, y) => ctx.fillText(t, x, y)); // layer 1 — broad ambient shadow
+    ctx.shadowColor = `rgba(${shadowRgb.r}, ${shadowRgb.g}, ${shadowRgb.b}, ${(0.60 * shadowStrength).toFixed(3)})`;
+    ctx.shadowBlur = 4 * scale;
+    ctx.shadowOffsetY = 1.5 * scale;
+    drawLines((t, x, y) => ctx.fillText(t, x, y)); // layer 2 — tight contact shadow
+    // PASS B — explicitly disable shadow before the final fill, rather than
+    // relying solely on restore() below to have undone it correctly.
+    ctx.shadowColor = 'rgba(0, 0, 0, 0)';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 0;
+    ctx.restore(); // also undoes fillStyle back to whatever it was before PASS A
+  }
+  // PASS C — final visible text. Shadow is guaranteed off (PASS B, and/or
+  // restore() above having never run if shadowStrength is 0). Configurable
+  // Text Color V1 — textColor defaults to '#ffffff' (matches #tc-title's
+  // color exactly at that default); alpha is fixed at 0.96 regardless of
+  // the chosen color, preserving the original title-matched alpha. Never
+  // time-of-day tinted — see setTint()'s own comment further below.
+  const { r, g, b } = hexToRgb(textColor);
+  ctx.fillStyle = `rgba(${r}, ${g}, ${b}, 0.96)`;
+  drawLines((t, x, y) => ctx.fillText(t, x, y));
 
   const totalCandidates = candidates.length / 2;
   const keepRatio = targetCount / Math.max(totalCandidates, 1);
@@ -281,9 +373,15 @@ const GLYPH_FADE_OUT_SECONDS = 0.75;
 
 // Warm-gold palette matched to Head Particle Trail's own Gold identity
 // (spec 9: "Gold compatibility is the priority") — same hex values as
-// HeadParticleTrail's COLOR_HEAD_INNER/COLOR_HEAD_OUTER.
+// HeadParticleTrail's COLOR_HEAD_INNER/COLOR_HEAD_OUTER. Still used for the
+// wake-emergence PARTICLE system (setTint() below), unchanged.
 const COLOR_PARTICLE = new THREE.Color(0xffe0a3);
-const COLOR_GLYPH = new THREE.Color(0xffcf85);
+// Subtle Readability Styling V2 — the readable GLYPH TEXT itself is
+// deliberately a neutral, stable colour, NOT the warm-gold particle
+// identity above and NOT time-of-day tinted (see setTint()): a fixed
+// pass-through multiplier so the CanvasTexture's own fill colour (see
+// sampleTextTargets()) is the sole source of the glyph's visible colour.
+const COLOR_GLYPH_NEUTRAL = new THREE.Color(0xffffff);
 
 export class TrailLyrics {
   constructor(scene, opts = {}) {
@@ -329,7 +427,25 @@ export class TrailLyrics {
     this.holdDuration = DEFAULT_TIMING.hold;
     this.leaveDuration = DEFAULT_TIMING.leave;
     this.dissolveDuration = DEFAULT_TIMING.dissolve;
-    this.textGlow = 1.0;
+    // Forevermore Title Match V1 — GUI-tunable 0..1 multiplier for the
+    // canvas-drawn two-layer shadow baked into the glyph texture, styled to
+    // match #tc-title's CSS text-shadow (see sampleTextTargets()). 1.0
+    // (default) is the full title-matched look; 0 renders with no shadow.
+    // No outline field: the title uses no stroke/outline, so neither does
+    // this glyph texture.
+    this.shadowStrength = 1.0;
+    // Configurable Text Color / Shadow Color V1 — the glyph fill and shadow
+    // colors, each a CSS hex string (e.g. '#ffffff'). Defaults match
+    // #tc-title's own color/shadow. Neither is ever time-of-day tinted (see
+    // setTint()) — glyphMaterial.color stays a fixed neutral white
+    // multiplier (COLOR_GLYPH_NEUTRAL) regardless of these values; the
+    // CanvasTexture's own fill/shadow colors are the sole colour source.
+    // shadowColor is controlled entirely independently of textColor — e.g.
+    // a black textColor with the default black shadowColor will make the
+    // shadow largely invisible against the fill, which is expected; the
+    // two are never auto-inverted relative to each other.
+    this.textColor = '#ffffff';
+    this.shadowColor = '#000000';
     this.particleContribution = 1.0;
     this.billboardRelease = 0.4; // fraction of HOLD spent still camera-locked before releasing (orientation)
     // V1.1 — soft position release (spec: "Soft Position Release"). Orientation
@@ -515,12 +631,39 @@ export class TrailLyrics {
     scene.add(this.points);
 
     // ---- Smooth glyph plane (spec 8's hybrid layer): the SAME rasterised
-    // canvas as a texture on an ordinary plane, additively blended with an
-    // HDR-capable colour (component values may exceed 1.0 — this renderer
-    // uses NoToneMapping + a custom HDR post pipeline, same convention as
-    // every other glowing object in this project) so it can bloom like the
-    // rest of the traveler's light. setText() below assigns the real
-    // texture/geometry for the initial (and every subsequent) text. ----
+    // canvas as a texture on an ordinary plane. setText() below assigns the
+    // real texture/geometry for the initial (and every subsequent) text.
+    //
+    // Subtle Readability Styling V1 — blending changed from additive to
+    // NORMAL. The glyph's own colour never exceeds 1.0 in any channel, so
+    // this plane's luminance never reaches Post.js's bloom threshold (1.15)
+    // and never actually bloomed under additive blending
+    // despite the original intent stated here. Practically, additive
+    // blending on a bright glyph over a BRIGHT sky adds light on top of
+    // light — the text washes toward white instead of standing out, which
+    // is the core of the "hard to read against changing backgrounds"
+    // problem this ticket set out to fix. Normal blending lets the glyph's
+    // alpha properly occlude the background instead, and is also the reason
+    // the dark, low-alpha outline/shadow drawn into the canvas below (see
+    // sampleTextTargets()) has any visible effect at all — under additive
+    // blending, a near-black stroke/shadow contributes ~0 regardless of
+    // alpha, since additive blending can only ever add light, never darken.
+    //
+    // Subtle Readability Styling V2 — the switch to normal blending had a
+    // side effect: `material.color` (previously COLOR_GLYPH, a pale amber-
+    // gold, 90%-weighted by setTint()'s own lerp) used to render washed
+    // toward white under additive blending regardless of its actual hue —
+    // additive blending on a near-1.0-alpha colour reads as "bright",
+    // masking the specific hue underneath. Normal blending has no such
+    // washing effect, so that same gold colour now renders as visibly
+    // yellow/gold instead. Fix: `glyphMaterial.color` is now a fixed neutral
+    // white, set once here and never touched again — the CanvasTexture's own
+    // fill colour (see sampleTextTargets()) is the sole source of the
+    // glyph's visible colour now, and setTint() below no longer touches this
+    // material at all (it still tints the particle system, unchanged), so
+    // time-of-day no longer recolours lyric text.
+    // No other TrailLyrics/particle material is touched — this is scoped to
+    // glyphMaterial alone. ----
     this.glyphUniforms = { uOpacity: { value: 0 } };
     // Cloud Occlusion Fix V1 — depthWrite is deliberately TRUE here (unlike
     // every other transparent/additive material in this project, which
@@ -575,9 +718,14 @@ export class TrailLyrics {
       depthTest: true,
       alphaTest: 0.02,
       toneMapped: false,
-      blending: THREE.AdditiveBlending,
+      blending: THREE.NormalBlending,
       side: THREE.DoubleSide,
-      color: COLOR_GLYPH.clone(),
+      // Subtle Readability Styling V2 — fixed neutral white, never
+      // reassigned (see the class comment above and setTint() below): the
+      // CanvasTexture's own fill colour is the sole source of the glyph's
+      // visible colour, so this just needs to be a pure multiplicative
+      // pass-through, not a tinted "text colour" of its own.
+      color: COLOR_GLYPH_NEUTRAL.clone(),
       opacity: 0,
     });
     this.glyphMesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), this.glyphMaterial);
@@ -655,6 +803,9 @@ export class TrailLyrics {
       fontWeight: this.fontWeight,
       fontSizeScale: this.fontSizeScale,
       lineHeight: this.lineHeight,
+      shadowStrength: this.shadowStrength,
+      textColor: this.textColor,
+      shadowColor: this.shadowColor,
     };
     if (this.screenLock) rasterOpts.fixedWorldScale = LAYOUT_FIXED_WORLD_SCALE;
     else rasterOpts.worldWidth = 15;
@@ -737,7 +888,7 @@ export class TrailLyrics {
     const KEYS = [
       'textScale', 'formationDistance', 'formationHeightOffset',
       'travelDuration', 'assembleDuration', 'holdDuration', 'leaveDuration', 'dissolveDuration',
-      'textGlow', 'particleContribution', 'billboardRelease', 'positionRelease', 'followSmoothing',
+      'particleContribution', 'billboardRelease', 'positionRelease', 'followSmoothing',
       'maxPositionChaseSeconds', 'screenLock',
       'trailWindowMin', 'trailWindowMax', 'flowAmount',
       // Trail Lyrics Font Support V1 (spec: "per-event font override from
@@ -750,6 +901,10 @@ export class TrailLyrics {
       // overrides are only safe to use with fonts already warmed (e.g. via
       // the GUI's font-family test control, which does the async wait).
       'fontFamily', 'fontWeight', 'fontSizeScale', 'lineHeight',
+      // Forevermore Title Match V1 — see sampleTextTargets()'s doc.
+      'shadowStrength',
+      // Configurable Text/Shadow Color V1 — see sampleTextTargets()'s doc.
+      'textColor', 'shadowColor',
     ];
     for (const k of KEYS) if (opts[k] !== undefined) this[k] = opts[k];
   }
@@ -801,9 +956,68 @@ export class TrailLyrics {
     if (this.currentText !== null) this.setText(this.currentText);
   }
 
+  // Trail Lyrics Style GUI — a lightweight, GUI-friendly way to preview
+  // style changes (shadow strength, text color, shadow color) on the
+  // CURRENTLY visible phrase without going through the full setText()
+  // rebuild: re-rasterises the SAME current text at the SAME font/size/wrap
+  // settings (so particle targets, geometry, and layout are byte-for-byte
+  // unchanged — sampleTextTargets() is a pure function of its inputs, and
+  // only its RETURNED CANVAS is used here), then swaps only the glyph
+  // texture. Synchronous, no allocation beyond the one small offscreen
+  // canvas/texture — safe to call from a GUI onChange handler, never from
+  // the per-frame update() path. Takes a single options object
+  // ({ shadowStrength, textColor, shadowColor, fontFamily }, any subset
+  // optional) rather than positional params, so future style knobs extend
+  // this one call instead of growing an ad-hoc setter per property.
+  //
+  // fontFamily is the one exception to "texture-only": a different font
+  // changes the glyph SHAPES themselves (spec: "changing fontFamily SHOULD
+  // naturally change particle target positions... that is correct"), so it
+  // cannot be a texture-only swap — the particle target positions
+  // (aGlyphTarget, sampled from the OLD font's outline) would go stale.
+  // setText() already performs exactly that full rebuild (geometry +
+  // texture) from whatever this.fontFamily currently is, so it's reused
+  // wholesale here rather than duplicating its particle-buffer logic.
+  setGlyphStyle({ shadowStrength, textColor, shadowColor, fontFamily } = {}) {
+    if (shadowStrength !== undefined) this.shadowStrength = shadowStrength;
+    if (textColor !== undefined) this.textColor = textColor;
+    if (shadowColor !== undefined) this.shadowColor = shadowColor;
+    if (this.currentText === null) return; // nothing drawn yet — setText() will pick up the new value(s) on its own
+    if (fontFamily !== undefined && fontFamily !== this.fontFamily) {
+      this.fontFamily = fontFamily;
+      this.setText(this.currentText); // full rebuild — see this method's own comment on why
+      return;
+    }
+    const rasterOpts = {
+      targetCount: PARTICLE_COUNT,
+      seed: this._seed,
+      fontFamily: this.fontFamily,
+      fontWeight: this.fontWeight,
+      fontSizeScale: this.fontSizeScale,
+      lineHeight: this.lineHeight,
+      shadowStrength: this.shadowStrength,
+      textColor: this.textColor,
+      shadowColor: this.shadowColor,
+    };
+    if (this.screenLock) rasterOpts.fixedWorldScale = LAYOUT_FIXED_WORLD_SCALE;
+    else rasterOpts.worldWidth = 15;
+    const { canvas } = sampleTextTargets(this.currentText, rasterOpts);
+    const oldTexture = this.glyphMaterial.map;
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.needsUpdate = true;
+    this.glyphMaterial.map = texture;
+    this.glyphMaterial.needsUpdate = true;
+    if (oldTexture) oldTexture.dispose(); // disposed only AFTER the new texture is already assigned/live
+  }
+
   setTint(color) {
     this.particleUniforms.uColor.value.copy(COLOR_PARTICLE).lerp(color, 0.10);
-    this.glyphMaterial.color.copy(COLOR_GLYPH).lerp(color, 0.10);
+    // Subtle Readability Styling V2 — glyphMaterial.color is deliberately
+    // NOT touched here anymore: the readable text stays a fixed neutral
+    // white (COLOR_GLYPH_NEUTRAL, set once at construction) regardless of
+    // time of day, so it never recolours toward the warm/cool stage tint
+    // the way the particle wake above still legitimately does.
   }
 
   setPaused(p) { this.paused = !!p; }
@@ -1165,7 +1379,6 @@ export class TrailLyrics {
     this.glyphMesh.position.copy(this._planeCenter);
     this.glyphMesh.quaternion.copy(this._planeQuat);
     this.points.visible = true;
-    this.glyphMesh.visible = true;
 
     const assembleProgress = smoothstep(t1, t2, lt);
     const dissolveProgress = smoothstep(t4, cycle, lt);
@@ -1176,29 +1389,43 @@ export class TrailLyrics {
     // letter structure already reads (V1.2 spec 9: reduce the sense of a
     // finished sign suddenly fading in — tightened from V1's 0.6s window).
     const glyphFadeIn = smoothstep(t2 - Math.min(0.4, this.assembleDuration), t2, lt);
-    // Fade-Out Tuning V2 — the text itself is the PRIMARY disappearance
-    // mechanic: it starts fading exactly AT authored endTime (t3, the start
-    // of LEAVE) and reaches 0 only GLYPH_FADE_OUT_SECONDS later — a fixed,
-    // short window, independent of leaveDuration/dissolveDuration/cycle
-    // (which keep governing phase transitions, the particle system's own
-    // uDissolveProgress below, and the world-space freeze exactly as
-    // before). V1 faded the glyph across the WHOLE leave+dissolve span
-    // (5s), but measurement showed the frozen glyph drifts out of the
-    // camera frustum in only ~1.1-1.5s (camera panning away, not being
-    // "passed") — at that point it was still ~79-88% opaque, so the fade
-    // was real but visually ineffective: the glyph simply left the screen
-    // before it had faded appreciably. Shortening ONLY this window makes
-    // the fade finish well inside that on-screen lifetime instead.
+    // Fade-Out Tuning V2's original envelope — kept ONLY to drive the
+    // particle wake's own auto-fade below (autoParticleFade), preserving
+    // that existing particle behavior byte-for-byte (spec: "do not change
+    // particle systems"). It no longer drives the glyph mesh's own
+    // opacity/visibility — see "Trail Lyrics Opacity Fix V1" below.
     const glyphFadeOutEnd = t3 + GLYPH_FADE_OUT_SECONDS;
     const glyphDepartureProgress = smoothstep(t3, glyphFadeOutEnd, lt);
     const glyphFadeOut = 1 - glyphDepartureProgress;
-    const glyphOpacity = glyphFadeIn * glyphFadeOut;
-    this.glyphMaterial.opacity = glyphOpacity * this.textGlow;
+    const glyphEnvelope = glyphFadeIn * glyphFadeOut;
+
+    // Trail Lyrics Opacity Fix V1 — the glyph mesh's own opacity is now
+    // ONLY ever the ASSEMBLE fade-in (clamped to [0, 1], so it can never
+    // exceed 1.0 — the prior design multiplied in a per-phrase `textGlow`
+    // field, 1.35 for 'hero' phrases, which fed a negative
+    // ONE_MINUS_SRC_ALPHA blend factor into NormalBlending, an undefined/
+    // clamped edge case rather than a legitimate "extra bright" effect;
+    // `textGlow` had no other use anywhere in this codebase and has been
+    // removed entirely — see the "CLEAN UP TRAIL LYRICS DIAGNOSTICS" ticket).
+    // The glyph mesh is also no longer faded to a partially-transparent
+    // state after its authored endTime (t3) — a readable glyph must be
+    // either fully opaque or not rendered at all, never a translucent
+    // "ghost" the background shows through. It now stays at opacity 1 for
+    // the entirety of HOLD, then is hidden (visible = false) with a clean,
+    // instant cutoff the moment LEAVE begins — LyricDissolveParticles
+    // (registered by TrailLyricsManager at that exact same instant,
+    // unchanged) is what carries the entire visual departure from there on,
+    // per the intended "solid glyph -> endTime -> glyph gone -> particles
+    // carry the departure" sequence.
+    this.glyphMesh.visible = lt < t3;
+    this.glyphMaterial.opacity = THREE.MathUtils.clamp(glyphFadeIn, 0, 1);
 
     // Particle contribution dims automatically as the glyph layer takes
     // over (never to zero — a residual sparkle stays visible around/through
-    // the readable text) on top of the GUI's own manual control.
-    const autoParticleFade = 1.0 - glyphOpacity * 0.5;
+    // the readable text) on top of the GUI's own manual control. Reads
+    // `glyphEnvelope` (the OLD glyph fade curve, preserved above), not the
+    // glyph mesh's own new opacity — this particle behavior is unchanged.
+    const autoParticleFade = 1.0 - glyphEnvelope * 0.5;
     this.particleUniforms.uParticleContribution.value = this.particleContribution * autoParticleFade;
   }
 

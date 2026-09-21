@@ -30,8 +30,8 @@
 //  larger/brighter. FIELD/ECHO/FINALE render through these two presets only.
 // ---------------------------------------------------------------------------
 const TYPE_DEFAULTS = {
-  hero: { textScale: 1.3, textGlow: 1.35, particleContribution: 1.15 },
-  trail: { textScale: 1.0, textGlow: 1.0, particleContribution: 1.0 },
+  hero: { textScale: 1.3, particleContribution: 1.15 },
+  trail: { textScale: 1.0, particleContribution: 1.0 },
 };
 
 // Small, fixed preRoll bands — not hand-tuned per cue.
