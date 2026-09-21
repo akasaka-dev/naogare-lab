@@ -56,6 +56,41 @@ const realTimeColonEl = document.getElementById('real-time-colon');
 const realTimeMinuteEl = document.getElementById('real-time-minute');
 const startOverlayEl = document.getElementById('startOverlay');
 const startMusicBtnEl = document.getElementById('start-music-btn');
+const karaokeCheckboxEl = document.getElementById('karaoke-checkbox');
+const fullscreenBtnEl = document.getElementById('fullscreen-btn');
+
+// ---------------------------------------------------------------------------
+//  Fullscreen Toggle V1 — always available (no feature flag, not tied to
+//  Show Time), since mobile browsers in particular benefit from hiding
+//  their own address-bar chrome. Standard Fullscreen API with the Safari
+//  `webkit`-prefixed fallback it still needs on some versions; iOS Safari
+//  only gained unprefixed, arbitrary-element fullscreen in 16.4 (2023) — on
+//  anything older this call simply does nothing (no error), so the icon is
+//  the only indication either way.
+// ---------------------------------------------------------------------------
+function isFullscreenActive() {
+  return !!(document.fullscreenElement || document.webkitFullscreenElement);
+}
+function updateFullscreenIcon() {
+  fullscreenBtnEl.classList.toggle('is-fullscreen', isFullscreenActive());
+}
+fullscreenBtnEl.addEventListener('click', () => {
+  // Both calls return a promise that REJECTS (never throws synchronously)
+  // if the browser/embedding context denies it (e.g. a restrictive
+  // Permissions-Policy, or pre-16.4 iOS Safari) — caught here so that
+  // denial is silent instead of an unhandled rejection; the icon simply
+  // never flips to "is-fullscreen" in that case.
+  if (isFullscreenActive()) {
+    const exit = document.exitFullscreen || document.webkitExitFullscreen;
+    if (exit) Promise.resolve(exit.call(document)).catch(() => {});
+  } else {
+    const el = document.documentElement;
+    const request = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (request) Promise.resolve(request.call(el)).catch(() => {});
+  }
+});
+document.addEventListener('fullscreenchange', updateFullscreenIcon);
+document.addEventListener('webkitfullscreenchange', updateFullscreenIcon);
 
 const sizeW = () => window.innerWidth;
 const sizeH = () => window.innerHeight;
@@ -624,7 +659,12 @@ if (lyricTimelineEnabled) {
 //  AudioController or LyricTimeline itself knows the other exists.
 // ---------------------------------------------------------------------------
 const audioEnabled = queryFlag('audio');
-const audioController = audioEnabled ? new AudioController('./audio/saikai-2026-02-22EngLast.wav') : null;
+// Karaoke V1 — the two source files this project ships; encodeURI so the
+// instrumental's non-ASCII filename resolves correctly regardless of how
+// the dev/production server happens to serve it.
+const VOCAL_AUDIO_SRC = encodeURI('./audio/saikai-2026-02-22EngLast.wav');
+const KARAOKE_AUDIO_SRC = encodeURI('./audio/saikai-2026-01-20m伴奏.wav');
+const audioController = audioEnabled ? new AudioController(VOCAL_AUDIO_SRC) : null;
 let audioGuiState = null;
 
 // Lights — kept for any future MeshStandardMaterial/lit object (the ocean/
@@ -1468,6 +1508,11 @@ if (audioEnabled) {
   // start audio at all.
   startOverlayEl.hidden = false;
   startMusicBtnEl.addEventListener('click', () => {
+    // Karaoke V1 — read once, right here, at the moment playback is about
+    // to start (not live-switchable afterward — see index.html's own
+    // comment on the checkbox). setSrc() swaps the element's source without
+    // recreating it, so volume/rate settings survive untouched.
+    if (karaokeCheckboxEl && karaokeCheckboxEl.checked) audioController.setSrc(KARAOKE_AUDIO_SRC);
     audioController.play();
     startOverlayEl.classList.add('dismissed');
     setTimeout(() => { startOverlayEl.hidden = true; }, 550);

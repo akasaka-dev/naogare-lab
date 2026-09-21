@@ -53,6 +53,19 @@ export class AudioController {
 
   pause() { this.audio.pause(); }
 
+  // Karaoke V1 — swaps the underlying source (e.g. vocal <-> instrumental)
+  // without recreating the element/losing its volume/rate settings. Does
+  // NOT call play() itself, matching this class's own "never plays on its
+  // own" convention — the caller decides whether/when to resume.
+  setSrc(src) {
+    this.audio.pause();
+    this.src = src;
+    this.loaded = false;
+    this.loadError = null;
+    this.audio.src = src;
+    this.audio.load();
+  }
+
   setTime(seconds) {
     const clamped = this.duration > 0 ? Math.min(Math.max(0, seconds), this.duration) : Math.max(0, seconds);
     this.audio.currentTime = clamped;
