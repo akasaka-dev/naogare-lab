@@ -751,13 +751,41 @@ const PRESETS = {
     fog: 1.35, shafts: 0.05,
     roughness: 0.22, cloudCoverage: 0.7, cloudDensity: 1.5, saturation: 0.92,
   },
+  'Clear Sky': {
+    // No clouds at all (cloudCoverage: 0) — calm, glassy, high-clarity water
+    // so the open sky and the water itself (not cloud shadows/texture) do
+    // the visual work. Otherwise closest in spirit to Tropical Noon.
+    sun: { el: 55, az: 130 }, amplitude: 0.55, choppy: 0.4, speed: 0.95, waveCount: 26,
+    exposure: 1.1, bloom: 0.45, clarity: 1.5, depthFalloff: 0.13, sunGlitter: 0.15, sss: 0.4,
+    deep: '#04405c', shallow: '#4fe0d8', foam: '#ffffff', foamCoverage: 0.85, crestFoamStart: 1.6,
+    fog: 0.9, shafts: 0.07,
+    roughness: 0.05, cloudCoverage: 0, saturation: 1.1,
+  },
+  'Sun Shower': {
+    // Rain V1 turned on (see Rainbow V1 in main.js's own render-loop doc for
+    // why): the bow itself needs sun elevation well under 42 degrees to
+    // clear the horizon, and partial (not total) cloud cover so there's
+    // still a patch of clear sky for direct sunlight to actually reach the
+    // rain — the classic "sun shower" look.
+    sun: { el: 22, az: 140 }, amplitude: 0.75, choppy: 0.55, speed: 1.0, waveCount: 26,
+    exposure: 1.05, bloom: 0.6, clarity: 1.1, depthFalloff: 0.16, sunGlitter: 0.3, sss: 0.4,
+    deep: '#063049', shallow: '#4bb0ac', foam: '#f4fbff', foamCoverage: 0.88, crestFoamStart: 1.5,
+    fog: 1.05, shafts: 0.06,
+    roughness: 0.1, cloudCoverage: 0.4, saturation: 1.05,
+    rain: true,
+  },
 };
 
-function applyPreset(name) {
+function applyPreset(name, { skipSun = false } = {}) {
   const P = PRESETS[name];
   if (!P) return;
   const u = ocean.uniforms;
-  if (P.sun) { sunParams.elevation = P.sun.el; sunParams.azimuth = P.sun.az; }
+  // skipSun (Random Weather V1) — Time of Day (Auto Play/Show Time) owns
+  // sun position continuously once active; applying a preset's own fixed
+  // sun on top of that would fight it every frame. The manual Cinematic
+  // dropdown never passes this — an explicit preset pick there always
+  // includes its sun position, exactly as before.
+  if (P.sun && !skipSun) { sunParams.elevation = P.sun.el; sunParams.azimuth = P.sun.az; }
   const set = (k, v) => { if (v !== undefined) u[k].value = v; };
   set('uAmplitude', P.amplitude); set('uChoppy', P.choppy); set('uSpeed', P.speed);
   set('uWaveCount', P.waveCount); set('uClarity', P.clarity); set('uDepthFalloff', P.depthFalloff);
@@ -773,10 +801,46 @@ function applyPreset(name) {
   if (P.shafts !== undefined) post.underwaterMat.uniforms.uShaftDensity.value = P.shafts;
   if (P.cloudCoverage !== undefined) clouds.uniforms.uCoverage.value = P.cloudCoverage;
   if (P.cloudDensity !== undefined) clouds.uniforms.uDensity.value = P.cloudDensity;
+  if (P.rain !== undefined) rain.setEnabled(P.rain); // works regardless of the ?rain=1 URL default — see Rain.js's own setEnabled()
   applySun();
   presetProxy.preset = name;   // keep the dropdown in sync (incl. programmatic calls)
   refreshColorCtrls();
   gui.controllersRecursive().forEach((c) => c.updateDisplay());
+}
+
+// ---------------------------------------------------------------------------
+//  Random Weather V1 — reuses the EXISTING Cinematic PRESETS/applyPreset()
+//  wholesale; no separate preset list, no independent per-parameter
+//  randomization (which risks incoherent combinations, e.g. calm seas under
+//  a storm sky — the whole point of applyPreset()'s hand-tuned bundles is
+//  to avoid exactly that). Picked ONCE per "play" — on page load, and again
+//  whenever the song repeats (Audio's own Repeat Time, or a manual
+//  Restart — see those two call sites) — never on a continuous timer, so
+//  the look stays stable for a whole play-through instead of shifting
+//  mid-song. Skips entirely when an explicit, single-purpose mood flag
+//  (?cinematicSunset=1 / ?night=1) is already dictating the look, and skips
+//  just the sun position (see applyPreset()'s own skipSun doc) whenever
+//  Time of Day (Auto Play or Show Time) is driving it continuously instead.
+//  "Stormy Seas" is weighted down (doesn't suit the song) rather than
+//  removed outright, so it can still turn up occasionally.
+// ---------------------------------------------------------------------------
+const RANDOM_WEATHER_WEIGHTS = { 'Stormy Seas': 0.1 };
+function pickRandomPresetName() {
+  const names = Object.keys(PRESETS);
+  const totalWeight = names.reduce((sum, n) => sum + (RANDOM_WEATHER_WEIGHTS[n] ?? 1), 0);
+  let r = Math.random() * totalWeight;
+  for (const n of names) {
+    const w = RANDOM_WEATHER_WEIGHTS[n] ?? 1;
+    if (r < w) return n;
+    r -= w;
+  }
+  return names[names.length - 1]; // float rounding fallback
+}
+function rollRandomWeather() {
+  if (!randomWeatherGuiState.enabled) return;
+  if (cinematicSunsetEnabled || nightEnabled) return; // an explicit mood flag always wins
+  const skipSun = timeEnabled && !!timeGuiState && (timeGuiState.autoPlay || timeGuiState.showTime);
+  applyPreset(pickRandomPresetName(), { skipSun });
 }
 
 // ---------------------------------------------------------------------------
@@ -798,6 +862,11 @@ const presetProxy = { preset: 'Tropical Noon' };
 fPre.add(presetProxy, 'preset', Object.keys(PRESETS)).name('preset').onChange(applyPreset);
 fPre.add({ cinema: false }, 'cinema').name('cinematic camera')
   .onChange((v) => (controls.autoRotate = v));
+// Random Weather V1 (see rollRandomWeather()'s own doc) — on by default;
+// unchecking it just stops future re-rolls (page load, Repeat Time, manual
+// Restart), it does not revert whichever preset is already applied.
+const randomWeatherGuiState = { enabled: true };
+fPre.add(randomWeatherGuiState, 'enabled').name('Random Weather');
 
 const fSun = gui.addFolder('Time of day').close();
 fSun.add(sunParams, 'elevation', -3, 89, 0.5).name('sun elevation').onChange(applySun);
@@ -1380,7 +1449,8 @@ if (audioEnabled) {
   fAudio.add(audioGuiState, 'playing').name('Play / Pause').listen().onChange((v) => {
     if (v) audioController.play(); else audioController.pause();
   });
-  fAudio.add({ restart: () => audioController.restart() }, 'restart').name('Restart');
+  // Manual restart counts as "the song repeating" too — see rollRandomWeather().
+  fAudio.add({ restart: () => { audioController.restart(); rollRandomWeather(); } }, 'restart').name('Restart');
   // Widened to cover the full ~311.07s track (spec 21) — was 0-300, just
   // short of the real duration.
   fAudio.add(audioGuiState, 'time', 0, 315, 0.1).name('Time').listen().onChange((v) => audioController.setTime(v));
@@ -1695,6 +1765,7 @@ function animate() {
     if (audioGuiState.repeatTime > 0 && audioController.currentTime >= audioGuiState.repeatTime * 60) {
       audioController.restart();
       audioGuiState.time = audioController.currentTime;
+      rollRandomWeather(); // see its own doc — "the song repeating" is exactly this moment
     }
   }
   // Lyric Timeline (V1, opt-in) — runs BEFORE Trail Lyrics' own update() so
@@ -1783,6 +1854,16 @@ function animate() {
   // --- Volumetric clouds: raymarch a low-res HDR buffer from the scene depth ---
   if (clouds.enabled) clouds.render(dt, camera, hdrRT.depthTexture);
 
+  // Rainbow V1 — only while rain is actually falling (not underwater, where
+  // there's no rain to refract light through) AND the sun is low enough
+  // that the bow's fixed ~42-degree radius around the antisolar point can
+  // still clear the horizon — fades out smoothly near that limit rather
+  // than popping off. See Post.js's own render()/shader doc for the actual
+  // per-pixel geometry this drives.
+  const rainbowStrength = (rain.enabled && !underwater)
+    ? smoothstepJS(0, 8, sunParams.elevation) * (1 - smoothstepJS(32, 42, sunParams.elevation))
+    : 0;
+
   // --- Post: underwater volumetrics + clouds + bloom + tone-map to screen ---
   invProjView.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).invert();
   post.render(hdrRT, {
@@ -1793,6 +1874,7 @@ function animate() {
     underwater,
     surfaceY: OCEAN_CONFIG.surfaceY,
     cloudTexture: clouds.enabled ? clouds.texture : null,
+    rainbowStrength,
   });
 
   // --- HUD ---
@@ -2010,4 +2092,5 @@ if (headParticlesEnabled) {
   gui.controllersRecursive().forEach((c) => c.updateDisplay());
 }
 
+rollRandomWeather(); // Random Weather V1 — one pick for this whole page load/play-through
 animate();

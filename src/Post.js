@@ -50,6 +50,7 @@ export class Post {
         uFogStrength: { value: 1.0 },
         uShaftDensity: { value: 0.05 },
         uMaxDist: { value: 140.0 },
+        uRainbowStrength: { value: 0.0 }, // Rainbow V1 — see render()'s own doc for how this is derived
       },
       vertexShader: /* glsl */ `
         varying vec2 vUv;
@@ -74,15 +75,62 @@ export class Post {
         uniform float uFogStrength;
         uniform float uShaftDensity;
         uniform float uMaxDist;
+        uniform float uRainbowStrength;
 
         float hg(float c, float g){
           float g2 = g * g;
           return (1.0 - g2) / (12.5663706 * pow(1.0 + g2 - 2.0 * g * c, 1.5));
         }
 
+        // Rainbow V1 — hue sweeps violet (t=0, inner edge) through red (t=1,
+        // outer edge), matching the real primary bow's colour order.
+        vec3 hsv2rgb(vec3 c){
+          vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+          vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+          return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+        }
+
         void main(){
           vec3 col = texture2D(tDiffuse, vUv).rgb;
-          if (uUnderwater < 0.5){ gl_FragColor = vec4(col, 1.0); return; }
+          if (uUnderwater < 0.5){
+            // Rainbow V1 — a real primary bow always sits at ~40.5-42.5
+            // degrees from the ANTI-solar point (i.e. looking away from the
+            // sun) — but ONLY where nothing solid is actually in the way.
+            // Without a distance check this painted straight through the
+            // ocean surface and the island (anything at that angle, at any
+            // distance, got the colour): a rainbow is formed by distant rain
+            // in the air, so it must be occluded by nearer scene geometry
+            // exactly like anything else would be, not just angle-tested.
+            // uRainbowStrength (see Post.render()'s own doc) is already 0
+            // whenever the geometry couldn't put the arc above the horizon
+            // (sun too high) or rain isn't actually falling.
+            if (uRainbowStrength > 0.0) {
+              float d = texture2D(tDepth, vUv).x;
+              vec4 clip = vec4(vUv * 2.0 - 1.0, d * 2.0 - 1.0, 1.0);
+              vec4 wp = uInvProjView * clip;
+              wp /= wp.w;
+              vec3 toFrag = wp.xyz - uCameraPos;
+              float viewDist = length(toFrag);
+              vec3 rd = toFrag / max(viewDist, 1e-3);
+              // Distance gate: the ocean plane is 6000 units across, so a
+              // near-horizontal ray can travel far before hitting it — but
+              // anything within a few hundred units is definitely real
+              // nearby geometry (the island, close waves), never the sky.
+              // Fades in from 400 to 2000 units so there is no hard edge.
+              float distGate = smoothstep(400.0, 2000.0, viewDist);
+              if (distGate > 0.0) {
+                float ang = acos(clamp(dot(rd, -uSunDir), -1.0, 1.0)) * 57.29578; // degrees
+                float t = (ang - 40.5) / (42.5 - 40.5); // 0 = inner (violet) edge, 1 = outer (red) edge
+                float band = smoothstep(0.0, 0.12, t) * (1.0 - smoothstep(0.88, 1.0, t));
+                if (band > 0.0) {
+                  vec3 bowColor = hsv2rgb(vec3(mix(0.78, 0.0, clamp(t, 0.0, 1.0)), 1.0, 1.0));
+                  col += bowColor * band * uRainbowStrength * distGate;
+                }
+              }
+            }
+            gl_FragColor = vec4(col, 1.0);
+            return;
+          }
 
           // Reconstruct world position from depth.
           float d = texture2D(tDepth, vUv).x;
@@ -317,6 +365,12 @@ export class Post {
     uw.uTime.value = params.time;
     uw.uUnderwater.value = params.underwater ? 1 : 0;
     uw.uSurfaceY.value = params.surfaceY;
+    // Rainbow V1 — the CALLER decides whether a bow should be visible right
+    // now (rain actually falling, sun low enough for the ~42-degree arc to
+    // clear the horizon) and hands over a plain 0..1 strength; this class
+    // only ever renders whatever it's told, same convention as every other
+    // param here.
+    uw.uRainbowStrength.value = params.rainbowStrength || 0;
 
     // 1) underwater volumetrics → sceneRT
     this._draw(this.underwaterMat, this.sceneRT);
