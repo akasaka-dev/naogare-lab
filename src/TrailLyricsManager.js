@@ -160,6 +160,8 @@ export class TrailLyricsManager {
     if (this._glyphShadowStrength !== undefined) config.shadowStrength = this._glyphShadowStrength;
     if (this._glyphTextColor !== undefined) config.textColor = this._glyphTextColor;
     if (this._glyphShadowColor !== undefined) config.shadowColor = this._glyphShadowColor;
+    if (this._glyphOutlineWidth !== undefined) config.outlineWidth = this._glyphOutlineWidth;
+    if (this._glyphOutlineColor !== undefined) config.outlineColor = this._glyphOutlineColor;
     if (this._glyphFontFamily !== undefined) config.fontFamily = this._glyphFontFamily;
 
     // Reading-Order Layout V2: word-wrap ONCE here, conservatively, to the
@@ -210,16 +212,18 @@ export class TrailLyricsManager {
   // particle targets since the letterforms themselves changed), so a GUI
   // change is visible on-screen right away, not just for the next phrase.
   // Takes a single options object ({ textColor, shadowColor,
-  // shadowStrength, fontFamily }, any subset optional) matching
-  // TrailLyrics.setGlyphStyle()'s own shape — a caller only sets the
-  // property that changed; every other property is left untouched
-  // everywhere (both here and inside TrailLyrics.setGlyphStyle()).
-  setGlyphStyle({ textColor, shadowColor, shadowStrength, fontFamily } = {}) {
+  // shadowStrength, outlineWidth, outlineColor, fontFamily }, any subset
+  // optional) matching TrailLyrics.setGlyphStyle()'s own shape — a caller
+  // only sets the property that changed; every other property is left
+  // untouched everywhere (both here and inside TrailLyrics.setGlyphStyle()).
+  setGlyphStyle({ textColor, shadowColor, shadowStrength, outlineWidth, outlineColor, fontFamily } = {}) {
     if (textColor !== undefined) this._glyphTextColor = textColor;
     if (shadowColor !== undefined) this._glyphShadowColor = shadowColor;
     if (shadowStrength !== undefined) this._glyphShadowStrength = shadowStrength;
+    if (outlineWidth !== undefined) this._glyphOutlineWidth = outlineWidth;
+    if (outlineColor !== undefined) this._glyphOutlineColor = outlineColor;
     if (fontFamily !== undefined) this._glyphFontFamily = fontFamily;
-    for (const entry of this._active) entry.instance.setGlyphStyle({ textColor, shadowColor, shadowStrength, fontFamily });
+    for (const entry of this._active) entry.instance.setGlyphStyle({ textColor, shadowColor, shadowStrength, outlineWidth, outlineColor, fontFamily });
   }
 
   // Per-frame advance for every currently active instance, plus (Reading-

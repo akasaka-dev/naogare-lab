@@ -90,7 +90,7 @@ async function ensureFontReady(fontSpec, sampleText, timeoutMs = 3000) {
 //  rasterising canvas itself, reused as-is for the smooth glyph texture
 //  layer below instead of rendering the text a second time.
 // ---------------------------------------------------------------------------
-function sampleTextTargets(text, { fontWeight = 600, fontFamily = 'Georgia, "Times New Roman", serif', fontSizeScale = 1.0, lineHeight: lineHeightMultiplier = 1.15, targetCount = 650, worldWidth = 26, fixedWorldScale = null, depthJitter = 0.4, seed = 99, shadowStrength = 1.0, textColor = '#ffffff', shadowColor = '#000000' } = {}) {
+function sampleTextTargets(text, { fontWeight = 600, fontFamily = 'Georgia, "Times New Roman", serif', fontSizeScale = 1.0, lineHeight: lineHeightMultiplier = 1.15, targetCount = 650, worldWidth = 26, fixedWorldScale = null, depthJitter = 0.4, seed = 99, shadowStrength = 1.0, textColor = '#ffffff', shadowColor = '#000000', outlineWidth = 0, outlineColor = '#000000' } = {}) {
   // Trail Lyrics Font Support V1: fontSizeScale scales the RASTER font size
   // used to draw glyphs to the canvas (crispness/stroke weight), not the
   // final world-space size — that stays `worldWidth`'s job (and textScale's,
@@ -161,10 +161,13 @@ function sampleTextTargets(text, { fontWeight = 600, fontFamily = 'Georgia, "Tim
   // treatment exactly as the canonical visual reference:
   //   color: rgba(255, 255, 255, 0.96)
   //   text-shadow: 0 2px 18px rgba(0,0,0,0.55), 0 1px 3px rgba(0,0,0,0.6)
-  // No stroke/outline: the title itself uses none, so this deliberately
-  // draws no outline either (a prior experiment added a black/red outline
-  // that has no counterpart in the title and has been removed). CSS
-  // text-shadow supports an arbitrary LIST of shadow layers; Canvas 2D's
+  // The title itself uses no stroke/outline, and this file didn't either
+  // for a long time (a prior black/red-outline experiment was reverted for
+  // exactly that reason) — Outline V1 (see below, near the final fill) adds
+  // one back, but ONLY as an explicit, configurable, legibility-focused
+  // option layered on top of this title-matched treatment, not a
+  // replacement of it. CSS text-shadow supports an arbitrary LIST of shadow
+  // layers; Canvas 2D's
   // shadowColor/shadowBlur/shadowOffsetX/shadowOffsetY only describe ONE
   // shadow per draw call, so each layer is cast with its own separate
   // fillText pass (shadow-casting fillStyle here is irrelevant — every
@@ -203,12 +206,19 @@ function sampleTextTargets(text, { fontWeight = 600, fontFamily = 'Georgia, "Tim
     // identical position — only the blurred/offset shadow spilling PAST
     // each glyph's edge (where PASS C draws nothing) remains visible.
     ctx.fillStyle = shadowColor;
-    ctx.shadowColor = `rgba(${shadowRgb.r}, ${shadowRgb.g}, ${shadowRgb.b}, ${(0.55 * shadowStrength).toFixed(3)})`;
+    // Configurable Shadow Strength range extension — shadowStrength now goes
+    // up to 2.0 (GUI: "Shadow Strength"), not just the original 0..1 range,
+    // so the shadow can go all the way to fully solid/opaque, not only up to
+    // the original title-matched 0.55/0.60 alpha ceiling. Clamped to 1.0
+    // explicitly here rather than relying on the browser to clamp an
+    // out-of-range rgba() alpha, which isn't guaranteed identically across
+    // engines.
+    ctx.shadowColor = `rgba(${shadowRgb.r}, ${shadowRgb.g}, ${shadowRgb.b}, ${Math.min(1, 0.55 * shadowStrength).toFixed(3)})`;
     ctx.shadowBlur = 20 * scale;
     ctx.shadowOffsetX = 0;
     ctx.shadowOffsetY = 3 * scale;
     drawLines((t, x, y) => ctx.fillText(t, x, y)); // layer 1 — broad ambient shadow
-    ctx.shadowColor = `rgba(${shadowRgb.r}, ${shadowRgb.g}, ${shadowRgb.b}, ${(0.60 * shadowStrength).toFixed(3)})`;
+    ctx.shadowColor = `rgba(${shadowRgb.r}, ${shadowRgb.g}, ${shadowRgb.b}, ${Math.min(1, 0.60 * shadowStrength).toFixed(3)})`;
     ctx.shadowBlur = 4 * scale;
     ctx.shadowOffsetY = 1.5 * scale;
     drawLines((t, x, y) => ctx.fillText(t, x, y)); // layer 2 — tight contact shadow
@@ -219,6 +229,25 @@ function sampleTextTargets(text, { fontWeight = 600, fontFamily = 'Georgia, "Tim
     ctx.shadowOffsetX = 0;
     ctx.shadowOffsetY = 0;
     ctx.restore(); // also undoes fillStyle back to whatever it was before PASS A
+  }
+  // Outline V1 — a plain text-stroke, added ON TOP of the shadow above and
+  // UNDER the final fill drawn next. Unlike the shadow (whose visible
+  // contrast depends on how dark/light the background already is), a
+  // stroke guarantees a fixed-contrast ring around each glyph against ANY
+  // background — the standard technique burned-in video captions use for
+  // exactly this reason. Deliberately independent of shadowStrength/
+  // shadowColor (both can be used together, either alone, or neither).
+  // Drawn via ctx.strokeText() at DOUBLE the requested width because the
+  // opaque fill drawn next covers the inner half of the stroke, leaving
+  // only a clean, uniform OUTER rim of that requested width visible —
+  // never a visible double-edge or a stroke bleeding into the letterform.
+  if (outlineWidth > 0) {
+    const outlineRgb = hexToRgb(outlineColor);
+    ctx.lineJoin = 'round';
+    ctx.miterLimit = 2;
+    ctx.strokeStyle = `rgb(${outlineRgb.r}, ${outlineRgb.g}, ${outlineRgb.b})`;
+    ctx.lineWidth = outlineWidth * (fontSize / 120) * 2;
+    drawLines((t, x, y) => ctx.strokeText(t, x, y));
   }
   // PASS C — final visible text. Shadow is guaranteed off (PASS B, and/or
   // restore() above having never run if shadowStrength is 0). Configurable
@@ -431,8 +460,6 @@ export class TrailLyrics {
     // canvas-drawn two-layer shadow baked into the glyph texture, styled to
     // match #tc-title's CSS text-shadow (see sampleTextTargets()). 1.0
     // (default) is the full title-matched look; 0 renders with no shadow.
-    // No outline field: the title uses no stroke/outline, so neither does
-    // this glyph texture.
     this.shadowStrength = 1.0;
     // Configurable Text Color / Shadow Color V1 — the glyph fill and shadow
     // colors, each a CSS hex string (e.g. '#ffffff'). Defaults match
@@ -446,6 +473,15 @@ export class TrailLyrics {
     // two are never auto-inverted relative to each other.
     this.textColor = '#ffffff';
     this.shadowColor = '#000000';
+    // Outline V1 (see sampleTextTargets()'s own doc) — a plain text-stroke,
+    // independent of and layered on top of the shadow above, purely for
+    // guaranteed legibility against ANY background. outlineWidth is in the
+    // same raster-px-at-fontSize-120 units the shadow's blur/offset already
+    // use; 0 disables it entirely (the title-matched, stroke-less look).
+    // Given a small non-zero default here specifically to be visible
+    // without any GUI change, so its effect can be judged immediately.
+    this.outlineWidth = 2;
+    this.outlineColor = '#000000';
     this.particleContribution = 1.0;
     this.billboardRelease = 0.4; // fraction of HOLD spent still camera-locked before releasing (orientation)
     // V1.1 — soft position release (spec: "Soft Position Release"). Orientation
@@ -806,6 +842,8 @@ export class TrailLyrics {
       shadowStrength: this.shadowStrength,
       textColor: this.textColor,
       shadowColor: this.shadowColor,
+      outlineWidth: this.outlineWidth,
+      outlineColor: this.outlineColor,
     };
     if (this.screenLock) rasterOpts.fixedWorldScale = LAYOUT_FIXED_WORLD_SCALE;
     else rasterOpts.worldWidth = 15;
@@ -905,6 +943,8 @@ export class TrailLyrics {
       'shadowStrength',
       // Configurable Text/Shadow Color V1 — see sampleTextTargets()'s doc.
       'textColor', 'shadowColor',
+      // Outline V1 — see sampleTextTargets()'s doc.
+      'outlineWidth', 'outlineColor',
     ];
     for (const k of KEYS) if (opts[k] !== undefined) this[k] = opts[k];
   }
@@ -966,9 +1006,10 @@ export class TrailLyrics {
   // texture. Synchronous, no allocation beyond the one small offscreen
   // canvas/texture — safe to call from a GUI onChange handler, never from
   // the per-frame update() path. Takes a single options object
-  // ({ shadowStrength, textColor, shadowColor, fontFamily }, any subset
-  // optional) rather than positional params, so future style knobs extend
-  // this one call instead of growing an ad-hoc setter per property.
+  // ({ shadowStrength, textColor, shadowColor, outlineWidth, outlineColor,
+  // fontFamily }, any subset optional) rather than positional params, so
+  // future style knobs extend this one call instead of growing an ad-hoc
+  // setter per property.
   //
   // fontFamily is the one exception to "texture-only": a different font
   // changes the glyph SHAPES themselves (spec: "changing fontFamily SHOULD
@@ -978,10 +1019,12 @@ export class TrailLyrics {
   // setText() already performs exactly that full rebuild (geometry +
   // texture) from whatever this.fontFamily currently is, so it's reused
   // wholesale here rather than duplicating its particle-buffer logic.
-  setGlyphStyle({ shadowStrength, textColor, shadowColor, fontFamily } = {}) {
+  setGlyphStyle({ shadowStrength, textColor, shadowColor, outlineWidth, outlineColor, fontFamily } = {}) {
     if (shadowStrength !== undefined) this.shadowStrength = shadowStrength;
     if (textColor !== undefined) this.textColor = textColor;
     if (shadowColor !== undefined) this.shadowColor = shadowColor;
+    if (outlineWidth !== undefined) this.outlineWidth = outlineWidth;
+    if (outlineColor !== undefined) this.outlineColor = outlineColor;
     if (this.currentText === null) return; // nothing drawn yet — setText() will pick up the new value(s) on its own
     if (fontFamily !== undefined && fontFamily !== this.fontFamily) {
       this.fontFamily = fontFamily;
@@ -998,6 +1041,8 @@ export class TrailLyrics {
       shadowStrength: this.shadowStrength,
       textColor: this.textColor,
       shadowColor: this.shadowColor,
+      outlineWidth: this.outlineWidth,
+      outlineColor: this.outlineColor,
     };
     if (this.screenLock) rasterOpts.fixedWorldScale = LAYOUT_FIXED_WORLD_SCALE;
     else rasterOpts.worldWidth = 15;
@@ -1154,7 +1199,24 @@ export class TrailLyrics {
   // then derives this cycle's particle source positions from the live wake
   // (spec 3/4) now that the local frame they need to be expressed in exists.
   _prepareFormation(headParticleTrail, camera) {
-    this._computeDesiredCenter(headParticleTrail, camera, this._planeCenter);
+    // Wake-Origin Anchor Fix V1 — seed from whichever anchor _recompute()'s
+    // own position-influence block will ACTUALLY use going forward
+    // (_computeLayoutCenter for a screen-locked phrase, matching its
+    // screenLockActive branch there), not always the legacy head-relative
+    // _computeDesiredCenter. _computeWakeScatter() below converts each
+    // sampled wake position into LOCAL coordinates relative to whatever
+    // _planeCenter/_planeQuat are AT THIS MOMENT — if that differs from the
+    // anchor _recompute() switches to moments later (same frame, right
+    // after this call, for a screen-locked phrase), those local coordinates
+    // get re-interpreted against a DIFFERENT world transform than the one
+    // they were computed against, and the particles render displaced away
+    // from the real wake they were sampled from — even though the sampled
+    // POSITIONS themselves were correct. Seeding from the same anchor here
+    // removes that mismatch entirely: the wake-sampled particles render
+    // exactly where they were sampled from, independent of where the
+    // phrase's own readable text ends up on screen.
+    if (this.screenLock) this._computeLayoutCenter(camera, this._planeCenter);
+    else this._computeDesiredCenter(headParticleTrail, camera, this._planeCenter);
     this._planeQuat.copy(camera.quaternion);
     this._computeWakeScatter(headParticleTrail);
   }
@@ -1306,8 +1368,14 @@ export class TrailLyrics {
     // release across the remainder of HOLD, reaching exactly 0 by the start
     // of LEAVE — so LEAVE/DISSOLVE are always already fully world-locked.
     const orientLockEnd = t2 + (t3 - t2) * THREE.MathUtils.clamp(this.billboardRelease, 0, 1);
+    // Screen-Lock Jitter Fix V1 — computed once, here, and reused below for
+    // both orientation and position: see this block's own comment on
+    // _planeQuat/_planeCenter for why a fully screen-locked phrase needs to
+    // be told apart from the legacy billboardRelease==1.0 case even though
+    // both produce orientationInfluence === 1.0.
+    const screenLockActive = this.screenLock && lt < t3;
     let orientationInfluence;
-    if (this.screenLock && lt < t3) {
+    if (screenLockActive) {
       // Screen-Lock Hold V1: stay fully camera-facing for the ENTIRE hold
       // (not just the first billboardRelease fraction of it) — an authored
       // endTime means "readable until then", and readable requires still
@@ -1320,7 +1388,25 @@ export class TrailLyrics {
     else if (lt <= t3) orientationInfluence = 1.0 - smoothstep(orientLockEnd, t3, lt);
     else orientationInfluence = 0.0;
 
-    if (orientationInfluence > 0.001) {
+    if (screenLockActive) {
+      // Screen-Lock Jitter Fix V1 — a fully screen-locked phrase's
+      // orientation should track the follow camera's own (already smoothed)
+      // orientation with ZERO further lag, not a SECOND independently-timed
+      // damper slerping toward it on top of that. Two exponential dampers
+      // fed the exact same per-frame dt (which is never perfectly constant
+      // in a real browser — ordinary vsync/frame-pacing variance) drift in
+      // and out of phase with each other every frame; the RELATIVE
+      // orientation/position between camera and text (which is what
+      // actually renders as the on-screen billboard) then visibly twitches
+      // even though neither damper alone looks unstable in isolation.
+      // Confirmed via a manual frame-stepping simulation of the real
+      // camera-follow + layout-anchor formulas: with a perfectly uniform dt
+      // the screen-relative offset was rock steady (zero direction
+      // reversals), but with realistic frame-time jitter alone (no
+      // steering/Free Navigation input at all) it reversed direction on
+      // most frames. See the matching _planeCenter fix just below.
+      this._planeQuat.copy(camera.quaternion);
+    } else if (orientationInfluence > 0.001) {
       const damp = 1 - Math.pow(0.0008, dt * Math.max(orientationInfluence, 0.05));
       this._planeQuat.slerp(camera.quaternion, Math.min(1, damp));
     }
@@ -1351,21 +1437,31 @@ export class TrailLyrics {
     const positionChaseWindow = Math.min(this.holdDuration, this.maxPositionChaseSeconds);
     const posLockEnd = t2 + positionChaseWindow * THREE.MathUtils.clamp(this.positionRelease, 0, 1);
     const posReleaseEnd = t2 + positionChaseWindow;
-    const screenLockActive = this.screenLock && lt < t3;
     let positionInfluence;
     if (screenLockActive) positionInfluence = 1.0;
     else if (lt <= posLockEnd) positionInfluence = 1.0;
     else if (lt <= posReleaseEnd) positionInfluence = 1.0 - smoothstep(posLockEnd, posReleaseEnd, lt);
     else positionInfluence = 0.0;
 
-    if (positionInfluence > 0.001) {
+    if (screenLockActive) {
+      // Screen-Lock Jitter Fix V1 — see the matching _planeQuat comment
+      // above for the full explanation. _computeLayoutCenter() is already
+      // expressed directly in the CURRENT camera's own basis vectors
+      // (rebuilt fresh every frame by design — see that method's own
+      // comment: "always correct across any camera movement/cut"), so
+      // chasing it with a SECOND independently-timed exponential lerp only
+      // reintroduces the exact beat-frequency jitter this fix removes.
+      // Snapping directly makes the anchor exactly slotOffset-from-centre
+      // with zero additional relative lag against the camera, every frame,
+      // regardless of dt jitter.
+      this._computeLayoutCenter(camera, this._planeCenter);
+    } else if (positionInfluence > 0.001) {
       // The follow RATE itself scales with positionInfluence (not just
       // gated on/off by it), so as influence ramps 1 -> 0 across late HOLD
       // the plane visibly loses momentum relative to the live desired
       // centre rather than following at full speed until an abrupt cutoff
       // (spec 6/7: "the phrase appears to lose momentum ... no snapping").
-      if (screenLockActive) this._computeLayoutCenter(camera, this._tmpDesired);
-      else this._computeDesiredCenter(headParticleTrail, camera, this._tmpDesired);
+      this._computeDesiredCenter(headParticleTrail, camera, this._tmpDesired);
       const followRate = this.followSmoothing * positionInfluence;
       const posDamp = 1 - Math.pow(0.0008, dt * Math.max(followRate, 0.0001));
       this._planeCenter.lerp(this._tmpDesired, Math.min(1, posDamp));

@@ -32,18 +32,6 @@
       @keyframes slide { 0% { transform: translateX(-120%);} 100% { transform: translateX(420%);} }
       #boot.hidden { opacity: 0; pointer-events: none; }
 
-      /* On-screen hint / HUD */
-      #hint {
-        position: fixed; left: 0; right: 0; bottom: 18px; z-index: 10;
-        text-align: center; pointer-events: none;
-        color: rgba(230,245,255,0.72);
-        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-        font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase;
-        text-shadow: 0 1px 6px rgba(0,0,0,0.6);
-        transition: opacity 0.6s ease;
-      }
-      #hint b { color: #9be7ff; font-weight: 600; }
-
       /* Depth indicator */
       #depth {
         position: fixed; top: 16px; left: 16px; z-index: 10;
@@ -58,6 +46,36 @@
       }
       #depth .k { opacity: 0.5; }
       #depth .v { color: #9be7ff; }
+
+      /* Day Animation "Show Time" V1 — a small, unobtrusive real-world
+         date/time readout, shown only while the Day Animation folder's
+         Show Time toggle is on. Bottom-center (never a spot TrailLyrics'
+         on-screen text reaches — that's laid out much higher, near
+         vertical centre). Plain text with no box/border, unlike #depth's
+         boxed HUD look. Deliberately NOT an .editor-ui element (unlike
+         #depth/the lil-gui panel): Show Time is a real, intentional
+         viewing feature, so it must stay visible even in Presentation Mode
+         (H key, now the DEFAULT state — see main.js), when everything
+         editor-ui hides. */
+      #realTime {
+        position: fixed; bottom: 60px; left: 0; right: 0; z-index: 10;
+        text-align: center; pointer-events: none;
+        color: rgba(230,245,255,0.85);
+        font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+        letter-spacing: 0.1em;
+        text-shadow: 0 1px 6px rgba(0,0,0,0.6);
+      }
+      #realTime .date { font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; opacity: 0.72; }
+      /* Default matches the same title-matched serif used elsewhere in this
+         project (GUI: "Clock Font", see main.js) — this rule is only the
+         fallback; a GUI change overrides it via an inline style on the
+         element itself, same pattern as Trail Lyrics Style's Font Family
+         field. */
+      #realTime .clock { font-size: 26px; font-weight: 600; color: #9be7ff; font-family: Georgia, "Times New Roman", serif; letter-spacing: 0.04em; }
+      /* Blinking ":" V1 — opacity toggled in JS roughly once per real
+         second (see animate()'s showTime block); transition softens the
+         on/off edges slightly rather than a hard, distracting cut. */
+      #realTime .clock #real-time-colon { display: inline-block; transition: opacity 0.15s ease; }
 
       /* Title / Credit Overlay V1 — dedicated DOM overlay for the metadata
          cues (1-3) that are intentionally excluded from the TrailLyrics
@@ -93,11 +111,65 @@
         opacity: 0;
       }
 
+      /* Start Overlay V1 — a real user-gesture gate for audio (?audio=1
+         only). Mobile (and increasingly desktop) browsers flatly refuse a
+         programmatic .play() with no preceding user gesture — this button's
+         click IS that gesture. Shown centered, above everything including
+         #boot, and deliberately NOT an .editor-ui element (Presentation
+         Mode defaulting to ON must never hide the one control mobile users
+         need to ever hear audio at all). Same boxed-HUD visual language as
+         #depth, just larger. Dismisses itself (fades, then `hidden`) the
+         moment the button is used — never reappears afterward. */
+      #startOverlay {
+        position: fixed; inset: 0; z-index: 30;
+        display: flex; align-items: center; justify-content: center;
+        background: rgba(2, 10, 16, 0.45);
+        transition: opacity 0.5s ease;
+      }
+      #startOverlay.dismissed { opacity: 0; pointer-events: none; }
+      /* An ID selector's own `display: flex` above otherwise beats the
+         browser's default `[hidden] { display: none }` rule (both are
+         attached to #startOverlay, but ID+attribute specificity wins over
+         plain ID) — without this, setting the `hidden` IDL property true
+         from JS would silently do nothing visually; the element would only
+         ever look gone via .dismissed's opacity, never actually leave
+         layout/hit-testing. */
+      #startOverlay[hidden] { display: none; }
+      #startOverlay .box {
+        background: rgba(4, 20, 32, 0.55); backdrop-filter: blur(12px);
+        border: 1px solid rgba(150, 220, 255, 0.18); border-radius: 16px;
+        padding: 40px 56px; text-align: center;
+        box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+      }
+      #startOverlay .title {
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: clamp(24px, 4vw, 40px);
+        letter-spacing: 0.04em;
+        color: rgba(255, 255, 255, 0.96);
+        text-shadow: 0 2px 18px rgba(0, 0, 0, 0.55);
+        margin-bottom: 28px;
+      }
+      #startOverlay button {
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: 16px; letter-spacing: 0.14em; text-transform: uppercase;
+        color: #9be7ff;
+        background: rgba(150, 220, 255, 0.08);
+        border: 1px solid rgba(150, 220, 255, 0.35);
+        border-radius: 8px;
+        padding: 12px 32px;
+        cursor: pointer;
+        transition: background 0.2s ease, border-color 0.2s ease;
+      }
+      #startOverlay button:hover, #startOverlay button:focus-visible {
+        background: rgba(150, 220, 255, 0.18); border-color: rgba(150, 220, 255, 0.6);
+      }
+
       /* Presentation Mode V1 — press H to hide non-MV editor UI (lil-gui
-         panel, debug HUD, helper text) for clean MV playback/recording.
-         A single class toggle on <body>; every element that should
-         disappear just needs the .editor-ui marker class. Never applied to
-         #titleCredit, the canvas, or any WebGL-rendered MV content. */
+         panel, debug HUD) for clean MV playback/recording, DEFAULT ON (see
+         main.js). A single class toggle on <body>; every element that
+         should disappear just needs the .editor-ui marker class. Never
+         applied to #titleCredit, #startOverlay, the canvas, or any
+         WebGL-rendered MV content. */
       body.presentation-mode .editor-ui {
         display: none;
       }
@@ -180,6 +252,13 @@
       <div id="tc-credit"></div>
     </div>
 
+    <div id="startOverlay" hidden>
+      <div class="box">
+        <div class="title">ForeverMore</div>
+        <button id="start-music-btn" type="button">Music Start</button>
+      </div>
+    </div>
+
     <div id="depth" class="editor-ui" hidden>
       <div><span class="k">STATE</span> &nbsp;<span class="v" id="depth-state">ABOVE</span></div>
       <div><span class="k">DEPTH</span> &nbsp;<span class="v" id="depth-val">0.0 m</span></div>
@@ -187,7 +266,10 @@
       <div><span class="k">LIGHT ALT</span> &nbsp;<span class="v" id="traveler-alt-val">+0.0 / UP</span></div>
     </div>
 
-    <div id="hint" class="editor-ui"><b>Drag</b> to orbit &nbsp;·&nbsp; Scroll to zoom &nbsp;·&nbsp; Dive <b>below</b></div>
+    <div id="realTime" hidden>
+      <div class="date" id="real-time-date"></div>
+      <div class="clock" id="real-time-clock"><span id="real-time-hour"></span><span id="real-time-colon">:</span><span id="real-time-minute"></span></div>
+    </div>
 
     <div id="boot">
       <h1>Ocean</h1>

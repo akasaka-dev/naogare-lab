@@ -19,17 +19,43 @@ import { AudioController } from './AudioController.js';
 import { getChoreography, baseTrailLyricsConfig, HOLD_TRAIL, HOLD_HERO } from './ForeverMoreLyrics.js';
 
 // ---------------------------------------------------------------------------
+//  Query Flags V2 — every ?feature=1 opt-in flag in this file is read
+//  through this one case-INSENSITIVE lookup, not a plain
+//  URLSearchParams.get(name) === '1'. Mobile Safari's address bar will
+//  silently autocorrect/autocapitalize a manually-retyped camelCase
+//  parameter name (e.g. "autoDirector" -> "autodirector") without any
+//  visible warning, which previously made that one flag permanently
+//  unreadable (an exact-case match against the now-mangled key never
+//  succeeds) even though the URL "looks right" to the person who typed it.
+// ---------------------------------------------------------------------------
+function queryFlag(name) {
+  const params = new URLSearchParams(window.location.search);
+  const target = name.toLowerCase();
+  for (const [key, value] of params) {
+    if (key.toLowerCase() === target) return value === '1';
+  }
+  return false;
+}
+
+// ---------------------------------------------------------------------------
 //  Boot
 // ---------------------------------------------------------------------------
 const container = document.getElementById('app');
 const bootEl = document.getElementById('boot');
-const hintEl = document.getElementById('hint');
 const depthEl = document.getElementById('depth');
 const depthStateEl = document.getElementById('depth-state');
 const depthValEl = document.getElementById('depth-val');
 const travelerAltValEl = document.getElementById('traveler-alt-val');
 const tcTitleEl = document.getElementById('tc-title');
 const tcCreditEl = document.getElementById('tc-credit');
+const realTimeEl = document.getElementById('realTime');
+const realTimeDateEl = document.getElementById('real-time-date');
+const realTimeClockEl = document.getElementById('real-time-clock');
+const realTimeHourEl = document.getElementById('real-time-hour');
+const realTimeColonEl = document.getElementById('real-time-colon');
+const realTimeMinuteEl = document.getElementById('real-time-minute');
+const startOverlayEl = document.getElementById('startOverlay');
+const startMusicBtnEl = document.getElementById('start-music-btn');
 
 const sizeW = () => window.innerWidth;
 const sizeH = () => window.innerHeight;
@@ -150,6 +176,51 @@ window.addEventListener('blur', () => {
 });
 
 // ---------------------------------------------------------------------------
+//  Device Tilt Altitude V1 — a mobile-friendly equivalent of the Space-key
+//  hold above, for devices with no keyboard: tilting the device front-to-
+//  back (away from however it was held when first granted) continuously
+//  biases the SAME travelerAltitudeOffset via the SAME TRAVELER_ALTITUDE_SPEED
+//  constant (see animate()'s own application further down) — reused, not
+//  reimplemented, so tilting feels identical in speed/range to holding
+//  Space, and the two simply add together if a device somehow has both.
+//  deviceorientation callbacks are cheap (a couple of subtractions), so this
+//  adds no measurable per-frame cost regardless of how often they fire.
+//
+//  iOS 13+ requires DeviceOrientationEvent.requestPermission() from inside
+//  a real user gesture, so it's requested on this page's very first
+//  pointerdown ANYWHERE ({ once: true }) rather than tying it to any one
+//  button — Android/desktop browsers have no such gate and just start
+//  receiving events once listened for.
+// ---------------------------------------------------------------------------
+let deviceTiltInput = 0; // continuous, -1 (tilt one way) .. +1 (tilt the other)
+let deviceTiltBaseline = null; // calibrated from whatever the first reading is
+const DEVICE_TILT_DEADZONE_DEG = 8; // small tilts near the held baseline are ignored (hand tremor)
+const DEVICE_TILT_FULL_DEG = 35; // tilt this far from baseline (or more) for full-speed input
+
+function handleDeviceOrientation(event) {
+  if (event.beta === null || event.beta === undefined) return;
+  if (deviceTiltBaseline === null) { deviceTiltBaseline = event.beta; return; }
+  const delta = event.beta - deviceTiltBaseline;
+  const mag = (Math.abs(delta) - DEVICE_TILT_DEADZONE_DEG) / (DEVICE_TILT_FULL_DEG - DEVICE_TILT_DEADZONE_DEG);
+  deviceTiltInput = Math.sign(delta) * Math.min(1, Math.max(0, mag));
+}
+
+if (queryFlag('headParticles')) {
+  // (headParticlesEnabled itself isn't declared until later in this file —
+  // re-reading the same URL flag here avoids a temporal-dead-zone error
+  // while still keeping this block next to Traveler Altitude V1 above.)
+  window.addEventListener('pointerdown', function requestDeviceTiltOnce() {
+    if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+      DeviceOrientationEvent.requestPermission()
+        .then((state) => { if (state === 'granted') window.addEventListener('deviceorientation', handleDeviceOrientation); })
+        .catch(() => {});
+    } else if (typeof DeviceOrientationEvent !== 'undefined') {
+      window.addEventListener('deviceorientation', handleDeviceOrientation);
+    }
+  }, { once: true });
+}
+
+// ---------------------------------------------------------------------------
 //  Manual A/D Steering V1 — A/D press-and-hold biases the traveler's
 //  automatic horizontal steering (HeadParticleTrail.manualTurnInput), fully
 //  independent of Space/altitude (Y). Input handling only lives here (held-
@@ -176,6 +247,74 @@ window.addEventListener('blur', () => {
   // manual steering stuck engaged after focus loss.
   travelerTurnLeftHeld = false;
   travelerTurnRightHeld = false;
+});
+
+// ---------------------------------------------------------------------------
+//  Flick Gesture V1 — touch-only mobile equivalent of Space (altitude) and
+//  A/D (steering); see Device Tilt Altitude's own comment above for why
+//  tilt alone isn't reliable on iOS (DeviceOrientationEvent's permission
+//  gate requires HTTPS, which a plain-HTTP LAN dev URL — the normal way to
+//  open this on a phone during development — doesn't satisfy).
+//
+//  Drives the EXACT SAME state each of those keys already uses — never a
+//  new movement system, just another way of setting the same variables, so
+//  speed/range/smoothing all stay byte-for-byte identical regardless of
+//  input source:
+//    vertical flick   -> travelerAltitudeSpaceHeld / travelerAltitudeDirection
+//    horizontal flick -> travelerTurnLeftHeld / travelerTurnRightHeld
+//  V2: a flick AGAINST whichever direction is currently held on that axis
+//  stops it (== releasing the key) — it does NOT reverse straight into the
+//  opposite motion; from a stop, a separate later flick is what actually
+//  starts moving the other way. A flick in the SAME direction as one
+//  already held is a no-op (already doing that). V1 had this backwards
+//  (same-direction flick to stop) and it read as unintuitive — "flick
+//  against the current motion to brake" matches how a physical flick/toss
+//  actually feels. Whichever axis (dx vs dy) moved further decides which of
+//  the two this gesture affects — never both from one flick. Ignored while
+//  OrbitControls owns dragging (Follow Camera off) so it can never fight a
+//  manual orbit, and ignored over any interactive control for the same
+//  reason as Tap-to-Pause.
+// ---------------------------------------------------------------------------
+const FLICK_MIN_DIST = 40; // px
+const FLICK_MAX_MS = 350;
+let flickStartX = 0, flickStartY = 0, flickStartT = 0;
+window.addEventListener('pointerdown', (event) => {
+  flickStartX = event.clientX; flickStartY = event.clientY; flickStartT = performance.now();
+});
+window.addEventListener('pointerup', (event) => {
+  if (controls.enabled) return; // OrbitControls owns dragging right now (Follow Camera off) — never fight it
+  if (event.target.closest && event.target.closest('button, input, select, textarea, .lil-gui, .editor-ui')) return;
+  const heldMs = performance.now() - flickStartT;
+  if (heldMs > FLICK_MAX_MS) return; // too slow to be a flick
+  const dy = event.clientY - flickStartY;
+  const dx = event.clientX - flickStartX;
+  const absDx = Math.abs(dx), absDy = Math.abs(dy);
+  // A plain tap (too small to be a flick) is deliberately left alone here —
+  // it's also what Tap-to-Pause (audio) listens for, and having a tap do
+  // BOTH "pause the music" and "stop moving" at once is surprising/unwanted.
+  // Stopping stays exactly the flick-against-the-current-motion gesture below.
+  if (Math.max(absDx, absDy) < FLICK_MIN_DIST) return;
+  if (absDy >= absDx) {
+    // Vertical -> altitude, same toggle shape as Space.
+    const flickDirection = dy < 0 ? 1 : -1; // finger moved up the screen -> ascend
+    if (!travelerAltitudeSpaceHeld) {
+      travelerAltitudeDirection = flickDirection;
+      travelerAltitudeSpaceHeld = true;
+    } else if (travelerAltitudeDirection !== flickDirection) {
+      travelerAltitudeSpaceHeld = false; // flicked against the current motion -> stop, don't reverse straight into it
+    } // else: flicked the same way already moving -> no-op
+  } else {
+    const flickIsLeft = dx < 0;
+    if (!travelerTurnLeftHeld && !travelerTurnRightHeld) {
+      // Horizontal, from a stop -> steering, same toggle shape as A/D.
+      travelerTurnLeftHeld = flickIsLeft;
+      travelerTurnRightHeld = !flickIsLeft;
+    } else if (travelerTurnLeftHeld !== flickIsLeft) {
+      // Flicked against whichever way is currently held -> stop, don't reverse straight into it.
+      travelerTurnLeftHeld = false;
+      travelerTurnRightHeld = false;
+    } // else: flicked the same way already turning -> no-op
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -220,7 +359,7 @@ scene.add(particles.points);
 //  touch ocean/clouds/time-of-day/AutoDirector/HeadParticleTrail/TrailLyrics
 //  /audio/post-processing; only reads the frame's existing `underwater` test.
 // ---------------------------------------------------------------------------
-const rainEnabled = new URLSearchParams(window.location.search).get('rain') === '1';
+const rainEnabled = queryFlag('rain');
 const rain = new Rain(scene);
 rain.setEnabled(rainEnabled);
 window.addEventListener('keydown', (event) => {
@@ -231,17 +370,18 @@ window.addEventListener('keydown', (event) => {
 
 // ---------------------------------------------------------------------------
 //  Presentation Mode V1 — press H to hide non-MV editor UI (lil-gui panel,
-//  debug HUD, helper text) for clean MV playback/recording. A single CSS
-//  class toggle on <body> (see index.html's `.editor-ui` rule) — nothing is
+//  debug HUD) for clean MV playback/recording. A single CSS class toggle on
+//  <body> (see index.html's `.editor-ui` rule) — nothing is
 //  destroyed/recreated, so GUI state (open folders, slider values, etc.)
-//  survives toggling untouched. Starts OFF (editor-friendly) on every load;
-//  never auto-enabled on playback start in this V1.
+//  survives toggling untouched. Starts ON by default (clean-viewing-first):
+//  press H to bring the editor UI back when it's actually needed.
 // ---------------------------------------------------------------------------
-let presentationMode = false;
+let presentationMode = true;
 function setPresentationMode(enabled) {
   presentationMode = enabled;
   document.body.classList.toggle('presentation-mode', enabled);
 }
+setPresentationMode(presentationMode); // apply the default above immediately, not just on the first H press
 window.addEventListener('keydown', (event) => {
   if (event.code !== 'KeyH') return;
   if (event.repeat) return;
@@ -252,11 +392,41 @@ window.addEventListener('keydown', (event) => {
 });
 
 // ---------------------------------------------------------------------------
+//  Triple-Tap Presentation Toggle V1 — the mobile equivalent of the H key
+//  above (no keyboard to press H on), calling the EXACT SAME
+//  setPresentationMode() — never a second toggle mechanism. Requires three
+//  quick, small taps in a row (never a drag/flick), specifically so it
+//  can't fire by accident from ordinary single-tap (Tap-to-Pause) or flick
+//  (Flick Gesture) use elsewhere on this page.
+// ---------------------------------------------------------------------------
+const TRIPLE_TAP_MAX_GAP_MS = 400; // max time between consecutive taps
+const TRIPLE_TAP_MAX_DIST = 24; // px — a real fingertip drifts noticeably more than a mouse click between touchstart/touchend; 10px was tight enough that real taps on a phone could fail this check every time
+let tripleTapCount = 0;
+let tripleTapLastT = 0;
+let tripleTapStartX = 0, tripleTapStartY = 0, tripleTapDownT = 0;
+window.addEventListener('pointerdown', (event) => {
+  tripleTapStartX = event.clientX; tripleTapStartY = event.clientY; tripleTapDownT = performance.now();
+});
+window.addEventListener('pointerup', (event) => {
+  const now = performance.now();
+  const dist = Math.hypot(event.clientX - tripleTapStartX, event.clientY - tripleTapStartY);
+  const heldMs = now - tripleTapDownT;
+  if (dist >= TRIPLE_TAP_MAX_DIST || heldMs >= TRIPLE_TAP_MAX_GAP_MS) { tripleTapCount = 0; return; } // not a tap at all
+  if (now - tripleTapLastT > TRIPLE_TAP_MAX_GAP_MS) tripleTapCount = 0; // gap since the last tap too long — restart the count
+  tripleTapCount++;
+  tripleTapLastT = now;
+  if (tripleTapCount >= 3) {
+    tripleTapCount = 0;
+    setPresentationMode(!presentationMode);
+  }
+});
+
+// ---------------------------------------------------------------------------
 //  Cinematic Sunset V1 — opt-in via ?cinematicSunset=1. When absent, ocean
 //  uniforms default to a neutral uSunsetAmount = 0 (see Ocean.js) and none of
 //  this runs: no GUI folder, no preset override, no other visual change.
 // ---------------------------------------------------------------------------
-const cinematicSunsetEnabled = new URLSearchParams(window.location.search).get('cinematicSunset') === '1';
+const cinematicSunsetEnabled = queryFlag('cinematicSunset');
 const SUNSET_START_AMOUNT = 0.75; // moderate-strong — natural-cinematic, not an extreme red sea
 
 // ---------------------------------------------------------------------------
@@ -264,7 +434,7 @@ const SUNSET_START_AMOUNT = 0.75; // moderate-strong — natural-cinematic, not 
 //  Ocean.js/Sky.js/Island.js/Floor.js) and none of this runs: no GUI folder,
 //  no state change, no other visual change.
 // ---------------------------------------------------------------------------
-const nightEnabled = new URLSearchParams(window.location.search).get('night') === '1';
+const nightEnabled = queryFlag('night');
 const NIGHT_SUN_ELEVATION = -35; // well below the horizon — sun contribution stays low but non-zero
 const NIGHT_MOON_INTENSITY = 0.52;
 const NIGHT_STAR_VISIBILITY = 0.55; // "high but not maximum"
@@ -278,7 +448,7 @@ const NIGHT_CLOUD_MOONLIGHT = 0.6;
 //  Sunset V2 / Night V1 already use) their existing tint/reflection systems,
 //  rather than a third parallel colour system. See setTimeOfDay() below.
 // ---------------------------------------------------------------------------
-const timeEnabled = new URLSearchParams(window.location.search).get('time') === '1';
+const timeEnabled = queryFlag('time');
 
 // ---------------------------------------------------------------------------
 //  Head Particle Trail V1 — opt-in via ?headParticles=1. The accepted
@@ -286,7 +456,7 @@ const timeEnabled = new URLSearchParams(window.location.search).get('time') === 
 //  world-space position once born, and there is no geometry connecting head
 //  to tail that could ever misalign with it.
 // ---------------------------------------------------------------------------
-const headParticlesEnabled = new URLSearchParams(window.location.search).get('headParticles') === '1';
+const headParticlesEnabled = queryFlag('headParticles');
 const headParticleTrail = headParticlesEnabled ? new HeadParticleTrail(scene) : null;
 let headParticleGuiState = null;
 let freeNavGuiState = null;
@@ -301,7 +471,7 @@ const headParticleFollowCam = { look: new THREE.Vector3(), inited: false };
 //  that ever renders (one per concurrently-active phrase); see its own
 //  comment and LyricTimeline.js.
 // ---------------------------------------------------------------------------
-const trailLyricsEnabled = headParticlesEnabled && new URLSearchParams(window.location.search).get('trailLyrics') === '1';
+const trailLyricsEnabled = headParticlesEnabled && queryFlag('trailLyrics');
 
 // ---------------------------------------------------------------------------
 //  Auto Director V1 — opt-in via ?autoDirector=1, only ever active alongside
@@ -310,7 +480,7 @@ const trailLyricsEnabled = headParticlesEnabled && new URLSearchParams(window.lo
 //  its GUI/debug API simply don't exist. See AutoDirector.js for the full
 //  six-preset / seeded-scheduler design.
 // ---------------------------------------------------------------------------
-const autoDirectorEnabled = headParticlesEnabled && new URLSearchParams(window.location.search).get('autoDirector') === '1';
+const autoDirectorEnabled = headParticlesEnabled && queryFlag('autoDirector');
 const autoDirector = autoDirectorEnabled ? new AutoDirector({ seed: 1234 }) : null;
 if (autoDirector) {
   autoDirector.enabled = true; // the URL opt-in itself activates the camera takeover, matching every other ?flag=1 module in this file
@@ -343,7 +513,7 @@ let autoDirectorGuiState = null;
 //  the base trailLyricsConfig builder; it no longer hand-authors which
 //  cues get grouped into a phrase.
 // ---------------------------------------------------------------------------
-const lyricTimelineEnabled = trailLyricsEnabled && new URLSearchParams(window.location.search).get('lyricTimeline') === '1';
+const lyricTimelineEnabled = trailLyricsEnabled && queryFlag('lyricTimeline');
 const LYRIC_TIMING_JSON_URL = './data/saikai-2026-02-22EngLast-lyrics-timing.json';
 // TrailLyrics Multi-Instance V1: a dedicated manager owning a SET of
 // independent TrailLyrics instances, one per concurrently-active phrase.
@@ -453,7 +623,7 @@ if (lyricTimelineEnabled) {
 //  clock comes from audio.currentTime or its own dt-based clock. Nothing in
 //  AudioController or LyricTimeline itself knows the other exists.
 // ---------------------------------------------------------------------------
-const audioEnabled = new URLSearchParams(window.location.search).get('audio') === '1';
+const audioEnabled = queryFlag('audio');
 const audioController = audioEnabled ? new AudioController('./audio/saikai-2026-02-22EngLast.wav') : null;
 let audioGuiState = null;
 
@@ -948,13 +1118,22 @@ if (nightEnabled) {
 }
 
 if (timeEnabled) {
-  timeGuiState = { time: timeOfDayValue, autoPlay: true, speed: 0.52, sunsetStretch: 4.4 };
+  // Show Time defaults on now, so autoPlay/speed default to what its own
+  // mutual-exclusion onChange would otherwise force them to — see
+  // showTimeCtrl's own comment below.
+  timeGuiState = { time: timeOfDayValue, autoPlay: false, speed: 0, sunsetStretch: 4.4, showTime: true, clockFontFamily: 'Georgia, "Times New Roman", serif' };
   const fTime = gui.addFolder('Day Animation');
   timeSliderCtrl = fTime.add(timeGuiState, 'time', 0, 1, 0.001).name('Time').onChange(setTimeOfDay);
-  fTime.add(timeGuiState, 'autoPlay').name('Auto Play');
+  const autoPlayCtrl = fTime.add(timeGuiState, 'autoPlay').name('Auto Play').onChange((v) => {
+    // Show Time V1 — mutually exclusive with Auto Play (see showTimeCtrl's
+    // own comment below): turning Auto Play back on while Show Time is
+    // active hands control of `time` back to the normal autoPlay tick, so
+    // Show Time must be switched off here too, not just visually unchecked.
+    if (v && timeGuiState.showTime) { timeGuiState.showTime = false; showTimeCtrl.updateDisplay(); realTimeEl.hidden = true; }
+  });
   // Speed V2 (see todSpeedFromSlider()) — 0 = real time (one day/night
   // cycle per real 24h), 1 = fastest (one cycle in ~3.3s).
-  fTime.add(timeGuiState, 'speed', 0, 1, 0.005).name('Speed');
+  const speedCtrl = fTime.add(timeGuiState, 'speed', 0, 1, 0.005).name('Speed');
   // Time Warp V1 (see todTimeWarpFactor()) — 1 = off (byte-for-byte the old
   // uniform-speed behaviour); >1 slows `t` specifically while passing
   // through the golden/horizon elevation band, stretching that band's own
@@ -966,6 +1145,33 @@ if (timeEnabled) {
   // Sunset Length" (not just "Sunset") specifically to avoid implying
   // otherwise.
   fTime.add(timeGuiState, 'sunsetStretch', 1.0, 8.0, 0.1).name('Sunrise/Sunset Length');
+  // Show Time V1 — mutually exclusive with Auto Play (checking one
+  // unchecks the other): while on, `time` is driven directly from the
+  // real-world wall clock (see animate()'s own autoPlay block) instead of
+  // any simulated speed, and a small real date/time readout confirms it
+  // (#realTime, bottom-right — see index.html). Speed is forced to 0 only
+  // as a visual "this slider isn't driving anything right now" cue; it is
+  // not itself read while Show Time is active.
+  const showTimeCtrl = fTime.add(timeGuiState, 'showTime').name('Show Time').onChange((v) => {
+    if (v) {
+      timeGuiState.autoPlay = false;
+      autoPlayCtrl.updateDisplay();
+      timeGuiState.speed = 0;
+      speedCtrl.updateDisplay();
+    }
+    realTimeEl.hidden = !v;
+  });
+  // Clock Font V1 — free-text CSS font-family, same "type whatever string
+  // you want" pattern as Trail Lyrics Style's own Font Family field.
+  // Defaults to the same title-matched serif (see index.html's #realTime
+  // .clock rule); left untouched here means the CSS default keeps
+  // applying, so this only sets an inline override once the field is
+  // actually edited.
+  fTime.add(timeGuiState, 'clockFontFamily').name('Clock Font')
+    .onChange((v) => { realTimeClockEl.style.fontFamily = v; });
+  // lil-gui doesn't fire onChange for a controller's own initial value —
+  // sync the overlay's visibility to timeGuiState.showTime's default here.
+  realTimeEl.hidden = !timeGuiState.showTime;
 }
 
 if (headParticlesEnabled) {
@@ -1098,21 +1304,27 @@ if (lyricTimelineEnabled) {
   //     Text Color — the two are never auto-inverted relative to each
   //     other (e.g. black text + the default black shadow will look mostly
   //     shadow-less, which is expected).
-  //   Shadow Strength — scales that same shadow's alpha (no outline
-  //     control: the title itself uses no stroke/outline, so neither does
-  //     TrailLyrics).
+  //   Shadow Strength — scales that same shadow's alpha.
+  //   Outline Width / Outline Color — a plain text-stroke (Canvas 2D
+  //     strokeText), independent of and layered on top of the shadow above,
+  //     purely for guaranteed legibility against any background (unlike the
+  //     shadow, whose visible contrast depends on the background's own
+  //     darkness). Width 0 disables it entirely (the original,
+  //     stroke-less, title-matched look).
   //   Font Family — a free-text CSS font-family string passed directly
   //     into the Canvas 2D font declaration (default matches the existing
   //     title-matched serif look: 'Georgia, "Times New Roman", serif').
-  //     Unlike the other three controls, changing this ALSO reflows the
-  //     particle target positions (the glyph shapes themselves changed —
-  //     see TrailLyrics.setGlyphStyle()'s own comment on why).
-  // All four immediately update every currently active phrase's texture,
-  // not just future ones — see TrailLyricsManager.setGlyphStyle().
+  //     Unlike the other controls, changing this ALSO reflows the particle
+  //     target positions (the glyph shapes themselves changed — see
+  //     TrailLyrics.setGlyphStyle()'s own comment on why).
+  // All of these immediately update every currently active phrase's
+  // texture, not just future ones — see TrailLyricsManager.setGlyphStyle().
   const trailLyricsStyleGuiState = {
     textColor: '#ffffff',
-    shadowColor: '#000000',
-    shadowStrength: 1.0,
+    shadowColor: '#302a79',
+    shadowStrength: 2.0,
+    outlineWidth: 2,
+    outlineColor: '#000000',
     fontFamily: 'Georgia, "Times New Roman", serif',
   };
   const fTrailLyricsStyle = gui.addFolder('Trail Lyrics Style');
@@ -1120,19 +1332,43 @@ if (lyricTimelineEnabled) {
     .onChange((v) => trailLyricsManager.setGlyphStyle({ textColor: v }));
   fTrailLyricsStyle.addColor(trailLyricsStyleGuiState, 'shadowColor').name('Shadow Color')
     .onChange((v) => trailLyricsManager.setGlyphStyle({ shadowColor: v }));
-  fTrailLyricsStyle.add(trailLyricsStyleGuiState, 'shadowStrength', 0.0, 1.0, 0.05).name('Shadow Strength')
+  // Range extended to 2.0 (was 1.0) — 1.0 is only the original title-matched
+  // alpha (0.55/0.60, a fairly soft/moderate shadow); both shadow layers
+  // reach fully solid/opaque by ~1.67-1.82, so 2.0 comfortably covers the
+  // darkest the current two-layer design can produce (see
+  // sampleTextTargets()'s own clamp).
+  fTrailLyricsStyle.add(trailLyricsStyleGuiState, 'shadowStrength', 0.0, 2.0, 0.05).name('Shadow Strength')
     .onChange((v) => trailLyricsManager.setGlyphStyle({ shadowStrength: v }));
+  fTrailLyricsStyle.add(trailLyricsStyleGuiState, 'outlineWidth', 0, 8, 0.5).name('Outline Width')
+    .onChange((v) => trailLyricsManager.setGlyphStyle({ outlineWidth: v }));
+  fTrailLyricsStyle.addColor(trailLyricsStyleGuiState, 'outlineColor').name('Outline Color')
+    .onChange((v) => trailLyricsManager.setGlyphStyle({ outlineColor: v }));
   fTrailLyricsStyle.add(trailLyricsStyleGuiState, 'fontFamily').name('Font Family')
     .onFinishChange((v) => trailLyricsManager.setGlyphStyle({ fontFamily: v }));
+  // lil-gui doesn't fire onChange for a controller's own initial value, and
+  // TrailLyrics' own constructor defaults (shadowColor '#000000',
+  // shadowStrength 1.0) predate this folder's now-different defaults above
+  // — sync them into the manager once here, same pattern as
+  // headParticleTrail.setColors() further up this file.
+  trailLyricsManager.setGlyphStyle({ ...trailLyricsStyleGuiState });
 }
 
 if (audioEnabled) {
   audioGuiState = {
     loaded: false,
+    // Reflects reality (paused at start) — see #startOverlay's own wiring
+    // just below for how playback actually begins on mobile/desktop alike.
     playing: false,
     time: 0,
     volume: audioController.volume,
-    playbackRate: audioController.playbackRate,
+    // Repeat Time V1 — minutes; 0 disables entirely. See the per-frame
+    // check further down (search "Repeat Time V1") for how this is
+    // actually applied: it restarts (seeks to 0, keeps playing) once
+    // audioController.currentTime reaches this many minutes, independent
+    // of the track's own natural length/end — e.g. the default 10 minutes
+    // restarts well before the ~5m15s track would otherwise reach its own
+    // end and stop.
+    repeatTime: 10,
     syncLyrics: !!lyricTimelineEnabled,
   };
   const fAudio = gui.addFolder('Audio');
@@ -1149,8 +1385,46 @@ if (audioEnabled) {
   // short of the real duration.
   fAudio.add(audioGuiState, 'time', 0, 315, 0.1).name('Time').listen().onChange((v) => audioController.setTime(v));
   fAudio.add(audioGuiState, 'volume', 0, 1, 0.01).name('Volume').onChange((v) => { audioController.setVolume(v); });
-  fAudio.add(audioGuiState, 'playbackRate', 0.5, 1.5, 0.01).name('Playback Rate').onChange((v) => { audioController.setPlaybackRate(v); });
+  fAudio.add(audioGuiState, 'repeatTime', 0, 60, 1).name('Repeat Time (min)');
   fAudio.add(audioGuiState, 'syncLyrics').name('Sync Lyrics').listen().onChange((v) => { audioGuiState.syncLyrics = v; });
+
+  // Start Overlay V1 — the ONE real user gesture this app can rely on:
+  // mobile browsers (and increasingly desktop ones) simply refuse a
+  // programmatic play() with nothing preceding it, no exceptions. This
+  // button's click IS that gesture, satisfying every browser's autoplay
+  // policy in one shot. Deliberately not gated on Presentation Mode (see
+  // index.html's own comment on #startOverlay) since that defaults to ON
+  // now and would otherwise leave mobile visitors with no way to ever
+  // start audio at all.
+  startOverlayEl.hidden = false;
+  startMusicBtnEl.addEventListener('click', () => {
+    audioController.play();
+    startOverlayEl.classList.add('dismissed');
+    setTimeout(() => { startOverlayEl.hidden = true; }, 550);
+  });
+
+  // Tap-to-Pause V1 — once the Start Overlay above is dismissed, a plain
+  // tap/click anywhere toggles play/pause. Mainly for mobile, where
+  // Presentation Mode's default-hidden GUI (see setPresentationMode()
+  // further up) otherwise leaves no other one-tap way to pause. Only
+  // fires for a genuine TAP: pointerup must land close to and soon after
+  // pointerdown, so it never fights an orbit-drag or a pinch/scroll-zoom,
+  // and it ignores any interactive control (GUI, the Start button itself)
+  // via the same .closest() check either way.
+  const TAP_MAX_MS = 400;
+  const TAP_MAX_DIST = 24; // px — see Triple-Tap's own comment on why 10px was too tight for a real fingertip
+  let tapStartX = 0, tapStartY = 0, tapStartT = 0;
+  window.addEventListener('pointerdown', (event) => {
+    tapStartX = event.clientX; tapStartY = event.clientY; tapStartT = performance.now();
+  });
+  window.addEventListener('pointerup', (event) => {
+    if (!startOverlayEl.hidden) return; // Start Overlay still up — its own button handles this
+    if (event.target.closest && event.target.closest('button, input, select, textarea, .lil-gui, .editor-ui')) return;
+    const heldMs = performance.now() - tapStartT;
+    const dist = Math.hypot(event.clientX - tapStartX, event.clientY - tapStartY);
+    if (heldMs > TAP_MAX_MS || dist > TAP_MAX_DIST) return; // was a drag/pinch, not a tap
+    if (audioController.paused) audioController.play(); else audioController.pause();
+  });
 }
 
 gui.add({ dive: () => diveTo(-12) }, 'dive').name('▼ dive under');
@@ -1231,7 +1505,25 @@ function animate() {
   const dt = Math.min((now - lastNow) / 1000, 0.05);
   time += dt;
   lastNow = now;
-  if (timeEnabled && timeGuiState.autoPlay) {
+  if (timeEnabled && timeGuiState.showTime) {
+    // Show Time V1 — `time` mapped directly from the real-world wall clock
+    // (midnight = 0, noon = 0.5, exactly matching setTimeOfDay()'s own
+    // t=0/t=0.5 convention — see SUN_MAX_ELEVATION's sine above), never
+    // Speed/Time Warp. Mutually exclusive with Auto Play (enforced at the
+    // GUI level — see fTime's own showTime/autoPlay onChange handlers).
+    const nowDate = new Date();
+    const secondsOfDay = nowDate.getHours() * 3600 + nowDate.getMinutes() * 60 + nowDate.getSeconds();
+    timeGuiState.time = secondsOfDay / 86400;
+    setTimeOfDay(timeGuiState.time);
+    if (timeSliderCtrl) timeSliderCtrl.updateDisplay();
+    realTimeDateEl.textContent = `${nowDate.getFullYear()}/${nowDate.getMonth() + 1}/${nowDate.getDate()}`;
+    realTimeHourEl.textContent = String(nowDate.getHours()).padStart(2, '0');
+    realTimeMinuteEl.textContent = String(nowDate.getMinutes()).padStart(2, '0');
+    // Blinking ":" V1 — toggled off/on roughly once per real second, driven
+    // by the wall clock's own whole-second count (never a separate
+    // accumulator), so it can't drift out of sync no matter the frame rate.
+    realTimeColonEl.style.opacity = Math.floor(nowDate.getTime() / 1000) % 2 === 0 ? '1' : '0';
+  } else if (timeEnabled && timeGuiState.autoPlay) {
     // Time Warp V1 (see todTimeWarpFactor()) — reads sunParams.elevation as
     // it stood after LAST frame's setTimeOfDay() call (one-frame lag,
     // imperceptible) to decide how fast `t` should advance THIS frame.
@@ -1264,10 +1556,16 @@ function animate() {
     // Traveler Altitude V1: accumulate while Space is held, clamp, then push
     // into HeadParticleTrail BEFORE update() so this frame's live head
     // position and newly emitted trail particles use the new altitude.
+    // Device Tilt Altitude V1 (see its own comment further up) adds on top
+    // via the exact same speed constant — purely additive, so Space and
+    // tilt combine naturally instead of fighting.
     if (travelerAltitudeSpaceHeld) {
       travelerAltitudeOffset += travelerAltitudeDirection * TRAVELER_ALTITUDE_SPEED * dt;
-      travelerAltitudeOffset = Math.min(MAX_TRAVELER_ALTITUDE_OFFSET, Math.max(MIN_TRAVELER_ALTITUDE_OFFSET, travelerAltitudeOffset));
     }
+    if (deviceTiltInput !== 0) {
+      travelerAltitudeOffset += deviceTiltInput * TRAVELER_ALTITUDE_SPEED * dt;
+    }
+    travelerAltitudeOffset = Math.min(MAX_TRAVELER_ALTITUDE_OFFSET, Math.max(MIN_TRAVELER_ALTITUDE_OFFSET, travelerAltitudeOffset));
 
     // Free Navigation V1 vertical motion — a plain sine wave over a
     // continuously-advancing phase (theta += dt * angularSpeed, never a
@@ -1389,6 +1687,15 @@ function animate() {
     audioGuiState.loaded = audioController.loaded;
     audioGuiState.playing = !audioController.paused;
     audioGuiState.time = audioController.currentTime;
+    // Repeat Time V1 — restart once currentTime reaches this many minutes,
+    // regardless of the track's own natural length; 0 disables it entirely.
+    // Checked (and, before LyricTimeline's own sync below, applied) BEFORE
+    // that sync runs, so a Sync-Lyrics-active timeline restarts on the SAME
+    // frame instead of one frame later.
+    if (audioGuiState.repeatTime > 0 && audioController.currentTime >= audioGuiState.repeatTime * 60) {
+      audioController.restart();
+      audioGuiState.time = audioController.currentTime;
+    }
   }
   // Lyric Timeline (V1, opt-in) — runs BEFORE Trail Lyrics' own update() so
   // that if this frame crosses an event's triggerTime, TrailLyrics starts
@@ -1499,7 +1806,6 @@ function animate() {
     bootEl.classList.add('hidden');
     depthEl.hidden = false;
     setTimeout(() => bootEl.remove(), 1200);
-    setTimeout(() => (hintEl.style.opacity = '0'), 7000);
   }
 }
 
