@@ -662,8 +662,8 @@ const audioEnabled = queryFlag('audio');
 // Karaoke V1 — the two source files this project ships; encodeURI so the
 // instrumental's non-ASCII filename resolves correctly regardless of how
 // the dev/production server happens to serve it.
-const VOCAL_AUDIO_SRC = encodeURI('./audio/saikai-2026-02-22EngLast.wav');
-const KARAOKE_AUDIO_SRC = encodeURI('./audio/saikai-2026-01-20m伴奏.wav');
+const VOCAL_AUDIO_SRC = encodeURI('./audio/saikai-2026-02-22EngLast.mp3');
+const KARAOKE_AUDIO_SRC = encodeURI('./audio/saikai-2026-01-20m伴奏.mp3');
 const audioController = audioEnabled ? new AudioController(VOCAL_AUDIO_SRC) : null;
 let audioGuiState = null;
 
@@ -842,6 +842,14 @@ function applyPreset(name, { skipSun = false } = {}) {
   if (P.cloudCoverage !== undefined) clouds.uniforms.uCoverage.value = P.cloudCoverage;
   if (P.cloudDensity !== undefined) clouds.uniforms.uDensity.value = P.cloudDensity;
   if (P.rain !== undefined) rain.setEnabled(P.rain); // works regardless of the ?rain=1 URL default — see Rain.js's own setEnabled()
+  // Sun Shower ties in the Head Particle Trail's Rainbow color mode at full
+  // saturation, echoing the rainbow forming in the sky at the same moment.
+  if (name === 'Sun Shower' && headParticlesEnabled && headParticleGuiState) {
+    headParticleGuiState.colorMode = 'rainbow';
+    headParticleGuiState.rainbowSaturation = 1;
+    headParticleTrail.setColorMode('rainbow');
+    headParticleTrail.setRainbowSaturation(1);
+  }
   applySun();
   presetProxy.preset = name;   // keep the dropdown in sync (incl. programmatic calls)
   refreshColorCtrls();
@@ -1432,7 +1440,7 @@ if (lyricTimelineEnabled) {
     textColor: '#ffffff',
     shadowColor: '#302a79',
     shadowStrength: 2.0,
-    outlineWidth: 2,
+    outlineWidth: 8,
     outlineColor: '#000000',
     fontFamily: 'Georgia, "Times New Roman", serif',
   };
