@@ -7,7 +7,7 @@
 
 import { checkRateLimit } from './rate-limit.js';
 
-const VALID_GAME_IDS = new Set(['fuwao', 'line4', 'ikku-gozaru', 'snake']);
+const VALID_GAME_IDS = new Set(['fuwao', 'line4', 'ikku-gozaru', 'snake', 'saikai']);
 
 function jsonResponse(data, status) {
   return new Response(JSON.stringify(data), {
