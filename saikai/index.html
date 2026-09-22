@@ -189,16 +189,25 @@
         text-shadow: 0 2px 18px rgba(0, 0, 0, 0.55), 0 1px 3px rgba(0, 0, 0, 0.6);
         opacity: 0;
       }
+      /* Pushed further below the title than before (was 10px) — right under
+         the title is where the head-particle light trail tends to pass
+         through screen-centre, making tight-under-title credit text hard
+         to read against it. opacity is no longer set here: the container
+         itself always stays at 1, and each individual line inside it
+         (built in TitleCreditOverlay.js — more than one can be visible at
+         once, e.g. a two-line closing message) carries its own opacity, so
+         a container-level fade can no longer hide it out of sync with the
+         wrong line's timing. */
       #tc-credit {
-        margin-top: 10px;
+        margin-top: clamp(50px, 8vh, 90px);
         font-family: Georgia, "Times New Roman", serif;
         font-weight: 400;
         font-size: clamp(13px, 1.6vw, 18px);
         letter-spacing: 0.08em;
         color: rgba(222, 228, 234, 0.8);
         text-shadow: 0 1px 10px rgba(0, 0, 0, 0.5);
-        opacity: 0;
       }
+      #tc-credit div + div { margin-top: 4px; }
 
       /* Start Overlay V1 — a real user-gesture gate for audio (?audio=1
          only). Mobile (and increasingly desktop) browsers flatly refuse a
@@ -364,7 +373,7 @@
       .lil-gui .children::-webkit-scrollbar-thumb { background: rgba(120,220,255,0.22); border-radius: 8px; }
       @media (max-width: 640px) { .lil-gui.root { width: 240px; } }
     </style>
-    <script type="module" crossorigin src="./assets/index-C80IhtiX.js"></script>
+    <script type="module" crossorigin src="./assets/index-G1cT8yHM.js"></script>
   </head>
   <body>
     <div id="app"></div>
