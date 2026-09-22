@@ -92,6 +92,61 @@ fullscreenBtnEl.addEventListener('click', () => {
 document.addEventListener('fullscreenchange', updateFullscreenIcon);
 document.addEventListener('webkitfullscreenchange', updateFullscreenIcon);
 
+// ---------------------------------------------------------------------------
+//  Support Dialog V1 — the heart icon beside Fullscreen opens a small modal
+//  with a like button and links out (creator's page, YouTube, singer's
+//  channel). The like count is NOT a new backend: naogare-lab's Worker
+//  already runs a generic per-page like counter (game_likes in D1, GET
+//  /api/likes + POST /api/likes/<id>) for the site's other pages — this
+//  just calls the same same-origin API with id 'saikai' once that id is
+//  added to the Worker's own allow-list (see naogare-lab/src/likes.js).
+//  Both calls fail silently (caught, ignored) when there's no such backend
+//  at all, e.g. local dev on localhost:5173 — the button then simply never
+//  shows a count and clicking it does nothing, no error surfaced.
+// ---------------------------------------------------------------------------
+const LIKE_GAME_ID = 'saikai';
+const LIKED_KEY = 'naogare_liked_' + LIKE_GAME_ID;
+const likeBtnEl = document.getElementById('like-btn');
+const supportDialogEl = document.getElementById('supportDialog');
+const supportDialogCloseEl = document.getElementById('support-dialog-close');
+const likeActionBtnEl = document.getElementById('like-action-btn');
+const likeCountLabelEl = document.getElementById('like-count-label');
+
+function setLikedUI(liked) {
+  likeActionBtnEl.classList.toggle('is-liked', liked);
+  likeActionBtnEl.disabled = liked;
+}
+let alreadyLiked = false;
+try { alreadyLiked = localStorage.getItem(LIKED_KEY) === '1'; } catch { /* private mode etc. */ }
+setLikedUI(alreadyLiked);
+
+function openSupportDialog() {
+  supportDialogEl.hidden = false;
+  fetch('/api/likes').then((res) => res.json()).then((data) => {
+    if (data && data.ok && typeof data.counts[LIKE_GAME_ID] === 'number') {
+      likeCountLabelEl.textContent = `Like (${data.counts[LIKE_GAME_ID]})`;
+    }
+  }).catch(() => {});
+}
+likeBtnEl.addEventListener('click', openSupportDialog);
+supportDialogCloseEl.addEventListener('click', () => { supportDialogEl.hidden = true; });
+supportDialogEl.addEventListener('click', (e) => { if (e.target === supportDialogEl) supportDialogEl.hidden = true; });
+window.addEventListener('keydown', (e) => { if (e.code === 'Escape' && !supportDialogEl.hidden) supportDialogEl.hidden = true; });
+
+likeActionBtnEl.addEventListener('click', () => {
+  if (likeActionBtnEl.disabled) return;
+  likeActionBtnEl.disabled = true;
+  fetch('/api/likes/' + LIKE_GAME_ID, { method: 'POST' }).then((res) => res.json()).then((data) => {
+    if (data && data.ok) {
+      likeCountLabelEl.textContent = `Like (${data.count})`;
+      setLikedUI(true);
+      try { localStorage.setItem(LIKED_KEY, '1'); } catch { /* private mode etc. */ }
+    } else {
+      likeActionBtnEl.disabled = false;
+    }
+  }).catch(() => { likeActionBtnEl.disabled = false; });
+});
+
 const sizeW = () => window.innerWidth;
 const sizeH = () => window.innerHeight;
 
