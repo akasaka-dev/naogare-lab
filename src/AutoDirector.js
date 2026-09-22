@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 
 // Auto Director V1 — an opt-in cinematic camera system layered on top of the
-// accepted Head Particle Trail traveler. Six curated presets, each a pure
+// accepted Head Particle Trail traveler. Eight curated presets, each a pure
 // function of the traveler's LIVE state (head position, travel direction,
 // world up) rather than fixed world coordinates, plus a deterministic
 // seeded scheduler that switches between them. Entirely independent of
@@ -136,7 +136,7 @@ const PRESETS = [
     key: 'frontThreeQuarter',
     label: 'Front Three-Quarter',
     weight: 0.6,
-    lyricSafe: false,
+    lyricSafe: true,
     // Spec 10: ahead of the traveler, offset to one side, looking back.
     // The side offset (20 units) keeps the camera well off the travel axis
     // so the head cannot fly through it (spec 17/27).
@@ -144,6 +144,69 @@ const PRESETS = [
       const { head, forward, right, up } = ctx;
       out.pos.copy(head).addScaledVector(forward, 20).addScaledVector(right, 20).addScaledVector(up, 8);
       out.look.copy(head).addScaledVector(forward, -4);
+    },
+  },
+  {
+    key: 'highOrbit',
+    label: 'High Orbit',
+    weight: 0.7,
+    // Continuously rotating relative to the traveler (every other preset
+    // holds a FIXED head-relative offset) — unclear whether the
+    // screen-locked lyric billboard's own per-frame plane orientation
+    // stays comfortable to read while the camera sweeps, so start
+    // conservative; promote to true once verified on screen.
+    lyricSafe: false,
+    // A slow overhead arc around the head. Uses its own dedicated angle
+    // counter (director._orbitAngle, reset in setMode() whenever this
+    // preset is freshly picked) rather than director._shotElapsed —
+    // _shotElapsed only advances while `auto` is on, so it sits frozen the
+    // entire time this preset is held via the C-key manual override
+    // (auto: false), which made the shot look completely static instead of
+    // orbiting. _orbitAngle instead accumulates every frame this preset is
+    // actually being computed, auto or manual alike, and is never clamped —
+    // held long enough (manually or via repeated auto picks) it keeps
+    // sweeping all the way around rather than stopping partway.
+    compute(ctx, out) {
+      const { head, forward, right, up, dt, director } = ctx;
+      const ORBIT_RADIUS = 32;
+      const ORBIT_HEIGHT = 20;
+      const ORBIT_SPEED = 0.5; // rad/s
+      director._orbitAngle += dt * ORBIT_SPEED;
+      const angle = director._orbitAngle;
+      out.pos.copy(head)
+        .addScaledVector(forward, -Math.cos(angle) * ORBIT_RADIUS)
+        .addScaledVector(right, Math.sin(angle) * ORBIT_RADIUS)
+        .addScaledVector(up, ORBIT_HEIGHT);
+      out.look.copy(head).addScaledVector(up, 2);
+    },
+  },
+  {
+    key: 'bellySkim',
+    label: 'Belly Skim',
+    weight: 0.6,
+    // Same rationale as Low Skim: sitting right at the water surface risks
+    // obscuring lyric text.
+    lyricSafe: false,
+    // The inverse of Low Skim: planted low and just ahead of the traveler,
+    // off to one side (so the head cannot fly through it, spec 17/27's
+    // rule applied to this new angle too), so the head glides close
+    // overhead as it catches up to and passes the camera. Shares Low
+    // Skim's exact safe-clearance-above-the-wave pattern, with its own
+    // smoothed height kept separately on the director (director._bellySkimY)
+    // so the two presets never fight over the same state.
+    compute(ctx, out) {
+      const { head, forward, right, ocean, time, dt, director, up } = ctx;
+      const SAFE_CLEARANCE = 2.0;
+      const camX = head.x + forward.x * 16 + right.x * 9;
+      const camZ = head.z + forward.z * 16 + right.z * 9;
+      const rawSurfaceY = ocean ? ocean.heightAt(camX, camZ, time) : 0;
+      const targetY = rawSurfaceY + SAFE_CLEARANCE;
+      if (director._bellySkimY == null) director._bellySkimY = targetY;
+      const smooth = 1 - Math.pow(0.0008, dt * 4);
+      director._bellySkimY = THREE.MathUtils.lerp(director._bellySkimY, targetY, smooth);
+      const finalY = Math.max(director._bellySkimY, targetY);
+      out.pos.set(camX, finalY, camZ);
+      out.look.copy(head).addScaledVector(up, 1.5);
     },
   },
 ];
@@ -163,6 +226,8 @@ function transitionSmoothProbability(fromKey, toKey) {
   if (fromKey === 'wideChase' || toKey === 'wideChase') return 0.25;
   if (fromKey === 'lowSkim' || toKey === 'lowSkim') return 0.2;
   if (fromKey === 'frontThreeQuarter' || toKey === 'frontThreeQuarter') return 0.2;
+  if (fromKey === 'bellySkim' || toKey === 'bellySkim') return 0.2; // close pass reads best as a hard cut in
+  if (fromKey === 'highOrbit' || toKey === 'highOrbit') return 0.4;
   return 0.55; // default: mildly prefer smooth for everything else
 }
 
@@ -184,6 +249,8 @@ export class AutoDirector {
     this._lyricLocked = false;
     this._sideSign = this._rand() < 0.5 ? -1 : 1;
     this._lowSkimY = null;
+    this._bellySkimY = null;
+    this._orbitAngle = 0;
 
     // Transition state: when non-null, we're blending from a frozen
     // (pos,look) snapshot toward the current mode's LIVE (moving) target —
@@ -208,6 +275,12 @@ export class AutoDirector {
     const map = {};
     for (const p of PRESETS) map[p.label] = p.key;
     return map;
+  }
+
+  // Declaration order (not weight) — for the C-key manual cycle in main.js,
+  // which steps through them one at a time rather than picking randomly.
+  static get presetKeys() {
+    return PRESETS.map((p) => p.key);
   }
 
   _isLyricSafe(key) {
@@ -258,6 +331,7 @@ export class AutoDirector {
     this._prevMode = fromKey;
     this.cameraMode = mode;
     if (mode === 'sideFollow') this._sideSign = this._rand() < 0.5 ? -1 : 1;
+    if (mode === 'highOrbit') this._orbitAngle = 0;
     if (t === 'smooth' && currentPos && currentLook) {
       this._transFromPos.copy(currentPos);
       this._transFromLook.copy(currentLook);

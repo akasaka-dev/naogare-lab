@@ -427,6 +427,40 @@ window.addEventListener('keydown', (event) => {
 });
 
 // ---------------------------------------------------------------------------
+//  Auto Director Manual Override V1 — C steps to the next camera angle by
+//  hand (same effect as picking it from the GUI's Camera Mode dropdown,
+//  turning Auto off so it stays put), V hands control back to the normal
+//  random auto-cycling. A no-op whenever Auto Director isn't even loaded
+//  (?autoDirector=1 not set) — both `autoDirector` and `AutoDirector` are
+//  declared further below but already fully initialized by the time a key
+//  can actually be pressed, exactly like the H-key handler above closing
+//  over `presentationMode`.
+// ---------------------------------------------------------------------------
+window.addEventListener('keydown', (event) => {
+  if (event.code !== 'KeyC' && event.code !== 'KeyV') return;
+  if (event.repeat) return;
+  if (!autoDirector) return;
+  const t = event.target;
+  const tag = t && t.tagName;
+  if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || (t && t.isContentEditable)) return;
+  autoDirector.enabled = true;
+  if (event.code === 'KeyC') {
+    const keys = AutoDirector.presetKeys;
+    const next = keys[(keys.indexOf(autoDirector.cameraMode) + 1) % keys.length];
+    autoDirector.auto = false;
+    autoDirector.setMode(next, undefined, camera.position, controls.target);
+  } else {
+    autoDirector.auto = true;
+  }
+  if (autoDirectorGuiState) {
+    autoDirectorGuiState.enabled = autoDirector.enabled;
+    autoDirectorGuiState.auto = autoDirector.auto;
+    autoDirectorGuiState.cameraMode = autoDirector.cameraMode;
+    gui.controllersRecursive().forEach((c) => c.updateDisplay());
+  }
+});
+
+// ---------------------------------------------------------------------------
 //  Triple-Tap Presentation Toggle V1 — the mobile equivalent of the H key
 //  above (no keyboard to press H on), calling the EXACT SAME
 //  setPresentationMode() — never a second toggle mechanism. Requires three
