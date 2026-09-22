@@ -1,0 +1,361 @@
+{
+  "version": 1,
+  "audio": {
+    "filename": "saikai-2026-02-22EngLast.wav",
+    "duration": 311.071088
+  },
+  "lyrics": [
+    {
+      "id": "line-001",
+      "index": 1,
+      "time": 2.64037,
+      "endTime": 11.429818,
+      "text": "Forevermore",
+      "group": null
+    },
+    {
+      "id": "line-002",
+      "index": 2,
+      "time": 6.413263,
+      "endTime": 8.44297,
+      "text": "Lyrics/Song:    Sora⛅",
+      "group": null
+    },
+    {
+      "id": "line-003",
+      "index": 3,
+      "time": 9.469472,
+      "endTime": 13.638151,
+      "text": "Arrange:   naogare",
+      "group": null
+    },
+    {
+      "id": "line-004",
+      "index": 4,
+      "time": 14.136883,
+      "endTime": 19.737347,
+      "text": "Through the nights and skies of blue,",
+      "group": null
+    },
+    {
+      "id": "line-005",
+      "index": 5,
+      "time": 20.208097,
+      "endTime": 25.022175,
+      "text": "I’ve finally come back right here to you",
+      "group": null
+    },
+    {
+      "id": "line-006",
+      "index": 6,
+      "time": 26.486353,
+      "endTime": 31.931912,
+      "text": "I stayed so long, holding on",
+      "group": null
+    },
+    {
+      "id": "line-007",
+      "index": 7,
+      "time": 32.512146,
+      "endTime": 37.455379,
+      "text": "through all my days with endless hope for you",
+      "group": null
+    },
+    {
+      "id": "line-008",
+      "index": 8,
+      "time": 38.780569,
+      "endTime": 43.715392,
+      "text": "Everything you’ve promised me",
+      "group": null
+    },
+    {
+      "id": "line-009",
+      "index": 9,
+      "time": 44.0798,
+      "endTime": 48.2398,
+      "text": "is now clear, right here before my eyes",
+      "group": null
+    },
+    {
+      "id": "line-010",
+      "index": 10,
+      "time": 50.704609,
+      "endTime": 55.898658,
+      "text": "Everything you said would be",
+      "group": null
+    },
+    {
+      "id": "line-011",
+      "index": 11,
+      "time": 56.470048,
+      "endTime": 61.67522,
+      "text": "is now shining truth that never dies",
+      "group": null
+    },
+    {
+      "id": "line-012",
+      "index": 12,
+      "time": 62.56275,
+      "endTime": 67.598827,
+      "text": "Many times, I reached the very end,",
+      "group": null
+    },
+    {
+      "id": "line-013",
+      "index": 13,
+      "time": 68.448516,
+      "endTime": 73.243974,
+      "text": "nearly breaking as I bent",
+      "group": null
+    },
+    {
+      "id": "line-014",
+      "index": 14,
+      "time": 74.656979,
+      "endTime": 79.724682,
+      "text": "Many nights I walked all alone,",
+      "group": null
+    },
+    {
+      "id": "line-015",
+      "index": 15,
+      "time": 79.907391,
+      "endTime": 85.401564,
+      "text": "just to dive into your arms once more.",
+      "group": null
+    },
+    {
+      "id": "line-016",
+      "index": 16,
+      "time": 85.732459,
+      "endTime": 91.680716,
+      "text": "Like the shining sun, you make my heart so bright",
+      "group": null
+    },
+    {
+      "id": "line-017",
+      "index": 17,
+      "time": 92.126654,
+      "endTime": 97.325831,
+      "text": "Like the endless sky, you lift my hope so high",
+      "group": null
+    },
+    {
+      "id": "line-018",
+      "index": 18,
+      "time": 97.303774,
+      "endTime": 100.102868,
+      "text": "Wrapped in your tender wings",
+      "group": 1
+    },
+    {
+      "id": "line-019",
+      "index": 19,
+      "time": 100.006625,
+      "endTime": 114.400434,
+      "text": "I’ll never lose my way",
+      "group": 1
+    },
+    {
+      "id": "line-020",
+      "index": 20,
+      "time": 103.91883,
+      "endTime": 114.23041,
+      "text": "I’ve longed to be close to you  forevermore",
+      "group": null
+    },
+    {
+      "id": "line-021",
+      "index": 21,
+      "time": 122.465176,
+      "endTime": 127.691009,
+      "text": "Through the nights and skies of blue,",
+      "group": null
+    },
+    {
+      "id": "line-022",
+      "index": 22,
+      "time": 128.287293,
+      "endTime": 133.420276,
+      "text": "I’ve finally come back right here to you",
+      "group": null
+    },
+    {
+      "id": "line-023",
+      "index": 23,
+      "time": 134.233208,
+      "endTime": 139.96301,
+      "text": "To stand here by your side",
+      "group": null
+    },
+    {
+      "id": "line-024",
+      "index": 24,
+      "time": 139.833127,
+      "endTime": 145.516632,
+      "text": "feels like my dream has come true",
+      "group": null
+    },
+    {
+      "id": "line-025",
+      "index": 25,
+      "time": 146.756711,
+      "endTime": 152.240613,
+      "text": "After miles and miles I ran,",
+      "group": null
+    },
+    {
+      "id": "line-026",
+      "index": 26,
+      "time": 152.173498,
+      "endTime": 158.168028,
+      "text": "along the long and endless path of my life",
+      "group": null
+    },
+    {
+      "id": "line-027",
+      "index": 27,
+      "time": 158.270703,
+      "endTime": 163.017573,
+      "text": "You found me from beyond the dark",
+      "group": null
+    },
+    {
+      "id": "line-028",
+      "index": 28,
+      "time": 162.937725,
+      "endTime": 170.24263,
+      "text": "and gently drew me into your hands",
+      "group": null
+    },
+    {
+      "id": "line-029",
+      "index": 29,
+      "time": 170.821421,
+      "endTime": 175.163681,
+      "text": "Through the storms and shadows dark and deep,",
+      "group": null
+    },
+    {
+      "id": "line-030",
+      "index": 30,
+      "time": 176.672451,
+      "endTime": 182.597019,
+      "text": "I wandered and almost lost my way,",
+      "group": null
+    },
+    {
+      "id": "line-031",
+      "index": 31,
+      "time": 182.523907,
+      "endTime": 187.616296,
+      "text": "Through the night I kept my hope alive,",
+      "group": null
+    },
+    {
+      "id": "line-032",
+      "index": 32,
+      "time": 187.752165,
+      "endTime": 193.54003,
+      "text": "to find you waiting in the light",
+      "group": null
+    },
+    {
+      "id": "line-033",
+      "index": 33,
+      "time": 193.931141,
+      "endTime": 199.536936,
+      "text": "Like the rolling waves, you flow without end",
+      "group": null
+    },
+    {
+      "id": "line-034",
+      "index": 34,
+      "time": 199.94769,
+      "endTime": 205.477552,
+      "text": "Like the gentle mist, you fall and softly bend",
+      "group": null
+    },
+    {
+      "id": "line-035",
+      "index": 35,
+      "time": 205.767793,
+      "endTime": 211.679079,
+      "text": "Wrapped in your endless love,  I’ll never drift away",
+      "group": null
+    },
+    {
+      "id": "line-036",
+      "index": 36,
+      "time": 211.78806,
+      "endTime": 224.404411,
+      "text": "I’ve longed to stay close to you forevermore",
+      "group": null
+    },
+    {
+      "id": "line-037",
+      "index": 37,
+      "time": 229.940022,
+      "endTime": 241.691478,
+      "text": "Like the shining sun",
+      "group": null
+    },
+    {
+      "id": "line-038",
+      "index": 38,
+      "time": 232.635707,
+      "endTime": 241.566314,
+      "text": "Like the endless sky",
+      "group": null
+    },
+    {
+      "id": "line-039",
+      "index": 39,
+      "time": 235.668175,
+      "endTime": 241.767471,
+      "text": "Like overflowing tides",
+      "group": null
+    },
+    {
+      "id": "line-040",
+      "index": 40,
+      "time": 238.849779,
+      "endTime": 242.036882,
+      "text": "A sky of soft and tender rain",
+      "group": null
+    },
+    {
+      "id": "line-041",
+      "index": 41,
+      "time": 241.913913,
+      "endTime": 256.411596,
+      "text": "Like the shining sun",
+      "group": null
+    },
+    {
+      "id": "line-042",
+      "index": 42,
+      "time": 244.770384,
+      "endTime": 255.976929,
+      "text": "Like the endless sky",
+      "group": null
+    },
+    {
+      "id": "line-043",
+      "index": 43,
+      "time": 247.704667,
+      "endTime": 255.718462,
+      "text": "Like overflowing tides",
+      "group": null
+    },
+    {
+      "id": "line-044",
+      "index": 44,
+      "time": 250.776577,
+      "endTime": 255.698709,
+      "text": "A sky full of shining stars",
+      "group": null
+    }
+  ]
+}

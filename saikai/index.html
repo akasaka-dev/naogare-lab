@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Realistic Ocean — Three.js</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🌊%3C/text%3E%3C/svg%3E"
+    />
+    <!-- Home Screen App V1 — iPhone's WebKit never implements the Fullscreen
+         API for ordinary page elements (only iPad does, partially), so the
+         only way to get a chrome-free view on iPhone is launching from a
+         Home Screen icon added via Safari's share sheet. These tags are
+         what make that launch open without the address/tab bars. -->
+    <link rel="manifest" href="./manifest.json" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="ForeverMore" />
+    <meta name="theme-color" content="#000000" />
+    <style>
+      :root { color-scheme: dark; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+      #app { position: fixed; inset: 0; }
+      canvas { display: block; width: 100%; height: 100%; }
+
+      /* Loading / boot screen */
+      #boot {
+        position: fixed; inset: 0; z-index: 20;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        gap: 22px;
+        background: radial-gradient(120% 120% at 50% 0%, #0b2a3a 0%, #041019 55%, #01060b 100%);
+        color: #cfe9f5;
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        transition: opacity 1.1s ease;
+      }
+      #boot h1 { font-weight: 300; letter-spacing: 0.35em; font-size: 15px; text-transform: uppercase; opacity: 0.85; }
+      #boot .bar { width: 240px; height: 2px; background: rgba(255,255,255,0.12); border-radius: 2px; overflow: hidden; }
+      #boot .bar > i { display: block; height: 100%; width: 30%; background: linear-gradient(90deg, #38b6ff, #9be7ff); border-radius: 2px; animation: slide 1.2s ease-in-out infinite; }
+      #boot small { opacity: 0.4; font-size: 11px; letter-spacing: 0.15em; }
+      @keyframes slide { 0% { transform: translateX(-120%);} 100% { transform: translateX(420%);} }
+      #boot.hidden { opacity: 0; pointer-events: none; }
+
+      /* Depth indicator */
+      #depth {
+        position: fixed; top: 16px; left: 16px; z-index: 10;
+        color: rgba(230,245,255,0.85);
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 12px; letter-spacing: 0.06em;
+        padding: 8px 12px; border-radius: 10px;
+        background: rgba(4,20,32,0.35); backdrop-filter: blur(8px);
+        border: 1px solid rgba(150,220,255,0.14);
+        text-shadow: 0 1px 4px rgba(0,0,0,0.5);
+        min-width: 132px;
+      }
+      #depth .k { opacity: 0.5; }
+      #depth .v { color: #9be7ff; }
+
+      /* Bottom Bar V1 — shared row for Show Time's clock and the Fullscreen
+         toggle, so the icon sits right next to the clock (as asked) while
+         still centering as one unit when the clock is off (Show Time
+         unchecked) and the icon is the only thing here. Never a spot
+         TrailLyrics' on-screen text reaches (laid out much higher, near
+         vertical centre). */
+      #bottomBar {
+        position: fixed; bottom: 60px; left: 0; right: 0; z-index: 10;
+        display: flex; align-items: center; justify-content: center; gap: 14px;
+      }
+      /* Day Animation "Show Time" V1 — a small, unobtrusive real-world
+         date/time readout, shown only while the Day Animation folder's
+         Show Time toggle is on. Plain text with no box/border, unlike
+         #depth's boxed HUD look. Deliberately NOT an .editor-ui element
+         (unlike #depth/the lil-gui panel): Show Time is a real, intentional
+         viewing feature, so it must stay visible even in Presentation Mode
+         (H key, now the DEFAULT state — see main.js), when everything
+         editor-ui hides. */
+      #realTime {
+        text-align: center; pointer-events: none;
+        color: rgba(230,245,255,0.85);
+        font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+        letter-spacing: 0.1em;
+        text-shadow: 0 1px 6px rgba(0,0,0,0.6);
+      }
+      #realTime .date { font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; opacity: 0.72; }
+      /* Default matches the same title-matched serif used elsewhere in this
+         project (GUI: "Clock Font", see main.js) — this rule is only the
+         fallback; a GUI change overrides it via an inline style on the
+         element itself, same pattern as Trail Lyrics Style's Font Family
+         field. */
+      #realTime .clock { font-size: 26px; font-weight: 600; color: #9be7ff; font-family: Georgia, "Times New Roman", serif; letter-spacing: 0.04em; }
+      /* Blinking ":" V1 — opacity toggled in JS roughly once per real
+         second (see animate()'s showTime block); transition softens the
+         on/off edges slightly rather than a hard, distracting cut. */
+      #realTime .clock #real-time-colon { display: inline-block; transition: opacity 0.15s ease; }
+
+      /* Fullscreen Toggle V1 — always visible (not gated on Show Time, not
+         .editor-ui), since mobile in particular benefits from hiding the
+         browser chrome regardless of any other display setting. Sits next
+         to the clock inside #bottomBar when Show Time is also on; alone,
+         still centered, when it's off. Swaps its icon based on the
+         Fullscreen API's own state (see main.js), never assumed. */
+      #fullscreen-btn {
+        pointer-events: auto;
+        width: 30px; height: 30px;
+        display: flex; align-items: center; justify-content: center;
+        background: rgba(4, 20, 32, 0.35); backdrop-filter: blur(8px);
+        border: 1px solid rgba(150, 220, 255, 0.2);
+        border-radius: 8px;
+        color: rgba(230, 245, 255, 0.85);
+        cursor: pointer;
+        transition: background 0.2s ease, border-color 0.2s ease;
+      }
+      #fullscreen-btn:hover, #fullscreen-btn:focus-visible {
+        background: rgba(150, 220, 255, 0.18); border-color: rgba(150, 220, 255, 0.5);
+      }
+      #fullscreen-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; }
+      #fullscreen-btn .icon-exit { display: none; }
+      #fullscreen-btn.is-fullscreen .icon-enter { display: none; }
+      #fullscreen-btn.is-fullscreen .icon-exit { display: block; }
+
+      /* Title / Credit Overlay V1 — dedicated DOM overlay for the metadata
+         cues (1-3) that are intentionally excluded from the TrailLyrics
+         wake-emergence renderer. Fixed, centered, non-interactive (never
+         intercepts mouse/touch), sized with clamp() so it stays readable on
+         mobile without ever affecting page layout. Opacity is driven purely
+         from JS (see TitleCreditOverlay.js) so it tracks the authored
+         fade-in/out curve exactly, not a CSS transition. */
+      #titleCredit {
+        position: fixed; inset: 0; z-index: 12;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        pointer-events: none;
+        text-align: center;
+        padding: 0 24px;
+      }
+      #tc-title {
+        font-family: Georgia, "Times New Roman", serif;
+        font-weight: 400;
+        font-size: clamp(28px, 5vw, 56px);
+        letter-spacing: 0.04em;
+        color: rgba(255, 255, 255, 0.96);
+        text-shadow: 0 2px 18px rgba(0, 0, 0, 0.55), 0 1px 3px rgba(0, 0, 0, 0.6);
+        opacity: 0;
+      }
+      #tc-credit {
+        margin-top: 10px;
+        font-family: Georgia, "Times New Roman", serif;
+        font-weight: 400;
+        font-size: clamp(13px, 1.6vw, 18px);
+        letter-spacing: 0.08em;
+        color: rgba(222, 228, 234, 0.8);
+        text-shadow: 0 1px 10px rgba(0, 0, 0, 0.5);
+        opacity: 0;
+      }
+
+      /* Start Overlay V1 — a real user-gesture gate for audio (?audio=1
+         only). Mobile (and increasingly desktop) browsers flatly refuse a
+         programmatic .play() with no preceding user gesture — this button's
+         click IS that gesture. Shown centered, above everything including
+         #boot, and deliberately NOT an .editor-ui element (Presentation
+         Mode defaulting to ON must never hide the one control mobile users
+         need to ever hear audio at all). Same boxed-HUD visual language as
+         #depth, just larger. Dismisses itself (fades, then `hidden`) the
+         moment the button is used — never reappears afterward. */
+      #startOverlay {
+        position: fixed; inset: 0; z-index: 30;
+        display: flex; align-items: center; justify-content: center;
+        background: rgba(2, 10, 16, 0.45);
+        transition: opacity 0.5s ease;
+      }
+      #startOverlay.dismissed { opacity: 0; pointer-events: none; }
+      /* An ID selector's own `display: flex` above otherwise beats the
+         browser's default `[hidden] { display: none }` rule (both are
+         attached to #startOverlay, but ID+attribute specificity wins over
+         plain ID) — without this, setting the `hidden` IDL property true
+         from JS would silently do nothing visually; the element would only
+         ever look gone via .dismissed's opacity, never actually leave
+         layout/hit-testing. */
+      #startOverlay[hidden] { display: none; }
+      #startOverlay .box {
+        background: rgba(4, 20, 32, 0.55); backdrop-filter: blur(12px);
+        border: 1px solid rgba(150, 220, 255, 0.18); border-radius: 16px;
+        padding: 40px 56px; text-align: center;
+        box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+      }
+      #startOverlay .title {
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: clamp(24px, 4vw, 40px);
+        letter-spacing: 0.04em;
+        color: rgba(255, 255, 255, 0.96);
+        text-shadow: 0 2px 18px rgba(0, 0, 0, 0.55);
+        margin-bottom: 28px;
+      }
+      #startOverlay button {
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: 16px; letter-spacing: 0.14em; text-transform: uppercase;
+        color: #9be7ff;
+        background: rgba(150, 220, 255, 0.08);
+        border: 1px solid rgba(150, 220, 255, 0.35);
+        border-radius: 8px;
+        padding: 12px 32px;
+        cursor: pointer;
+        transition: background 0.2s ease, border-color 0.2s ease;
+      }
+      #startOverlay button:hover, #startOverlay button:focus-visible {
+        background: rgba(150, 220, 255, 0.18); border-color: rgba(150, 220, 255, 0.6);
+      }
+      /* Karaoke V1 — a plain checkbox+label between the title and the
+         button; read once, at the moment Music Start is clicked, to decide
+         which audio source to play (see main.js's own click handler). */
+      #startOverlay .karaoke {
+        display: flex; align-items: center; justify-content: center; gap: 8px;
+        margin-bottom: 20px;
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: 14px; letter-spacing: 0.08em;
+        color: rgba(230, 245, 255, 0.75);
+        cursor: pointer;
+      }
+      #startOverlay .karaoke input { accent-color: #9be7ff; cursor: pointer; }
+
+      /* Presentation Mode V1 — press H to hide non-MV editor UI (lil-gui
+         panel, debug HUD) for clean MV playback/recording, DEFAULT ON (see
+         main.js). A single class toggle on <body>; every element that
+         should disappear just needs the .editor-ui marker class. Never
+         applied to #titleCredit, #startOverlay, the canvas, or any
+         WebGL-rendered MV content. */
+      body.presentation-mode .editor-ui {
+        display: none;
+      }
+
+      /* ---- Menu (lil-gui) — cinematic glass theme ---- */
+      .lil-gui {
+        --background-color: rgba(9, 20, 30, 0.55);
+        --text-color: #cfe6f2;
+        --title-background-color: rgba(6, 15, 23, 0.0);
+        --title-text-color: #eaf7fd;
+        --widget-color: rgba(160, 220, 255, 0.10);
+        --hover-color: rgba(120, 220, 255, 0.18);
+        --focus-color: rgba(120, 220, 255, 0.30);
+        --number-color: #7fe3ff;
+        --string-color: #9be7ff;
+        --slider-knob-color: #4fd3ff;
+        --slider-input-color: rgba(120, 220, 255, 0.22);
+        --font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        --font-family-mono: ui-monospace, Menlo, Consolas, monospace;
+        --font-size: 12px;
+        --input-font-size: 12px;
+        --widget-height: 24px;
+        --padding: 9px;
+        --spacing: 6px;
+        --widget-border-radius: 7px;
+        --name-width: 46%;
+      }
+      .lil-gui.root {
+        top: 16px; right: 16px;
+        width: 296px;
+        border-radius: 14px;
+        border: 1px solid rgba(150, 220, 255, 0.16);
+        box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+        background: linear-gradient(180deg, rgba(14, 32, 46, 0.62), rgba(7, 17, 26, 0.62));
+        backdrop-filter: blur(16px) saturate(1.25);
+        -webkit-backdrop-filter: blur(16px) saturate(1.25);
+        overflow: hidden;
+      }
+      /* main title bar */
+      .lil-gui.root > .title {
+        font-weight: 600; font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase;
+        padding: 12px 12px;
+        color: #eaf7fd;
+        background: linear-gradient(90deg, rgba(79, 211, 255, 0.20), rgba(79, 211, 255, 0.02));
+        border-bottom: 1px solid rgba(150, 220, 255, 0.14);
+      }
+      .lil-gui.root > .title::before { content: "🌊 "; }
+      /* folder titles */
+      .lil-gui .title {
+        font-weight: 600; letter-spacing: 0.05em; color: #bfe6f5;
+        transition: background 0.14s ease, color 0.14s ease;
+      }
+      .lil-gui .title:hover { background: var(--hover-color); color: #eaf7fd; }
+      .lil-gui .children { padding-bottom: 2px; }
+      .lil-gui .controller { transition: background 0.12s ease; border-radius: 6px; }
+      .lil-gui .controller:hover { background: rgba(160, 220, 255, 0.05); }
+      .lil-gui .controller .name { opacity: 0.9; }
+      /* buttons */
+      .lil-gui .controller.function .widget button,
+      .lil-gui .controller.function .name {
+        color: #a9ecff; font-weight: 600; letter-spacing: 0.02em;
+      }
+      .lil-gui .controller.function:hover .name { color: #e2f7ff; }
+      /* slider fill accent */
+      .lil-gui .slider { border-radius: 6px; overflow: hidden; }
+      .lil-gui .slider .fill { background: linear-gradient(90deg, #1f8fd0, #4fd3ff); }
+      /* dropdown */
+      .lil-gui .controller.option .widget select { border-radius: 6px; font-weight: 600; }
+      /* scrollbar */
+      .lil-gui .children::-webkit-scrollbar { width: 8px; }
+      .lil-gui .children::-webkit-scrollbar-thumb { background: rgba(120,220,255,0.22); border-radius: 8px; }
+      @media (max-width: 640px) { .lil-gui.root { width: 240px; } }
+    </style>
+    <script type="module" crossorigin src="./assets/index-BlYbt7xU.js"></script>
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <div id="titleCredit" aria-hidden="true">
+      <div id="tc-title"></div>
+      <div id="tc-credit"></div>
+    </div>
+
+    <div id="startOverlay" hidden>
+      <div class="box">
+        <div class="title">ForeverMore</div>
+        <label class="karaoke"><input type="checkbox" id="karaoke-checkbox"> Karaoke</label>
+        <button id="start-music-btn" type="button">Music Start</button>
+      </div>
+    </div>
+
+    <div id="depth" class="editor-ui" hidden>
+      <div><span class="k">STATE</span> &nbsp;<span class="v" id="depth-state">ABOVE</span></div>
+      <div><span class="k">DEPTH</span> &nbsp;<span class="v" id="depth-val">0.0 m</span></div>
+      <!-- Traveler Altitude V1 debug readout -->
+      <div><span class="k">LIGHT ALT</span> &nbsp;<span class="v" id="traveler-alt-val">+0.0 / UP</span></div>
+    </div>
+
+    <div id="bottomBar">
+      <div id="realTime" hidden>
+        <div class="date" id="real-time-date"></div>
+        <div class="clock" id="real-time-clock"><span id="real-time-hour"></span><span id="real-time-colon">:</span><span id="real-time-minute"></span></div>
+      </div>
+      <button id="fullscreen-btn" type="button" aria-label="Toggle fullscreen">
+        <svg class="icon-enter" viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+        <svg class="icon-exit" viewBox="0 0 24 24"><path d="M8 3v3a2 2 0 0 1-2 2H3M21 8h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3M16 21v-3a2 2 0 0 1 2-2h3"/></svg>
+      </button>
+    </div>
+
+    <div id="boot">
+      <h1>Ocean</h1>
+      <div class="bar"><i></i></div>
+      <small>compiling shaders</small>
+    </div>
+
+  </body>
+</html>
