@@ -120,6 +120,30 @@
       #fullscreen-btn.is-fullscreen .icon-enter { display: none; }
       #fullscreen-btn.is-fullscreen .icon-exit { display: block; }
 
+      /* Support Dialog V1 — a heart icon beside the Fullscreen toggle
+         (same square glass-button look) opens a small modal with a like
+         button (backed by the site's existing shared /api/likes endpoint —
+         see main.js) and links out to the creator's own page and the
+         singer's channel. */
+      #like-btn { pointer-events: auto; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; background: rgba(4, 20, 32, 0.35); backdrop-filter: blur(8px); border: 1px solid rgba(150, 220, 255, 0.2); border-radius: 8px; color: rgba(230, 245, 255, 0.85); cursor: pointer; transition: background 0.2s ease, border-color 0.2s ease; }
+      #like-btn:hover, #like-btn:focus-visible { background: rgba(150, 220, 255, 0.18); border-color: rgba(150, 220, 255, 0.5); }
+      #like-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; }
+
+      #supportDialog { position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center; background: rgba(2, 10, 16, 0.55); }
+      #supportDialog[hidden] { display: none; }
+      #supportDialog .box { position: relative; background: rgba(4, 20, 32, 0.72); backdrop-filter: blur(14px); border: 1px solid rgba(150, 220, 255, 0.2); border-radius: 16px; padding: 32px 40px; text-align: center; box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5); min-width: 260px; }
+      #supportDialog .close-btn { position: absolute; top: 10px; right: 10px; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; background: transparent; border: none; color: rgba(230, 245, 255, 0.6); cursor: pointer; font-size: 18px; line-height: 1; }
+      #supportDialog .close-btn:hover { color: rgba(230, 245, 255, 0.95); }
+      #supportDialog .title { font-family: Georgia, "Times New Roman", serif; font-size: 20px; letter-spacing: 0.04em; color: rgba(255, 255, 255, 0.96); margin-bottom: 20px; }
+      #like-action-btn { display: inline-flex; align-items: center; gap: 8px; font-family: Georgia, "Times New Roman", serif; font-size: 15px; letter-spacing: 0.06em; color: #9be7ff; background: rgba(150, 220, 255, 0.08); border: 1px solid rgba(150, 220, 255, 0.35); border-radius: 8px; padding: 10px 20px; cursor: pointer; transition: background 0.2s ease, border-color 0.2s ease; margin-bottom: 22px; }
+      #like-action-btn:hover, #like-action-btn:focus-visible { background: rgba(150, 220, 255, 0.18); border-color: rgba(150, 220, 255, 0.6); }
+      #like-action-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; }
+      #like-action-btn.is-liked svg { fill: #ff6b9e; stroke: #ff6b9e; }
+      #like-action-btn:disabled { cursor: default; }
+      #supportDialog .links { display: flex; flex-direction: column; gap: 12px; font-family: Georgia, "Times New Roman", serif; font-size: 14px; letter-spacing: 0.04em; }
+      #supportDialog .links a { color: rgba(230, 245, 255, 0.85); text-decoration: none; border-bottom: 1px solid rgba(230, 245, 255, 0.25); padding-bottom: 1px; }
+      #supportDialog .links a:hover { color: #9be7ff; border-color: #9be7ff; }
+
       /* Title / Credit Overlay V1 — dedicated DOM overlay for the metadata
          cues (1-3) that are intentionally excluded from the TrailLyrics
          wake-emergence renderer. Fixed, centered, non-interactive (never
@@ -318,7 +342,7 @@
       .lil-gui .children::-webkit-scrollbar-thumb { background: rgba(120,220,255,0.22); border-radius: 8px; }
       @media (max-width: 640px) { .lil-gui.root { width: 240px; } }
     </style>
-    <script type="module" crossorigin src="./assets/index-Cb1lbvNo.js"></script>
+    <script type="module" crossorigin src="./assets/index-Dk_Nj_qE.js"></script>
   </head>
   <body>
     <div id="app"></div>
@@ -362,6 +386,25 @@
         <svg class="icon-enter" viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
         <svg class="icon-exit" viewBox="0 0 24 24"><path d="M8 3v3a2 2 0 0 1-2 2H3M21 8h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3M16 21v-3a2 2 0 0 1 2-2h3"/></svg>
       </button>
+      <button id="like-btn" type="button" aria-label="Support this page">
+        <svg viewBox="0 0 24 24"><path d="M12 21s-7.5-4.6-10-9.1C.5 8.4 2.4 5 6 5c2 0 3.4 1 4.5 2.5C11.6 6 13 5 15 5c3.6 0 5.5 3.4 4 6.9-2.5 4.5-10 9.1-10 9.1z"/></svg>
+      </button>
+    </div>
+
+    <div id="supportDialog" hidden>
+      <div class="box">
+        <button class="close-btn" id="support-dialog-close" type="button" aria-label="Close">&times;</button>
+        <div class="title">Thank you for watching</div>
+        <button id="like-action-btn" type="button">
+          <svg viewBox="0 0 24 24"><path d="M12 21s-7.5-4.6-10-9.1C.5 8.4 2.4 5 6 5c2 0 3.4 1 4.5 2.5C11.6 6 13 5 15 5c3.6 0 5.5 3.4 4 6.9-2.5 4.5-10 9.1-10 9.1z"/></svg>
+          <span id="like-count-label">Like</span>
+        </button>
+        <div class="links">
+          <a href="https://naogare-lab.naogare.workers.dev/" target="_blank" rel="noopener">Naogare Lab</a>
+          <a href="https://www.youtube.com/@NMLabo" target="_blank" rel="noopener">YouTube (NM Labo)</a>
+          <a href="https://www.youtube.com/@Sora_music-jy2wc" target="_blank" rel="noopener">Singer: Sora</a>
+        </div>
+      </div>
     </div>
 
     <div id="boot">
