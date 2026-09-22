@@ -218,6 +218,15 @@
         cursor: pointer;
       }
       #startOverlay .karaoke input { accent-color: #9be7ff; cursor: pointer; }
+      /* Controls Hint V1 — one line per input axis (turn / rise-dive), each
+         listing its keyboard and touch equivalent together, since a given
+         visitor only has one of the two available. */
+      #startOverlay .controls-hint {
+        margin-top: 22px;
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: 12px; letter-spacing: 0.05em; line-height: 1.7;
+        color: rgba(200, 225, 240, 0.6);
+      }
       /* OSS Credits V1 — three.js and lil-gui are both MIT-licensed and get
          bundled straight into this page's shipped JS, so their notice needs
          to travel with the distributed page, not just live in package.json.
@@ -323,6 +332,10 @@
         <div class="title">ForeverMore</div>
         <label class="karaoke"><input type="checkbox" id="karaoke-checkbox"> Karaoke</label>
         <button id="start-music-btn" type="button">Music Start</button>
+        <div class="controls-hint">
+          Turn: A / D &nbsp;&middot;&nbsp; or flick left / right<br>
+          Rise &amp; Dive: Hold Space &nbsp;&middot;&nbsp; or flick up / down
+        </div>
         <div class="credits">
           Built with <a href="https://threejs.org/" target="_blank" rel="noopener">Three.js</a>
           &amp; <a href="https://lil-gui.georgealways.com/" target="_blank" rel="noopener">lil-gui</a> (MIT License)
