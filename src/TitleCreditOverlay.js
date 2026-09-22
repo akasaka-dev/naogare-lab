@@ -68,15 +68,28 @@ export class TitleCreditOverlay {
     const titleOp = this.titleCue ? opacityAt(this.titleCue, time) : 0;
     this.titleEl.style.opacity = titleOp.toFixed(3);
 
-    // Cues 2 and 3 never overlap each other, so one credit slot is enough;
-    // whichever (if either) is currently active wins.
-    let creditOp = 0;
-    let creditText = '';
+    // Credit cues CAN overlap (e.g. a two-line closing message meant to be
+    // read together) — every currently-active one gets its own line and
+    // its own independent opacity, ordered by start time, rather than a
+    // single shared text+opacity slot that could only ever show one at a
+    // time (which is all the non-overlapping intro credits ever needed).
+    const active = [];
     for (const cue of this.creditCues) {
       const op = opacityAt(cue, time);
-      if (op > creditOp) { creditOp = op; creditText = cue.text; }
+      if (op > 0) active.push({ cue, op });
     }
-    if (creditOp > 0) this.creditEl.textContent = creditText;
-    this.creditEl.style.opacity = creditOp.toFixed(3);
+    active.sort((a, b) => a.cue.time - b.cue.time);
+    this._renderCreditLines(active);
+  }
+
+  _renderCreditLines(active) {
+    const el = this.creditEl;
+    while (el.children.length > active.length) el.removeChild(el.lastChild);
+    while (el.children.length < active.length) el.appendChild(document.createElement('div'));
+    active.forEach(({ cue, op }, i) => {
+      const line = el.children[i];
+      line.textContent = cue.text;
+      line.style.opacity = op.toFixed(3);
+    });
   }
 }

@@ -296,16 +296,16 @@
     {
       "id": "line-037",
       "index": 37,
-      "time": 229.940022,
-      "endTime": 241.691478,
+      "time": 229.3864,
+      "endTime": 234.723295,
       "text": "Like the shining sun",
       "group": null
     },
     {
       "id": "line-038",
       "index": 38,
-      "time": 232.635707,
-      "endTime": 241.566314,
+      "time": 232.508642,
+      "endTime": 235.327213,
       "text": "Like the endless sky",
       "group": null
     },
@@ -329,7 +329,7 @@
       "id": "line-041",
       "index": 41,
       "time": 241.913913,
-      "endTime": 256.411596,
+      "endTime": 247.07112,
       "text": "Like the shining sun",
       "group": null
     },
@@ -337,7 +337,7 @@
       "id": "line-042",
       "index": 42,
       "time": 244.770384,
-      "endTime": 255.976929,
+      "endTime": 247.399596,
       "text": "Like the endless sky",
       "group": null
     },
@@ -355,6 +355,30 @@
       "time": 250.776577,
       "endTime": 255.698709,
       "text": "A sky full of shining stars",
+      "group": null
+    },
+    {
+      "id": "line-045",
+      "index": 2,
+      "time": 284.873175,
+      "endTime": 292.400938,
+      "text": "No matter how far you wander,",
+      "group": null
+    },
+    {
+      "id": "line-046",
+      "index": 2,
+      "time": 288.568707,
+      "endTime": 292.400938,
+      "text": "there is a place waiting for you.",
+      "group": null
+    },
+    {
+      "id": "line-047",
+      "index": 2,
+      "time": 295.685707,
+      "endTime": 304.554585,
+      "text": "Thank you for listening.",
       "group": null
     }
   ]
