@@ -58,6 +58,8 @@ const startOverlayEl = document.getElementById('startOverlay');
 const startMusicBtnEl = document.getElementById('start-music-btn');
 const karaokeCheckboxEl = document.getElementById('karaoke-checkbox');
 const fullscreenBtnEl = document.getElementById('fullscreen-btn');
+const playPauseBtnEl = document.getElementById('playpause-btn');
+const repeatBtnEl = document.getElementById('repeat-btn');
 
 // ---------------------------------------------------------------------------
 //  Fullscreen Toggle V1 — always available (no feature flag, not tied to
@@ -951,7 +953,7 @@ function applyPreset(name, { skipSun = false } = {}) {
 //  randomization (which risks incoherent combinations, e.g. calm seas under
 //  a storm sky — the whole point of applyPreset()'s hand-tuned bundles is
 //  to avoid exactly that). Picked ONCE per "play" — on page load, and again
-//  whenever the song repeats (Audio's own Repeat Time, or a manual
+//  whenever the song repeats (Playback Mode's own Repeat, or a manual
 //  Restart — see those two call sites) — never on a continuous timer, so
 //  the look stays stable for a whole play-through instead of shifting
 //  mid-song. Skips entirely when an explicit, single-purpose mood flag
@@ -1000,8 +1002,9 @@ fPre.add(presetProxy, 'preset', Object.keys(PRESETS)).name('preset').onChange(ap
 fPre.add({ cinema: false }, 'cinema').name('cinematic camera')
   .onChange((v) => (controls.autoRotate = v));
 // Random Weather V1 (see rollRandomWeather()'s own doc) — on by default;
-// unchecking it just stops future re-rolls (page load, Repeat Time, manual
-// Restart), it does not revert whichever preset is already applied.
+// unchecking it just stops future re-rolls (page load, Playback Mode's
+// Repeat, manual Restart), it does not revert whichever preset is already
+// applied.
 const randomWeatherGuiState = { enabled: true };
 fPre.add(randomWeatherGuiState, 'enabled').name('Random Weather');
 
@@ -1567,14 +1570,6 @@ if (audioEnabled) {
     playing: false,
     time: 0,
     volume: audioController.volume,
-    // Repeat Time V1 — minutes; 0 disables entirely. See the per-frame
-    // check further down (search "Repeat Time V1") for how this is
-    // actually applied: it restarts (seeks to 0, keeps playing) once
-    // audioController.currentTime reaches this many minutes, independent
-    // of the track's own natural length/end — e.g. the default 10 minutes
-    // restarts well before the ~5m15s track would otherwise reach its own
-    // end and stop.
-    repeatTime: 10,
     syncLyrics: !!lyricTimelineEnabled,
   };
   const fAudio = gui.addFolder('Audio');
@@ -1592,7 +1587,6 @@ if (audioEnabled) {
   // short of the real duration.
   fAudio.add(audioGuiState, 'time', 0, 315, 0.1).name('Time').listen().onChange((v) => audioController.setTime(v));
   fAudio.add(audioGuiState, 'volume', 0, 1, 0.01).name('Volume').onChange((v) => { audioController.setVolume(v); });
-  fAudio.add(audioGuiState, 'repeatTime', 0, 60, 1).name('Repeat Time (min)');
   fAudio.add(audioGuiState, 'syncLyrics').name('Sync Lyrics').listen().onChange((v) => { audioGuiState.syncLyrics = v; });
 
   // Start Overlay V1 — the ONE real user gesture this app can rely on:
@@ -1613,6 +1607,49 @@ if (audioEnabled) {
     audioController.play();
     startOverlayEl.classList.add('dismissed');
     setTimeout(() => { startOverlayEl.hidden = true; }, 550);
+  });
+
+  // ---------------------------------------------------------------------------
+  //  Playback Controls V2 — replaces the old "always auto-restarts every N
+  //  minutes" default (surprising if the audio suddenly kicks back in with
+  //  no warning) with two independent controls, matching the
+  //  Spotify/Apple-Music split rather than cramming both into one 3-way
+  //  icon (V1's mistake — it mixed "what state is this" with "what will
+  //  this button do"):
+  //   - Play/Pause: icon shows the ACTION a click performs, driven purely
+  //     by the audio element's own 'play'/'pause' events so it can never
+  //     drift from reality (no separate "mode" flag to keep in sync).
+  //   - Repeat: an independent toggle, off by default (deliberately the
+  //     least surprising option — a track that finishes just stays
+  //     stopped rather than looping unannounced). Its icon shape never
+  //     changes; only a colour highlight shows on/off.
+  // ---------------------------------------------------------------------------
+  function updatePlayPauseIcon() {
+    playPauseBtnEl.classList.toggle('is-playing', !audioController.paused);
+  }
+  playPauseBtnEl.hidden = false;
+  updatePlayPauseIcon();
+  audioController.audio.addEventListener('play', updatePlayPauseIcon);
+  audioController.audio.addEventListener('pause', updatePlayPauseIcon);
+  playPauseBtnEl.addEventListener('click', () => {
+    if (audioController.paused) audioController.play();
+    else audioController.pause();
+  });
+
+  let repeatEnabled = false;
+  repeatBtnEl.hidden = false;
+  repeatBtnEl.addEventListener('click', () => {
+    repeatEnabled = !repeatEnabled;
+    repeatBtnEl.classList.toggle('is-active', repeatEnabled);
+  });
+  // A track reaching its own end is the one moment "paused" isn't a user
+  // action, so it doesn't fire through the click handler above at all —
+  // handled here instead, independently of the Play/Pause icon's own sync.
+  audioController.audio.addEventListener('ended', () => {
+    if (!repeatEnabled) return;
+    audioController.restart();
+    audioController.play();
+    rollRandomWeather(); // see its own doc — "the song repeating" is exactly this moment
   });
 
   // Tap-to-Pause V1 — once the Start Overlay above is dismissed, a plain
@@ -1899,16 +1936,6 @@ function animate() {
     audioGuiState.loaded = audioController.loaded;
     audioGuiState.playing = !audioController.paused;
     audioGuiState.time = audioController.currentTime;
-    // Repeat Time V1 — restart once currentTime reaches this many minutes,
-    // regardless of the track's own natural length; 0 disables it entirely.
-    // Checked (and, before LyricTimeline's own sync below, applied) BEFORE
-    // that sync runs, so a Sync-Lyrics-active timeline restarts on the SAME
-    // frame instead of one frame later.
-    if (audioGuiState.repeatTime > 0 && audioController.currentTime >= audioGuiState.repeatTime * 60) {
-      audioController.restart();
-      audioGuiState.time = audioController.currentTime;
-      rollRandomWeather(); // see its own doc — "the song repeating" is exactly this moment
-    }
   }
   // Lyric Timeline (V1, opt-in) — runs BEFORE Trail Lyrics' own update() so
   // that if this frame crosses an event's triggerTime, TrailLyrics starts

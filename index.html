@@ -120,6 +120,28 @@
       #fullscreen-btn.is-fullscreen .icon-enter { display: none; }
       #fullscreen-btn.is-fullscreen .icon-exit { display: block; }
 
+      /* Playback Controls V2 — replaces the old always-on "auto-restart
+         every N minutes" default (surprising if the audio suddenly
+         restarts with no warning) AND the V1 single 3-way cycling icon
+         (stop/play/repeat crammed into one glyph, mixing "what state is
+         this" with "what will this button do") with the split every modern
+         player uses: a Play/Pause button whose icon shows the ACTION a
+         click performs (shows ▶ while paused, ⏸ while playing — swaps on
+         the audio element's own 'play'/'pause' events, not a separate mode
+         flag, so it can never drift from reality), plus an independent
+         Repeat toggle whose icon stays fixed and instead shows STATE via a
+         highlight (dim = off, accent-colored = on) — exactly the
+         Spotify/Apple Music pattern. Both hidden by default, same as
+         #startOverlay — only shown when audio is enabled at all (see
+         main.js). */
+      #playpause-btn, #repeat-btn { pointer-events: auto; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; background: rgba(4, 20, 32, 0.35); backdrop-filter: blur(8px); border: 1px solid rgba(150, 220, 255, 0.2); border-radius: 8px; color: rgba(230, 245, 255, 0.85); cursor: pointer; transition: background 0.2s ease, border-color 0.2s ease; }
+      #playpause-btn:hover, #playpause-btn:focus-visible, #repeat-btn:hover, #repeat-btn:focus-visible { background: rgba(150, 220, 255, 0.18); border-color: rgba(150, 220, 255, 0.5); }
+      #playpause-btn svg, #repeat-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; }
+      #playpause-btn .icon-pause { display: none; }
+      #playpause-btn.is-playing .icon-play { display: none; }
+      #playpause-btn.is-playing .icon-pause { display: block; }
+      #repeat-btn.is-active { background: rgba(150, 220, 255, 0.22); border-color: rgba(150, 220, 255, 0.7); color: #9be7ff; }
+
       /* Support Dialog V1 — a heart icon beside the Fullscreen toggle
          (same square glass-button look) opens a small modal with a like
          button (backed by the site's existing shared /api/likes endpoint —
@@ -387,6 +409,13 @@
       </button>
       <button id="like-btn" type="button" aria-label="Support this page">
         <svg viewBox="0 0 24 24"><path d="M12 21s-7.5-4.6-10-9.1C.5 8.4 2.4 5 6 5c2 0 3.4 1 4.5 2.5C11.6 6 13 5 15 5c3.6 0 5.5 3.4 4 6.9-2.5 4.5-10 9.1-10 9.1z"/></svg>
+      </button>
+      <button id="playpause-btn" type="button" hidden aria-label="Play or pause">
+        <svg class="icon-play" viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"/></svg>
+        <svg class="icon-pause" viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+      </button>
+      <button id="repeat-btn" type="button" hidden aria-label="Toggle repeat">
+        <svg viewBox="0 0 24 24"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
       </button>
     </div>
 
