@@ -1417,7 +1417,7 @@ if (headParticlesEnabled) {
   fHeadParticles.add(headParticleGuiState, 'particleBloom', 0.0, 2.5, 0.05).name('Particle Bloom').onChange((v) => headParticleTrail.setParticleBloom(v));
   fHeadParticles.add(headParticleGuiState, 'headBloom', 0.2, 2.5, 0.05).name('Head Bloom').onChange((v) => headParticleTrail.setHeadBloom(v));
   fHeadParticles.add(headParticleGuiState, 'emissionRate', 40, 300, 5).name('Emission Rate').onChange((v) => headParticleTrail.setEmissionRate(v));
-  fHeadParticles.add(headParticleGuiState, 'speed', 0.25, 2.5, 0.05).name('Travel Speed').onChange((v) => { headParticleTrail.speed = v; });
+  fHeadParticles.add(headParticleGuiState, 'speed', 0.05, 5.0, 0.05).name('Travel Speed').onChange((v) => { headParticleTrail.speed = v; });
   // Organic Meander V1 debug control (0 = pure base Catmull-Rom path, 1 =
   // intended V1 feel, 2 = exaggerated diagnostic).
   fHeadParticles.add(headParticleGuiState, 'meanderStrength', 0.0, 2.0, 0.05).name('Meander Strength').onChange((v) => headParticleTrail.setMeanderStrength(v));
@@ -1808,11 +1808,18 @@ function animate() {
     // Device Tilt Altitude V1 (see its own comment further up) adds on top
     // via the exact same speed constant — purely additive, so Space and
     // tilt combine naturally instead of fighting.
+    // Scaled by headParticleTrail.speed (Travel Speed), same as the
+    // horizontal steering fix above — otherwise a dive/climb always
+    // happens at the same fixed vertical rate regardless of Travel Speed
+    // while the horizontal distance covered per second scales with it,
+    // flattening the apparent dive/climb angle into near-nothing at high
+    // Travel Speed (the "no sense of descending" the low-speed-only feel
+    // was actually about) and making it unnaturally steep at low speed.
     if (travelerAltitudeSpaceHeld) {
-      travelerAltitudeOffset += travelerAltitudeDirection * TRAVELER_ALTITUDE_SPEED * dt;
+      travelerAltitudeOffset += travelerAltitudeDirection * TRAVELER_ALTITUDE_SPEED * headParticleTrail.speed * dt;
     }
     if (deviceTiltInput !== 0) {
-      travelerAltitudeOffset += deviceTiltInput * TRAVELER_ALTITUDE_SPEED * dt;
+      travelerAltitudeOffset += deviceTiltInput * TRAVELER_ALTITUDE_SPEED * headParticleTrail.speed * dt;
     }
     travelerAltitudeOffset = Math.min(MAX_TRAVELER_ALTITUDE_OFFSET, Math.max(MIN_TRAVELER_ALTITUDE_OFFSET, travelerAltitudeOffset));
 

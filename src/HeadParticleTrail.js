@@ -250,10 +250,14 @@ export class HeadParticleTrail {
   constructor(scene, opts = {}) {
     const { seed = 4242 } = opts;
     this._seedBase = seed >>> 0;
-    this.speed = 1.0;
+    this.speed = 0.3;
     this.paused = false;
     this.localTime = 0;
-    this.emissionRate = 150; // particles/second (spec 8: 120-180 suggested)
+    // Distance actually travelled (world units) — the emission schedule
+    // below is indexed by THIS, not localTime, so trail particle spacing
+    // stays constant regardless of Travel Speed (this.speed).
+    this.distanceTraveled = 0;
+    this.emissionRate = 150; // particles per STEER_BASE_SPEED units of distance (i.e. "per second" at the nominal Travel Speed of 1 — spec 8: 120-180 suggested)
     this.phase = 'flight';
 
     // ---- Head path (spec 22). ----
@@ -580,6 +584,16 @@ export class HeadParticleTrail {
     this._reconTan = new THREE.Vector3();
     this.travelDir = new THREE.Vector3(0, 0, -1);
 
+    // Multi-emission-per-frame interpolation (see update()'s own comment):
+    // last frame's head position/tangent/localTime, so a frame that crosses
+    // several emission slots at once (common at high Travel Speed) can
+    // place each particle along the path IT actually travelled this frame,
+    // not all stacked on this frame's single final sample point.
+    this._prevHeadPos = new THREE.Vector3();
+    this._prevTangent = new THREE.Vector3(0, 0, -1);
+    this._emitInterpPos = new THREE.Vector3();
+    this._emitInterpTan = new THREE.Vector3();
+
     // The colour the Ocean shader's local water-glint uses — a muted pale
     // gold, deliberately darker/less bright than the head (spec 27/28),
     // kept in sync with time-of-day by setTint() below.
@@ -770,6 +784,14 @@ export class HeadParticleTrail {
   // floor()/remainder accumulator (spec 8) — never frame-count-dependent. ----
   update(dt, sceneTime, ocean, cameraPos) {
     this._ocean = ocean; // cached so setTime()/restart() can reconstruct historical heights
+    // Snapshot BEFORE this frame overwrites _headPos/_tangent — the
+    // emission loop below interpolates between this and the fresh values
+    // computed further down, for any frame that crosses more than one
+    // emission slot at once.
+    this._prevHeadPos.copy(this._headPos);
+    this._prevTangent.copy(this._tangent);
+    const prevT = this.localTime;
+    const prevDistance = this.distanceTraveled;
     if (!this.paused) this.localTime += dt * this.speed;
     const t = this.localTime;
     this.phase = t < 2 ? 'approach' : 'flight';
@@ -791,13 +813,33 @@ export class HeadParticleTrail {
     // changes the SLOPE of heading, never heading itself, so A/D produces
     // smooth broad turns with no snap, no extra damping required (spec 3).
     if (!this.paused) {
+      // Scaled by this.speed, not raw dt: localTime (t) above already
+      // advances at dt*speed, and HeadPath's own deterministic
+      // reconstruction (positionAt(T)/_simulate(), used by setTime()/
+      // _reconstructAt() for seeks and TrailLyrics sampling) treats every
+      // unit of localTime as covering a FIXED span of STEER_BASE_SPEED
+      // distance — so live playback has to advance position by the same
+      // dt*speed to keep pace with (and stay consistent with) that
+      // reconstruction. Previously this used raw dt, so Travel Speed only
+      // ever sped up/slowed down the tail's own timing (particle emission
+      // schedule, shader uTime) while the traveler's actual on-screen
+      // speed never changed at all.
+      const scaledDt = dt * this.speed;
+      // Distance actually covered this frame — independent of heading,
+      // since travel is uniform-speed motion in a (possibly turning)
+      // direction. Tracked so Emission Rate can be indexed by distance
+      // instead of localTime (see the emission loop below): otherwise the
+      // trail's particle SPACING scales with Travel Speed too (localTime
+      // itself already runs at dt*speed), so a slow Travel Speed made the
+      // trail look sparse regardless of how high Emission Rate was set.
+      this.distanceTraveled += STEER_BASE_SPEED * scaledDt;
       const desired = desiredTurnRate(t, this.path.meanderStrength);
-      const k = 1 - Math.exp(-STEER_TURN_SMOOTHING * dt);
+      const k = 1 - Math.exp(-STEER_TURN_SMOOTHING * scaledDt);
       this._liveTurnRate += (desired - this._liveTurnRate) * k;
       const manualRate = this.manualTurnInput * MANUAL_TURN_SPEED;
-      this._liveHeading += (this._liveTurnRate + manualRate) * dt;
-      this._liveX += Math.cos(this._liveHeading) * STEER_BASE_SPEED * dt;
-      this._liveZ += Math.sin(this._liveHeading) * STEER_BASE_SPEED * dt;
+      this._liveHeading += (this._liveTurnRate + manualRate) * scaledDt;
+      this._liveX += Math.cos(this._liveHeading) * STEER_BASE_SPEED * scaledDt;
+      this._liveZ += Math.sin(this._liveHeading) * STEER_BASE_SPEED * scaledDt;
     }
     this._headPos.set(this._liveX, 0, this._liveZ);
     this._tangent.set(Math.cos(this._liveHeading), 0, Math.sin(this._liveHeading));
@@ -816,21 +858,47 @@ export class HeadParticleTrail {
     this.headUniforms.uTime.value = t;
 
     if (!this.paused) {
-      // Exact analytic emission schedule (spec 8/24): emission index N is
-      // always born at N/emissionRate, so "how many particles have been
-      // emitted by time t" is simply floor(t*emissionRate) — equivalent to
-      // an accumulator integrated over any step size, but without any
-      // per-frame floating-point drift.
-      const targetCount = Math.floor(t * this.emissionRate);
+      // Distance-based emission schedule: emission index N is born once
+      // distanceTraveled reaches N/particlesPerDistance, so trail particle
+      // SPACING is a fixed number of world units regardless of Travel
+      // Speed — a previous time-based version (particle N at t=N/rate)
+      // coupled spacing to Travel Speed too (localTime already runs at
+      // dt*speed), so slowing down made the trail look sparse no matter
+      // how high Emission Rate was set, and speeding up made it denser.
+      // particlesPerDistance divides by STEER_BASE_SPEED so Emission
+      // Rate's numeric meaning/range is unchanged at the nominal Travel
+      // Speed of 1 (distanceTraveled ≈ STEER_BASE_SPEED*t there, matching
+      // the old floor(t*emissionRate) exactly).
+      const particlesPerDistance = this.emissionRate / STEER_BASE_SPEED;
+      const targetCount = Math.floor(this.distanceTraveled * particlesPerDistance);
+      // At normal Travel Speed a frame crosses at most one emission slot,
+      // so this is exactly spec 5's "the same Vector3 already computed for
+      // the visible head this frame". At higher Travel Speed a single
+      // frame can cross several slots — emitting every one of them at
+      // this frame's single final head position used to stack them on top
+      // of each other, leaving a visible gap back to the previous frame's
+      // particles instead of a continuous trail. Each slot's fractional
+      // position between last frame's and this frame's distance (and thus
+      // head/tangent, since both advance together within one frame — see
+      // distanceTraveled's own comment above) fixes that without changing
+      // the emission schedule, particle count, or the normal (one-per-
+      // frame) case; the same fraction gives that slot's localTime too
+      // (birthTimeVal, needed for the shader's own age = uTime-aBirthTime),
+      // by linear interpolation between this frame's prevT and t.
+      const frameDistanceSpan = this.distanceTraveled - prevDistance;
       let emitted = false;
       while (this._emitCount < targetCount) {
         const idx = this._emitCount;
-        const birthTimeVal = idx / this.emissionRate;
+        const distanceThreshold = idx / particlesPerDistance;
         const rand = emissionRand(this._seedBase, idx);
         const slot = this._writeCursor;
-        // Spec 5: emission position is the SAME Vector3 already computed
-        // for the visible head this frame — never a second path formula.
-        this._emitOneInto(slot, birthTimeVal, this._headPos, this._tangent, rand);
+        const alpha = frameDistanceSpan > 1e-9 ? Math.min(1, Math.max(0, (distanceThreshold - prevDistance) / frameDistanceSpan)) : 1;
+        const birthTimeVal = prevT + alpha * (t - prevT);
+        this._emitInterpPos.lerpVectors(this._prevHeadPos, this._headPos, alpha);
+        this._emitInterpTan.lerpVectors(this._prevTangent, this._tangent, alpha);
+        if (this._emitInterpTan.lengthSq() < 1e-8) this._emitInterpTan.copy(this._tangent);
+        else this._emitInterpTan.normalize();
+        this._emitOneInto(slot, birthTimeVal, this._emitInterpPos, this._emitInterpTan, rand);
         this._writeCursor = (this._writeCursor + 1) % POOL_SIZE;
         this._emitCount++;
         emitted = true;
@@ -885,6 +953,12 @@ export class HeadParticleTrail {
     }
     this._emitCount = lastIndex + 1;
     this._writeCursor = writeIndex % POOL_SIZE;
+    // Keep distanceTraveled (the live update()'s own emission-schedule
+    // accumulator, see its own comment) consistent with the reconstructed
+    // emitCount above: this reconstruction is itself nominal-speed
+    // (HeadPath's own fixed pacing, independent of this.speed), so T maps
+    // to distance via the same STEER_BASE_SPEED live playback assumes.
+    this.distanceTraveled = T * STEER_BASE_SPEED;
 
     // Recompute the visible head at T itself, from the deterministic
     // automatic path.
@@ -911,6 +985,12 @@ export class HeadParticleTrail {
     this.headMesh.geometry.attributes.position.needsUpdate = true;
     this.headUniforms.uTime.value = T;
     this.trailUniforms.uTime.value = T;
+    // Sync the multi-emission-per-frame interpolation snapshot (see
+    // update()) to this freshly-reconstructed position/tangent — otherwise
+    // the very next live update() frame would interpolate from wherever
+    // the head was BEFORE this seek, producing one wrong-looking particle.
+    this._prevHeadPos.copy(this._headPos);
+    this._prevTangent.copy(this._tangent);
 
     const g = this.trailPoints.geometry;
     g.attributes.position.needsUpdate = true;
