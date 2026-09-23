@@ -396,15 +396,23 @@ export class AutoDirector {
     ctx.time = time;
     ctx.dt = dt;
 
-    // Lyric-safety (spec 18/19): during ASSEMBLE/HOLD, restrict to the four
-    // lyric-safe presets and never switch away from whichever shot is
-    // active once the readable window begins (option A) — if the ALREADY
-    // active shot happens not to be lyric-safe the moment ASSEMBLE starts,
-    // force one immediate CUT to a lyric-safe shot (the option-B fallback
-    // spec 19 allows), then hold it exactly like option A for the rest of
-    // ASSEMBLE/HOLD. The shot timer is simply not advanced while locked, so
-    // the interrupted shot's remaining duration resumes once LEAVE/DISSOLVE
-    // releases the lock, per spec 19's "may resume normal selection".
+    // Lyric-safety (spec 18/19, revised): during ASSEMBLE/HOLD, restrict
+    // picks to the lyric-safe presets — if the ALREADY active shot happens
+    // not to be lyric-safe the moment ASSEMBLE starts, force one immediate
+    // CUT to a lyric-safe shot. The original spec then froze the shot
+    // timer for the rest of ASSEMBLE/HOLD too ("never switch away from
+    // whichever shot is active once the readable window begins"), on the
+    // assumption that a lock only ever spans one phrase's brief few-second
+    // hold. Measured against this song's actual lyric density, though,
+    // getNewestActivePhrase() is in ASSEMBLE/HOLD for ~74% of the total
+    // runtime (phrases run near back-to-back), so freezing meant whichever
+    // shot happened to be active when a long locked stretch began just sat
+    // there for most of the song — two angles alone measured out to 84% of
+    // total screen time. The timer now keeps running through a lock too;
+    // it only restricts which pool an expiring shot is redrawn from
+    // (lyric-safe-only while locked, exactly like the forced-cut case
+    // above), so the camera still varies during heavily-lyriced sections
+    // instead of parking on one shot for most of the song.
     const phase = trailLyrics ? trailLyrics.getPhase() : null;
     const lyricLockNow = phase === 'assemble' || phase === 'hold';
     if (this.auto && lyricLockNow && !this._lyricLocked && !this._isLyricSafe(this.cameraMode)) {
@@ -413,10 +421,10 @@ export class AutoDirector {
     }
     this._lyricLocked = lyricLockNow;
 
-    if (this.auto && !lyricLockNow) {
+    if (this.auto) {
       this._shotElapsed += dt;
       if (this._shotElapsed >= this._shotDuration) {
-        const mode = this._pickNextMode(false);
+        const mode = this._pickNextMode(lyricLockNow);
         const duration = this._pickDuration();
         PRESET_BY_KEY.get(this.cameraMode).compute(ctx, this._out);
         const transition = this.setMode(mode, undefined, this._toPos, this._toLook);
