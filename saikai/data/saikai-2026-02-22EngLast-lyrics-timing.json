@@ -147,15 +147,15 @@
       "time": 97.303774,
       "endTime": 100.102868,
       "text": "Wrapped in your tender wings",
-      "group": 1
+      "group": null
     },
     {
       "id": "line-019",
       "index": 19,
-      "time": 100.006625,
-      "endTime": 114.400434,
+      "time": 99.885807,
+      "endTime": 103.798307,
       "text": "I’ll never lose my way",
-      "group": 1
+      "group": null
     },
     {
       "id": "line-020",
@@ -361,7 +361,7 @@
       "id": "line-045",
       "index": 2,
       "time": 284.873175,
-      "endTime": 292.400938,
+      "endTime": 304.554585,
       "text": "No matter how far you wander,",
       "group": null
     },
@@ -369,7 +369,7 @@
       "id": "line-046",
       "index": 2,
       "time": 288.568707,
-      "endTime": 292.400938,
+      "endTime": 304.554585,
       "text": "there is a place waiting for you.",
       "group": null
     },
