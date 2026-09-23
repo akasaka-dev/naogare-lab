@@ -236,7 +236,7 @@ export class AutoDirector {
     this.enabled = false;
     this.auto = true;
     this.paused = false;
-    this.allowCuts = true;
+    this.allowCuts = false;
     this.cameraMode = opts.mode || DEFAULT_MODE;
     this.seed = opts.seed >>> 0 || 1234;
     this.minShotDuration = 5.0;
