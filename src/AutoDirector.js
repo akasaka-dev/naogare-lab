@@ -136,7 +136,7 @@ const PRESETS = [
     key: 'frontThreeQuarter',
     label: 'Front Three-Quarter',
     weight: 0.6,
-    lyricSafe: true,
+    lyricSafe: false,
     // Spec 10: ahead of the traveler, offset to one side, looking back.
     // The side offset (20 units) keeps the camera well off the travel axis
     // so the head cannot fly through it (spec 17/27).
