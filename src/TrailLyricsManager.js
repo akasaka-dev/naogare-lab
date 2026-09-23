@@ -163,6 +163,11 @@ export class TrailLyricsManager {
     if (this._glyphOutlineWidth !== undefined) config.outlineWidth = this._glyphOutlineWidth;
     if (this._glyphOutlineColor !== undefined) config.outlineColor = this._glyphOutlineColor;
     if (this._glyphFontFamily !== undefined) config.fontFamily = this._glyphFontFamily;
+    // Leave/Dissolve Duration V1 — how long a phrase lingers (moving away,
+    // then scattering into particles) after its HOLD phase ends. Same
+    // GUI-override pattern as the glyph style fields above.
+    if (this._leaveDuration !== undefined) config.leaveDuration = this._leaveDuration;
+    if (this._dissolveDuration !== undefined) config.dissolveDuration = this._dissolveDuration;
 
     // Reading-Order Layout V2: word-wrap ONCE here, conservatively, to the
     // NARROWER of the two possible column widths (i.e. assume MULTI_COLUMN
@@ -224,6 +229,17 @@ export class TrailLyricsManager {
     if (outlineColor !== undefined) this._glyphOutlineColor = outlineColor;
     if (fontFamily !== undefined) this._glyphFontFamily = fontFamily;
     for (const entry of this._active) entry.instance.setGlyphStyle({ textColor, shadowColor, shadowStrength, outlineWidth, outlineColor, fontFamily });
+  }
+
+  // Leave/Dissolve Duration V1 — same live-plus-future-spawns pattern as
+  // setGlyphStyle() above. TrailLyrics.configure() is a plain field
+  // assignment (no geometry rebuild), so this is safe to call on an
+  // instance mid-phrase — a phrase already leaving/dissolving picks up the
+  // new duration for its remaining time immediately.
+  setPhraseTiming({ leaveDuration, dissolveDuration } = {}) {
+    if (leaveDuration !== undefined) this._leaveDuration = leaveDuration;
+    if (dissolveDuration !== undefined) this._dissolveDuration = dissolveDuration;
+    for (const entry of this._active) entry.instance.configure({ leaveDuration, dissolveDuration });
   }
 
   // Per-frame advance for every currently active instance, plus (Reading-

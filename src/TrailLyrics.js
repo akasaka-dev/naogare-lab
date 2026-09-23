@@ -361,7 +361,7 @@ export function wrapDisplayLines(displayLines, maxWidthPx, fontOpts) {
 //  mutable instance fields so the GUI can retune them live without rebuilding
 //  anything (the phase boundaries are recomputed from these every frame).
 // ---------------------------------------------------------------------------
-const DEFAULT_TIMING = { travel: 3.0, assemble: 1.5, hold: 2.0, leave: 2.5, dissolve: 2.5 };
+const DEFAULT_TIMING = { travel: 3.0, assemble: 1.5, hold: 2.0, leave: 0.2, dissolve: 1.2 };
 const PARTICLE_COUNT = 650;
 const WORLD_UP = new THREE.Vector3(0, 1, 0);
 
@@ -394,10 +394,12 @@ export const LAYOUT_FIXED_TEXT_SCALE = 1.0;
 const SLOT_TRANSITION_RATE = 0.8;
 // Fade-Out Tuning V2 — how long AFTER authored endTime the glyph's own
 // visual opacity takes to reach 0. Deliberately short and independent of
-// leaveDuration/dissolveDuration (still 2.5s/2.5s, untouched) — see
+// leaveDuration/dissolveDuration (GUI-tunable — see TrailLyricsManager's
+// setPhraseTiming(), main.js's own Leave/Dissolve Duration sliders) — see
 // _recompute()'s glyphFadeOutEnd for why: the frozen glyph leaves the
 // camera frustum in ~1.1-1.5s regardless, so the fade only needs to be
-// visible within that window, not across the whole 5s leave+dissolve span.
+// visible within that window, not across the whole leave+dissolve span,
+// however long that's currently configured to be.
 const GLYPH_FADE_OUT_SECONDS = 0.75;
 
 // Warm-gold palette matched to Head Particle Trail's own Gold identity

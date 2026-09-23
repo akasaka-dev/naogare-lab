@@ -1537,6 +1537,13 @@ if (lyricTimelineEnabled) {
     outlineWidth: 8,
     outlineColor: '#000000',
     fontFamily: 'Georgia, "Times New Roman", serif',
+    // Leave/Dissolve Duration V1 — how long a phrase lingers (moving away,
+    // then scattering into dust) after HOLD ends; defaults match
+    // TrailLyrics.js's own DEFAULT_TIMING (0.2s/1.2s). Exposed because it
+    // was reported as getting in the way, especially with the camera
+    // facing the traveler head-on, when left at that default.
+    leaveDuration: 0.2,
+    dissolveDuration: 1.2,
   };
   const fTrailLyricsStyle = gui.addFolder('Trail Lyrics Style');
   fTrailLyricsStyle.addColor(trailLyricsStyleGuiState, 'textColor').name('Text Color')
@@ -1556,12 +1563,17 @@ if (lyricTimelineEnabled) {
     .onChange((v) => trailLyricsManager.setGlyphStyle({ outlineColor: v }));
   fTrailLyricsStyle.add(trailLyricsStyleGuiState, 'fontFamily').name('Font Family')
     .onFinishChange((v) => trailLyricsManager.setGlyphStyle({ fontFamily: v }));
+  fTrailLyricsStyle.add(trailLyricsStyleGuiState, 'leaveDuration', 0.0, 5.0, 0.1).name('Leave Duration')
+    .onChange((v) => trailLyricsManager.setPhraseTiming({ leaveDuration: v }));
+  fTrailLyricsStyle.add(trailLyricsStyleGuiState, 'dissolveDuration', 0.0, 5.0, 0.1).name('Dissolve Duration')
+    .onChange((v) => trailLyricsManager.setPhraseTiming({ dissolveDuration: v }));
   // lil-gui doesn't fire onChange for a controller's own initial value, and
   // TrailLyrics' own constructor defaults (shadowColor '#000000',
   // shadowStrength 1.0) predate this folder's now-different defaults above
   // — sync them into the manager once here, same pattern as
   // headParticleTrail.setColors() further up this file.
   trailLyricsManager.setGlyphStyle({ ...trailLyricsStyleGuiState });
+  trailLyricsManager.setPhraseTiming({ leaveDuration: trailLyricsStyleGuiState.leaveDuration, dissolveDuration: trailLyricsStyleGuiState.dissolveDuration });
 }
 
 if (audioEnabled) {
