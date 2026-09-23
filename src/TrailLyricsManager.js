@@ -130,6 +130,19 @@ export class TrailLyricsManager {
     return this._active.length ? this._active[this._active.length - 1].instance : null;
   }
 
+  // DOM Hold Overlay V1 — every currently-active phrase's own
+  // getHoldOverlay() (null unless that phrase is inside its HOLD crossfade
+  // window), tagged with its id so main.js can key a pooled set of DOM
+  // elements to it (more than one phrase can be in HOLD at once).
+  getHoldOverlays() {
+    const result = [];
+    for (const entry of this._active) {
+      const overlay = entry.instance.getHoldOverlay();
+      if (overlay) result.push({ id: entry.id, ...overlay });
+    }
+    return result;
+  }
+
   // Spawns one new TrailLyrics instance for `phrase` (a resolved
   // LyricTimeline event: id, trailLyricsConfig, displayLines, ...). A
   // phrase already active is never re-spawned (idempotent from
@@ -168,6 +181,10 @@ export class TrailLyricsManager {
     // GUI-override pattern as the glyph style fields above.
     if (this._leaveDuration !== undefined) config.leaveDuration = this._leaveDuration;
     if (this._dissolveDuration !== undefined) config.dissolveDuration = this._dissolveDuration;
+    // Particle Count V1 (performance knob) — future spawns only, see
+    // TrailLyrics.js's own particleCount comment for why (a live geometry
+    // rebuild isn't worth it for a perf-tuning slider).
+    if (this._particleCount !== undefined) config.particleCount = this._particleCount;
 
     // Reading-Order Layout V2: word-wrap ONCE here, conservatively, to the
     // NARROWER of the two possible column widths (i.e. assume MULTI_COLUMN
@@ -240,6 +257,13 @@ export class TrailLyricsManager {
     if (leaveDuration !== undefined) this._leaveDuration = leaveDuration;
     if (dissolveDuration !== undefined) this._dissolveDuration = dissolveDuration;
     for (const entry of this._active) entry.instance.configure({ leaveDuration, dissolveDuration });
+  }
+
+  // Particle Count V1 (performance knob) — future spawns only; changing
+  // particle count needs a full geometry rebuild (setText()), which isn't
+  // worth doing live on an already-visible phrase just to tune this.
+  setParticleCount(count) {
+    this._particleCount = count;
   }
 
   // Per-frame advance for every currently active instance, plus (Reading-

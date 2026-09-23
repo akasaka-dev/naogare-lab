@@ -46,6 +46,7 @@ const depthEl = document.getElementById('depth');
 const depthStateEl = document.getElementById('depth-state');
 const depthValEl = document.getElementById('depth-val');
 const travelerAltValEl = document.getElementById('traveler-alt-val');
+const holdLyricOverlayEl = document.getElementById('holdLyricOverlay');
 const tcTitleEl = document.getElementById('tc-title');
 const tcCreditEl = document.getElementById('tc-credit');
 const realTimeEl = document.getElementById('realTime');
@@ -663,6 +664,11 @@ const lyricTimeline = lyricTimelineEnabled
     })
   : null;
 let lyricTimelineGuiState = null;
+// DOM Hold Overlay V1 — assigned below (inside `if (lyricTimelineEnabled)`)
+// to a real implementation that closes over trailLyricsStyleGuiState;
+// stays null (a safe no-op call site in animate()) whenever the feature
+// isn't loaded at all.
+let syncHoldOverlays = null;
 // Title / Credit Overlay V1 — drives the two DOM elements above from the
 // exact same lyricTimeline.time clock (see the update() call below); kept
 // entirely separate from TrailLyrics/TrailLyricsManager (cues 1-3 stay
@@ -1403,7 +1409,7 @@ if (headParticlesEnabled) {
     speed: headParticleTrail.speed,
     paused: false,
     follow: true,
-    meanderStrength: 1.0,
+    meanderStrength: 0.0,
   };
   const fHeadParticles = gui.addFolder('Head Particle Trail');
   fHeadParticles.add({ restart: () => headParticleTrail.restart() }, 'restart').name('Restart');
@@ -1534,7 +1540,7 @@ if (lyricTimelineEnabled) {
     textColor: '#ffffff',
     shadowColor: '#302a79',
     shadowStrength: 2.0,
-    outlineWidth: 8,
+    outlineWidth: 0,
     outlineColor: '#000000',
     fontFamily: 'Georgia, "Times New Roman", serif',
     // Leave/Dissolve Duration V1 — how long a phrase lingers (moving away,
@@ -1544,6 +1550,9 @@ if (lyricTimelineEnabled) {
     // facing the traveler head-on, when left at that default.
     leaveDuration: 0.2,
     dissolveDuration: 1.2,
+    // Particle Count V1 (performance knob) — default matches TrailLyrics.js's
+    // own PARTICLE_COUNT (650/phrase).
+    particleCount: 650,
   };
   const fTrailLyricsStyle = gui.addFolder('Trail Lyrics Style');
   fTrailLyricsStyle.addColor(trailLyricsStyleGuiState, 'textColor').name('Text Color')
@@ -1567,6 +1576,12 @@ if (lyricTimelineEnabled) {
     .onChange((v) => trailLyricsManager.setPhraseTiming({ leaveDuration: v }));
   fTrailLyricsStyle.add(trailLyricsStyleGuiState, 'dissolveDuration', 0.0, 5.0, 0.1).name('Dissolve Duration')
     .onChange((v) => trailLyricsManager.setPhraseTiming({ dissolveDuration: v }));
+  // Particle Count V1 — performance knob (up to maxActive=8 concurrent
+  // phrases at this count each: 650 default -> up to 5200 particles).
+  // Only affects phrases spawned after the change — see
+  // TrailLyricsManager.setParticleCount()'s own comment on why.
+  fTrailLyricsStyle.add(trailLyricsStyleGuiState, 'particleCount', 50, 650, 10).name('Particle Count')
+    .onChange((v) => trailLyricsManager.setParticleCount(v));
   // lil-gui doesn't fire onChange for a controller's own initial value, and
   // TrailLyrics' own constructor defaults (shadowColor '#000000',
   // shadowStrength 1.0) predate this folder's now-different defaults above
@@ -1574,6 +1589,44 @@ if (lyricTimelineEnabled) {
   // headParticleTrail.setColors() further up this file.
   trailLyricsManager.setGlyphStyle({ ...trailLyricsStyleGuiState });
   trailLyricsManager.setPhraseTiming({ leaveDuration: trailLyricsStyleGuiState.leaveDuration, dissolveDuration: trailLyricsStyleGuiState.dissolveDuration });
+  trailLyricsManager.setParticleCount(trailLyricsStyleGuiState.particleCount);
+
+  // DOM Hold Overlay V1 — a small persistent pool (id -> <div>) inside
+  // #holdLyricOverlay, kept in sync with TrailLyricsManager.getHoldOverlays()
+  // every frame (see animate()'s own call site). Position is written once
+  // per element per HOLD (the {x,y} a given overlay object carries never
+  // changes while that phrase holds — see TrailLyrics.js's own
+  // _holdScreenPos), only opacity/text/style are live. Styling mirrors the
+  // current Trail Lyrics Style GUI state so the crossfade against the 3D
+  // glyph (which reads the exact same state) doesn't look like a swap.
+  const holdOverlayPool = new Map();
+  syncHoldOverlays = (overlays) => {
+    const seen = new Set();
+    for (const o of overlays) {
+      seen.add(o.id);
+      let el = holdOverlayPool.get(o.id);
+      if (!el) {
+        el = document.createElement('div');
+        el.className = 'hold-lyric-item';
+        holdLyricOverlayEl.appendChild(el);
+        holdOverlayPool.set(o.id, el);
+      }
+      el.style.left = o.x + '%';
+      el.style.top = o.y + '%';
+      el.style.opacity = o.alpha.toFixed(3);
+      el.textContent = o.text;
+      el.style.color = trailLyricsStyleGuiState.textColor;
+      el.style.webkitTextStroke = trailLyricsStyleGuiState.outlineWidth > 0
+        ? `${(trailLyricsStyleGuiState.outlineWidth * 0.35).toFixed(2)}px ${trailLyricsStyleGuiState.outlineColor}`
+        : '0';
+      el.style.textShadow = `0 2px 10px ${trailLyricsStyleGuiState.shadowColor}, 0 1px 3px ${trailLyricsStyleGuiState.shadowColor}`;
+      el.style.fontFamily = trailLyricsStyleGuiState.fontFamily;
+      el.style.fontSize = 'clamp(16px, 3vw, 32px)';
+    }
+    for (const [id, el] of holdOverlayPool) {
+      if (!seen.has(id)) { el.remove(); holdOverlayPool.delete(id); }
+    }
+  };
 }
 
 if (audioEnabled) {
@@ -2010,6 +2063,7 @@ function animate() {
     // `undefined` (harmless no-op inside update()) when the timeline isn't
     // enabled at all.
     trailLyricsManager.update(dt, headParticleTrail, camera, lyricTimeline ? lyricTimeline.time : undefined);
+    if (syncHoldOverlays) syncHoldOverlays(trailLyricsManager.getHoldOverlays());
   }
 
   ocean.uniforms.uCameraUnderwater.value = underwater ? 1 : 0;

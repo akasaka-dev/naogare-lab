@@ -106,7 +106,7 @@ class HeadPath {
     // HeadParticleTrail.setMeanderStrength(). Renaming this GUI-facing
     // field would touch main.js's existing "Meander Strength" control for
     // no benefit, so it keeps its original name.
-    this.meanderStrength = 1.0;
+    this.meanderStrength = 0.0;
 
     // Seed state, read once here from the raw Catmull-Rom curve's own
     // start point/tangent — never touched again after this.

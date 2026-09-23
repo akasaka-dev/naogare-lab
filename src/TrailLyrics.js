@@ -362,6 +362,31 @@ export function wrapDisplayLines(displayLines, maxWidthPx, fontOpts) {
 //  anything (the phase boundaries are recomputed from these every frame).
 // ---------------------------------------------------------------------------
 const DEFAULT_TIMING = { travel: 3.0, assemble: 1.5, hold: 2.0, leave: 0.2, dissolve: 1.2 };
+// DOM Hold Overlay V1 — how long the crossfade between the 3D glyph mesh
+// and the plain DOM text overlay takes, at both the start and end of HOLD.
+// See _recompute()'s own comment on why HOLD specifically gets this
+// treatment: a per-frame camera.position + basis-vector reconstruction
+// (this._computeLayoutCenter(), unaffected by this and still driving the
+// invisible-during-HOLD 3D mesh) reproduces an occasional real frame-time
+// spike (a large dt from any cause) as a visible position jump — provably
+// so (see the console jump diagnostic below) — for the ENTIRE, often
+// multi-second HOLD read, however briefly the spike itself lasts. A plain
+// DOM element positioned via a single one-off screen-space projection,
+// taken once as HOLD begins, cannot inherit that: it never re-reads
+// camera/world position at all once placed, so there is nothing left for
+// a stray large dt to perturb. TRAVEL/ASSEMBLE (letters condensing from
+// the wake) and LEAVE/DISSOLVE (scattering back into it) keep the full 3D
+// treatment — replacing those with flat text would give up the visual
+// effect the whole system exists for, and they are brief enough (a few
+// seconds each) that the same rare spike has far less to disrupt.
+const DOM_OVERLAY_CROSSFADE = 0.35;
+// Largest per-frame screen-space move (CSS percentage points) the DOM hold
+// overlay accepts before rejecting it as an outlier frame-hitch spike and
+// keeping its last position instead — see the jump-rejection block in
+// _recompute(). Generous relative to ordinary camera panning or a reading-
+// order layout reflow (both span many frames), tight relative to what a
+// large single-frame dt spike produces.
+const DOM_OVERLAY_MAX_JUMP_PERCENT = 5.0;
 const PARTICLE_COUNT = 650;
 const WORLD_UP = new THREE.Vector3(0, 1, 0);
 
@@ -458,6 +483,12 @@ export class TrailLyrics {
     this.holdDuration = DEFAULT_TIMING.hold;
     this.leaveDuration = DEFAULT_TIMING.leave;
     this.dissolveDuration = DEFAULT_TIMING.dissolve;
+    // Particle Count V1 — GUI-tunable performance knob. Read fresh by
+    // setText() (see sampleTextTargets()'s targetCount below), so changing
+    // it only affects phrases spawned/rebuilt after the change, same as
+    // fontFamily's own "applied synchronously here" per-event behaviour —
+    // never a live geometry rebuild on an already-visible phrase.
+    this.particleCount = PARTICLE_COUNT;
     // Forevermore Title Match V1 — GUI-tunable 0..1 multiplier for the
     // canvas-drawn two-layer shadow baked into the glyph texture, styled to
     // match #tc-title's CSS text-shadow (see sampleTextTargets()). 1.0
@@ -781,6 +812,17 @@ export class TrailLyrics {
     this._planeCenter = new THREE.Vector3();
     this._planeQuat = new THREE.Quaternion();
     this._cyclePrepared = false;
+    // DOM Hold Overlay V1 — see DOM_OVERLAY_CROSSFADE's own comment.
+    // _holdScreenPos is set ONCE (a one-off projection) the instant HOLD
+    // begins each cycle and cleared outside of [holdStart, holdEnd), so it
+    // is always either "this cycle's fixed hold position" or null, never a
+    // stale value from a previous cycle. _domOverlayAlpha is recomputed
+    // every frame (a pure, cheap function of how far into/from HOLD's
+    // start/end lt currently is) purely to drive the crossfade opacity —
+    // it never feeds back into _holdScreenPos.
+    this._holdScreenPos = null;
+    this._domOverlayAlpha = 0;
+    this._tmpProjected = new THREE.Vector3();
 
     // Scratch (reused every frame — no per-frame allocation).
     this._tmpOffset = new THREE.Vector3();
@@ -835,7 +877,7 @@ export class TrailLyrics {
     // non-screen-locked phrase (legacy fallback, standalone demo) is
     // completely unaffected — this branch never fires for them.
     const rasterOpts = {
-      targetCount: PARTICLE_COUNT,
+      targetCount: this.particleCount,
       seed,
       fontFamily: this.fontFamily,
       fontWeight: this.fontWeight,
@@ -928,7 +970,7 @@ export class TrailLyrics {
     const KEYS = [
       'textScale', 'formationDistance', 'formationHeightOffset',
       'travelDuration', 'assembleDuration', 'holdDuration', 'leaveDuration', 'dissolveDuration',
-      'particleContribution', 'billboardRelease', 'positionRelease', 'followSmoothing',
+      'particleCount', 'particleContribution', 'billboardRelease', 'positionRelease', 'followSmoothing',
       'maxPositionChaseSeconds', 'screenLock',
       'trailWindowMin', 'trailWindowMax', 'flowAmount',
       // Trail Lyrics Font Support V1 (spec: "per-event font override from
@@ -1034,7 +1076,7 @@ export class TrailLyrics {
       return;
     }
     const rasterOpts = {
-      targetCount: PARTICLE_COUNT,
+      targetCount: this.particleCount,
       seed: this._seed,
       fontFamily: this.fontFamily,
       fontWeight: this.fontWeight,
@@ -1094,6 +1136,25 @@ export class TrailLyrics {
   // consumers have one clean, stable surface even if the internal field
   // representation ever changes.
   getPhase() { return this.phase; }
+
+  // DOM Hold Overlay V1 — a one-off NDC->CSS-percentage projection of
+  // wherever _planeCenter happened to be at the moment this was called.
+  // Deliberately NOT stored/reused internally beyond the single assignment
+  // in _recompute() below (see _holdScreenPos's own comment) — callers
+  // never need to call this directly.
+  _projectToScreen(camera) {
+    const p = this._tmpProjected.copy(this._planeCenter).project(camera);
+    return { x: (p.x + 1) * 50, y: (1 - p.y) * 50 };
+  }
+
+  // Public surface for TrailLyricsManager.getHoldOverlays() — null unless
+  // this phrase is CURRENTLY in its HOLD crossfade window with a cached
+  // screen position, in which case {x, y} are CSS percentages and alpha is
+  // this frame's crossfade opacity (see DOM_OVERLAY_CROSSFADE).
+  getHoldOverlay() {
+    if (!this._holdScreenPos || this._domOverlayAlpha <= 0) return null;
+    return { x: this._holdScreenPos.x, y: this._holdScreenPos.y, alpha: this._domOverlayAlpha, text: this.currentText };
+  }
 
   // Reading-Order Layout V2 — TrailLyricsManager calls this every time it
   // recomputes the readable-set column layout (a phrase entering/leaving,
@@ -1365,6 +1426,26 @@ export class TrailLyrics {
     else if (lt < t4) this.phase = 'leave';
     else this.phase = 'dissolve';
 
+    // DOM Hold Overlay V1 (see DOM_OVERLAY_CROSSFADE's own comment) —
+    // _domOverlayAlpha ramps 0->1 over the crossfade window at hold's start
+    // and 1->0 over the same window at hold's end, min()'d so a HOLD
+    // shorter than twice the crossfade still reaches a sensible peak
+    // instead of overshooting. The actual _holdScreenPos SCREEN POSITION
+    // is computed further below, once _planeCenter has been refreshed for
+    // this frame (see that block's own comment for why it isn't simply
+    // cached once here).
+    const inHoldWindow = this.screenLock && lt >= t2 && lt < t3;
+    if (inHoldWindow) {
+      const holdElapsed = lt - t2;
+      const holdRemaining = t3 - lt;
+      const fadeIn = smoothstep(0, DOM_OVERLAY_CROSSFADE, holdElapsed);
+      const fadeOut = smoothstep(0, DOM_OVERLAY_CROSSFADE, holdRemaining);
+      this._domOverlayAlpha = Math.min(fadeIn, fadeOut);
+    } else {
+      this._holdScreenPos = null;
+      this._domOverlayAlpha = 0;
+    }
+
     // Orientation-influence envelope (spec 7): fully locked through ASSEMBLE
     // and the first `billboardRelease` fraction of HOLD, then a smooth
     // release across the remainder of HOLD, reaching exactly 0 by the start
@@ -1472,6 +1553,33 @@ export class TrailLyrics {
     // (frozen) — its last followed value becomes the permanent world-space
     // point the phrase is left behind at.
 
+    // DOM Hold Overlay V1 — recomputed every frame (never just once), from
+    // _planeCenter as freshly refreshed above, so this tracks whatever the
+    // 3D anchor is ACTUALLY doing: a live camera pan within the current
+    // shot, or a reading-order layout reflow when a sibling phrase enters/
+    // leaves (_slotOffset easing to a new target over ~0.5s, above) both
+    // move _planeCenter legitimately mid-HOLD, and the overlay needs to
+    // follow both or it visibly drifts away from where the (now invisible)
+    // 3D text actually is — an EARLIER version of this cached the
+    // projection exactly once at HOLD's start and never touched it again,
+    // which fixed the frame-hitch jump but broke tracking entirely once a
+    // reflow moved the real anchor. The one thing still filtered out is a
+    // single-frame jump bigger than a real camera/layout change could
+    // plausibly produce (the same class of spike the console diagnostic
+    // above catches) — DOM_OVERLAY_MAX_JUMP_PERCENT is generous enough for
+    // ordinary panning and reflows, tight enough to reject a hitch.
+    if (inHoldWindow) {
+      const projected = this._projectToScreen(camera);
+      if (!this._holdScreenPos) {
+        this._holdScreenPos = projected;
+      } else {
+        const dx = projected.x - this._holdScreenPos.x;
+        const dy = projected.y - this._holdScreenPos.y;
+        if (Math.hypot(dx, dy) <= DOM_OVERLAY_MAX_JUMP_PERCENT) this._holdScreenPos = projected;
+        // else: reject this frame's outlier projection, keep the last-good position.
+      }
+    }
+
     this.points.position.copy(this._planeCenter);
     this.points.quaternion.copy(this._planeQuat);
     this.glyphMesh.position.copy(this._planeCenter);
@@ -1516,7 +1624,11 @@ export class TrailLyrics {
     // per the intended "solid glyph -> endTime -> glyph gone -> particles
     // carry the departure" sequence.
     this.glyphMesh.visible = lt < t3;
-    this.glyphMaterial.opacity = THREE.MathUtils.clamp(glyphFadeIn, 0, 1);
+    // Crossfades against the DOM hold overlay (see DOM_OVERLAY_CROSSFADE):
+    // (1 - _domOverlayAlpha) is 1 outside of HOLD and outside HOLD's own
+    // crossfade windows, so this is a pure no-op multiply everywhere except
+    // those brief windows at HOLD's start/end.
+    this.glyphMaterial.opacity = THREE.MathUtils.clamp(glyphFadeIn, 0, 1) * (1 - this._domOverlayAlpha);
 
     // Particle contribution dims automatically as the glyph layer takes
     // over (never to zero — a residual sparkle stays visible around/through

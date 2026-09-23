@@ -77,7 +77,7 @@ const PRESETS = [
     key: 'sideFollow',
     label: 'Side Follow',
     weight: 1.2,
-    lyricSafe: true,
+    lyricSafe: false,
     // Spec 7: travels beside the traveler. Side (left/right) is chosen once
     // per shot instance (director._sideSign), not re-randomized every frame,
     // so the shot doesn't flip sides mid-hold.
@@ -413,8 +413,18 @@ export class AutoDirector {
     // (lyric-safe-only while locked, exactly like the forced-cut case
     // above), so the camera still varies during heavily-lyriced sections
     // instead of parking on one shot for most of the song.
+    // Includes TRAVEL, not just ASSEMBLE/HOLD: a screen-locked phrase's
+    // target position/orientation already tracks the live camera every
+    // frame throughout travel+assemble+hold (see TrailLyrics.js's own
+    // screenLockActive — "an authored endTime means readable until then",
+    // covering the whole formation). A camera cut mid-TRAVEL, while the
+    // letters are still flying in from the wake toward that target, was
+    // making the still-forming letters visibly lurch — the target they
+    // were converging on jumped the instant the camera did. Locking
+    // through TRAVEL too means a cut only ever happens once a phrase is
+    // fully assembled and stationary (or between phrases entirely).
     const phase = trailLyrics ? trailLyrics.getPhase() : null;
-    const lyricLockNow = phase === 'assemble' || phase === 'hold';
+    const lyricLockNow = phase === 'travel' || phase === 'assemble' || phase === 'hold';
     if (this.auto && lyricLockNow && !this._lyricLocked && !this._isLyricSafe(this.cameraMode)) {
       PRESET_BY_KEY.get(this.cameraMode).compute(ctx, this._out);
       this.setMode(this._pickNextMode(true), 'cut', this._toPos, this._toLook);
