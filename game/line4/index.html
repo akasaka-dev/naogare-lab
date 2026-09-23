@@ -1760,8 +1760,35 @@
       server_error: K('通信エラーが発生しました。もう一度お試しください。', 'つうしんエラーがはっせいしました。もういちどおためしください。'),
     };
   }
-  function showOnlineError(code) {
-    onlineErrorEl.textContent = onlineErrorMessages()[code] || onlineErrorMessages().server_error;
+  // "3分12秒" / "45秒" — used only for the room_full detail message below.
+  function formatElapsed(ms) {
+    const totalSec = Math.max(0, Math.floor(ms / 1000));
+    const min = Math.floor(totalSec / 60);
+    const sec = totalSec % 60;
+    if (min <= 0) return K(`${sec}秒`, `${sec}びょう`);
+    return K(`${min}分${sec}秒`, `${min}ふん${sec}びょう`);
+  }
+  // room_full carries the occupied room's state (names/streaks/match start
+  // time) so we can tell a blocked joiner who's playing instead of just
+  // "in use" — falls back to the plain message if state is missing.
+  function roomFullDetailMessage(state) {
+    if (!state || !state.p1Name || !state.p2Name) return null;
+    const p1 = state.p1Name, p2 = state.p2Name;
+    let msg = `${p1}${K('さんと', 'さんと')}${p2}${K('さんが対戦中', 'さんがたいせんちゅう')}`;
+    const parts = [];
+    if (state.matchStartedAt) {
+      parts.push(`${K('経過', 'けいか')}${formatElapsed(Date.now() - state.matchStartedAt)}`);
+    }
+    const leader = state.p1Streak >= state.p2Streak ? { name: p1, streak: state.p1Streak } : { name: p2, streak: state.p2Streak };
+    if (leader.streak > 0) {
+      parts.push(`${leader.name}${K('さんが', 'さんが')}${leader.streak}${K('連勝中', 'れんしょうちゅう')}`);
+    }
+    if (parts.length) msg += `（${parts.join('／')}）`;
+    return msg;
+  }
+  function showOnlineError(code, res) {
+    const detail = code === 'room_full' && res && roomFullDetailMessage(res.state);
+    onlineErrorEl.textContent = detail || onlineErrorMessages()[code] || onlineErrorMessages().server_error;
   }
   function clearOnlineError() {
     onlineErrorEl.textContent = '';
@@ -1852,7 +1879,7 @@
     clearOnlineError();
     if (!code) { showOnlineError('invalid_body'); return; }
     const res = await apiPost(`/room/${code}/join`, { name: getPlayerName() });
-    if (!res.ok) { showOnlineError(res.error); return; }
+    if (!res.ok) { showOnlineError(res.error, res); return; }
     online = { code, token: res.token, myPlayer: res.player, rev: res.state.rev, emoteRev: res.state.emoteRev || 0, timer: null, busy: false, awaitingRematch: false };
     beginOnlineMatch(res.state);
   }

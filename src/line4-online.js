@@ -51,8 +51,8 @@ function jsonResponse(data, status) {
   });
 }
 
-function errorResponse(error, status) {
-  return jsonResponse({ ok: false, error }, status || 400);
+function errorResponse(error, status, extra) {
+  return jsonResponse(Object.assign({ ok: false, error }, extra), status || 400);
 }
 
 function randomToken() {
@@ -119,6 +119,7 @@ function rowToRoom(row) {
     p1Streak: row.p1_streak,
     p2Streak: row.p2_streak,
     turnStartedAt: row.turn_started_at,
+    matchStartedAt: row.match_started_at,
     startingPlayer: row.starting_player,
     grid: JSON.parse(row.grid),
     currentPlayer: row.current_player,
@@ -144,6 +145,7 @@ function publicState(room) {
     p1Streak: room.p1Streak,
     p2Streak: room.p2Streak,
     turnStartedAt: room.turnStartedAt,
+    matchStartedAt: room.matchStartedAt,
     startingPlayer: room.startingPlayer,
     grid: room.grid,
     currentPlayer: room.currentPlayer,
@@ -244,7 +246,7 @@ async function handleJoin(request, env, code) {
 
   const room = await loadRoom(env, code);
   if (!room) return errorResponse('room_not_found', 404);
-  if (room.p1Token && room.p2Token) return errorResponse('room_full', 409);
+  if (room.p1Token && room.p2Token) return errorResponse('room_full', 409, { state: publicState(room) });
 
   // Fills whichever slot is empty — normally p2 (the room's original
   // creator is always p1), but after a handleRematch() the *winner's*
@@ -256,13 +258,16 @@ async function handleJoin(request, env, code) {
 
   const result = await env.LINE4_DB.prepare(
     fillingP1
-      ? `UPDATE rooms SET p1_token = ?1, p1_name = ?2, status = 'playing', starting_player = ?3, current_player = ?3, turn_started_at = ?4, rev = rev + 1, updated_at = ?4
+      ? `UPDATE rooms SET p1_token = ?1, p1_name = ?2, status = 'playing', starting_player = ?3, current_player = ?3, turn_started_at = ?4, match_started_at = ?4, rev = rev + 1, updated_at = ?4
          WHERE code = ?5 AND p1_token IS NULL`
-      : `UPDATE rooms SET p2_token = ?1, p2_name = ?2, status = 'playing', starting_player = ?3, current_player = ?3, turn_started_at = ?4, rev = rev + 1, updated_at = ?4
+      : `UPDATE rooms SET p2_token = ?1, p2_name = ?2, status = 'playing', starting_player = ?3, current_player = ?3, turn_started_at = ?4, match_started_at = ?4, rev = rev + 1, updated_at = ?4
          WHERE code = ?5 AND p2_token IS NULL`
   ).bind(token, name, startingPlayer, now, code).run();
 
-  if (!result.meta || result.meta.changes === 0) return errorResponse('room_full', 409);
+  if (!result.meta || result.meta.changes === 0) {
+    const current = await loadRoom(env, code);
+    return errorResponse('room_full', 409, current ? { state: publicState(current) } : undefined);
+  }
 
   const updated = await loadRoom(env, code);
   return jsonResponse({ ok: true, token, player: fillingP1 ? 1 : 2, state: publicState(updated) });
@@ -379,9 +384,9 @@ async function handleRematch(request, env, code) {
 
   const result = await env.LINE4_DB.prepare(
     loserIsP1
-      ? `UPDATE rooms SET p1_token = NULL, p1_name = NULL, p1_streak = 0, grid = ?1, current_player = 1, game_over = 0, winner = NULL, win_line = NULL, status = 'waiting', starting_player = NULL, turn_started_at = NULL, rev = rev + 1, updated_at = ?2
+      ? `UPDATE rooms SET p1_token = NULL, p1_name = NULL, p1_streak = 0, grid = ?1, current_player = 1, game_over = 0, winner = NULL, win_line = NULL, status = 'waiting', starting_player = NULL, turn_started_at = NULL, match_started_at = NULL, rev = rev + 1, updated_at = ?2
          WHERE code = ?3 AND rev = ?4`
-      : `UPDATE rooms SET p2_token = NULL, p2_name = NULL, p2_streak = 0, grid = ?1, current_player = 1, game_over = 0, winner = NULL, win_line = NULL, status = 'waiting', starting_player = NULL, turn_started_at = NULL, rev = rev + 1, updated_at = ?2
+      : `UPDATE rooms SET p2_token = NULL, p2_name = NULL, p2_streak = 0, grid = ?1, current_player = 1, game_over = 0, winner = NULL, win_line = NULL, status = 'waiting', starting_player = NULL, turn_started_at = NULL, match_started_at = NULL, rev = rev + 1, updated_at = ?2
          WHERE code = ?3 AND rev = ?4`
   ).bind(JSON.stringify(grid), now, code, room.rev).run();
 
