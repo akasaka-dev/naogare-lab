@@ -239,9 +239,9 @@ export class AutoDirector {
     this.allowCuts = false;
     this.cameraMode = opts.mode || DEFAULT_MODE;
     this.seed = opts.seed >>> 0 || 1234;
-    this.minShotDuration = 5.0;
-    this.maxShotDuration = 9.0;
-    this.transitionTime = 1.2;
+    this.minShotDuration = 9.0;
+    this.maxShotDuration = 16.0;
+    this.transitionTime = 2.6;
 
     this._rand = mulberry32(this.seed);
     this._shotElapsed = 0;
