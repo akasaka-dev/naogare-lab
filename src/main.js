@@ -244,7 +244,9 @@ const FLOOR_DEPTH = 22;
 const TRAVELER_ALTITUDE_SPEED = 7.0;
 const MIN_TRAVELER_ALTITUDE_OFFSET = -8.0;
 const MAX_TRAVELER_ALTITUDE_OFFSET = 80.0;
-let travelerAltitudeOffset = 0;
+// Default raised from 0 to 4.5 — at 0 the trail/lyrics sat low enough to be
+// hidden behind wave crests in some conditions.
+let travelerAltitudeOffset = 4.5;
 let travelerAltitudeDirection = 1; // +1 UP, -1 DOWN — next hold's direction
 let travelerAltitudeSpaceHeld = false;
 
