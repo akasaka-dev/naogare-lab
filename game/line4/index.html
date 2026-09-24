@@ -223,7 +223,7 @@
     opacity: 0.9;
     margin-top: -6px;
   }
-  #playerNameInput {
+  #playerNameInput, .name-input {
     background: #0f172a;
     border: 2px solid #334155;
     color: var(--text);
@@ -233,7 +233,13 @@
     width: 130px;
     text-align: center;
   }
-  #playerNameInput:focus { outline: none; border-color: var(--accent); }
+  #playerNameInput:focus, .name-input:focus { outline: none; border-color: var(--accent); }
+  #onlineJoinConfirm {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+  }
   .online-join-row {
     display: flex;
     gap: 8px;
@@ -404,6 +410,12 @@
     border: 2px solid #475569;
     color: var(--text);
   }
+  /* Online post-game countdown ("leave in N seconds") — see tickPostGameCountdown() */
+  .result-note {
+    margin-top: 12px;
+    font-size: 0.8rem;
+    opacity: 0.7;
+  }
 
   /* ---- All-clear ending ---- */
   #endingScreen {
@@ -506,6 +518,22 @@
     width: 100%;
     max-width: min(480px, 92vw);
     margin-top: 14px;
+  }
+  /* Applied for the post-game grace window (see resultNote/POST_GAME_WINDOW_MS)
+     so the emote strip stays reachable above the result overlay's backdrop
+     instead of being hidden underneath it — pinned to the bottom of the
+     viewport with a higher z-index than #resultOverlay (6). */
+  #onlineEmoteBar.postgame {
+    position: fixed;
+    left: 50%;
+    bottom: max(14px, env(safe-area-inset-bottom));
+    transform: translateX(-50%);
+    z-index: 7;
+    background: rgba(15, 23, 42, 0.9);
+    border: 2px solid #334155;
+    border-radius: 16px;
+    padding: 6px 8px 2px;
+    margin-top: 0;
   }
   #emoteScroller {
     display: flex;
@@ -881,6 +909,15 @@
       <p class="online-waiting-text" id="onlineWaitingText"></p>
       <button class="back-to-splash-btn" id="onlineCancelBtn"></button>
     </div>
+    <div id="onlineJoinConfirm" class="hidden">
+      <p class="subtitle" id="onlineJoinConfirmText"></p>
+      <div class="player-name-row">
+        <label for="onlineJoinNameInput" id="onlineJoinNameLabel"></label>
+        <input type="text" id="onlineJoinNameInput" class="name-input" maxlength="10" autocomplete="off">
+      </div>
+      <button id="onlineJoinConfirmBtn"></button>
+      <button class="back-to-splash-btn" id="onlineJoinCancelBtn"></button>
+    </div>
   </div>
 
   <!-- Game screen -->
@@ -943,6 +980,7 @@
       <div class="result-title" id="resultTitle"></div>
       <div class="result-message" id="resultMessage"></div>
       <div class="result-actions" id="resultActions"></div>
+      <div class="result-note" id="resultNote"></div>
     </div>
   </div>
 
@@ -1250,6 +1288,10 @@
     document.getElementById('onlineCopyBtn').textContent = K('招待URLをコピー', 'しょうたいURLをコピー');
     document.getElementById('onlineWaitingText').textContent = K('対戦相手を待っています…', 'たいせんあいてをまっています…');
     document.getElementById('onlineCancelBtn').textContent = 'キャンセル';
+    document.getElementById('onlineJoinNameLabel').textContent = K('プレイヤー名', 'プレイヤーめい');
+    document.getElementById('onlineJoinConfirmBtn').textContent = K('開始する', 'かいしする');
+    document.getElementById('onlineJoinCancelBtn').textContent = 'キャンセル';
+    renderJoinConfirmText();
     document.getElementById('endingHint').textContent = K('ドラッグで読み返せます／クリックでタイトルへ', 'ドラッグでよみかえせます／クリックでタイトルへ');
 
     resetBtn.textContent = K('最初からやり直す', 'さいしょからやりなおす');
@@ -1713,7 +1755,51 @@
   // next /state poll from either side); this is purely the countdown display.
   const TURN_TIMEOUT_MS = 60000;
   const TURN_TIMEOUT_WARNING_MS = 30000;
+  // How long the post-game emote/leave window stays open — mirrors (and
+  // must stay a bit under) FINISHED_ROOM_GRACE_MS in src/line4-online.js.
+  const POST_GAME_WINDOW_MS = 30000;
+
+  // #resultOverlay is a direct child of <body>, but #onlineEmoteBar normally
+  // lives inside .page-content (position:relative + z-index:1, its own
+  // stacking context) — so no z-index on the emote bar, however high, could
+  // ever out-rank the overlay; it only LOOKED like it was on top while
+  // actually eating no clicks (confirmed via elementFromPoint). Reparenting
+  // it to <body> during the post-game window makes it a real sibling of
+  // #resultOverlay so z-index:7 vs 6 finally applies, then it's moved back
+  // next to the board once the window ends.
+  function pinEmoteBarForPostGame() {
+    document.body.appendChild(document.getElementById('onlineEmoteBar'));
+  }
+  function restoreEmoteBarPosition() {
+    document.getElementById('board-wrap').insertAdjacentElement('afterend', document.getElementById('onlineEmoteBar'));
+  }
+
+  // Called from the finished/leave room after either a decisive win/loss/draw:
+  // stops the post-game countdown, tears down the emote bar's temporary
+  // "postgame" positioning, and returns to the title screen.
+  function leavePostGameRoom() {
+    if (online) online.postGameDeadline = null;
+    document.getElementById('resultOverlay').classList.add('hidden');
+    goToTitle();
+  }
+
+  function tickPostGameCountdown() {
+    const noteEl = document.getElementById('resultNote');
+    if (mode !== 'online' || !online || !online.postGameDeadline) {
+      noteEl.textContent = '';
+      return;
+    }
+    const remaining = online.postGameDeadline - Date.now();
+    if (remaining <= 0) {
+      leavePostGameRoom();
+      return;
+    }
+    const seconds = Math.ceil(remaining / 1000);
+    noteEl.textContent = `⏱ ${K(`あと${seconds}秒で退室します`, `あと${seconds}びょうでたいしゅつします`)}`;
+  }
+
   setInterval(() => {
+    tickPostGameCountdown();
     const warnEl = document.getElementById('turnTimeoutWarning');
     if (mode !== 'online' || !online || gameOver || !online.turnStartedAt) {
       warnEl.classList.add('hidden');
@@ -1798,6 +1884,7 @@
     stopOnlinePolling();
     online = null;
     onlineWaitingEl.classList.add('hidden');
+    hideJoinConfirm();
     onlineMenuEl.classList.remove('hidden');
     clearOnlineError();
   }
@@ -1875,19 +1962,84 @@
     }, ONLINE_POLL_MS);
   }
 
+  // Entering a code no longer joins immediately — it peeks at the room first
+  // (GET /state, no side effects) so we can ask "play against 〇〇さん?"
+  // before actually taking a seat. Both the manual join button and the
+  // ?room=CODE invite-link auto-join (see the splash click handler above)
+  // go through this same confirm step.
+  let pendingJoinCode = null;
+  let pendingJoinState = null;
+
+  function renderJoinConfirmText() {
+    const el = document.getElementById('onlineJoinConfirmText');
+    if (!pendingJoinState) return;
+    const state = pendingJoinState;
+    const opponentName = state.hasP1 ? state.p1Name : (state.hasP2 ? state.p2Name : null);
+    el.textContent = opponentName
+      ? `${opponentName}${K('さんと対戦します。開始しますか？', 'さんとたいせんします。かいししますか？')}`
+      : K('この部屋に参加します。開始しますか？', 'このへやにさんかします。かいししますか？');
+  }
+
+  function showJoinConfirm(code, state) {
+    pendingJoinCode = code;
+    pendingJoinState = state;
+    renderJoinConfirmText();
+    document.getElementById('onlineJoinNameInput').value = getPlayerName();
+    onlineMenuEl.classList.add('hidden');
+    document.getElementById('onlineJoinConfirm').classList.remove('hidden');
+  }
+
+  function hideJoinConfirm() {
+    pendingJoinCode = null;
+    pendingJoinState = null;
+    document.getElementById('onlineJoinConfirm').classList.add('hidden');
+  }
+
   async function joinOnlineRoom(code) {
     clearOnlineError();
     if (!code) { showOnlineError('invalid_body'); return; }
+    const res = await apiGet(`/room/${code}/state`);
+    if (!res.ok) { showOnlineError(res.error); return; }
+    if (res.state.hasP1 && res.state.hasP2) {
+      onlineErrorEl.textContent = roomFullDetailMessage(res.state) || onlineErrorMessages().room_full;
+      return;
+    }
+    showJoinConfirm(code, res.state);
+  }
+
+  document.getElementById('onlineJoinConfirmBtn').addEventListener('click', async () => {
+    SoundMgr.seClick();
+    const code = pendingJoinCode;
+    // The name field here IS playerNameInput's value everywhere else reads
+    // from (getPlayerName()) — write-through to storage so a change made
+    // right before this match sticks for later matches too.
+    playerNameInput.value = document.getElementById('onlineJoinNameInput').value;
+    safeStorageSet(NAME_STORAGE_KEY, getPlayerName());
+    hideJoinConfirm();
     const res = await apiPost(`/room/${code}/join`, { name: getPlayerName() });
-    if (!res.ok) { showOnlineError(res.error, res); return; }
+    if (!res.ok) {
+      onlineMenuEl.classList.remove('hidden');
+      showOnlineError(res.error, res);
+      return;
+    }
     online = { code, token: res.token, myPlayer: res.player, rev: res.state.rev, emoteRev: res.state.emoteRev || 0, timer: null, busy: false, awaitingRematch: false };
     beginOnlineMatch(res.state);
-  }
+  });
+  document.getElementById('onlineJoinCancelBtn').addEventListener('click', () => {
+    SoundMgr.seClick();
+    hideJoinConfirm();
+    onlineMenuEl.classList.remove('hidden');
+  });
 
   // "Winner stays on": called from the win result overlay. Vacates the
   // loser's slot server-side and reuses the same waiting-room UI/polling as
   // a freshly created room while a new challenger joins via the same code.
   async function requestRematch() {
+    online.postGameDeadline = null;
+    restoreEmoteBarPosition();
+    document.getElementById('onlineEmoteBar').classList.remove('postgame');
+    document.getElementById('onlineEmoteBar').classList.add('hidden');
+    document.getElementById('resultNote').textContent = '';
     try {
       const res = await apiPost(`/room/${online.code}/rematch`, { token: online.token });
       if (!res.ok) { goToTitle(); return; }
@@ -2025,6 +2177,7 @@
   function beginOnlineMatch(state) {
     mode = 'online';
     online.awaitingRematch = false;
+    online.postGameDeadline = null;
     online.opponentName = online.myPlayer === 1 ? state.p2Name : state.p1Name;
     online.turnStartedAt = state.turnStartedAt;
     const opponentStreak = online.myPlayer === 1 ? state.p2Streak : state.p1Streak;
@@ -2034,7 +2187,9 @@
     document.getElementById('speechBubble').classList.add('hidden');
     document.getElementById('score').classList.add('hidden');
     resetBtn.classList.add('hidden');
-    document.getElementById('onlineEmoteBar').classList.remove('hidden');
+    restoreEmoteBarPosition();
+    document.getElementById('onlineEmoteBar').classList.remove('hidden', 'postgame');
+    document.getElementById('resultNote').textContent = '';
     setCharBackground(null);
     SoundMgr.playTrack('game');
     modeLabelEl.textContent = `${K('オンライン対戦', 'オンラインたいせん')}（${K('部屋', 'へや')}: ${online.code}） ／ ${K('あなたは', 'あなたは')}${online.myPlayer === 1 ? K('赤', 'あか') : K('黄', 'き')}`
@@ -2098,8 +2253,11 @@
     gameOver = state.gameOver;
 
     if (state.gameOver) {
-      stopOnlinePolling();
-      document.getElementById('onlineEmoteBar').classList.add('hidden');
+      // Polling stays on through the post-game grace window (see
+      // tickPostGameCountdown/leavePostGameRoom below) — opponent emotes
+      // still arrive via the same poll, and this early-return guard at the
+      // top of applyOnlineState() makes re-entrant calls on the same rev a
+      // no-op, so it's safe to keep ticking.
       if (state.winLine) state.winLine.forEach(([r, c]) => cellEls[r][c].classList.add('win'));
       const iWon = state.winner === String(online.myPlayer);
       const isDraw = state.winner === 'draw';
@@ -2113,20 +2271,26 @@
       }
       const myStreak = online.myPlayer === 1 ? state.p1Streak : state.p2Streak;
       setTimeout(() => {
+        if (!online) return;
+        // Keep the emote strip up (re-pinned above the modal backdrop) so
+        // both players can send a quick thanks/gg — see req: 30秒間スタンプ.
+        pinEmoteBarForPostGame();
+        document.getElementById('onlineEmoteBar').classList.add('postgame');
+        online.postGameDeadline = Date.now() + POST_GAME_WINDOW_MS;
         if (iWon) {
           showResultOverlay({
             title: K('勝利！', 'しょうり！'),
             message: `${K('相手に勝利しました！', 'あいてにしょうりしました！')}\n${myStreak}${K('連勝中！', 'れんしょうちゅう！')}`,
             buttons: [
               { label: K('次の挑戦者を待つ', 'つぎのちょうせんしゃをまつ'), primary: true, onClick: requestRematch },
-              { label: K('タイトルに戻る', 'タイトルにもどる'), onClick: goToTitle },
+              { label: K('退室する', 'たいしゅつする'), onClick: leavePostGameRoom },
             ],
           });
         } else {
           showResultOverlay({
             title: isDraw ? K('引き分け', 'ひきわけ') : K('敗北……', 'はいぼく……'),
             message: isDraw ? K('オンライン対戦は引き分けに終わりました。', 'オンラインたいせんはひきわけにおわりました。') : K('相手に敗れました……', 'あいてにやぶれました……'),
-            buttons: [{ label: K('タイトルに戻る', 'タイトルにもどる'), primary: true, onClick: goToTitle }],
+            buttons: [{ label: K('退室する', 'たいしゅつする'), primary: true, onClick: leavePostGameRoom }],
           });
         }
       }, 1200);
@@ -2229,7 +2393,10 @@
     gameScreen.classList.add('hidden');
     onlineScreenEl.classList.add('hidden');
     titleScreen.classList.remove('hidden');
+    restoreEmoteBarPosition();
     document.getElementById('onlineEmoteBar').classList.add('hidden');
+    document.getElementById('onlineEmoteBar').classList.remove('postgame');
+    document.getElementById('resultNote').textContent = '';
     document.getElementById('incomingEmote').classList.remove('show');
     setCharBackground(null);
     hideBubble();

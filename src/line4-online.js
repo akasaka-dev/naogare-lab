@@ -21,6 +21,12 @@ const CODE_LENGTH = 6;
 const MAX_NAME_LENGTH = 10;
 const DEFAULT_NAME = 'プレイヤー';
 const TURN_TIMEOUT_MS = 60 * 1000; // no move within this long forfeits the turn
+// How long a finished match's room code stays reserved before it's freed up
+// for anyone else to join — gives both players a window to send emotes and
+// gives the winner a chance to click "wait for next challenger" (handleRematch).
+// Kept a bit longer than the client's own 30s post-game countdown so a
+// rematch request that lands right at the deadline doesn't lose the race.
+const FINISHED_ROOM_GRACE_MS = 35 * 1000;
 
 // Free text (unlike the emote whitelist), so it's capped and defaulted —
 // the client's own default is "ノア" but this is the backstop for anything
@@ -168,6 +174,9 @@ async function loadRoom(env, code) {
       && Date.now() - room.turnStartedAt > TURN_TIMEOUT_MS) {
     return resolveTimeout(env, room);
   }
+  if (room.status === 'finished' && Date.now() - room.updatedAt > FINISHED_ROOM_GRACE_MS) {
+    return resolveFinishedExpiry(env, room);
+  }
   return room;
 }
 
@@ -193,6 +202,29 @@ async function resolveTimeout(env, room) {
   // If the UPDATE above lost a race (someone's move or another timeout check
   // beat it to this rev), just return whatever the room actually is now —
   // no need to error, the caller just wants the current true state.
+  return rowToRoom(row);
+}
+
+// A finished match whose winner never requested a rematch (handleRematch)
+// within FINISHED_ROOM_GRACE_MS would otherwise keep the room code occupied
+// forever — handleJoin refuses to fill a room where both slots are still
+// taken, and nothing else ever clears them. Same lazy pattern as
+// resolveTimeout: checked on the next read, no cron needed. Unlike
+// handleRematch (which vacates only the loser's slot so the winner can keep
+// their streak), this clears BOTH slots — nobody asked to stay, so the code
+// goes back to being a plain empty room.
+async function resolveFinishedExpiry(env, room) {
+  const now = Date.now();
+  const grid = emptyGrid();
+  await env.LINE4_DB.prepare(
+    `UPDATE rooms SET p1_token = NULL, p1_name = NULL, p1_streak = 0, p2_token = NULL, p2_name = NULL, p2_streak = 0,
+     grid = ?1, current_player = 1, game_over = 0, winner = NULL, win_line = NULL, status = 'waiting',
+     starting_player = NULL, turn_started_at = NULL, match_started_at = NULL, emote = NULL, emote_by = NULL,
+     rev = rev + 1, updated_at = ?2
+     WHERE code = ?3 AND rev = ?4`
+  ).bind(JSON.stringify(grid), now, room.code, room.rev).run();
+
+  const row = await env.LINE4_DB.prepare('SELECT * FROM rooms WHERE code = ?1').bind(room.code).first();
   return rowToRoom(row);
 }
 
@@ -413,7 +445,12 @@ async function handleEmote(request, env, code) {
 
   const room = await loadRoom(env, code);
   if (!room) return errorResponse('room_not_found', 404);
-  if (room.status !== 'playing') return errorResponse('game_not_active', 409);
+  // Allowed while 'finished' too (not just 'playing') so both players can
+  // send a quick thanks/gg during the post-game grace window (see
+  // FINISHED_ROOM_GRACE_MS) — loadRoom() has already reset a room that's
+  // been sitting finished past that window back to 'waiting', so a token
+  // check below naturally rejects anyone trying to sneak an emote in late.
+  if (room.status !== 'playing' && room.status !== 'finished') return errorResponse('game_not_active', 409);
 
   const isP1 = room.p1Token === token;
   const isP2 = room.p2Token === token;
