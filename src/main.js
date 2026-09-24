@@ -2091,13 +2091,40 @@ function animate() {
         : '(none yet)';
     }
   }
+  // Camera Matrix Freshness Fix V1 — camera.quaternion itself is already
+  // this frame's final value once the Head Particle Trail/Auto Director
+  // blocks above have run (both move the camera via camera.lookAt()), but
+  // camera.matrixWorld/matrixWorldInverse are NOT: Object3D.prototype.
+  // lookAt() calls updateWorldMatrix() BEFORE it sets the new quaternion
+  // (only to read the object's current world position), never after — so
+  // matrixWorld keeps reflecting the PREVIOUS frame's rotation until
+  // something updates it again. Ordinarily that something is
+  // WebGLRenderer.render()'s own automatic camera.updateMatrixWorld() call,
+  // but that only happens further down this function, AFTER
+  // TrailLyricsManager.update() below already ran. Anything in between that
+  // reads matrixWorld — _computeLayoutCenter()'s extractBasis() and
+  // _projectToScreen()'s .project(camera), both in TrailLyrics.js — would
+  // therefore build/project the screen-locked anchor using last frame's
+  // rotation while the render moments later actually draws it with THIS
+  // frame's rotation, a mismatch that grows with how much the camera
+  // rotated since the previous frame: negligible during a slow pan, quite
+  // visible during a fast Auto Director transition or cut, and the same
+  // "text visibly moves/lags when the camera moves" root cause underneath
+  // both the position-freeze bug and the original camera-jitter reports
+  // earlier in this project's history. An explicit updateMatrixWorld() call
+  // here (cheap — it's just recomposing one 4x4 matrix and its inverse)
+  // guarantees every reader below sees the SAME final camera transform the
+  // render call will actually use.
+  camera.updateMatrixWorld();
+
   // TrailLyrics Multi-Instance V1 — advances every currently-active phrase
   // instance the manager owns (spawned/despawned by the Lyric Timeline
   // block above this same frame). Runs AFTER the Head Particle Trail/Auto
-  // Director blocks above so camera.quaternion is already this frame's
-  // final value when a brand-new instance's own formation reads it
-  // (TrailLyrics reads the camera's live orientation to build/track its
-  // billboard plane).
+  // Director blocks above (and after the camera.updateMatrixWorld() call
+  // just above) so both camera.quaternion AND camera.matrixWorld/
+  // matrixWorldInverse are already this frame's final values when a
+  // brand-new instance's own formation reads them (TrailLyrics reads the
+  // camera's live orientation to build/track its billboard plane).
   if (trailLyricsManager) {
     // Reading-Order Layout + Particle Dissolve V2: the manager's dissolve
     // system needs the SAME absolute clock every phrase's own
