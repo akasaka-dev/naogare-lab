@@ -236,7 +236,20 @@
       #holdLyricOverlay { position: fixed; inset: 0; z-index: 13; pointer-events: none; }
       .hold-lyric-item {
         position: absolute; transform: translate(-50%, -50%);
-        white-space: pre-line; text-align: center;
+        /* pre, not pre-line: the "\n"s in this text are ALREADY the exact
+           line breaks TrailLyricsManager's wrapDisplayLines() chose to fit
+           the 3D glyph texture's own canvas measurement (see TrailLyrics.js
+           sampleTextTargets()). pre-line still lets the browser insert ITS
+           OWN extra wraps if this box is even slightly too narrow for its
+           own font rendering of a line — and it reliably is, because canvas
+           text measurement and this element's CSS letter-spacing below
+           don't agree on how wide the same string is. The result was the
+           overlay silently re-wrapping into MORE lines than the 3D texture
+           used, rendering a visibly different (and differently sized)
+           version of the same text on top of it. `pre` honors only the
+           authored "\n"s and never adds its own, so it can only ever match.
+        */
+        white-space: pre; text-align: center;
         font-weight: 600; letter-spacing: 0.02em;
       }
 

@@ -1611,8 +1611,20 @@ if (lyricTimelineEnabled) {
         holdLyricOverlayEl.appendChild(el);
         holdOverlayPool.set(o.id, el);
       }
-      el.style.left = o.x + '%';
-      el.style.top = o.y + '%';
+      // Pixels computed from window.innerWidth/innerHeight, NOT a CSS %
+      // (of #holdLyricOverlay's own box) — on iOS Safari specifically, a
+      // position:fixed element with inset:0 sizes itself to the LARGE
+      // viewport (the area including where the address bar collapses to),
+      // while window.innerWidth/innerHeight — what camera.aspect and
+      // renderer.setSize() are ALSO derived from (see onResize()) — report
+      // the current SMALL (toolbar-visible) viewport. A CSS % against the
+      // former therefore doesn't line up with the projection computed
+      // against the latter, at least until the toolbar happens to be
+      // collapsed. Pixels computed from the very same
+      // innerWidth/innerHeight the camera itself uses can never disagree
+      // with it, on any browser, regardless of that quirk.
+      el.style.left = (o.x / 100 * window.innerWidth) + 'px';
+      el.style.top = (o.y / 100 * window.innerHeight) + 'px';
       el.style.opacity = o.alpha.toFixed(3);
       el.textContent = o.text;
       el.style.color = trailLyricsStyleGuiState.textColor;
@@ -1621,7 +1633,22 @@ if (lyricTimelineEnabled) {
         : '0';
       el.style.textShadow = `0 2px 10px ${trailLyricsStyleGuiState.shadowColor}, 0 1px 3px ${trailLyricsStyleGuiState.shadowColor}`;
       el.style.fontFamily = trailLyricsStyleGuiState.fontFamily;
-      el.style.fontSize = 'clamp(16px, 3vw, 32px)';
+      // Font size/line-height/box width all derived from the 3D glyph
+      // plane's OWN projected on-screen size (o.widthPercent/heightPercent
+      // — see TrailLyrics.js's _projectToScreen()), not a fixed guess: a
+      // static clamp(16px,3vw,32px) here only coincidentally looked right
+      // on one aspect ratio/viewport and was visibly the wrong SIZE (not
+      // just position) on others. heightPercent covers the WHOLE text
+      // block (however many lines), so it's divided by the actual line
+      // count to get a real per-line height, matching the block's already-
+      // baked-in "\n" line breaks (the same wrapping the 3D texture used).
+      const heightPx = o.heightPercent / 100 * window.innerHeight;
+      const widthPx = o.widthPercent / 100 * window.innerWidth;
+      const numLines = o.text.split('\n').length;
+      const lineHeightPx = heightPx / numLines;
+      el.style.width = widthPx + 'px';
+      el.style.lineHeight = lineHeightPx + 'px';
+      el.style.fontSize = (lineHeightPx * 0.8) + 'px';
     }
     for (const [id, el] of holdOverlayPool) {
       if (!seen.has(id)) { el.remove(); holdOverlayPool.delete(id); }
@@ -1784,6 +1811,23 @@ function onResize() {
   clouds.setSize(w, h);
 }
 window.addEventListener('resize', onResize);
+// Mobile toolbar show/hide (iOS Safari AND Chrome — both are WebKit-based
+// and share this quirk) changes window.innerWidth/innerHeight WITHOUT
+// reliably firing a plain 'resize' event, e.g. when the address bar
+// auto-hides on scroll or reappears later. onResize() is what keeps
+// camera.aspect/renderer.setSize() in sync with sizeW()/sizeH() — the same
+// window.innerWidth/innerHeight the DOM Hold Overlay (main.js's
+// syncHoldOverlays) reads fresh every frame to place/size its element. If
+// only 'resize' drives it, the two can silently diverge: the overlay always
+// tracks the CURRENT viewport, but the 3D camera/canvas stay sized to
+// whatever viewport was in effect at the LAST 'resize' event, producing a
+// persistent (not transient) screen-space offset between the 3D glyph mesh
+// and the DOM overlay for as long as that mismatch lasts. visualViewport's
+// own 'resize' event is what actually fires on these toolbar transitions.
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', onResize);
+}
+window.addEventListener('orientationchange', onResize);
 
 // ---------------------------------------------------------------------------
 //  Render loop

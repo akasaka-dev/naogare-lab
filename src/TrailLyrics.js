@@ -813,14 +813,21 @@ export class TrailLyrics {
     this._planeQuat = new THREE.Quaternion();
     this._cyclePrepared = false;
     // DOM Hold Overlay V1 — see DOM_OVERLAY_CROSSFADE's own comment.
-    // _holdScreenPos is set ONCE (a one-off projection) the instant HOLD
-    // begins each cycle and cleared outside of [holdStart, holdEnd), so it
-    // is always either "this cycle's fixed hold position" or null, never a
-    // stale value from a previous cycle. _domOverlayAlpha is recomputed
-    // every frame (a pure, cheap function of how far into/from HOLD's
-    // start/end lt currently is) purely to drive the crossfade opacity —
-    // it never feeds back into _holdScreenPos.
+    // _holdScreenPos is recomputed every frame within [holdStart, holdEnd)
+    // (never just once — see the matching comment further down in
+    // _recompute(), by the DOM_OVERLAY_MAX_JUMP_PERCENT check, for why) and
+    // cleared to null outside that window, so it is always either "this
+    // cycle's current hold position" or null, never a stale value from a
+    // previous cycle. _domOverlayAlpha is likewise recomputed every frame
+    // (a pure, cheap function of how far into/from HOLD's start/end lt
+    // currently is) purely to drive the crossfade opacity.
     this._holdScreenPos = null;
+    // A single frame seen far from _holdScreenPos is held here, unconfirmed,
+    // rather than adopted immediately — see the matching comment at the
+    // DOM_OVERLAY_MAX_JUMP_PERCENT check in _recompute() for why a second
+    // consecutive frame near THIS (not near the old _holdScreenPos) is what
+    // actually confirms it.
+    this._pendingHoldScreenPos = null;
     this._domOverlayAlpha = 0;
     this._tmpProjected = new THREE.Vector3();
 
@@ -1138,22 +1145,49 @@ export class TrailLyrics {
   getPhase() { return this.phase; }
 
   // DOM Hold Overlay V1 — a one-off NDC->CSS-percentage projection of
-  // wherever _planeCenter happened to be at the moment this was called.
+  // wherever _planeCenter happened to be at the moment this was called,
+  // PLUS the glyph plane's own on-screen width/height at that same
+  // instant (also percentages, of viewport width/height respectively) —
+  // the plane's real world size (this._glyphBaseWidth/Height * textScale)
+  // projected the same way the position is, so the DOM overlay's font
+  // size/box can match the 3D glyph's actual apparent size on THIS
+  // screen, rather than a fixed guess (clamp(16px,3vw,32px) in an earlier
+  // version) that only coincidentally looked right on one aspect ratio/
+  // viewport and was visibly wrong (both position AND size) on others.
   // Deliberately NOT stored/reused internally beyond the single assignment
   // in _recompute() below (see _holdScreenPos's own comment) — callers
   // never need to call this directly.
   _projectToScreen(camera) {
-    const p = this._tmpProjected.copy(this._planeCenter).project(camera);
-    return { x: (p.x + 1) * 50, y: (1 - p.y) * 50 };
+    const halfW = (this._glyphBaseWidth * this.textScale) / 2;
+    const halfH = (this._glyphBaseHeight * this.textScale) / 2;
+    const up = this._tmpOffset.set(0, 1, 0).applyQuaternion(this._planeQuat);
+    const right = this._tmpTangent.set(1, 0, 0).applyQuaternion(this._planeQuat);
+    const center = this._tmpProjected.copy(this._planeCenter).project(camera);
+    const centerX = center.x, centerY = center.y;
+    // top/side each reuse the SAME scratch vector (_tmpProjected) as center
+    // did — read the one number needed out of each into a plain local
+    // immediately, before the next .copy() overwrites it for the other.
+    const top = this._tmpProjected.copy(this._planeCenter).addScaledVector(up, halfH).project(camera);
+    const topY = top.y;
+    const side = this._tmpProjected.copy(this._planeCenter).addScaledVector(right, halfW).project(camera);
+    const sideX = side.x;
+    return {
+      x: (centerX + 1) * 50,
+      y: (1 - centerY) * 50,
+      heightPercent: Math.abs(topY - centerY) * 100,
+      widthPercent: Math.abs(sideX - centerX) * 100,
+    };
   }
 
   // Public surface for TrailLyricsManager.getHoldOverlays() — null unless
   // this phrase is CURRENTLY in its HOLD crossfade window with a cached
-  // screen position, in which case {x, y} are CSS percentages and alpha is
+  // screen position, in which case {x, y, widthPercent, heightPercent} are
+  // CSS percentages (of viewport width/height respectively) and alpha is
   // this frame's crossfade opacity (see DOM_OVERLAY_CROSSFADE).
   getHoldOverlay() {
     if (!this._holdScreenPos || this._domOverlayAlpha <= 0) return null;
-    return { x: this._holdScreenPos.x, y: this._holdScreenPos.y, alpha: this._domOverlayAlpha, text: this.currentText };
+    const { x, y, widthPercent, heightPercent } = this._holdScreenPos;
+    return { x, y, widthPercent, heightPercent, alpha: this._domOverlayAlpha, text: this.currentText };
   }
 
   // Reading-Order Layout V2 — TrailLyricsManager calls this every time it
@@ -1443,6 +1477,7 @@ export class TrailLyrics {
       this._domOverlayAlpha = Math.min(fadeIn, fadeOut);
     } else {
       this._holdScreenPos = null;
+      this._pendingHoldScreenPos = null;
       this._domOverlayAlpha = 0;
     }
 
@@ -1563,20 +1598,53 @@ export class TrailLyrics {
     // 3D text actually is — an EARLIER version of this cached the
     // projection exactly once at HOLD's start and never touched it again,
     // which fixed the frame-hitch jump but broke tracking entirely once a
-    // reflow moved the real anchor. The one thing still filtered out is a
-    // single-frame jump bigger than a real camera/layout change could
-    // plausibly produce (the same class of spike the console diagnostic
-    // above catches) — DOM_OVERLAY_MAX_JUMP_PERCENT is generous enough for
-    // ordinary panning and reflows, tight enough to reject a hitch.
+    // reflow moved the real anchor.
+    //
+    // Two-Frame Confirmation Fix V1 — a single frame farther than
+    // DOM_OVERLAY_MAX_JUMP_PERCENT from _holdScreenPos is NOT adopted
+    // immediately; it's only remembered as _pendingHoldScreenPos. It is
+    // adopted once a SECOND consecutive frame lands close to that pending
+    // candidate (confirming a real, sustained relocation — a camera cut
+    // landing at the same moment as a reading-order reflow, say), and
+    // discarded if the very next frame instead falls back near the old
+    // _holdScreenPos (revealing the outlier as exactly the kind of one-frame
+    // hitch this filter exists to catch). The earlier version of this filter
+    // simply kept _holdScreenPos frozen forever on any frame past the
+    // threshold, with no way to ever re-sync: once the real anchor
+    // genuinely moved (not a hitch) the every-frame delta against that
+    // frozen value stayed permanently above the threshold, so the glyph
+    // mesh (unfiltered, always live) and the DOM overlay (stuck at the
+    // pre-move position) would visibly disagree for the rest of that
+    // phrase's HOLD — precisely the "new text is correct, old text is stuck
+    // somewhere else" symptom this version fixes.
     if (inHoldWindow) {
       const projected = this._projectToScreen(camera);
       if (!this._holdScreenPos) {
         this._holdScreenPos = projected;
+        this._pendingHoldScreenPos = null;
       } else {
         const dx = projected.x - this._holdScreenPos.x;
         const dy = projected.y - this._holdScreenPos.y;
-        if (Math.hypot(dx, dy) <= DOM_OVERLAY_MAX_JUMP_PERCENT) this._holdScreenPos = projected;
-        // else: reject this frame's outlier projection, keep the last-good position.
+        if (Math.hypot(dx, dy) <= DOM_OVERLAY_MAX_JUMP_PERCENT) {
+          this._holdScreenPos = projected;
+          this._pendingHoldScreenPos = null;
+        } else if (this._pendingHoldScreenPos) {
+          const pdx = projected.x - this._pendingHoldScreenPos.x;
+          const pdy = projected.y - this._pendingHoldScreenPos.y;
+          if (Math.hypot(pdx, pdy) <= DOM_OVERLAY_MAX_JUMP_PERCENT) {
+            // Confirmed: two consecutive frames near the same new spot.
+            this._holdScreenPos = projected;
+            this._pendingHoldScreenPos = null;
+          } else {
+            // Yet another outlier, not near the last pending one either —
+            // restart the confirmation window from here.
+            this._pendingHoldScreenPos = projected;
+          }
+        } else {
+          // First frame past the threshold — wait for confirmation before
+          // moving _holdScreenPos at all.
+          this._pendingHoldScreenPos = projected;
+        }
       }
     }
 
