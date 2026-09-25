@@ -1776,9 +1776,20 @@
 
   // Called from the finished/leave room after either a decisive win/loss/draw:
   // stops the post-game countdown, tears down the emote bar's temporary
-  // "postgame" positioning, and returns to the title screen.
+  // "postgame" positioning, and returns to the title screen. If *I* was the
+  // winner, also tells the server so the room frees up immediately instead
+  // of waiting for FINISHED_ROOM_GRACE_MS — a loser leaving needs no such
+  // call (the winner might still request a rematch), so this is skipped
+  // when online.wonLastMatch is falsy. Fire-and-forget: the values are read
+  // synchronously before goToTitle() clears `online`, so it's safe even
+  // though the request itself resolves after we've already left.
   function leavePostGameRoom() {
-    if (online) online.postGameDeadline = null;
+    if (online) {
+      online.postGameDeadline = null;
+      if (online.wonLastMatch) {
+        apiPost(`/room/${online.code}/leave`, { token: online.token }).catch(() => {});
+      }
+    }
     document.getElementById('resultOverlay').classList.add('hidden');
     goToTitle();
   }
@@ -2178,6 +2189,7 @@
     mode = 'online';
     online.awaitingRematch = false;
     online.postGameDeadline = null;
+    online.wonLastMatch = false;
     online.opponentName = online.myPlayer === 1 ? state.p2Name : state.p1Name;
     online.turnStartedAt = state.turnStartedAt;
     const opponentStreak = online.myPlayer === 1 ? state.p2Streak : state.p1Streak;
@@ -2234,6 +2246,16 @@
   // the response to our own move and for a poll that picked up the opponent's.
   function applyOnlineState(state) {
     if (!online || state.rev === online.rev) return;
+    // We're sitting on the post-game result screen and the room just went
+    // back to "not game over" under us — that's not a new match starting,
+    // it's the room having been vacated (the opponent left, or it expired
+    // server-side per FINISHED_ROOM_GRACE_MS). Without this, the code below
+    // would silently redraw an empty board underneath our still-visible
+    // result overlay instead of just sending us home too.
+    if (online.postGameDeadline && !state.gameOver) {
+      leavePostGameRoom();
+      return;
+    }
     online.rev = state.rev;
     online.turnStartedAt = state.turnStartedAt;
 
@@ -2260,6 +2282,7 @@
       // no-op, so it's safe to keep ticking.
       if (state.winLine) state.winLine.forEach(([r, c]) => cellEls[r][c].classList.add('win'));
       const iWon = state.winner === String(online.myPlayer);
+      online.wonLastMatch = iWon; // read by leavePostGameRoom() to notify the server
       const isDraw = state.winner === 'draw';
       if (isDraw) {
         updateStatus(K('引き分けです！', 'ひきわけです！'));

@@ -465,6 +465,35 @@ async function handleEmote(request, env, code) {
   return jsonResponse({ ok: true, state: publicState(updated) });
 }
 
+// Called when a player explicitly clicks "退室する" after a finished match,
+// so the room doesn't have to sit around for FINISHED_ROOM_GRACE_MS before
+// becoming available again. Only meaningful for the WINNER of a finished
+// match — they're the only one who could otherwise request a rematch
+// (handleRematch), so a loser leaving must NOT reset the room: the winner
+// might still be deciding. Anyone leaving a 'playing' room is a no-op —
+// their opponent will pick that up via the existing turn-timeout forfeit.
+async function handleLeave(request, env, code) {
+  let body;
+  try {
+    body = await request.json();
+  } catch (e) {
+    return errorResponse('invalid_json');
+  }
+  const { token } = body || {};
+  if (typeof token !== 'string') return errorResponse('invalid_body');
+
+  const room = await loadRoom(env, code);
+  if (!room) return jsonResponse({ ok: true }); // already gone — nothing to do
+
+  const isP1 = room.p1Token === token;
+  const isP2 = room.p2Token === token;
+  const isWinner = room.status === 'finished' && ((isP1 && room.winner === '1') || (isP2 && room.winner === '2'));
+  if (isWinner) {
+    await resolveFinishedExpiry(env, room);
+  }
+  return jsonResponse({ ok: true });
+}
+
 // Returns a Response for any /api/line4/* route it recognizes, or null if
 // the path isn't one of ours (caller should fall through to other routes).
 export async function routeLine4(request, env, path) {
@@ -506,6 +535,13 @@ export async function routeLine4(request, env, path) {
     if (request.method !== 'POST') return errorResponse('method_not_allowed', 405);
     if (!(await checkRateLimit(env, 'line4-emote', request, 30, 60))) return errorResponse('rate_limited', 429);
     return handleEmote(request, env, emoteMatch[1]);
+  }
+
+  const leaveMatch = path.match(/^\/api\/line4\/room\/([A-Z0-9]{4,10})\/leave$/);
+  if (leaveMatch) {
+    if (request.method !== 'POST') return errorResponse('method_not_allowed', 405);
+    if (!(await checkRateLimit(env, 'line4-leave', request, 20, 600))) return errorResponse('rate_limited', 429);
+    return handleLeave(request, env, leaveMatch[1]);
   }
 
   return null;
