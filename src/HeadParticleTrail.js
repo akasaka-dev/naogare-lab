@@ -257,7 +257,13 @@ export class HeadParticleTrail {
     // below is indexed by THIS, not localTime, so trail particle spacing
     // stays constant regardless of Travel Speed (this.speed).
     this.distanceTraveled = 0;
-    this.emissionRate = 150; // particles per STEER_BASE_SPEED units of distance (i.e. "per second" at the nominal Travel Speed of 1 — spec 8: 120-180 suggested)
+    // Bumped from 150: emission is per-distance (spacing along the trail is
+    // independent of Travel Speed — see distanceTraveled above), so lowering
+    // Travel Speed to match the song's pacing also lowers total particles
+    // alive per second, reading as visually quieter even though spacing
+    // itself never changed. Raising this restores denser sparkle along the
+    // trail without touching speed.
+    this.emissionRate = 220;
     this.phase = 'flight';
 
     // ---- Head path (spec 22). ----
@@ -321,7 +327,10 @@ export class HeadParticleTrail {
       // V1.1: Head Bloom replaces uGlow as the head's own HDR control,
       // kept separate from the trail's Brightness/Particle Bloom so the
       // head can be tuned to stay the brightest object independently.
-      uHeadBloom: { value: 1.0 },
+      // Bumped from 1.0 alongside emissionRate/uBrightness/uParticleBloom
+      // above/below to keep the trail feeling lively at the lower Travel
+      // Speed now used to match the song's pacing.
+      uHeadBloom: { value: 1.4 },
       uTime: { value: 0 },
       uPixelSize: { value: 900.0 },
     };
@@ -433,8 +442,9 @@ export class HeadParticleTrail {
       // `hdrBoost` multiplier that scaled the WHOLE colour (including old,
       // already-dim particles) and made moderate values read as clipped
       // white regardless of the chosen hue.
-      uBrightness: { value: 1.0 },
-      uParticleBloom: { value: 1.0 },
+      // Both bumped from 1.0 — see uHeadBloom's own comment above.
+      uBrightness: { value: 1.15 },
+      uParticleBloom: { value: 1.3 },
     };
     const trailMat = new THREE.ShaderMaterial({
       transparent: true,

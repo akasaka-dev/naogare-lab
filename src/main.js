@@ -11,6 +11,7 @@ import { Rain } from './Rain.js';
 import { Post } from './Post.js';
 import { Clouds } from './Clouds.js';
 import { HeadParticleTrail } from './HeadParticleTrail.js';
+import { Fireworks, FIREWORK_PALETTE } from './Fireworks.js';
 import { TrailLyricsManager } from './TrailLyricsManager.js';
 import { AutoDirector } from './AutoDirector.js';
 import { LyricTimeline } from './LyricTimeline.js';
@@ -580,6 +581,121 @@ const NIGHT_CLOUD_MOONLIGHT = 0.6;
 const timeEnabled = queryFlag('time');
 
 // ---------------------------------------------------------------------------
+//  Fireworks V1 — a real-clock ambient event for Show Time mode (see
+//  animate()'s own 19:00 trigger window below): NOT part of the song
+//  choreography, only ever fires while the real-world-clock "Show Time"
+//  display is active. Only exists at all when the real-time system itself
+//  does (?time=1) — see Fireworks.js for the actual burst mechanics.
+// ---------------------------------------------------------------------------
+const fireworks = timeEnabled ? new Fireworks(scene) : null;
+// Real Date.now() ms threshold for the next scheduled burst — reset to 0
+// once the window closes so the very next entry into it (today or any later
+// day; this is wall-clock-driven, never a one-shot "already happened" flag)
+// fires immediately rather than waiting out whatever stale future value was
+// last scheduled.
+let nextFireworkAt = 0;
+// Real-clock hours (0-23) the fireworks window opens on, every day — 24:00
+// is written here as 0 (midnight, i.e. the same instant on the NEXT day in
+// a 0-23 clock).
+const FIREWORK_HOURS = [19, 20, 21, 22, 23, 0];
+// Where on screen the true horizon (the vanishing point of the flat sea-
+// level plane) currently sits, in NDC y (-1 bottom, +1 top) — computed by
+// projecting a point far along the camera's horizontal-only facing, held at
+// sea level. Any single point far enough along that direction converges to
+// the same NDC y regardless of exactly how far (that convergence — however
+// far you look along the horizon direction it always meets the sky at the
+// same screen height — IS the horizon line), so one large, fixed distance
+// (comfortably inside camera.far) is enough; no need to solve for the true
+// asymptote analytically.
+function horizonNdcY(camera) {
+  const fwd = camera.getWorldDirection(new THREE.Vector3());
+  const horizFwd = new THREE.Vector3(fwd.x, 0, fwd.z).normalize();
+  const probe = camera.position.clone().addScaledVector(horizFwd, 5000);
+  probe.y = OCEAN_CONFIG.surfaceY;
+  return probe.project(camera).y;
+}
+
+// Solves the world-space Y (at a fixed X/Z) that projects to `targetNdcY`
+// for the current camera, by binary search — NDC y is a non-linear
+// (projective) function of world Y once the camera has any pitch, so this
+// is simpler and more robust than deriving the closed form. 24 iterations
+// on a 0-3000 range narrows to sub-millimetre precision, and this only ever
+// runs once per shell per salvo (a few times a minute at most), not
+// per-frame.
+function solveNdcYHeight(camera, x, z, targetNdcY) {
+  const p = new THREE.Vector3();
+  let lo = OCEAN_CONFIG.surfaceY;
+  let hi = OCEAN_CONFIG.surfaceY + 3000;
+  for (let i = 0; i < 24; i++) {
+    const mid = (lo + hi) / 2;
+    p.set(x, mid, z).project(camera);
+    if (p.y < targetNdcY) lo = mid; else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
+// A salvo of `count` shell origins spread along a horizontal arc out near
+// the horizon — a proper fireworks-display composition (several shells
+// launching together, blooming in a row above the horizon), not a single
+// burst floating wherever the camera happens to be pointed.
+//
+// Several earlier versions tried to guarantee the salvo stayed inside the
+// current view (a fixed world height, an elevation angle above horizontal,
+// a screen-space/NDC target measured from screen CENTRE) — every one of
+// them either compromised where the shell actually LAUNCHES FROM, or (the
+// NDC-from-centre version) could still land at/below the real horizon
+// whenever the camera itself was pitched down at something close, since
+// "a bit above centre" in that framing is not the same as "above the
+// horizon". This version fixes that by measuring the NDC target relative to
+// the ACTUAL horizon position for the CURRENT camera (horizonNdcY() above),
+// not screen centre — a fixed fraction of the remaining space between the
+// horizon and the top edge, so the burst always sits a believable distance
+// above the horizon and clear of the top edge, in ANY camera framing. The
+// launch point itself is still exactly sea level (OCEAN_CONFIG.surfaceY),
+// out along the camera's horizontal-only facing, same X/Z as its burst
+// point — solveNdcYHeight() finds the one burst height (riseHeight, passed
+// to Fireworks.trigger() per shell — see its own comment) that lands
+// exactly on that horizon-relative target for THIS shell's X/Z and camera.
+function salvoFireworkOrigins(camera, count) {
+  const fwd = camera.getWorldDirection(new THREE.Vector3());
+  const horizFwd = new THREE.Vector3(fwd.x, 0, fwd.z).normalize();
+  const right = new THREE.Vector3(horizFwd.z, 0, -horizFwd.x);
+  const dist = 420 + Math.random() * 220;
+  const spread = 360; // total horizontal span the salvo's shells are laid out across
+  const horizonY = horizonNdcY(camera);
+  // Fraction of the way from the horizon to the top edge (NDC y = 1) a
+  // burst targets — comfortably clear of both.
+  const targetFraction = 0.3 + Math.random() * 0.15;
+  const targetNdcY = horizonY + targetFraction * (1 - horizonY);
+  const shells = [];
+  for (let i = 0; i < count; i++) {
+    const t = count === 1 ? 0 : i / (count - 1) - 0.5; // -0.5 .. 0.5, evenly spaced
+    const lateral = t * spread + (Math.random() - 0.5) * 40;
+    const launch = camera.position.clone()
+      .addScaledVector(horizFwd, dist)
+      .addScaledVector(right, lateral)
+      .setY(OCEAN_CONFIG.surfaceY);
+    const burstY = solveNdcYHeight(camera, launch.x, launch.z, targetNdcY);
+    const origin = launch.clone().setY(burstY);
+    shells.push({ origin, riseHeight: burstY - OCEAN_CONFIG.surfaceY });
+  }
+  return shells;
+}
+// GUI-tunable (see the "Fireworks" folder's "Salvo Size" slider) — plain JS
+// variable, not a shader uniform, since it only decides how many shells
+// fireFireworkSalvo() triggers, not any per-particle GPU behaviour.
+let fireworkSalvoSize = 6;
+function fireFireworkSalvo(camera) {
+  const shells = salvoFireworkOrigins(camera, fireworkSalvoSize);
+  shells.forEach(({ origin, riseHeight }, i) => {
+    const color = FIREWORK_PALETTE[Math.floor(Math.random() * FIREWORK_PALETTE.length)];
+    // Staggered, not simultaneous — a real salvo's shells never fire in
+    // perfect lockstep (see Fireworks.js's own launchStagger comment).
+    fireworks.trigger(origin, color, i * fireworks.launchStagger, riseHeight);
+  });
+}
+
+// ---------------------------------------------------------------------------
 //  Head Particle Trail V1 — opt-in via ?headParticles=1. The accepted
 //  traveler effect: the head is the ONLY emitter, particles own their own
 //  world-space position once born, and there is no geometry connecting head
@@ -940,7 +1056,13 @@ function applyPreset(name, { skipSun = false } = {}) {
   if (P.shafts !== undefined) post.underwaterMat.uniforms.uShaftDensity.value = P.shafts;
   if (P.cloudCoverage !== undefined) clouds.uniforms.uCoverage.value = P.cloudCoverage;
   if (P.cloudDensity !== undefined) clouds.uniforms.uDensity.value = P.cloudDensity;
-  if (P.rain !== undefined) rain.setEnabled(P.rain); // works regardless of the ?rain=1 URL default — see Rain.js's own setEnabled()
+  // Unconditional, not `if (P.rain !== undefined)` — only Sun Shower defines
+  // `rain: true`, so treating "missing" as "leave rain alone" meant picking
+  // ANY other preset after Sun Shower never turned rain back off. Rain has
+  // no other independent control (no GUI toggle, only the ?rain=1 URL
+  // default rain.setEnabled() below already overrides) — presets are meant
+  // to fully own it, the same as every other property here.
+  rain.setEnabled(!!P.rain);
   // Sun Shower ties in the Head Particle Trail's Rainbow color mode at full
   // saturation, echoing the rainbow forming in the sky at the same moment.
   if (name === 'Sun Shower' && headParticlesEnabled && headParticleGuiState) {
@@ -1322,6 +1444,7 @@ function setTimeOfDay(tRaw) {
 // only populated when ?time=1 — see below).
 let timeGuiState = null;
 let timeSliderCtrl = null;
+let fireworksGuiState = null;
 
 if (nightEnabled) {
   const fNight = gui.addFolder('Night');
@@ -1391,6 +1514,53 @@ if (timeEnabled) {
   realTimeEl.hidden = !timeGuiState.showTime;
 }
 
+// Fireworks V2 — GUI-facing controls, one property per Fireworks.js setter
+// (same convention as Head Particle Trail's own folder below). Separate
+// from the "Day Animation" folder above since these tune the fireworks
+// look/feel specifically, not the real-time clock system itself.
+if (fireworks) {
+  fireworksGuiState = {
+    salvoSize: fireworkSalvoSize,
+    launchStagger: fireworks.launchStagger,
+    riseTime: fireworks.uniforms.uRiseTime.value,
+    gravity: fireworks.uniforms.uGravity.value,
+    burstLifetime: fireworks.uniforms.uBurstLifetime.value,
+    fadeStart: fireworks.uniforms.uFadeStart.value,
+    brightness: fireworks.uniforms.uBrightness.value,
+    hotIntensity: fireworks.uniforms.uHotIntensity.value,
+    glitterIntensity: fireworks.uniforms.uGlitterIntensity.value,
+    glitterSpeed: fireworks.uniforms.uGlitterSpeed.value,
+    pixelSize: fireworks.uniforms.uPixelSize.value,
+    blackoutTime: fireworks.uniforms.uBlackoutTime.value,
+  };
+  const fFireworks = gui.addFolder('Fireworks');
+  fFireworks.add({ test: () => fireFireworkSalvo(camera) }, 'test').name('Test Salvo');
+  fFireworks.add(fireworksGuiState, 'salvoSize', 1, 30, 1).name('Salvo Size')
+    .onChange((v) => { fireworkSalvoSize = v; });
+  fFireworks.add(fireworksGuiState, 'launchStagger', 0.0, 0.6, 0.01).name('Launch Stagger (s)')
+    .onChange((v) => fireworks.setLaunchStagger(v));
+  fFireworks.add(fireworksGuiState, 'riseTime', 0.3, 4.0, 0.05).name('Launch Speed (s to burst)')
+    .onChange((v) => fireworks.setRiseTime(v));
+  fFireworks.add(fireworksGuiState, 'gravity', 0.0, 40.0, 0.5).name('Gravity')
+    .onChange((v) => fireworks.setGravity(v));
+  fFireworks.add(fireworksGuiState, 'burstLifetime', 0.5, 8.0, 0.1).name('Burst Lifetime (s)')
+    .onChange((v) => fireworks.setBurstLifetime(v));
+  fFireworks.add(fireworksGuiState, 'fadeStart', 0.0, 1.0, 0.01).name('Fade Start (fraction)')
+    .onChange((v) => fireworks.setFadeStart(v));
+  fFireworks.add(fireworksGuiState, 'brightness', 0.2, 3.0, 0.05).name('Brightness')
+    .onChange((v) => fireworks.setBrightness(v));
+  fFireworks.add(fireworksGuiState, 'hotIntensity', 0.0, 4.0, 0.05).name('Hot Flash Intensity')
+    .onChange((v) => fireworks.setHotIntensity(v));
+  fFireworks.add(fireworksGuiState, 'glitterIntensity', 0.0, 1.5, 0.05).name('Glitter Intensity')
+    .onChange((v) => fireworks.setGlitterIntensity(v));
+  fFireworks.add(fireworksGuiState, 'glitterSpeed', 1.0, 40.0, 0.5).name('Glitter Speed')
+    .onChange((v) => fireworks.setGlitterSpeed(v));
+  fFireworks.add(fireworksGuiState, 'pixelSize', 200.0, 3000.0, 10.0).name('Particle Size')
+    .onChange((v) => fireworks.setPixelSize(v));
+  fFireworks.add(fireworksGuiState, 'blackoutTime', 0.0, 3.0, 0.05).name('Blackout Before Burst (s)')
+    .onChange((v) => fireworks.setBlackoutTime(v));
+}
+
 if (headParticlesEnabled) {
   headParticleGuiState = {
     colorMode: 'gold',
@@ -1402,9 +1572,13 @@ if (headParticlesEnabled) {
     oldColor: '#8b5cf6',
     rainbowSpeed: 0.15,
     rainbowSaturation: 0.8,
-    brightness: 1.0,
-    particleBloom: 1.0,
-    headBloom: 1.0,
+    // Matches HeadParticleTrail.js's own defaults (bumped from 1.0/1.0/1.0
+    // to keep the trail feeling lively at the lower Travel Speed now used
+    // to match the song's pacing) — kept in sync so the GUI reflects reality
+    // on load rather than showing a stale 1.0 until manually touched.
+    brightness: 1.15,
+    particleBloom: 1.3,
+    headBloom: 1.4,
     emissionRate: headParticleTrail.emissionRate,
     speed: headParticleTrail.speed,
     paused: false,
@@ -1883,6 +2057,27 @@ function animate() {
     // by the wall clock's own whole-second count (never a separate
     // accumulator), so it can't drift out of sync no matter the frame rate.
     realTimeColonEl.style.opacity = Math.floor(nowDate.getTime() / 1000) % 2 === 0 ? '1' : '0';
+
+    // Fireworks V1 — ONE salvo (see fireFireworkSalvo()), the first time the
+    // clock enters the first ~4 minutes of an hour in FIREWORK_HOURS, and
+    // ONLY if the Cinematic preset is currently "Clear Sky" — deliberately
+    // rare (most hours won't fire at all unless that preset happens to be
+    // active) rather than a guaranteed, repeating show every single time.
+    // nextFireworkAt is set to Infinity right after firing so it can't fire
+    // again for the rest of THIS window, and reset to 0 the instant the
+    // window closes so the next FIREWORK_HOURS entry (later today, or the
+    // same hour tomorrow) is free to fire again.
+    if (fireworks) {
+      const inWindow = FIREWORK_HOURS.includes(nowDate.getHours()) && nowDate.getMinutes() < 4;
+      if (inWindow) {
+        if (presetProxy.preset === 'Clear Sky' && nowDate.getTime() >= nextFireworkAt) {
+          fireFireworkSalvo(camera);
+          nextFireworkAt = Infinity;
+        }
+      } else {
+        nextFireworkAt = 0;
+      }
+    }
   } else if (timeEnabled && timeGuiState.autoPlay) {
     // Time Warp V1 (see todTimeWarpFactor()) — reads sunParams.elevation as
     // it stood after LAST frame's setTimeOfDay() call (one-frame lag,
@@ -1892,6 +2087,7 @@ function animate() {
     setTimeOfDay(timeGuiState.time);
     if (timeSliderCtrl) timeSliderCtrl.updateDisplay();
   }
+  if (fireworks) fireworks.update(dt);
 
   // Camera ownership: Head Particle Trail's follow camera (or, when active,
   // Auto Director — see below) takes over orbit-control input.
@@ -2217,6 +2413,7 @@ if (nightEnabled) {
 if (timeEnabled) {
   window.OCEAN.setTimeOfDay = setTimeOfDay;
   Object.defineProperty(window.OCEAN, 'timeOfDay', { get: () => timeOfDayValue });
+  window.OCEAN.fireworks = fireworks;
 }
 if (headParticlesEnabled) {
   window.OCEAN.headParticleTrail = headParticleTrail;
