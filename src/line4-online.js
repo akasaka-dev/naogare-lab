@@ -43,11 +43,11 @@ function sanitizeName(raw) {
 // the emote channel — must match the buttons offered in the client UI.
 // Icon ids, not raw emoji — each maps to game/line4/emotes/<id>.webp on the client.
 const ALLOWED_EMOTES = [
-  'icon01_wave', 'icon02_thumbsup', 'icon03_girl_wink', 'icon04_crying', 'icon05_angry',
+  'icon21_bubble_sweat', 'icon22_bubble_girl', 'icon23_bubble_thanks', 'icon24_bubble_end',
+  'icon01_wave', 'icon02_thumbsup', 'icon04_crying',
   'icon06_cat_surprised', 'icon07_owl_question', 'icon08_rose_heart', 'icon09_sparkle', 'icon10_skull_ghost',
   'icon11_char_striker', 'icon12_char_dealer', 'icon13_char_mask', 'icon14_char_idol', 'icon15_char_puppeteer',
   'icon16_pet_owl', 'icon17_pet_fox', 'icon18_pet_badger', 'icon19_pet_mouse', 'icon20_hand_wave',
-  'icon21_bubble_sweat', 'icon22_bubble_girl', 'icon23_bubble_thanks', 'icon24_bubble_end', 'icon25_bubble_ghost',
 ];
 
 function jsonResponse(data, status) {
