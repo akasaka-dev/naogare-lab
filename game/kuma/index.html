@@ -522,6 +522,7 @@
       <button id="audioAdjustMinus" type="button">-10ms</button>
       <span id="audioAdjustValue">0ms</span>
       <button id="audioAdjustPlus" type="button">+10ms</button>
+      <button id="audioAdjustReset" type="button">Reset</button>
     </div>
     <button id="audioAdjustClose" class="modal-close" type="button">Close</button>
   </div>
@@ -2565,6 +2566,7 @@
   var audioAdjustPlay = document.getElementById('audioAdjustPlay');
   var audioAdjustMinus = document.getElementById('audioAdjustMinus');
   var audioAdjustPlus = document.getElementById('audioAdjustPlus');
+  var audioAdjustReset = document.getElementById('audioAdjustReset');
   var audioAdjustValue = document.getElementById('audioAdjustValue');
   var audioAdjustClose = document.getElementById('audioAdjustClose');
   var audioAdjustTapCalibrate = document.getElementById('audioAdjustTapCalibrate');
@@ -2638,6 +2640,13 @@
   });
   audioAdjustMinus.addEventListener('click', function(){ setAudioOffset(AUDIO_OFFSET - 0.01); });
   audioAdjustPlus.addEventListener('click', function(){ setAudioOffset(AUDIO_OFFSET + 0.01); });
+  // A tap-calibrated offset is some arbitrary measured value (e.g. +37ms) —
+  // nudging back to exactly 0 with ±10ms steps is tedious and rarely lands
+  // exactly on it anyway. One button, straight to no compensation at all.
+  audioAdjustReset.addEventListener('click', function(){
+    setAudioOffset(0);
+    audioAdjustTapStatus.textContent = 'クリックに合わせてタップしてください';
+  });
   audioAdjustTapCalibrate.addEventListener('click', function(){
     if (!testClickSource){
       startTestClick();
