@@ -564,6 +564,14 @@
   var mixers = []; // animation mixers that always run (e.g. the player's), regardless of game state
 
   var state = 'title';
+  // Guards the "You lost..." card against being dismissed by input that was
+  // already in flight from mashing keys during the knockback/dying fall —
+  // without this, a press timed just as `state` flips to 'gameover' skips
+  // the card almost before it's shown. `performance.now()`-based rather
+  // than `elapsed`, since `elapsed` stops advancing the instant 'playing'
+  // ends and would never let this window close.
+  var GAMEOVER_INPUT_DELAY = 600;
+  var gameoverEnteredAt = 0;
   var gap, elapsed, combo;
   var lungeState, lungeTimer, nextLungeAt;
   var reactionTimer = 0; // counts down knockbackDuration during 'knockback', then getUpDuration during 'gettingup'
@@ -1968,7 +1976,10 @@
   }
   function handleLane(lane){
     if (state === 'title'){ beginRun(); cardTitle.classList.remove('visible'); cardOver.classList.remove('visible'); return; }
-    if (state === 'gameover'){ state='title'; resetGame(); stopGameoverBgm(); cardOver.classList.remove('visible'); cardTitle.classList.add('visible'); playDropIn(titleLogo); return; }
+    if (state === 'gameover'){
+      if (performance.now() - gameoverEnteredAt < GAMEOVER_INPUT_DELAY) return;
+      state='title'; resetGame(); stopGameoverBgm(); cardOver.classList.remove('visible'); cardTitle.classList.add('visible'); playDropIn(titleLogo); return;
+    }
     if (state !== 'playing') return;
     if (leadInBeats > 0) return; // the "3,2,1" count-in — presses don't count either way
 
@@ -2094,7 +2105,10 @@
 
   function stageActivate(){
     if (state === 'title'){ beginRun(); cardTitle.classList.remove('visible'); cardOver.classList.remove('visible'); }
-    else if (state === 'gameover'){ state='title'; resetGame(); stopGameoverBgm(); cardOver.classList.remove('visible'); cardTitle.classList.add('visible'); playDropIn(titleLogo); }
+    else if (state === 'gameover'){
+      if (performance.now() - gameoverEnteredAt < GAMEOVER_INPUT_DELAY) return;
+      state='title'; resetGame(); stopGameoverBgm(); cardOver.classList.remove('visible'); cardTitle.classList.add('visible'); playDropIn(titleLogo);
+    }
     else if (state === 'playing'){ pauseGame(); }
     else if (state === 'paused'){ resumeGame(); }
   }
@@ -2659,7 +2673,7 @@
       if (rootBone) rootBone.position.set(0,0,0);
       if (reactionTimer <= 0){
         if (hp <= 0){
-          state = 'gameover'; finishGame(); stopBgm(); playGameoverBgm();
+          state = 'gameover'; finishGame(); stopBgm(); playGameoverBgm(); gameoverEnteredAt = performance.now();
         } else {
           // Still got HP left: get back up (LayToIdle) instead of ending the
           // run. playerAnimState is left stale from before the hit (the
