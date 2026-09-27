@@ -91,6 +91,20 @@
     text-shadow:0 1px 3px rgba(0,0,0,0.8);
     font-variant-numeric:tabular-nums;
   }
+  .score-popup{
+    position:absolute; right:0; top:100%;
+    margin-top:2px;
+    font-weight:700; font-size:13px;
+    white-space:nowrap;
+    pointer-events:none;
+    animation:scorePopUp 0.8s ease-out forwards;
+  }
+  .score-popup.gain{ color:var(--safe); }
+  .score-popup.loss{ color:var(--danger); }
+  @keyframes scorePopUp{
+    0%{ opacity:1; transform:translateY(0); }
+    100%{ opacity:0; transform:translateY(14px); }
+  }
   .hud-hp{
     position:absolute; left:10px; top:40px;
     font-family:var(--font-mono); font-weight:700; font-size:40px;
@@ -292,7 +306,7 @@
     <div class="hud">
       <div class="hud-gap"><div class="hud-gap-fill" id="gapFill"></div><span class="hud-gap-label">distance</span></div>
       <div class="hud-hp" id="hpLabel"></div>
-      <div class="hud-timer" id="timerLabel">0.0s</div>
+      <div class="hud-timer" id="scoreLabel"><span id="scoreValue">0</span></div>
       <div class="hud-countdown" id="countdownLabel"></div>
       <div class="hud-loading" id="loadingLabel">熊のモデルを読み込み中…</div>
     </div>
@@ -382,7 +396,8 @@
   var canvas = document.getElementById('glcanvas');
   var gapFill = document.getElementById('gapFill');
   var hpLabel = document.getElementById('hpLabel');
-  var timerLabel = document.getElementById('timerLabel');
+  var scoreLabel = document.getElementById('scoreLabel');
+  var scoreValue = document.getElementById('scoreValue');
   var countdownLabel = document.getElementById('countdownLabel');
   var debugMapCanvas = document.getElementById('debugMap');
   var debugMapCtx = debugMapCanvas.getContext('2d');
@@ -514,18 +529,17 @@
   var HIGH_KEY = 'kuma-niramekko-highscore';
   var highScore = 0;
   try{ highScore = parseFloat(localStorage.getItem(HIGH_KEY)) || 0; }catch(e){}
-  // Score is survival time weighted by tempo, not a flat clock — every
-  // second at the default BPM (SCORE_BASE_BPM, the same 92 the game starts
-  // at) is worth 1 point/sec's equivalent (times SCORE_SCALE, purely so the
-  // number feels like an arcade score rather than a second count wearing a
-  // different label); a second spent at 2x that BPM is worth double. BPM
-  // only goes up mid-run via the slider or the green-streak reward (see
-  // frame()'s 'playing' block) and never resets except on a fresh run, so
-  // this rewards *both* halves of "survive longer" and "at a higher tempo"
-  // at once — pushing BPM up is exactly what makes the rhythm window
-  // tighter (see hitWindow's own BPM-scaled clamp), so it's a genuine
-  // risk/reward trade, not a free multiplier.
-  var SCORE_BASE_BPM = 92, SCORE_SCALE = 10;
+  // Score is awarded in discrete chunks tied to specific actions (each
+  // successful on-beat hit, plus a bigger bonus on completing a green-streak
+  // pass — see handleLane()'s success branch) rather than a continuous
+  // per-frame trickle, specifically so every point gained has a moment (and
+  // a showScorePopup() flash) a player can attribute it to. Both award
+  // amounts scale with BPM (relative to SCORE_BASE_BPM, the same 92 the game
+  // starts sliders at) — pushing BPM up is exactly what makes the rhythm
+  // window tighter (see hitWindow's own BPM-scaled clamp), so scoring more
+  // at higher tempo is a genuine risk/reward trade, not a free multiplier.
+  var SCORE_BASE_BPM = 92;
+  var SCORE_HIT_BASE = 50, SCORE_PASS_BONUS = 300;
   var SCORE_HIGH_KEY = 'kuma-niramekko-highscore-score';
   var highScoreScore = 0;
   try{ highScoreScore = parseFloat(localStorage.getItem(SCORE_HIGH_KEY)) || 0; }catch(e){}
@@ -1769,6 +1783,19 @@
     startLeadIn(true);
   }
 
+  // Floating "+N"/"-N" score feedback under the score readout — delta's own
+  // sign picks the color (green gain / red loss), so this already supports
+  // a future deduction event without any changes here. `prefix` is an
+  // optional short label (e.g. 'PASS ') for a bonus that deserves calling
+  // out as more than just another ordinary hit.
+  function showScorePopup(delta, prefix){
+    var el = document.createElement('div');
+    el.className = 'score-popup ' + (delta >= 0 ? 'gain' : 'loss');
+    el.textContent = (prefix || '') + (delta >= 0 ? '+' : '') + delta;
+    scoreLabel.appendChild(el);
+    setTimeout(function(){ el.remove(); }, 800);
+  }
+
   function flashLane(lane, kind){
     var cls = kind === 'hit' ? 'beat-good' : 'beat-bad';
     laneEls[lane].forEach(function(el){
@@ -1945,6 +1972,9 @@
       playerD += hitGainAmt * (PLAYER_RETREAT_RANGE/GAP_MAX);
       combo = Math.min(COMBO_MAX, combo + COMBO_STEP);
       flashLane(lane, 'hit');
+      var hitScoreGain = Math.round(SCORE_HIT_BASE * (BPM/SCORE_BASE_BPM));
+      score += hitScoreGain;
+      showScorePopup(hitScoreGain);
       // Counts toward a pass only if this hit landed while the meter is
       // actually showing green — use gap fresh off the update above rather
       // than the frame-start `t`, so a hit that itself pushes into green
@@ -1981,6 +2011,9 @@
           // perceptible payoff (the bear reappearing that far back already
           // reads as a clean "left behind", not a jarring warp).
           gap = Math.min(PASS_GAP_MAX, gap + WORLD_SCROLL_PER_PASS * (GAP_MAX/PLAYER_RETREAT_RANGE));
+          var passScoreGain = Math.round(SCORE_PASS_BONUS * (BPM/SCORE_BASE_BPM));
+          score += passScoreGain;
+          showScorePopup(passScoreGain, 'PASS ');
         }
       } else {
         greenStreak = 0;
@@ -2276,6 +2309,18 @@
     stageWrap.addEventListener('touchstart', function(e){
       if (lookTouchId === null && e.changedTouches.length){
         var touch = e.changedTouches[0];
+        // Ignore touches landing on an actual on-screen control (Left/
+        // Right/Sway/Eat, the level-select buttons, etc.) — all of them
+        // live inside #stageWrap, and without this check every ordinary
+        // gameplay tap also gets grabbed as a look-around drag. The tiny
+        // press-to-release finger jitter each real tap has (a couple of
+        // pixels even for a stationary-feeling press) then nudges yaw a
+        // little further — individually invisible, but hundreds of taps
+        // over one run compound into a real drift toward the yaw clamp,
+        // eventually pushing the player model past the edge of a portrait
+        // frame's narrower FOV. Confirmed as the cause of the "player keeps
+        // sliding left" report.
+        if (touch.target && touch.target.closest && touch.target.closest('button, kbd, .level-select')) return;
         lookTouchId = touch.identifier;
         lastTX = touch.clientX; lastTY = touch.clientY;
       }
@@ -2329,7 +2374,6 @@
 
     if (state === 'playing'){
       elapsed += dt;
-      score += (BPM/SCORE_BASE_BPM) * dt * SCORE_SCALE;
       if (missReactionTimer > 0) missReactionTimer = Math.max(0, missReactionTimer - dt);
       // playerD itself only ever moves in handleLane()'s success branch (a
       // fixed amount per hit, plus a bonus per completed pass) and in the
@@ -2409,7 +2453,7 @@
 
       gapFill.style.width = (t*100).toFixed(1)+'%';
       gapFill.style.backgroundColor = t<0.25 ? 'var(--danger)' : (t>0.75 ? 'var(--safe)' : 'var(--accent)');
-      timerLabel.textContent = elapsed.toFixed(1)+'s';
+      scoreValue.textContent = Math.round(score);
 
       // Bear AI, hit-detection and gap decay are frozen through the "3,2,1"
       // lead-in — the same breather the old separate 'countdown' state gave,
