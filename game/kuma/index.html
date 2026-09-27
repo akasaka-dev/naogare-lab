@@ -297,6 +297,12 @@
       <div class="hud-loading" id="loadingLabel">熊のモデルを読み込み中…</div>
     </div>
     <canvas id="debugMap" width="220" height="320" hidden></canvas>
+    <!-- Silent, plays once per run start (see beginRun()) purely so a real
+         HTMLMediaElement is playing on the page — on iOS Safari this can be
+         what puts the page's audio session in a category the mute switch
+         doesn't silence, which otherwise-identical Web-Audio-only pages
+         (no <audio>/<video> anywhere) don't get. -->
+    <audio id="iosAudioUnlock" src="sound/silence-unlock.wav" playsinline hidden></audio>
     <div class="overlay-card visible" id="cardTitle">
       <img class="title-logo drop-in" id="titleLogo" src="title.webp" alt="Boy meets Kuma">
       <div class="level-select" id="levelSelect">
@@ -386,6 +392,7 @@
   var overReason = document.getElementById('overReason');
   var titleLogo = document.getElementById('titleLogo');
   var cardPaused = document.getElementById('cardPaused');
+  var iosAudioUnlock = document.getElementById('iosAudioUnlock');
   var pausedLogo = document.getElementById('pausedLogo');
   var overStats = document.getElementById('overStats');
   var overScore = document.getElementById('overScore');
@@ -407,6 +414,11 @@
   var COLOR_DANGER = 0xc4432b;
 
   var GAP_MAX = 140, GAP_START = 14;
+  // Absolute ceiling for gap once a green-streak pass bonus pushes it past
+  // GAP_MAX (see handleLane()'s success branch) — confirmed in play that
+  // letting it climb unbounded across repeated back-to-back passes needed
+  // a hard stop.
+  var PASS_GAP_MAX = 270;
   // Retreat is now rhythm-gated instead of free-mashed: a step only succeeds when
   // the correct button is pressed inside the currently-highlighted beat window.
   // A wrong button or an off-beat press directly costs distance instead of doing
@@ -1744,6 +1756,7 @@
   }
   function beginRun(){
     resumeAudioCtx();
+    if (iosAudioUnlock){ iosAudioUnlock.currentTime = 0; iosAudioUnlock.play().catch(function(){}); }
     playSfx('start');
     stopGameoverBgm();
     // Applied fresh at the top of every run (not just once, on page load)
@@ -1960,8 +1973,14 @@
           // room to actually fall back further than its usual ceiling; the
           // ordinary WALK_SPEED decay a few lines down then eats back into
           // that surplus at its normal slow pace, same as any other gap
-          // value above where it "should" settle.
-          gap += WORLD_SCROLL_PER_PASS * (GAP_MAX/PLAYER_RETREAT_RANGE);
+          // value above where it "should" settle. Still hard-capped at
+          // PASS_GAP_MAX — back-to-back passes would otherwise stack this
+          // without limit, and confirmed in play: past a certain distance
+          // the bear is already far enough off-screen/out of frame that any
+          // further growth just risks visibly odd behavior for no
+          // perceptible payoff (the bear reappearing that far back already
+          // reads as a clean "left behind", not a jarring warp).
+          gap = Math.min(PASS_GAP_MAX, gap + WORLD_SCROLL_PER_PASS * (GAP_MAX/PLAYER_RETREAT_RANGE));
         }
       } else {
         greenStreak = 0;
