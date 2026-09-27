@@ -137,16 +137,21 @@
     letter-spacing:0.05em;
     pointer-events:none;
   }
-  .hud-loading{
-    position:absolute; left:50%; bottom:8%;
-    transform:translateX(-50%);
-    font-size:12px; color:var(--ink-dim);
-    background:rgba(18,24,15,0.7);
+  .preload-bar-track{
+    width:min(260px,70%);
+    height:10px;
+    background:#e6ded0;
     border:1px solid var(--line);
-    padding:5px 12px;
-    letter-spacing:0.04em;
+    border-radius:5px;
+    overflow:hidden;
+    margin-top:6px;
   }
-  .hud-loading[hidden]{display:none;}
+  .preload-bar-fill{
+    height:100%; width:0%;
+    background:var(--accent);
+    transition:width 0.2s ease;
+  }
+  #preloadStatus{ color:#a1620a; font-size:12.5px; }
 
   .overlay-card{
     position:absolute; inset:0; z-index:6;
@@ -386,7 +391,6 @@
       <div class="hud-timer" id="scoreLabel"><span class="score-label">Score:</span> <span id="scoreValue">0</span></div>
       <div class="score-popup-anchor" id="scorePopupAnchor"></div>
       <div class="hud-countdown" id="countdownLabel"></div>
-      <div class="hud-loading" id="loadingLabel">熊のモデルを読み込み中…</div>
     </div>
     <canvas id="debugMap" width="220" height="320" hidden></canvas>
     <!-- Silent, plays once per run start (see beginRun()) purely so a real
@@ -395,8 +399,14 @@
          doesn't silence, which otherwise-identical Web-Audio-only pages
          (no <audio>/<video> anywhere) don't get. -->
     <audio id="iosAudioUnlock" src="sound/silence-unlock.wav" playsinline hidden></audio>
-    <div class="overlay-card visible" id="cardTitle">
-      <img class="title-logo drop-in" id="titleLogo" src="title.webp" alt="Boy meets Kuma">
+    <div class="overlay-card visible" id="cardPreload">
+      <h2>Loading...</h2>
+      <div class="preload-bar-track"><div class="preload-bar-fill" id="preloadBarFill"></div></div>
+      <p id="preloadPercent">0%</p>
+      <p id="preloadStatus" hidden></p>
+    </div>
+    <div class="overlay-card" id="cardTitle">
+      <img class="title-logo" id="titleLogo" src="title.webp" alt="Boy meets Kuma">
       <div class="level-select" id="levelSelect">
         <button type="button" data-bpm="72">LEVEL1</button>
         <button type="button" data-bpm="100">LEVEL2</button>
@@ -501,6 +511,10 @@
   var debugMapCanvas = document.getElementById('debugMap');
   var debugMapCtx = debugMapCanvas.getContext('2d');
   var debugMapOn = false;
+  var cardPreload = document.getElementById('cardPreload');
+  var preloadBarFill = document.getElementById('preloadBarFill');
+  var preloadPercent = document.getElementById('preloadPercent');
+  var preloadStatus = document.getElementById('preloadStatus');
   var cardTitle = document.getElementById('cardTitle');
   var cardOver = document.getElementById('cardOver');
   var overReason = document.getElementById('overReason');
@@ -979,12 +993,12 @@
   // already the live buffer for that key).
   function preloadBgmTrack(key){
     var t = BGM_TRACKS[key];
-    if (!t || !audioCtx || bgmBufferCache[key]) return;
+    if (!t || !audioCtx || bgmBufferCache[key]){ markPreloaded(); return; }
     fetch(t.file, {cache: 'no-store'})
       .then(function(r){ return r.arrayBuffer(); })
       .then(function(buf){ return audioCtx.decodeAudioData(buf); })
-      .then(function(decoded){ bgmBufferCache[key] = decoded; })
-      .catch(function(e){ if (window.console) console.error(e); });
+      .then(function(decoded){ bgmBufferCache[key] = decoded; markPreloaded(); })
+      .catch(function(e){ if (window.console) console.error(e); markPreloaded(); });
   }
   loadBgmTrack(autoTrackForBpm(BPM));
   Object.keys(BGM_TRACKS).forEach(function(key){ preloadBgmTrack(key); });
@@ -1004,12 +1018,12 @@
   var sfxBufferCache = {};
   function preloadSfx(key){
     var file = SFX_FILES[key];
-    if (!file || !audioCtx || sfxBufferCache[key]) return;
+    if (!file || !audioCtx || sfxBufferCache[key]){ markPreloaded(); return; }
     fetch(file, {cache: 'no-store'})
       .then(function(r){ return r.arrayBuffer(); })
       .then(function(buf){ return audioCtx.decodeAudioData(buf); })
-      .then(function(decoded){ sfxBufferCache[key] = decoded; })
-      .catch(function(e){ if (window.console) console.error(e); });
+      .then(function(decoded){ sfxBufferCache[key] = decoded; markPreloaded(); })
+      .catch(function(e){ if (window.console) console.error(e); markPreloaded(); });
   }
   function playSfx(key){
     var buf = sfxBufferCache[key];
@@ -1028,12 +1042,12 @@
   var GAMEOVER_BGM_FILE = '大きな手、優しい夜.mp3';
   var gameoverBgmBuffer = null, gameoverBgmSource = null;
   function preloadGameoverBgm(){
-    if (!audioCtx || gameoverBgmBuffer) return;
+    if (!audioCtx || gameoverBgmBuffer){ markPreloaded(); return; }
     fetch(GAMEOVER_BGM_FILE, {cache: 'no-store'})
       .then(function(r){ return r.arrayBuffer(); })
       .then(function(buf){ return audioCtx.decodeAudioData(buf); })
-      .then(function(decoded){ gameoverBgmBuffer = decoded; })
-      .catch(function(e){ if (window.console) console.error(e); });
+      .then(function(decoded){ gameoverBgmBuffer = decoded; markPreloaded(); })
+      .catch(function(e){ if (window.console) console.error(e); markPreloaded(); });
   }
   preloadGameoverBgm();
   function playGameoverBgm(){
@@ -1142,6 +1156,48 @@
     var acc = (s.target - s.cur) * k - s.vel * d;
     s.vel += acc * dt;
     s.cur += s.vel * dt;
+  }
+
+  // Preload gate — 5 GLTF models + the sky texture + 5 BGM tracks + the
+  // gameover BGM + 5 SFX, each counted exactly once regardless of whether it
+  // resolves, errors, or (for the audio ones) is skipped outright because
+  // Web Audio isn't available — every one of those paths calls
+  // markPreloaded() so a real failure can never leave the bar stuck short
+  // of 100%. The one deliberate exception is bear-rigged.glb's own error
+  // path (see onModelError below): the game can't actually run without it,
+  // so that failure holds the bar and shows an explicit message instead of
+  // waving the player through into a broken run.
+  var PRELOAD_TOTAL = 17;
+  var preloadedCount = 0;
+  function updatePreloadUI(){
+    var pct = Math.min(100, Math.round(preloadedCount/PRELOAD_TOTAL*100));
+    preloadBarFill.style.width = pct + '%';
+    preloadPercent.textContent = pct + '%';
+  }
+  function markPreloaded(){
+    preloadedCount++;
+    updatePreloadUI();
+    if (preloadedCount >= PRELOAD_TOTAL){
+      cardPreload.classList.remove('visible');
+      cardTitle.classList.add('visible');
+      playDropIn(titleLogo);
+    }
+  }
+  function loadGltfTracked(url, onLoad, onProgress, onError){
+    new THREE.GLTFLoader().load(url, function(gltf){
+      markPreloaded();
+      onLoad(gltf);
+    }, onProgress, function(e){
+      markPreloaded();
+      if (onError) onError(e);
+      else if (window.console) console.error(e);
+    });
+  }
+  function loadTextureTracked(url){
+    return new THREE.TextureLoader().load(url, function(){ markPreloaded(); }, undefined, function(e){
+      markPreloaded();
+      if (window.console) console.error(e);
+    });
   }
 
   // ---- three.js scene ----
@@ -1269,7 +1325,7 @@
   // ClampToEdgeWrapping means directions outside the photo's own extent just
   // smear its edge pixel instead of exposing raw background. fog:false because
   // fog is meant to fade out mid-distance geometry, not the sky itself.
-  var skyTexture = new THREE.TextureLoader().load('sky.jpg');
+  var skyTexture = loadTextureTracked('sky.jpg');
   skyTexture.encoding = THREE.sRGBEncoding;
   skyTexture.wrapS = THREE.ClampToEdgeWrapping;
   skyTexture.wrapT = THREE.ClampToEdgeWrapping;
@@ -1372,7 +1428,7 @@
   // forest.
   var TREE_WRAP_DEPTH = 144;
   var treeInstances = [];
-  new THREE.GLTFLoader().load('tree.glb', function(gltf){
+  loadGltfTracked('tree.glb', function(gltf){
     gltf.scene.updateMatrixWorld(true);
     var treeBox = new THREE.Box3();
     var template = new THREE.Group();
@@ -1450,7 +1506,7 @@
   // copy of its baseZ is nearest the player every frame, via wrapZ().
   var GRASS_WRAP_DEPTH = GRASS_TILES_Z * GRASS_TILE_SIZE;
   var grassWrappers = [];
-  new THREE.GLTFLoader().load('grass-mud.glb', function(gltf){
+  loadGltfTracked('grass-mud.glb', function(gltf){
     var first = true;
     for (var tz=0; tz<GRASS_TILES_Z; tz++){
       for (var tx=0; tx<GRASS_TILES_X; tx++){
@@ -1535,7 +1591,7 @@
   // is ever swapped for a differently-proportioned one later.
   var POISON_TINT = 0x6a2f7a;
   var poisonKinokoObj = null, poisonKinokoSpawnD = null, poisonKinokoLateralX = 0;
-  new THREE.GLTFLoader().load('recovery-kinoko.glb', function(gltf){
+  loadGltfTracked('recovery-kinoko.glb', function(gltf){
     kinokoObj = gltf.scene;
     kinokoObj.scale.setScalar(KINOKO_SCALE);
     kinokoObj.position.y = 0.2 * KINOKO_SCALE; // the model's own base sits slightly below its own origin
@@ -1597,14 +1653,18 @@
   // the whole `bear` group.
   var bearModel = null, headBone = null, handBone = null, rootBone = null, mixer = null;
   var animActions = {}, animState = null;
-  var loadingLabel = document.getElementById('loadingLabel');
-
   function findClip(animations, name){
     for (var i=0;i<animations.length;i++){ if (animations[i].name === name) return animations[i]; }
     return null;
   }
+  // Deliberately doesn't call markPreloaded() — the game can't run without
+  // this model, so a failure here holds the preload bar exactly where it
+  // was and shows this message instead of letting the player through into
+  // a run with no bear, rather than silently counting it "done" like every
+  // other (gracefully-degradable) asset's own error path does.
   function onModelError(err){
-    loadingLabel.textContent = '熊のモデルを読み込めませんでした';
+    preloadStatus.textContent = '熊のモデルを読み込めませんでした';
+    preloadStatus.hidden = false;
     if (window.console) console.error(err);
   }
   function setAnimState(name){
@@ -1650,7 +1710,7 @@
       }
     });
     setAnimState('idle');
-    loadingLabel.hidden = true;
+    markPreloaded();
   }, undefined, onModelError);
 
   // farmer.glb: a dedicated player character replacing the earlier debug
@@ -1697,7 +1757,7 @@
     playerAnimState = name;
   }
 
-  new THREE.GLTFLoader().load('farmer.glb', function(gltf){
+  loadGltfTracked('farmer.glb', function(gltf){
     playerModel = gltf.scene;
     playerModel.scale.setScalar(PLAYER_MODEL_SCALE);
     playerModel.rotation.y = MODEL_FRONT_Z > 0 ? Math.PI : 0; // face the bear, opposite of the bear's own convention
