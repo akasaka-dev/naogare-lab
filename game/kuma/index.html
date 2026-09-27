@@ -1936,17 +1936,7 @@
     // that just happened. This gives that moment its own beat: the old
     // track stops, the player celebrates, then the normal "3,2,1" carries
     // straight into the new song exactly as any other lead-in would.
-    // Jump_2_RM over Victory: Victory turned out to carry almost no vertical
-    // motion at all (a ~1.8%-of-height pelvis bounce, barely readable).
-    // Jump_2_RM's *clip data* bakes a real 0.67-unit (~68% of body height)
-    // jump arc onto its root bone (X/Z flat throughout, start/land at Y=0)
-    // — but that bone turns out to have no skin weight on this model at
-    // all (confirmed: forcing it to +2 units moved nothing on screen), so
-    // the clip is only actually used here for its upper-body/arm read as
-    // "excited", while frame()'s own 'trackswitch' branch drives the
-    // visible hop manually on playerModel.position.y instead, timed against
-    // this same clip's own duration so the two still land in step.
-    var victoryClip = findClip(gltf.animations, 'Jump_2_RM');
+    var victoryClip = findClip(gltf.animations, 'Victory');
     if (victoryClip){
       playerVictoryAction = playerMixer.clipAction(victoryClip);
       playerVictoryAction.setLoop(THREE.LoopOnce);
@@ -3131,24 +3121,8 @@
       reactionTimer -= dt;
       if (mixer) mixer.update(0);
       if (rootBone) rootBone.position.set(0,0,0);
-      // Jump_2_RM's own root motion doesn't reach the screen (see its
-      // loading comment), so the actual hop is scripted here instead: a
-      // plain sine hump timed against the same reactionTimer/victoryDuration
-      // the clip itself is playing on. The clip's own measured peak (0.668
-      // raw units, scaled = ~1.52 world units) was tried first and looked
-      // broken — tall enough to lift the player's whole head up inside the
-      // bear model's torso — so JUMP_HEIGHT is a hand-picked, readable hop
-      // instead of a value derived from data that was never usable as a
-      // real proportion to begin with (this whole scripted arc is already
-      // a stand-in for the clip's own, screen-inert root motion).
-      var JUMP_HEIGHT = 0.3;
-      if (playerModel){
-        var jumpProgress = Math.min(1, Math.max(0, 1 - reactionTimer/victoryDuration));
-        playerModel.position.y = Math.sin(Math.PI*jumpProgress) * JUMP_HEIGHT;
-      }
       if (reactionTimer <= 0){
         if (playerVictoryAction) playerVictoryAction.stop();
-        if (playerModel) playerModel.position.y = 0;
         state = 'playing';
         startLeadIn(true);
       }
@@ -3336,11 +3310,6 @@
     // whatever distance the clip itself encodes, independent of and on top of
     // the scripted knockback push above. Re-zeroing it every frame makes our
     // own positioning the only thing moving the character, same as the bear.
-    // (Tried exempting 'trackswitch' so Jump_2_RM's own baked root motion
-    // could show through instead of the manual arc below — turned out this
-    // "root" bone has zero skin weight on any vertex here, confirmed by
-    // forcing it to +2 units with nothing whatsoever changing on screen, so
-    // there was never anything to exempt it *from*.)
     if (playerRootBone) playerRootBone.position.set(0,0,0);
 
     renderer.render(scene, camera);
