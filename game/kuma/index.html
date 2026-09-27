@@ -183,7 +183,7 @@
     color:#a1620a; letter-spacing:0.08em;
   }
 
-  .level-select{display:flex; gap:8px; justify-content:center;}
+  .level-select{display:flex; gap:8px; justify-content:center; flex-wrap:wrap;}
   .level-select button{
     font-family:var(--font-body);
     font-weight:700;
@@ -246,6 +246,70 @@
     text-align:center;
   }
   .key-sep{color:var(--line);padding:0 2px;}
+
+  .modal-overlay{
+    position:fixed; inset:0; z-index:20;
+    background:rgba(0,0,0,0.6);
+    display:flex; align-items:center; justify-content:center;
+    padding:16px;
+  }
+  .modal-overlay[hidden]{display:none;}
+  .modal-card{
+    background:var(--bg-panel);
+    border:1px solid var(--line);
+    border-radius:8px;
+    padding:20px;
+    max-width:360px;
+    width:100%;
+    text-align:center;
+    color:var(--ink);
+  }
+  .modal-card h3{
+    font-family:var(--font-display); font-weight:400;
+    margin:0 0 10px;
+    color:var(--accent);
+  }
+  .modal-card p{
+    font-size:13px;
+    color:var(--ink-dim);
+    margin:0 0 14px;
+    line-height:1.5;
+  }
+  .modal-card button{
+    font-family:var(--font-body);
+    font-weight:700;
+    font-size:14px;
+    color:var(--ink);
+    background:var(--bg-panel-2);
+    border:1px solid var(--line);
+    border-radius:5px;
+    padding:9px 16px;
+    cursor:pointer;
+    touch-action:manipulation;
+    user-select:none;
+    -webkit-user-select:none;
+  }
+  .audio-adjust-flash{
+    width:80px; height:80px;
+    margin:0 auto 16px;
+    border-radius:50%;
+    background:var(--bg-panel-2);
+    border:2px solid var(--line);
+    transition:background-color 0.05s, transform 0.05s;
+  }
+  .audio-adjust-flash.flash{
+    background:var(--accent);
+    transform:scale(1.15);
+  }
+  .audio-adjust-row{
+    display:flex; align-items:center; justify-content:center;
+    gap:10px; margin-bottom:12px;
+  }
+  #audioAdjustValue{
+    font-family:var(--font-mono); font-weight:700;
+    min-width:5.5em; display:inline-block;
+  }
+  .modal-close{ margin-top:6px; }
 
   .touch-buttons{display:flex;gap:10px;}
   .touch-buttons button{
@@ -337,6 +401,7 @@
         <button type="button" data-bpm="72">LEVEL1</button>
         <button type="button" data-bpm="100">LEVEL2</button>
         <button type="button" data-bpm="120">LEVEL3</button>
+        <button type="button" data-bpm="150">LEVEL4</button>
       </div>
       <div class="cta">Click or Tap to Start</div>
     </div>
@@ -399,7 +464,25 @@
     <div class="touch-buttons">
       <button id="btnSfxMute" class="icon-btn" type="button" aria-label="効果音"></button>
       <button id="btnBgmMute" class="icon-btn" type="button" aria-label="BGM"></button>
+      <button id="btnAudioAdjust" type="button">Audio Adjust</button>
     </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="audioAdjustModal" hidden>
+  <div class="modal-card">
+    <h3>Audio Adjust</h3>
+    <p>Bluetoothイヤホンなど、音が遅れて聞こえる環境向けの調整です。クリック音を再生し、光る点滅と実際に聞こえるタイミングが合うようにオフセットを調整してください。</p>
+    <div class="audio-adjust-flash" id="audioAdjustFlash"></div>
+    <div class="audio-adjust-row">
+      <button id="audioAdjustPlay" type="button">Play Click</button>
+    </div>
+    <div class="audio-adjust-row">
+      <button id="audioAdjustMinus" type="button">-10ms</button>
+      <span id="audioAdjustValue">0ms</span>
+      <button id="audioAdjustPlus" type="button">+10ms</button>
+    </div>
+    <button id="audioAdjustClose" class="modal-close" type="button">Close</button>
   </div>
 </div>
 
@@ -731,6 +814,18 @@
     var AC = window.AudioContext || window.webkitAudioContext;
     if (AC) audioCtx = new AC();
   }catch(e){}
+  // Manual per-device audio latency compensation (seconds) — Bluetooth
+  // headphones/speakers add real, often-substantial output delay that the
+  // audio hardware clock has no way to know about, so beatClockNow() can be
+  // perfectly synced to what the browser *thinks* it just played and still
+  // be audibly late by the time the sound actually reaches the player's
+  // ears. AUDIO_OFFSET shifts beatClockNow() so the game's own beat-open
+  // window opens later by however much the player says their sound lags —
+  // set via the "Audio Adjust" dialog and persisted so it's a one-time
+  // per-device setup, not something to redo every run.
+  var AUDIO_OFFSET_KEY = 'kuma-niramekko-audio-offset';
+  var AUDIO_OFFSET = 0;
+  try{ AUDIO_OFFSET = parseFloat(localStorage.getItem(AUDIO_OFFSET_KEY)) || 0; }catch(e){}
   // AudioContext starts (or resumes) muted until a real user gesture —
   // beginRun() is only ever invoked from a click/keydown/touchstart handler
   // (see stageActivate and the keydown listener below), so resuming it
@@ -978,7 +1073,7 @@
   // never started (e.g. Web Audio unavailable).
   var bgmStartCtxTime = null;
   function beatClockNow(){
-    return bgmStartCtxTime !== null ? (audioCtx.currentTime - bgmStartCtxTime) : elapsed;
+    return bgmStartCtxTime !== null ? (audioCtx.currentTime - bgmStartCtxTime - AUDIO_OFFSET) : elapsed;
   }
   function restartBgm(){
     if (!audioCtx) return;
@@ -2344,6 +2439,86 @@
   });
   updateSfxMuteUI();
   updateBgmMuteUI();
+
+  // Audio Adjust dialog — lets a player compensate for their own device's
+  // audio output latency (worst on Bluetooth headphones/speakers, which can
+  // run well over 100ms behind the logic clock) by ear: play a steady click
+  // track and nudge AUDIO_OFFSET until the flash lines up with what they
+  // actually hear, not with when the browser thinks it just started the
+  // sound. Reuses the already-preloaded tempo120 debug click track (0.0s
+  // onset, exactly 120 BPM) rather than the real BGM tracks, since it needs
+  // an unambiguous, always-available click regardless of level/BGM choice.
+  var btnAudioAdjust = document.getElementById('btnAudioAdjust');
+  var audioAdjustModal = document.getElementById('audioAdjustModal');
+  var audioAdjustFlash = document.getElementById('audioAdjustFlash');
+  var audioAdjustPlay = document.getElementById('audioAdjustPlay');
+  var audioAdjustMinus = document.getElementById('audioAdjustMinus');
+  var audioAdjustPlus = document.getElementById('audioAdjustPlus');
+  var audioAdjustValue = document.getElementById('audioAdjustValue');
+  var audioAdjustClose = document.getElementById('audioAdjustClose');
+  var TEST_CLICK_BPM = 120;
+  var testClickSource = null, testClickStartCtxTime = null, testClickLastBeat = -1;
+  function updateAudioAdjustLabel(){
+    audioAdjustValue.textContent = (AUDIO_OFFSET>=0?'+':'') + Math.round(AUDIO_OFFSET*1000) + 'ms';
+  }
+  function setAudioOffset(v){
+    AUDIO_OFFSET = Math.max(-0.5, Math.min(0.5, v));
+    try{ localStorage.setItem(AUDIO_OFFSET_KEY, String(AUDIO_OFFSET)); }catch(e){}
+    updateAudioAdjustLabel();
+  }
+  function stopTestClick(){
+    if (testClickSource){ try{ testClickSource.stop(); }catch(e){} testClickSource = null; }
+    testClickStartCtxTime = null;
+    testClickLastBeat = -1;
+    audioAdjustPlay.textContent = 'Play Click';
+  }
+  function startTestClick(){
+    var buf = bgmBufferCache.tempo120;
+    if (!audioCtx || !buf) return;
+    resumeAudioCtx();
+    stopTestClick();
+    testClickSource = audioCtx.createBufferSource();
+    testClickSource.buffer = buf;
+    testClickSource.loop = true;
+    testClickSource.connect(bgmGain);
+    var when = audioCtx.currentTime + 0.05;
+    testClickSource.start(when, 0);
+    testClickStartCtxTime = when;
+    audioAdjustPlay.textContent = 'Stop Click';
+  }
+  function audioAdjustTick(){
+    if (audioAdjustModal.hidden) return;
+    if (testClickStartCtxTime !== null){
+      var t = audioCtx.currentTime - testClickStartCtxTime - AUDIO_OFFSET;
+      if (t >= 0){
+        var beatDur = 60/TEST_CLICK_BPM;
+        var beatIndex = Math.floor(t/beatDur);
+        if (beatIndex !== testClickLastBeat){
+          testClickLastBeat = beatIndex;
+          audioAdjustFlash.classList.add('flash');
+          setTimeout(function(){ audioAdjustFlash.classList.remove('flash'); }, 90);
+        }
+      }
+    }
+    requestAnimationFrame(audioAdjustTick);
+  }
+  audioAdjustPlay.addEventListener('click', function(){
+    if (testClickSource) stopTestClick(); else startTestClick();
+  });
+  audioAdjustMinus.addEventListener('click', function(){ setAudioOffset(AUDIO_OFFSET - 0.01); });
+  audioAdjustPlus.addEventListener('click', function(){ setAudioOffset(AUDIO_OFFSET + 0.01); });
+  btnAudioAdjust.addEventListener('click', function(){
+    resumeAudioCtx();
+    updateAudioAdjustLabel();
+    audioAdjustModal.hidden = false;
+    requestAnimationFrame(audioAdjustTick);
+  });
+  audioAdjustClose.addEventListener('click', function(){
+    stopTestClick();
+    audioAdjustModal.hidden = true;
+  });
+  updateAudioAdjustLabel();
+
   stageWrap.addEventListener('click', stageActivate);
 
   if (!isCoarse){
