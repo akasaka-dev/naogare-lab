@@ -1119,8 +1119,19 @@
   // against instead of `elapsed`, falling back to `elapsed` only if audio
   // never started (e.g. Web Audio unavailable).
   var bgmStartCtxTime = null;
+  // Deliberately NOT offset by AUDIO_OFFSET here — this is the schedule
+  // clock: nextBeatTime is anchored to it (both at a fresh start and every
+  // knockback resync) and only ever advances from itself by whole beatDurs,
+  // so any constant baked into this function would just cancel out of every
+  // later beatClockNow() >= nextBeatTime comparison — nextBeatTime's own
+  // baseline would already have absorbed the identical offset, making
+  // AUDIO_OFFSET a complete no-op on actual gameplay timing (exactly the bug
+  // reported: calibrating it changed nothing in a real run). AUDIO_OFFSET
+  // is applied exactly once, only at the frame() metronome block's own
+  // beatNow reading — see its comment for why that's the one place it
+  // actually needs to live.
   function beatClockNow(){
-    return bgmStartCtxTime !== null ? (audioCtx.currentTime - bgmStartCtxTime - AUDIO_OFFSET) : elapsed;
+    return bgmStartCtxTime !== null ? (audioCtx.currentTime - bgmStartCtxTime) : elapsed;
   }
   function restartBgm(){
     if (!audioCtx) return;
@@ -2785,8 +2796,13 @@
       // hardware clock), not `elapsed` (a plain frame-accumulated JS clock)
       // — see beatClockNow()'s own comment for why that distinction is what
       // actually keeps this in sync with the music instead of slowly (or
-      // not so slowly) drifting from it.
-      var beatNow = beatClockNow();
+      // not so slowly) drifting from it. AUDIO_OFFSET is subtracted right
+      // here, and only here — it makes beatNow read as running behind the
+      // raw schedule by however much the player's own device delays actual
+      // playback, so the window opens/closes that much later in real time,
+      // matching when they'll actually hear it rather than when the
+      // hardware clock says the sound was handed off.
+      var beatNow = beatClockNow() - AUDIO_OFFSET;
       beatDur = 60/BPM;
       var hitWindow = Math.min(HIT_WINDOW, beatDur*0.3);
       if (!beatOpen && beatNow >= nextBeatTime - hitWindow){
