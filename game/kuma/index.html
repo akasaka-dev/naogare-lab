@@ -120,12 +120,13 @@
   }
   .hud-hp{
     position:absolute; left:10px; top:40px;
-    font-family:var(--font-mono); font-weight:700; font-size:40px;
-    letter-spacing:0.12em;
-    text-shadow:0 2px 5px rgba(0,0,0,0.8);
+    display:flex; gap:6px;
   }
-  .hud-hp .pip-full{ color:var(--safe); }
-  .hud-hp .pip-lost{ color:var(--line-soft); }
+  .hud-hp img{
+    width:32px; height:34px;
+    filter:drop-shadow(0 2px 5px rgba(0,0,0,0.8));
+  }
+  .hud-hp .pip-lost{ opacity:0.25; filter:grayscale(1) drop-shadow(0 2px 5px rgba(0,0,0,0.8)); }
   .hud-countdown{
     position:absolute; left:50%; top:50%;
     transform:translate(-50%,-50%);
@@ -743,7 +744,7 @@
   var maxHP = 3, hp = maxHP;
   function updateHpDisplay(){
     var out = '';
-    for (var i=0;i<maxHP;i++) out += '<span class="' + (i < hp ? 'pip-full' : 'pip-lost') + '">●</span>';
+    for (var i=0;i<maxHP;i++) out += '<img class="' + (i < hp ? 'pip-full' : 'pip-lost') + '" src="ojisanicon.png" alt="">';
     hpLabel.innerHTML = out;
   }
   var missReactionTimer = 0; // >0 while the bear plays a Run_Anime surge right after a miss closes distance
@@ -1002,11 +1003,15 @@
       apply(bgmBufferCache[key]);
       return;
     }
-    // no-store: the dev static server sends no Cache-Control header, so a
-    // plain fetch() can silently keep serving a browser-cached copy of a
-    // track file that's since been swapped out on disk — this forces an
-    // actual round trip every time instead of trusting the cache.
-    fetch(t.file, {cache: 'no-store'})
+    // Plain fetch (browser default caching) rather than no-store: these are
+    // multi-MB files and this is exactly the kind of asset the platform's
+    // own Cache-Control/ETag is meant for — a returning player's second
+    // visit should cost one small conditional-GET round trip per track, not
+    // a full re-download of every BGM track again. Only matters in
+    // production (Cloudflare sends real caching headers); the local dev
+    // server's own Last-Modified is recent enough right after an edit that
+    // it revalidates anyway.
+    fetch(t.file)
       .then(function(r){ return r.arrayBuffer(); })
       .then(function(buf){ return audioCtx.decodeAudioData(buf); })
       .then(function(decoded){
@@ -1027,7 +1032,7 @@
   function preloadBgmTrack(key){
     var t = BGM_TRACKS[key];
     if (!t || !audioCtx || bgmBufferCache[key]){ markPreloaded(); return; }
-    fetch(t.file, {cache: 'no-store'})
+    fetch(t.file)
       .then(function(r){ return r.arrayBuffer(); })
       .then(function(buf){ return audioCtx.decodeAudioData(buf); })
       .then(function(decoded){ bgmBufferCache[key] = decoded; markPreloaded(); })
@@ -1052,7 +1057,7 @@
   function preloadSfx(key){
     var file = SFX_FILES[key];
     if (!file || !audioCtx || sfxBufferCache[key]){ markPreloaded(); return; }
-    fetch(file, {cache: 'no-store'})
+    fetch(file)
       .then(function(r){ return r.arrayBuffer(); })
       .then(function(buf){ return audioCtx.decodeAudioData(buf); })
       .then(function(decoded){ sfxBufferCache[key] = decoded; markPreloaded(); })
@@ -1076,7 +1081,7 @@
   var gameoverBgmBuffer = null, gameoverBgmSource = null;
   function preloadGameoverBgm(){
     if (!audioCtx || gameoverBgmBuffer){ markPreloaded(); return; }
-    fetch(GAMEOVER_BGM_FILE, {cache: 'no-store'})
+    fetch(GAMEOVER_BGM_FILE)
       .then(function(r){ return r.arrayBuffer(); })
       .then(function(buf){ return audioCtx.decodeAudioData(buf); })
       .then(function(decoded){ gameoverBgmBuffer = decoded; markPreloaded(); })
@@ -1202,16 +1207,16 @@
     s.cur += s.vel * dt;
   }
 
-  // Preload gate — 5 GLTF models + the sky texture + 5 BGM tracks + the
-  // gameover BGM + 5 SFX, each counted exactly once regardless of whether it
-  // resolves, errors, or (for the audio ones) is skipped outright because
-  // Web Audio isn't available — every one of those paths calls
-  // markPreloaded() so a real failure can never leave the bar stuck short
-  // of 100%. The one deliberate exception is bear-rigged.glb's own error
-  // path (see onModelError below): the game can't actually run without it,
-  // so that failure holds the bar and shows an explicit message instead of
-  // waving the player through into a broken run.
-  var PRELOAD_TOTAL = 17;
+  // Preload gate — 5 GLTF models + the sky texture + the HP icon + 5 BGM
+  // tracks + the gameover BGM + 5 SFX, each counted exactly once regardless
+  // of whether it resolves, errors, or (for the audio ones) is skipped
+  // outright because Web Audio isn't available — every one of those paths
+  // calls markPreloaded() so a real failure can never leave the bar stuck
+  // short of 100%. The one deliberate exception is bear-rigged.glb's own
+  // error path (see onModelError below): the game can't actually run
+  // without it, so that failure holds the bar and shows an explicit message
+  // instead of waving the player through into a broken run.
+  var PRELOAD_TOTAL = 18;
   var preloadedCount = 0;
   function updatePreloadUI(){
     var pct = Math.min(100, Math.round(preloadedCount/PRELOAD_TOTAL*100));
@@ -1370,6 +1375,15 @@
   // smear its edge pixel instead of exposing raw background. fog:false because
   // fog is meant to fade out mid-distance geometry, not the sky itself.
   var skyTexture = loadTextureTracked('sky.jpg');
+  // HP pips (see updateHpDisplay()) reference this by plain <img src>, not
+  // through three.js — preloaded here only so it counts toward the same
+  // gate as everything else the title screen shouldn't appear ahead of.
+  (function(){
+    var hpIconPreload = new Image();
+    hpIconPreload.onload = markPreloaded;
+    hpIconPreload.onerror = markPreloaded;
+    hpIconPreload.src = 'ojisanicon.png';
+  })();
   skyTexture.encoding = THREE.sRGBEncoding;
   skyTexture.wrapS = THREE.ClampToEdgeWrapping;
   skyTexture.wrapT = THREE.ClampToEdgeWrapping;
