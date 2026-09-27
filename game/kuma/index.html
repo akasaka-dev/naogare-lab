@@ -1,0 +1,2787 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Boy meets Kuma</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Shippori+Antique+B1&family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=JetBrains+Mono:wght@500;700&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<style>
+  :root{
+    --bg:#12180f;
+    --bg-panel:#1b2417;
+    --bg-panel-2:#202b1b;
+    --ink:#ede8d6;
+    --ink-dim:#9fac8f;
+    --accent:#f2b705;
+    --accent-dim:#b98c12;
+    --danger:#c4432b;
+    --safe:#6f9c53;
+    --line:#3a4430;
+    --line-soft:#2a3222;
+    --font-display:'Shippori Antique B1','Hiragino Mincho ProN',serif;
+    --font-body:'Zen Kaku Gothic New','Hiragino Sans','Yu Gothic',sans-serif;
+    --font-mono:'JetBrains Mono','SF Mono',Consolas,monospace;
+  }
+
+  *{box-sizing:border-box;}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:var(--font-body);
+    padding:10px;
+    display:flex;
+    justify-content:center;
+  }
+
+  .board{
+    width:100%;
+    max-width:1400px;
+    display:flex;
+    flex-direction:column;
+    gap:12px;
+  }
+
+  .stage-wrap{
+    position:relative;
+    width:100%;
+    aspect-ratio:3/4;
+    max-height:88vh;
+    border:1px solid var(--line);
+    border-radius:3px;
+    overflow:hidden;
+    background:var(--bg);
+  }
+  .stage-wrap.has-look{cursor:none;}
+  canvas#glcanvas{display:block;width:100%;height:100%;}
+
+  .hud{
+    position:absolute; inset:0; pointer-events:none; z-index:4;
+    font-family:var(--font-body);
+  }
+  #debugMap{
+    position:absolute; right:8px; top:8px; z-index:6;
+    background:rgba(10,14,8,0.78);
+    border:1px solid rgba(255,255,255,0.35);
+    pointer-events:none;
+  }
+  #debugMap[hidden]{ display:none; }
+  .hud-gap{
+    position:absolute; left:10px; top:10px;
+    width:44%; height:22px;
+    background:rgba(18,24,15,0.6);
+    border:1px solid var(--line);
+    overflow:hidden;
+  }
+  .hud-gap-fill{
+    height:100%; width:39%;
+    background:var(--accent);
+    transition:background-color 0.2s;
+  }
+  .hud-gap-label{
+    position:absolute; left:6px; top:3px;
+    font-size:10px; color:var(--ink); letter-spacing:0.06em;
+    text-shadow:0 1px 2px rgba(0,0,0,0.8);
+  }
+  .hud-timer{
+    position:absolute; right:10px; top:10px;
+    font-family:var(--font-mono); font-weight:700; font-size:15px;
+    color:var(--ink);
+    text-shadow:0 1px 3px rgba(0,0,0,0.8);
+    font-variant-numeric:tabular-nums;
+  }
+  .hud-hp{
+    position:absolute; left:10px; top:40px;
+    font-family:var(--font-mono); font-weight:700; font-size:40px;
+    letter-spacing:0.12em;
+    text-shadow:0 2px 5px rgba(0,0,0,0.8);
+  }
+  .hud-hp .pip-full{ color:var(--safe); }
+  .hud-hp .pip-lost{ color:var(--line-soft); }
+  .hud-countdown{
+    position:absolute; left:50%; top:50%;
+    transform:translate(-50%,-50%);
+    font-family:var(--font-display);
+    font-size:clamp(48px,14vw,96px);
+    color:var(--accent);
+    text-shadow:0 4px 16px rgba(0,0,0,0.9);
+    opacity:0;
+    letter-spacing:0.05em;
+    pointer-events:none;
+  }
+  .hud-loading{
+    position:absolute; left:50%; bottom:8%;
+    transform:translateX(-50%);
+    font-size:12px; color:var(--ink-dim);
+    background:rgba(18,24,15,0.7);
+    border:1px solid var(--line);
+    padding:5px 12px;
+    letter-spacing:0.04em;
+  }
+  .hud-loading[hidden]{display:none;}
+
+  .overlay-card{
+    position:absolute; inset:0; z-index:6;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:10px; text-align:center; padding:16px;
+    background:#ffffff;
+    opacity:0; pointer-events:none;
+    transition:opacity 0.9s ease;
+  }
+  .overlay-card.visible{ opacity:1; pointer-events:auto; }
+  .overlay-card h2{
+    font-family:var(--font-display); font-weight:400;
+    font-size:clamp(22px,6vw,30px); margin:0; color:var(--ink);
+    text-wrap:balance;
+  }
+  .title-logo{
+    display:block; width:min(360px,82%); height:auto;
+    filter:drop-shadow(0 12px 18px rgba(0,0,0,0.6));
+  }
+  .title-logo.drop-in{
+    animation:logoDrop 0.65s cubic-bezier(.34,1.56,.64,1) both;
+  }
+  @keyframes logoDrop{
+    0%{ transform:translateY(-220%); opacity:0; }
+    55%{ transform:translateY(4%); opacity:1; }
+    62%{ transform:translateY(2%) scaleX(1.08) scaleY(0.9); }
+    75%{ transform:translateY(-4%) scaleX(0.97) scaleY(1.04); }
+    88%{ transform:translateY(1%) scaleX(1.02) scaleY(0.99); }
+    100%{ transform:translateY(0) scale(1); }
+  }
+  .overlay-card p{margin:0; color:#6b6255; font-size:13.5px; max-width:34ch;}
+  .overlay-card .cta{
+    margin-top:8px; font-size:12.5px; font-weight:700;
+    color:#a1620a; letter-spacing:0.08em;
+  }
+
+  .level-select{display:flex; gap:8px; justify-content:center;}
+  .level-select button{
+    font-family:var(--font-body);
+    font-weight:700;
+    font-size:13px;
+    color:var(--ink);
+    background:var(--bg-panel-2);
+    border:1px solid var(--line);
+    border-radius:5px;
+    padding:8px 14px;
+    cursor:pointer;
+    touch-action:manipulation;
+    user-select:none;
+    -webkit-user-select:none;
+    transition:background .08s,box-shadow .08s,color .08s;
+  }
+  .level-select button.selected{
+    background:var(--accent); color:#1b1503;
+    box-shadow:0 0 0 2px var(--accent-dim);
+  }
+
+  .hud-controls{
+    position:absolute; left:0; right:0; bottom:0; z-index:5;
+    display:flex; align-items:flex-start; justify-content:center;
+    gap:22px;
+    padding:12px 12px calc(10px + env(safe-area-inset-bottom));
+    background:linear-gradient(to top, rgba(9,13,7,0.8), rgba(9,13,7,0));
+  }
+  .hud-btn-group{
+    display:flex; flex-direction:column; align-items:center;
+    gap:6px;
+  }
+  .hud-controls .key-hints{gap:4px; justify-content:center;}
+
+  .controls-row{
+    display:flex;
+    flex-wrap:wrap;
+    align-items:center;
+    justify-content:space-between;
+    gap:14px;
+  }
+  .key-hints{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    font-size:12px;
+    color:var(--ink-dim);
+    letter-spacing:0.04em;
+  }
+  kbd{
+    font-family:var(--font-mono);
+    font-size:13px;
+    font-weight:700;
+    color:var(--ink);
+    background:var(--bg-panel-2);
+    border:1px solid var(--line);
+    border-bottom:2px solid var(--line);
+    border-radius:4px;
+    padding:4px 9px;
+    min-width:16px;
+    text-align:center;
+  }
+  .key-sep{color:var(--line);padding:0 2px;}
+
+  .touch-buttons{display:flex;gap:10px;}
+  .touch-buttons button{
+    font-family:var(--font-body);
+    font-weight:700;
+    font-size:14px;
+    color:var(--ink);
+    background:var(--bg-panel-2);
+    border:1px solid var(--line);
+    border-radius:5px;
+    padding:11px 18px;
+    cursor:pointer;
+    touch-action:manipulation;
+    user-select:none;
+    -webkit-user-select:none;
+    transition:background .08s,box-shadow .08s,color .08s;
+  }
+  .touch-buttons button:active{background:var(--accent-dim);color:#1b1503;}
+  .touch-buttons button.muted{color:var(--ink-dim);border-color:var(--line-soft);background:var(--bg-panel);}
+  .touch-buttons button.icon-btn{
+    display:flex; align-items:center; justify-content:center;
+    padding:10px; width:40px; height:40px;
+  }
+  .touch-buttons button.icon-btn svg{display:block;}
+  .touch-buttons button:focus-visible,
+  kbd:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+
+  kbd{transition:background .08s,box-shadow .08s,color .08s;}
+
+  .beat-active{
+    background:var(--accent) !important;
+    color:#1b1503 !important;
+    box-shadow:0 0 0 2px var(--accent-dim), 0 0 12px 2px rgba(242,183,5,0.7);
+  }
+  .beat-good{background:var(--safe) !important;color:#08210f !important;box-shadow:0 0 12px 2px rgba(111,156,83,0.8);}
+  .beat-bad{background:var(--danger) !important;color:#2a0a04 !important;box-shadow:0 0 12px 2px rgba(196,67,43,0.8);}
+
+  .bpm-control{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    font-size:12px;
+    color:var(--ink-dim);
+    letter-spacing:0.04em;
+  }
+  .bpm-control input[type="range"]{width:90px;accent-color:var(--accent);}
+  .bpm-control #bpmValue{color:var(--ink);font-weight:700;min-width:2.2em;display:inline-block;}
+  .bpm-control select{
+    font-family:var(--font-body);
+    font-size:12px;
+    color:var(--ink);
+    background:var(--bg-panel-2);
+    border:1px solid var(--line);
+    border-radius:4px;
+    padding:4px 6px;
+  }
+
+  @media (pointer:coarse){
+    .key-hints{display:none;}
+  }
+  @media (pointer:fine){
+    .touch-buttons{opacity:0.55;}
+  }
+</style>
+</head>
+<body>
+
+<div class="board">
+  <div class="stage-wrap" id="stageWrap">
+    <canvas id="glcanvas" aria-label="熊との遭遇シミュレーションゲーム(一人称視点)"></canvas>
+    <div class="hud">
+      <div class="hud-gap"><div class="hud-gap-fill" id="gapFill"></div><span class="hud-gap-label">distance</span></div>
+      <div class="hud-hp" id="hpLabel"></div>
+      <div class="hud-timer" id="timerLabel">0.0s</div>
+      <div class="hud-countdown" id="countdownLabel"></div>
+      <div class="hud-loading" id="loadingLabel">熊のモデルを読み込み中…</div>
+    </div>
+    <canvas id="debugMap" width="220" height="320" hidden></canvas>
+    <div class="overlay-card visible" id="cardTitle">
+      <img class="title-logo drop-in" id="titleLogo" src="title.webp" alt="Boy meets Kuma">
+      <div class="level-select" id="levelSelect">
+        <button type="button" data-bpm="72">LEVEL1</button>
+        <button type="button" data-bpm="100">LEVEL2</button>
+        <button type="button" data-bpm="120">LEVEL3</button>
+      </div>
+      <div class="cta">Click or Tap to Start</div>
+    </div>
+    <div class="overlay-card" id="cardOver">
+      <img class="title-logo" id="overReason" src="gameover.webp" alt="You lost...">
+      <p id="overStats">Survival Time 0.0s</p>
+      <p id="overScore">Score 0</p>
+      <div class="cta">Click or Tap to Respawn</div>
+    </div>
+    <div class="overlay-card" id="cardPaused">
+      <img class="title-logo" id="pausedLogo" src="paused.webp" alt="Paused">
+      <div class="cta">Tap to Resume</div>
+    </div>
+    <div class="hud-controls">
+      <div class="hud-btn-group">
+        <div class="touch-buttons">
+          <button id="btnL" type="button">Left</button>
+          <button id="btnR" type="button">Right</button>
+        </div>
+        <div class="key-hints">
+          <kbd data-lane="L">Z</kbd><span class="key-sep">/</span><kbd data-lane="R">X</kbd>
+        </div>
+      </div>
+      <div class="hud-btn-group">
+        <div class="touch-buttons">
+          <button id="btnDodge" type="button">Sway</button>
+        </div>
+        <div class="key-hints">
+          <kbd data-dodge="1">C</kbd>
+        </div>
+      </div>
+      <div class="hud-btn-group">
+        <div class="touch-buttons">
+          <button id="btnRecover" class="icon-btn" type="button" aria-label="Eat"></button>
+        </div>
+        <div class="key-hints">
+          <kbd data-recover="1">V</kbd>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="controls-row">
+    <div class="bpm-control">
+      <label for="bpmRange">BPM</label>
+      <input type="range" id="bpmRange" min="50" max="210" step="1" value="92">
+      <span id="bpmValue">92</span>
+    </div>
+    <div class="bpm-control">
+      <label for="bgmTrackSelect">BGM</label>
+      <select id="bgmTrackSelect">
+        <option value="auto">自動(BPM追従)</option>
+        <option value="kuma">くまさん</option>
+        <option value="oikakko">鬼ごっこ</option>
+        <option value="doro">泥を蹴散らせ</option>
+        <option value="tempo120">tempo120(debug)</option>
+      </select>
+    </div>
+    <div class="touch-buttons">
+      <button id="btnSfxMute" class="icon-btn" type="button" aria-label="効果音"></button>
+      <button id="btnBgmMute" class="icon-btn" type="button" aria-label="BGM"></button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var stageWrap = document.getElementById('stageWrap');
+  var canvas = document.getElementById('glcanvas');
+  var gapFill = document.getElementById('gapFill');
+  var hpLabel = document.getElementById('hpLabel');
+  var timerLabel = document.getElementById('timerLabel');
+  var countdownLabel = document.getElementById('countdownLabel');
+  var debugMapCanvas = document.getElementById('debugMap');
+  var debugMapCtx = debugMapCanvas.getContext('2d');
+  var debugMapOn = false;
+  var cardTitle = document.getElementById('cardTitle');
+  var cardOver = document.getElementById('cardOver');
+  var overReason = document.getElementById('overReason');
+  var titleLogo = document.getElementById('titleLogo');
+  var cardPaused = document.getElementById('cardPaused');
+  var pausedLogo = document.getElementById('pausedLogo');
+  var overStats = document.getElementById('overStats');
+  var overScore = document.getElementById('overScore');
+  var btnL = document.getElementById('btnL');
+  var btnR = document.getElementById('btnR');
+  var btnDodge = document.getElementById('btnDodge');
+  var btnRecover = document.getElementById('btnRecover');
+  var btnSfxMute = document.getElementById('btnSfxMute');
+  var btnBgmMute = document.getElementById('btnBgmMute');
+
+  var reducedMotion = false;
+  try{ reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){}
+  var isCoarse = false;
+  try{ isCoarse = matchMedia('(pointer: coarse)').matches; }catch(e){}
+  if (!isCoarse) stageWrap.classList.add('has-look');
+
+  var COLOR_BG = 0x272f24; // nudged from pure forest green toward the sky photo's neutral gray so the horizon (fog-faded ground meeting the sky plane) doesn't show a hard color seam at steep look angles
+  var COLOR_ACCENT = 0xf2b705;
+  var COLOR_DANGER = 0xc4432b;
+
+  var GAP_MAX = 140, GAP_START = 14;
+  // Retreat is now rhythm-gated instead of free-mashed: a step only succeeds when
+  // the correct button is pressed inside the currently-highlighted beat window.
+  // A wrong button or an off-beat press directly costs distance instead of doing
+  // nothing, so spamming both keys no longer out-races the bear.
+  var HIT_GAIN = 3.4, COMBO_MAX = 1.25, COMBO_STEP = 0.05;
+  // A miss now costs more distance the farther away the bear still is (scaled by
+  // gap/GAP_MAX), instead of a flat penalty — a fixed cost barely dented a big
+  // early lead, so mistakes felt consequence-free until the bear was already
+  // close. Scaling keeps tension present from the very first beat: range is
+  // MISS_PENALTY_BASE (close) to MISS_PENALTY_BASE+MISS_PENALTY_SCALE (far).
+  // Pushed noticeably higher than the original flat 4.5 per "もっと大胆に距離を
+  // つめて" — a miss at long range now undoes several hits' worth of progress.
+  var MISS_PENALTY_BASE = 5.0, MISS_PENALTY_SCALE = 9.0;
+  var WALK_SPEED = 1.15; // slow constant background creep — the bear's own "walk", independent of the beat
+  var Z_NEAR = -2.2, Z_FAR = -50;
+  // The player used to sit fixed at world origin forever — only the bear's
+  // own Z moved with `gap`, so despite the retreat animation playing,
+  // nothing in the world (ground, trees, camera) ever actually shifted, and
+  // the whole "you're backing away" read as "the bear is sliding around"
+  // instead. `playerD` (the arc-length distance traveled along the track —
+  // see pathAt()/TRACK_PERIMETER near the top) now advances too, on every
+  // successful press (see handleLane()'s success branch), scaled by this
+  // range so the *pace* of that advance matches the old bear-only distance
+  // formula — every HIT_RADIUS/attack-proximity tuning done earlier stays
+  // exactly valid, since the bear's own share of the gap is still a plain
+  // local Z offset (it's a child of `player` — see player.add(bear) near
+  // player's own declaration), entirely independent of how far playerD
+  // itself has climbed.
+  var PLAYER_RETREAT_RANGE = 20;
+  var EYE_HEIGHT = 1.62;
+  var MAX_YAW = 0.55, MAX_PITCH = 0.34;
+  var BASE_FOV = 68;
+
+  // The bear model (bear.glb) is a single static mesh with no named eye node,
+  // so its ground-contact height and "front" facing direction were read from its
+  // glTF bounding box, not observed rendered — if it turns out to face away from
+  // the camera, flip MODEL_FRONT_Z to -1.
+  var BEAR_MODEL_SCALE = 2.5; // base scale unit the enemy bear's own size is derived from (see ENEMY_MODEL_SCALE) — no longer the player's own scale now that the player has a dedicated model
+  var ENEMY_MODEL_SCALE = BEAR_MODEL_SCALE * 2; // the actual bear — twice the player's height so they're easy to tell apart
+  var MODEL_FRONT_Z = 1;
+  var MODEL_RAW_HEIGHT = 0.8948;
+  var MODEL_EYE_Y = MODEL_RAW_HEIGHT * 0.90 * ENEMY_MODEL_SCALE;
+  var MODEL_EYE_Z = 0.42 * ENEMY_MODEL_SCALE;
+  var FARMER_RAW_HEIGHT = 0.98; // farmer.glb's own bbox height, unscaled
+  var PLAYER_MODEL_SCALE = (BEAR_MODEL_SCALE * MODEL_RAW_HEIGHT) / FARMER_RAW_HEIGHT; // matches the old bear-placeholder's on-screen height
+
+  // Debug view: camera pulls back to third-person so the player placeholder (the
+  // same bear mesh, reused) and the bear's hand-to-player hit test are both
+  // actually visible instead of being invisible FPS-only math.
+  var THIRD_PERSON_BACK = 4.6, THIRD_PERSON_UP = 1.1;
+  var HIT_RADIUS = 1.7;
+  var TELEGRAPH_DUR = 1.1; // long enough for Sword_Attack's swing to actually reach the player
+  // How close (as a fraction of GAP_MAX) counts as point-blank: below this,
+  // the bear stops its run/close animation and attacks are chained back to
+  // back with only a short recovery beat, instead of one swing followed by
+  // several seconds of just standing there before the next one — see the
+  // lungeState FSM and the anim-state selection below.
+  var CLOSE_RANGE_T = 0.05;
+  // Sustaining a safe distance used to be an outright win; now it's a "pass" —
+  // land GREEN_STREAK_TARGET successful hits in a row while the gap meter is
+  // showing green (t > GREEN_T, the same threshold gapFill's own color switch
+  // below uses) and the tempo ratchets up by 2 BPM instead of ending the run,
+  // so a strong player keeps playing against an escalating bear rather than
+  // just clearing the screen. Any miss, or the meter dropping out of green at
+  // all (even without a miss — see the per-frame check below), resets the
+  // streak; it's an active "keep landing hits while safe" bar, not a passive
+  // "stand around at max distance" timer.
+  var GREEN_T = 0.75, GREEN_STREAK_TARGET = 10, greenStreak = 0;
+  // A completed pass adds a bonus chunk of real distance on top of the
+  // steady per-hit trickle every ordinary successful press already adds to
+  // playerD (see handleLane()'s success branch) — worldScroll itself is now
+  // just a running display total of that bonus, not the thing playerD is
+  // computed from. An earlier version *only* advanced playerD via this kind
+  // of pass bonus, tying it to `t*PLAYER_RETREAT_RANGE` which hard-capped
+  // the moment gap first reached GAP_MAX — after that, nothing short of a
+  // full GREEN_STREAK_TARGET streak moved the track at all, which is
+  // exactly the "background stops changing" bug ordinary play kept hitting.
+  var WORLD_SCROLL_PER_PASS = 10, worldScroll = 0;
+  // Arc-length distance the player has traveled along the track (see
+  // pathAt()/TRACK_PERIMETER near the top) — the single logical source of
+  // truth for gameplay (knockback start points, the debug map's lap count,
+  // etc). Only ever climbs: on every successful press (handleLane()) and
+  // during the 'knockback' recoil (frame()) — never here, and never
+  // downward. Every ordinary hit adds its share to playerD in one instant
+  // jump, though — actually *rendering* that jump in a single frame would
+  // read as the camera teleporting once per beat instead of walking, so
+  // displayD (below) is what player.position/rotation and the terrain wrap
+  // are actually derived from each frame; it's playerD smoothed, not a
+  // second logical value.
+  var playerD = 0;
+  var displayD = 0;
+
+  var HIGH_KEY = 'kuma-niramekko-highscore';
+  var highScore = 0;
+  try{ highScore = parseFloat(localStorage.getItem(HIGH_KEY)) || 0; }catch(e){}
+  // Score is survival time weighted by tempo, not a flat clock — every
+  // second at the default BPM (SCORE_BASE_BPM, the same 92 the game starts
+  // at) is worth 1 point/sec's equivalent (times SCORE_SCALE, purely so the
+  // number feels like an arcade score rather than a second count wearing a
+  // different label); a second spent at 2x that BPM is worth double. BPM
+  // only goes up mid-run via the slider or the green-streak reward (see
+  // frame()'s 'playing' block) and never resets except on a fresh run, so
+  // this rewards *both* halves of "survive longer" and "at a higher tempo"
+  // at once — pushing BPM up is exactly what makes the rhythm window
+  // tighter (see hitWindow's own BPM-scaled clamp), so it's a genuine
+  // risk/reward trade, not a free multiplier.
+  var SCORE_BASE_BPM = 92, SCORE_SCALE = 10;
+  var SCORE_HIGH_KEY = 'kuma-niramekko-highscore-score';
+  var highScoreScore = 0;
+  try{ highScoreScore = parseFloat(localStorage.getItem(SCORE_HIGH_KEY)) || 0; }catch(e){}
+  var score = 0;
+
+  var mixers = []; // animation mixers that always run (e.g. the player's), regardless of game state
+
+  var state = 'title';
+  var gap, elapsed, combo;
+  var lungeState, lungeTimer, nextLungeAt;
+  var reactionTimer = 0; // counts down knockbackDuration during 'knockback', then getUpDuration during 'gettingup'
+  // A beat-synced "3, 2, 1" lead-in — at the start of a run and again after
+  // getting back up — so the player has a moment to find the tempo before
+  // real beats start judging them. This used to be its own 'countdown'
+  // state with a separate timer, which could drift out of sync with the
+  // real beat clock and left the lane buttons stuck showing whatever
+  // highlight they were last in when 'playing' stopped updating them.
+  // leadInBeats now just counts down beats 1..3 of the *same* beat clock
+  // that drives real play (see the 'playing' block in frame()): presses
+  // are ignored and the lane buttons stay unlit while it's >0, and the
+  // digit is shown in their place, so the count-in can never fall out of
+  // step with the beat that follows it.
+  var leadInBeats = 0;
+  // Since the camera is a child of `player`, pushing playerD further along
+  // the track during Hit_Knockback_RM is all that's needed for the camera to
+  // follow the hit — no separate camera-side logic. The bear needs one more
+  // step: it's *also* a child of `player` now (so its own share of the
+  // bear-to-player distance is a plain local Z, not a second world-space
+  // formula), which means if playerD alone advanced during the knockback,
+  // the bear would get dragged along with it instead of staying frozen where
+  // it struck. dyingStartBearLocalZ subtracts the exact same push back out
+  // of the bear's local offset, so the two cancel and the bear reads as
+  // truly stationary in world space while the player recoils away from it —
+  // increasing bear-to-player distance here is intentional, not a bug to
+  // reconcile with the gap system, which stays paused for the same reason
+  // the bear does. Distance eases in over knockbackDuration so it lands with
+  // the hit instead of snapping. dyingStartD is added on top of wherever
+  // playerD already was at the moment of the hit, whatever that happens to
+  // be — playerD only ever climbs (handleLane()'s success branch, plus this
+  // knockback push), never resets or recomputes from `gap`/`t`.
+  var KNOCKBACK_DISTANCE = 6;
+  var dyingStartD = 0, dyingStartBearLocalZ = 0;
+  // Health system: a hit no longer ends the run outright — it costs one HP,
+  // plays the knockback + LayToIdle get-up, and only actually ends things
+  // (state='gameover') if that was the last one. maxHP is the number of hits
+  // survived before that.
+  var maxHP = 3, hp = maxHP;
+  function updateHpDisplay(){
+    var out = '';
+    for (var i=0;i<maxHP;i++) out += '<span class="' + (i < hp ? 'pip-full' : 'pip-lost') + '">●</span>';
+    hpLabel.innerHTML = out;
+  }
+  var missReactionTimer = 0; // >0 while the bear plays a Run_Anime surge right after a miss closes distance
+  // Which side the current telegraph/lunge attack comes from, and whether the
+  // player has already dodged (or already used their one dodge attempt) for
+  // it — reset fresh at the start of every telegraph, see the lungeState FSM
+  // in frame() below.
+  var attackSide = 'L', dodged = false, dodgeAttempted = false;
+  var dodgeTimer = 0; // >0 while a Dodge_left/right_RM clip is playing, so the idle/walk gate below leaves it alone
+  var walkStepTimer = 0, walkStepDuration = 1.0; // >0 while a single Walk_Backwards step (triggered per successful hit) is playing
+  // The bear only has one dodge button (C) — there's no "which side" for the
+  // player to choose, only "when". lungeImpactAt is the elapsed-time target
+  // (set when the telegraph starts, see the lungeState FSM below) the press
+  // has to land near; DODGE_GOOD_WINDOW is the total width of that forgiving
+  // window around it. A press inside the window plays the dodge clip that
+  // actually matches attackSide and cancels the hit; a press outside it (or
+  // no press at all) plays the *wrong* one instead, so a mistimed dodge reads
+  // as flinching the wrong way and taking the hit rather than a no-op.
+  var lungeImpactAt = 0, DODGE_GOOD_WINDOW = 0.6;
+
+  // ---- rhythm/metronome beat system ----
+  // Beats alternate L/R forever; each has a fixed-width window centered on its
+  // exact time. Pressing the correct lane inside that window is a hit; anything
+  // else (wrong lane, or outside the window) is a miss. BPM is live-adjustable
+  // via the #bpmRange slider so this can double as a plain metronome trainer.
+  var bpmRange = document.getElementById('bpmRange');
+  var bpmValue = document.getElementById('bpmValue');
+  var BPM = parseInt(bpmRange.value, 10) || 92;
+  // Read from the slider's own max rather than a second hardcoded 160 here
+  // — the auto tempo-up (setBPM's own caller in frame()'s 'playing' block)
+  // used to clamp against a separate literal, which is exactly the kind of
+  // duplication that let the slider's max and the ratchet's ceiling drift
+  // out of sync with each other.
+  var BPM_MAX = parseInt(bpmRange.max, 10) || 160;
+  // Same idea, for the tempo *penalties* (poison kinoko, getting hit — see
+  // handleRecover() and the hand-hitbox check in frame()) clamping down
+  // against the slider's own floor instead of a separate literal.
+  var BPM_MIN = parseInt(bpmRange.min, 10) || 50;
+  // The one place BPM is allowed to change, full stop — the slider and the
+  // green-streak tempo-up reward (frame()'s 'playing' block) both go
+  // through this now. Splitting "change the BPM variable" from "update the
+  // BGM's own playbackRate to match" across two separate call sites was
+  // exactly the bug: the streak reward updated BPM (and the slider's
+  // visual position) directly, inline, with no idea the slider's own input
+  // listener was the only place actually keeping bgmSource.playbackRate in
+  // sync — so a tempo-up mid-run sped the flash clock up right away and
+  // left the music at its old speed until the player happened to touch the
+  // slider themselves.
+  function setBPM(newBpm){
+    BPM = newBpm;
+    bpmRange.value = BPM;
+    bpmValue.textContent = BPM;
+    // In auto mode (the default — see bgmAutoMode/autoTrackForBpm's own
+    // comment), crossing one of BGM_AUTO_TIERS' thresholds swaps the whole
+    // track, which already restarts playbackRate correctly on its own
+    // (loadBgmTrack ->
+    // startLeadIn(true) -> restartBgm()) — the plain rate update below
+    // would just be overwritten a moment later in that case, harmlessly.
+    if (bgmAutoMode){
+      var want = autoTrackForBpm(BPM);
+      if (want !== currentTrackKey){ loadBgmTrack(want); return; }
+    }
+    if (bgmSource) bgmSource.playbackRate.value = BPM / BGM_NATIVE_BPM;
+  }
+  bpmRange.addEventListener('input', function(){
+    setBPM(parseInt(bpmRange.value, 10) || 92);
+  });
+  var bgmTrackSelect = document.getElementById('bgmTrackSelect');
+  bgmTrackSelect.addEventListener('change', function(){
+    var v = bgmTrackSelect.value;
+    if (v === 'auto'){
+      bgmAutoMode = true;
+      loadBgmTrack(autoTrackForBpm(BPM));
+    } else {
+      bgmAutoMode = false;
+      loadBgmTrack(v);
+    }
+  });
+  // Difficulty picked on the title card, applied fresh at the top of every
+  // run (see beginRun()) rather than left to whatever BPM the previous
+  // attempt's auto tempo-up (or a manual slider drag) happened to end on —
+  // a "start over at LEVEL2" pick should actually mean that, every time.
+  var levelButtons = Array.prototype.slice.call(document.querySelectorAll('#levelSelect button'));
+  var startBPM = parseInt(levelButtons[0].dataset.bpm, 10);
+  function updateLevelSelectUI(){
+    levelButtons.forEach(function(btn){
+      btn.classList.toggle('selected', parseInt(btn.dataset.bpm, 10) === startBPM);
+    });
+  }
+  levelButtons.forEach(function(btn){
+    // stopPropagation: #levelSelect lives inside #cardTitle, itself inside
+    // #stageWrap — which has its own click listener (stageActivate) that
+    // begins the run on any click at all. Without this, picking a level
+    // would immediately start the game on whatever BPM the *previous*
+    // selection left behind, one click before the player meant to start.
+    btn.addEventListener('click', function(e){
+      e.stopPropagation();
+      startBPM = parseInt(btn.dataset.bpm, 10);
+      updateLevelSelectUI();
+    });
+  });
+  updateLevelSelectUI();
+  var HIT_WINDOW = 0.15; // seconds of tolerance either side of the beat, clamped tighter at high BPM below
+  // A metronome click used to fire here too (one per beat, via Web Audio
+  // for low/consistent start latency) as an audible timing cue. Removed —
+  // once BGM sync itself became reliable, the click's own latency (small
+  // but real, and less predictable than the now-precise BGM timing) was
+  // making things read as *more* out of sync, not less. The BPM slider,
+  // BGM and flash highlight are all that's left to judge timing by now.
+  // sfxGain (below) is left in place with nothing currently connected to
+  // it — more sound effects are planned, and the mute toggle needs
+  // somewhere for them to plug into from the start.
+  var audioCtx = null;
+  try{
+    var AC = window.AudioContext || window.webkitAudioContext;
+    if (AC) audioCtx = new AC();
+  }catch(e){}
+  // AudioContext starts (or resumes) muted until a real user gesture —
+  // beginRun() is only ever invoked from a click/keydown/touchstart handler
+  // (see stageActivate and the keydown listener below), so resuming it
+  // there is guaranteed to be inside that gesture rather than a separate,
+  // gesture-less call that browsers would silently ignore.
+  function resumeAudioCtx(){
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(function(){});
+  }
+  // Persistent gain nodes for the two mute toggles below (future sound
+  // effects vs BGM) — every source connects through one of these instead of
+  // straight to destination, so muting is just a gain flip and never
+  // touches playback position/timing (important for the BGM one in
+  // particular, now that its own timing is the thing being kept precise).
+  var BGM_VOLUME = 0.45;
+  var sfxGain = null, bgmGain = null;
+  var sfxMuted = false, bgmMuted = false;
+  if (audioCtx){
+    sfxGain = audioCtx.createGain();
+    sfxGain.gain.value = 1;
+    sfxGain.connect(audioCtx.destination);
+    bgmGain = audioCtx.createGain();
+    bgmGain.gain.value = BGM_VOLUME;
+    bgmGain.connect(audioCtx.destination);
+  }
+  // BGM, tempo-matched to the adjustable BPM slider by scaling playback
+  // rate against the track's own native tempo (71 BPM) — uses Web Audio
+  // (AudioContext + AudioBufferSourceNode) rather than a plain <audio>
+  // element for low, consistent start latency, left running continuously
+  // (loop=true) rather than re-fired per beat. A plain playbackRate change
+  // isn't a pitch-preserving time-stretch (Web Audio has no such thing
+  // built in) — it shifts pitch right along with tempo, same as speeding
+  // up or slowing down a record. Accepted deliberately rather than worked
+  // around: this BPM range (50-160) can be more than 2x the native tempo
+  // at either extreme, well past what a phase-vocoder-style stretch could
+  // hide anyway, and the track was picked because sounding a little
+  // unnatural there is more fun than it is a problem.
+  // まってよ_くまさん.mp3 — re-exported a second time with beat 1 re-trimmed
+  // to the 1-second mark (the standard rule for future tracks, so files
+  // don't each need their own measured offset). Re-verified: tempo still
+  // 71.01 BPM, and this time the onset genuinely sits right around 0.95-1.0s
+  // (the earlier pass landed at ~0.80s) — close enough to trust the round
+  // 1.0 the file was authored to, rather than substituting a measured value.
+  // tempo120.mp3 is the debug-only click track (snare on beat 1, hihat on
+  // 2/3/4, exactly 120 BPM, onset confirmed at t=0.000s) used earlier to
+  // isolate sync bugs from any ambiguity in reading a real song's beat —
+  // the #bgmTrackSelect dropdown (see its own listener below) keeps it
+  // available any time that kind of unambiguous test is needed again,
+  // instead of hand-editing these constants back and forth.
+  // くまさんと鬼ごっこ.mp3 — re-exported by the user with a sound-effect
+  // lead-in before the beat; the beat itself starts at the 1.0s mark,
+  // stated tempo 125. (Supersedes the earlier autocorrelation-measured
+  // 124.225/0.08s, which applied only to the previous export of this file.)
+  var BGM_TRACKS = {
+    kuma: { file: 'まってよ_くまさん.mp3', nativeBpm: 71, offset: 1.0 },
+    oikakko: { file: 'くまさんと鬼ごっこ.mp3', nativeBpm: 125, offset: 1.0 },
+    doro: { file: '泥を蹴散らせ.mp3', nativeBpm: 150, offset: 1.0 },
+    tempo120: { file: 'tempo120.mp3', nativeBpm: 120, offset: 0 }
+  };
+  // Each tier's BPM threshold is the track's own native tempo, so
+  // playbackRate is pushed toward 1.0 (least pitch distortion) right as
+  // each one becomes the active track, rather than switching at some
+  // arbitrary halfway point. Checked from the top down so the highest
+  // threshold a given bpm clears wins.
+  var BGM_AUTO_TIERS = [
+    { minBpm: 150, key: 'doro' },
+    { minBpm: 120, key: 'oikakko' }
+  ];
+  function autoTrackForBpm(bpm){
+    for (var i=0;i<BGM_AUTO_TIERS.length;i++){
+      if (bpm >= BGM_AUTO_TIERS[i].minBpm) return BGM_AUTO_TIERS[i].key;
+    }
+    return 'kuma';
+  }
+  // True while track selection should follow BPM automatically (the
+  // default); false once #bgmTrackSelect forces a specific track, until
+  // switched back to "自動". See setBPM() and the select's own listener.
+  var bgmAutoMode = true;
+  var currentTrackKey = null;
+  var BGM_NATIVE_BPM = BGM_TRACKS.kuma.nativeBpm;
+  var BGM_BEAT_OFFSET = BGM_TRACKS.kuma.offset;
+  var bgmBuffer = null, bgmSource = null;
+  var bgmBufferCache = {}; // track key -> decoded AudioBuffer, so switching back doesn't re-fetch/decode
+  // Set when beginRun() asks for a fresh start (startLeadIn(true) ->
+  // restartBgm()) before the track has actually finished decoding —
+  // restartBgm() can't do anything without a buffer, so it just records
+  // that a start was owed. Without this, a player clicking the title card
+  // faster than the (multi-MB) BGM file decodes got permanent silence:
+  // restartBgm() bailed out on the missing buffer, and the decode's own
+  // completion handler only knew to retry via `if (bgmSource)` — which was
+  // never set in the first place, since that's exactly what the bailed-out
+  // restartBgm() call would have done. Neither side alone noticed the
+  // other had failed.
+  var bgmPendingFreshStart = false;
+  // Loads (or reuses a cached decode of) the given track, then — if a BGM
+  // instance is already running, or a fresh start is still owed (see
+  // bgmPendingFreshStart above) — starts it via the exact same path a
+  // brand new run takes (startLeadIn(true)), so the flash clock and the
+  // (possibly just-swapped) track are guaranteed to start back in sync
+  // rather than the old track's timing carrying over onto the new one.
+  //
+  // bgmBuffer, BGM_NATIVE_BPM and BGM_BEAT_OFFSET are only ever written
+  // together, right here in apply() — never separately. An earlier version
+  // set BGM_NATIVE_BPM/BGM_BEAT_OFFSET immediately (before the fetch even
+  // started) but left bgmBuffer pointing at whatever track was already
+  // loaded until the new one finished decoding. Picking LEVEL3 (BPM 120,
+  // which auto-selects 鬼ごっこ) on a fresh page load hit this directly:
+  // restartBgm() ran before that decode finished, so it started the *old*
+  // track's audio using the *new* track's tempo/offset — genuinely
+  // mismatched parameters, not just a late switch — and then restarted a
+  // second time, correctly, once the real decode landed a moment later.
+  // Keeping all three in lockstep makes that window impossible: whatever
+  // restartBgm() sees is always self-consistent, even if it's a frame
+  // "behind" the just-requested track.
+  function loadBgmTrack(key){
+    var t = BGM_TRACKS[key];
+    if (!t || !audioCtx) return;
+    currentTrackKey = key;
+    function apply(decoded){
+      bgmBuffer = decoded;
+      BGM_NATIVE_BPM = t.nativeBpm;
+      BGM_BEAT_OFFSET = t.offset;
+      if (bgmSource || bgmPendingFreshStart){ bgmPendingFreshStart = false; startLeadIn(true); }
+    }
+    if (bgmBufferCache[key]){
+      apply(bgmBufferCache[key]);
+      return;
+    }
+    // no-store: the dev static server sends no Cache-Control header, so a
+    // plain fetch() can silently keep serving a browser-cached copy of a
+    // track file that's since been swapped out on disk — this forces an
+    // actual round trip every time instead of trusting the cache.
+    fetch(t.file, {cache: 'no-store'})
+      .then(function(r){ return r.arrayBuffer(); })
+      .then(function(buf){ return audioCtx.decodeAudioData(buf); })
+      .then(function(decoded){
+        bgmBufferCache[key] = decoded;
+        // Only apply it if this is still the selected track — a fast
+        // double-switch shouldn't let an earlier, slower decode clobber a
+        // later selection once it finally resolves.
+        if (currentTrackKey === key && bgmBuffer !== decoded) apply(decoded);
+      })
+      .catch(function(e){ if (window.console) console.error(e); });
+  }
+  // Decodes a track into the cache without touching bgmBuffer/currentTrackKey
+  // or restarting anything — used below to warm up every track up front, so
+  // that by the time a LEVEL button (or the BGM dropdown) actually asks for
+  // one, loadBgmTrack() always hits its synchronous cached branch instead
+  // of racing a fetch against restartBgm(). A no-op once already cached (or
+  // already the live buffer for that key).
+  function preloadBgmTrack(key){
+    var t = BGM_TRACKS[key];
+    if (!t || !audioCtx || bgmBufferCache[key]) return;
+    fetch(t.file, {cache: 'no-store'})
+      .then(function(r){ return r.arrayBuffer(); })
+      .then(function(buf){ return audioCtx.decodeAudioData(buf); })
+      .then(function(decoded){ bgmBufferCache[key] = decoded; })
+      .catch(function(e){ if (window.console) console.error(e); });
+  }
+  loadBgmTrack(autoTrackForBpm(BPM));
+  Object.keys(BGM_TRACKS).forEach(function(key){ preloadBgmTrack(key); });
+
+  // One-shot sound effects — same fetch+decodeAudioData+cache approach as
+  // the BGM tracks above, but played fire-and-forget through a fresh
+  // AudioBufferSourceNode each time (no loop, no shared/reusable source)
+  // since several can overlap (e.g. a hit landing right as a streak ticks
+  // over into a tempo-up).
+  var SFX_FILES = {
+    start: 'sound/start.wav',
+    eating: 'sound/eating.wav',
+    poisonEating: 'sound/poison-eating.wav',
+    hit: 'sound/hit2.wav',
+    levelup: 'sound/levelup.wav'
+  };
+  var sfxBufferCache = {};
+  function preloadSfx(key){
+    var file = SFX_FILES[key];
+    if (!file || !audioCtx || sfxBufferCache[key]) return;
+    fetch(file, {cache: 'no-store'})
+      .then(function(r){ return r.arrayBuffer(); })
+      .then(function(buf){ return audioCtx.decodeAudioData(buf); })
+      .then(function(decoded){ sfxBufferCache[key] = decoded; })
+      .catch(function(e){ if (window.console) console.error(e); });
+  }
+  function playSfx(key){
+    var buf = sfxBufferCache[key];
+    if (!audioCtx || !sfxGain || !buf) return;
+    var src = audioCtx.createBufferSource();
+    src.buffer = buf;
+    src.connect(sfxGain);
+    src.start();
+  }
+  Object.keys(SFX_FILES).forEach(preloadSfx);
+
+  // Gameover ambient BGM — plain looped playback through the same bgmGain
+  // (so the BGM mute toggle still covers it), with no tempo sync of any
+  // kind: unlike the two rhythm tracks, this only ever plays once the
+  // beat clock/gameplay is already over, so there's no BPM for it to match.
+  var GAMEOVER_BGM_FILE = '大きな手、優しい夜.mp3';
+  var gameoverBgmBuffer = null, gameoverBgmSource = null;
+  function preloadGameoverBgm(){
+    if (!audioCtx || gameoverBgmBuffer) return;
+    fetch(GAMEOVER_BGM_FILE, {cache: 'no-store'})
+      .then(function(r){ return r.arrayBuffer(); })
+      .then(function(buf){ return audioCtx.decodeAudioData(buf); })
+      .then(function(decoded){ gameoverBgmBuffer = decoded; })
+      .catch(function(e){ if (window.console) console.error(e); });
+  }
+  preloadGameoverBgm();
+  function playGameoverBgm(){
+    if (!audioCtx || !bgmGain || !gameoverBgmBuffer) return;
+    stopGameoverBgm();
+    gameoverBgmSource = audioCtx.createBufferSource();
+    gameoverBgmSource.buffer = gameoverBgmBuffer;
+    gameoverBgmSource.loop = true;
+    gameoverBgmSource.connect(bgmGain);
+    gameoverBgmSource.start();
+  }
+  function stopGameoverBgm(){
+    if (gameoverBgmSource){ try{ gameoverBgmSource.stop(); }catch(e){} gameoverBgmSource = null; }
+  }
+  // Called only for a genuinely fresh run (startLeadIn(true), from
+  // beginRun()) — a knockback recovery resyncs the flash clock to the
+  // still-playing BGM instead of calling this (see startLeadIn()'s own
+  // comment for why: restarting the music on every hit read as harsh).
+  // An AudioBufferSourceNode can't be seeked or replayed once started, so
+  // starting fresh means stopping whatever's currently playing (only
+  // relevant on a retry after gameover, where the previous run's node is
+  // still around) and spinning up a brand new one.
+  // The flash clock's own beat-open comparisons (see frame()'s metronome
+  // block) used to run entirely on `elapsed` — a plain JS accumulator
+  // (elapsed += dt each frame). Measured against the audio hardware clock
+  // (audioCtx.currentTime) during actual play, that accumulator drifted by
+  // over 1% of real time within a few seconds — `dt` is clamped to 50ms
+  // per frame (Math.min(0.05, ...), guarding against huge jumps after a
+  // stalled frame), so any frame that actually takes longer than that
+  // silently loses the difference, and `elapsed` can only ever fall
+  // behind, never catch up. That's more than enough to make a beat clock
+  // feel completely unsynced from music within seconds, exactly what was
+  // reported. audioCtx.currentTime doesn't have this problem — it's driven
+  // by the audio hardware's own sample clock, not by requestAnimationFrame
+  // timing at all. beatClockNow() is what the beat-open logic now compares
+  // against instead of `elapsed`, falling back to `elapsed` only if audio
+  // never started (e.g. Web Audio unavailable).
+  var bgmStartCtxTime = null;
+  function beatClockNow(){
+    return bgmStartCtxTime !== null ? (audioCtx.currentTime - bgmStartCtxTime) : elapsed;
+  }
+  function restartBgm(){
+    if (!audioCtx) return;
+    if (!bgmBuffer){ bgmPendingFreshStart = true; return; }
+    if (bgmSource){ try{ bgmSource.stop(); }catch(e){} }
+    bgmSource = audioCtx.createBufferSource();
+    bgmSource.buffer = bgmBuffer;
+    bgmSource.loop = true;
+    // loopStart matches the same offset the initial start() skips to (see
+    // below) — without it, looping back around would jump back to sample 0
+    // and re-play the pickup once per lap, landing a stray beat 1 mismatch
+    // every ~170s instead of just once at the very start.
+    bgmSource.loopStart = BGM_BEAT_OFFSET;
+    // Left at its default, loopEnd is the buffer's own full duration — but
+    // a song's total length is essentially never an exact whole number of
+    // beats past BGM_BEAT_OFFSET (for this track, measured: (172.117 -
+    // 0.80) / (60/71.01) ≈ 202.76 beats, not 202 or 203 flat). Looping at
+    // the raw end would land the wrap-around 0.76 of a beat off from where
+    // the flash clock expects the next beat 1 to be, and that offset would
+    // stick for the rest of the loop (until the next restartBgm() — a
+    // fresh run or a knockback recovery — happens to reset it). Trimming
+    // loopEnd down to the nearest *whole* beat below the real end makes the
+    // wrap itself beat-exact, at the cost of silently dropping under one
+    // beat's worth of tail audio no listener will notice.
+    var nativeBeatPeriod = 60 / BGM_NATIVE_BPM;
+    var loopBeats = Math.floor((bgmBuffer.duration - BGM_BEAT_OFFSET) / nativeBeatPeriod);
+    bgmSource.loopEnd = BGM_BEAT_OFFSET + loopBeats * nativeBeatPeriod;
+    bgmSource.playbackRate.value = BPM / BGM_NATIVE_BPM;
+    bgmSource.connect(bgmGain);
+    // Scheduled at an explicit near-future currentTime (rather than
+    // start(0), "as soon as possible") specifically so bgmStartCtxTime can
+    // record that *exact* moment with no measurement race — start(when,
+    // offset): begins audible playback from BGM_BEAT_OFFSET seconds into
+    // the buffer, not from 0, skipping the brief pickup so the track's own
+    // felt beat 1 lands right at the flash's beat 1.
+    var when = audioCtx.currentTime + 0.02;
+    bgmSource.start(when, BGM_BEAT_OFFSET);
+    bgmStartCtxTime = when;
+  }
+  // Called on gameover — there's no beat clock left to stay in sync with at
+  // that point (frame()'s metronome block is entirely inside the 'playing'
+  // state), so letting the BGM keep looping was just dead, un-synced noise
+  // until the next restartBgm() (the next run) cut it off anyway.
+  function stopBgm(){
+    if (bgmSource){ try{ bgmSource.stop(); }catch(e){} bgmSource = null; }
+    bgmStartCtxTime = null;
+  }
+  var beatDur = 60/BPM, nextBeatTime = beatDur, beatOpen = false, beatHit = false;
+  var currentLane = 'L', beatParity = false;
+  var laneEls = {
+    L: [btnL].concat(Array.prototype.slice.call(document.querySelectorAll('kbd[data-lane="L"]'))),
+    R: [btnR].concat(Array.prototype.slice.call(document.querySelectorAll('kbd[data-lane="R"]')))
+  };
+  var dodgeEls = [btnDodge].concat(Array.prototype.slice.call(document.querySelectorAll('kbd[data-dodge]')));
+  var recoverEls = [btnRecover].concat(Array.prototype.slice.call(document.querySelectorAll('kbd[data-recover]')));
+  var lastReason = '';
+  var yawTarget=0, pitchTarget=0, yawCur=0, pitchCur=0;
+  var mouseNX=0, mouseNY=0;
+
+  function mkSpring(v){ return {cur:v||0, vel:0, target:v||0}; }
+  var sp = {
+    camBounce: mkSpring(), camSway: mkSpring(), camRoll: mkSpring(), fovKick: mkSpring()
+  };
+
+  function stepSpring(s, dt, k, d){
+    var acc = (s.target - s.cur) * k - s.vel * d;
+    s.vel += acc * dt;
+    s.cur += s.vel * dt;
+  }
+
+  // ---- three.js scene ----
+  var renderer = new THREE.WebGLRenderer({canvas:canvas, antialias:true});
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio||1, 2));
+  var scene = new THREE.Scene();
+  scene.background = new THREE.Color(COLOR_BG);
+  scene.fog = new THREE.FogExp2(COLOR_BG, 0.022);
+
+  // ---- endless track-shaped retreat ----
+  // The player walks a real athletics-track shape — two straights joined by
+  // a semicircular curve at each end, like a running track's inside lane —
+  // instead of a straight line or a plain circle, so the chase never has to
+  // end — going all the way around just brings you back through the same
+  // dressed corridor, wrapped endlessly (see wrapZ() below) so it never
+  // runs dry regardless of how far around you get. An earlier attempt at
+  // this used a separate `pivot` group for the player/camera/bear and a
+  // second, independently-lagging `terrainAnchor` for the ground — two
+  // things that could (and did) drift out of sync, producing unwanted
+  // forward jumps; a plain circle after that made the curve too uniform to
+  // read as a track at all. This version has a single source of truth:
+  // `playerD`, the arc-length distance traveled along the track from a
+  // fixed start line, wrapped into one lap by TRACK_PERIMETER. Player
+  // position/rotation is derived from it fresh every frame via pathAt()
+  // below; the camera is a literal child of `player` (see
+  // `player.add(camera)`), not a manually-tracked position, so it
+  // structurally cannot drift from wherever the player actually is; and the
+  // bear is *also* a child of `player`, so "how far in front of the player"
+  // is a plain local offset instead of a separate world formula.
+  var TRACK_STRAIGHT = 150; // length of each straight leg
+  // Trees are planted out to +-70 laterally (see plantForest() below) and
+  // grass tiles out to +-56.7 — placeOnTrack() offsets each one perpendicular
+  // to the curve by that same lateral amount, which only stays sane while
+  // the curve's own radius comfortably exceeds it. A radius too close to (or
+  // smaller than) that spread folds the far tiles past the curve's own
+  // center, showing up as overlapping/inverted terrain and visible holes in
+  // the ground right through the curve — this radius is picked well above
+  // that spread so the curve reads as gentle relative to the dressed
+  // corridor's width, the same way a real running track's curve radius
+  // dwarfs its lane width.
+  var TRACK_CURVE_R = 260; // radius of the semicircle at each end
+  var TRACK_PERIMETER = 2*TRACK_STRAIGHT + 2*Math.PI*TRACK_CURVE_R;
+  function pathAt(D){
+    var d = D % TRACK_PERIMETER;
+    if (d < 0) d += TRACK_PERIMETER;
+    var theta, x, z;
+    var curveLen = Math.PI * TRACK_CURVE_R;
+    if (d < TRACK_STRAIGHT){
+      // Straight A: heading +Z (theta=0), running along x=0.
+      theta = 0;
+      x = 0;
+      z = d;
+    } else if (d < TRACK_STRAIGHT + curveLen){
+      // Curve 1: turns from heading +Z to heading -Z (theta 0 -> PI),
+      // center TRACK_CURVE_R to the right of Straight A's own end.
+      var e1 = (d - TRACK_STRAIGHT) / TRACK_CURVE_R;
+      theta = e1;
+      x = TRACK_CURVE_R * (1 - Math.cos(e1));
+      z = TRACK_STRAIGHT + TRACK_CURVE_R * Math.sin(e1);
+    } else if (d < 2*TRACK_STRAIGHT + curveLen){
+      // Straight B: heading -Z (theta=PI), running back along x=2*TRACK_CURVE_R.
+      var d2 = d - (TRACK_STRAIGHT + curveLen);
+      theta = Math.PI;
+      x = 2*TRACK_CURVE_R;
+      z = TRACK_STRAIGHT - d2;
+    } else {
+      // Curve 2: turns from heading -Z back to heading +Z (theta PI -> 2*PI),
+      // closing the loop back onto Straight A's own start.
+      var e2 = (d - (2*TRACK_STRAIGHT + curveLen)) / TRACK_CURVE_R;
+      theta = Math.PI + e2;
+      x = TRACK_CURVE_R + TRACK_CURVE_R * Math.cos(e2);
+      z = -TRACK_CURVE_R * Math.sin(e2);
+    }
+    return {
+      x: x,
+      z: z,
+      phi: -theta,
+      rightX: Math.cos(theta),
+      rightZ: -Math.sin(theta)
+    };
+  }
+  // Terrain endlessness is handled separately from the curve, by recycling:
+  // every grass tile and tree remembers its own original arc-length
+  // position and lateral offset, and gets repositioned every frame to
+  // whichever copy of itself is nearest the player along the curve —
+  // wrapping the *fixed* hand-placed layout into an effectively infinite
+  // corridor without ever creating more objects. See placeOnTrack() below.
+  // wrapZ originally picked whichever copy sat *nearest* the player, i.e.
+  // symmetric ±period/2 either side — which meant an object could jump by a
+  // full `period` while it was still comfortably in view, reading as a tree
+  // (or grass tile) warping in place instead of the corridor genuinely
+  // continuing. The fix isn't a bigger window or more objects (both cost
+  // real frame time, and this has to stay light on phones) — it's making
+  // the recycling point itself invisible. The camera looks *back* toward
+  // the bear (world -local-Z — see THIRD_PERSON_BACK and camera.rotation
+  // near their own declarations), i.e. toward *decreasing* D, opposite the
+  // direction the player is actually walking — so it's the small side of
+  // this window, not the large one, that has to sit ahead of the player in
+  // D. Getting that backwards (as an earlier version of this fix did) starves
+  // the visible side down to just WRAP_BEHIND_MARGIN worth of objects and
+  // dumps most of the corridor's density behind the camera where it's never
+  // rendered at all — sparse, gappy trees and ground, not merely warping.
+  var WRAP_BEHIND_MARGIN = 20;
+  function wrapZ(baseZ, refZ, period, behindMargin){
+    var lower = refZ - (period - behindMargin);
+    return baseZ - Math.floor((baseZ - lower) / period) * period;
+  }
+  function placeOnTrack(obj, baseD, lateralX, refD, period, behindMargin){
+    var wrappedD = wrapZ(baseD, refD, period, behindMargin);
+    var pp = pathAt(wrappedD);
+    obj.position.x = pp.x + lateralX * pp.rightX;
+    obj.position.z = pp.z + lateralX * pp.rightZ;
+  }
+
+  // A flat THREE.Color background stays screen-locked and doesn't shift as the
+  // camera pitches/yaws/rolls (mouse-look, hit-reaction shake), so a photo used
+  // that way would read as a static sticker — a real object in world space
+  // parallaxes naturally with camera rotation instead. A flat plane was tried
+  // first, but a flat surface gets more oblique (and needs disproportionately
+  // more size to stay covered) the further a view ray is from its face normal,
+  // so it kept running out of coverage at extreme combined yaw+pitch angles no
+  // matter how large it was made. A sphere has no such blind spot — every
+  // direction from its center is equidistant from the surface — so this is a
+  // proper sky dome: the camera sits inside a big BackSide sphere, and
+  // ClampToEdgeWrapping means directions outside the photo's own extent just
+  // smear its edge pixel instead of exposing raw background. fog:false because
+  // fog is meant to fade out mid-distance geometry, not the sky itself.
+  var skyTexture = new THREE.TextureLoader().load('sky.jpg');
+  skyTexture.encoding = THREE.sRGBEncoding;
+  skyTexture.wrapS = THREE.ClampToEdgeWrapping;
+  skyTexture.wrapT = THREE.ClampToEdgeWrapping;
+  // At the sphere's equator, u=0.75 is world -Z (the camera's default forward
+  // direction) — see THREE.SphereGeometry's parametrization. offset is solved
+  // so the photo's own center (0.5, 0.5) lands exactly there: photoCenter =
+  // sphereUV * repeat + offset, so offset = photoCenter - forwardUV * repeat.
+  // Values found by raycasting a grid of screen points through the sphere,
+  // swept across every sign combination of yaw/pitch/roll (±MAX_YAW, ±MAX_PITCH,
+  // ±camRoll) plus a fovKick spike, then unioning the hit UVs and adding ~15%
+  // margin. Two cheaper attempts undershot this: eyeballing from FOV/yaw/pitch
+  // alone, and sampling only one hand-picked "worst" corner — camera roll moves
+  // the true extreme off-corner, and a roll-direction/yaw-direction combination
+  // opposite the one tested needs a wider range than the one that was tested.
+  // Either miss showed as the same symptom: the patch's edge sampled down to a
+  // smeared line under ClampToEdgeWrapping (a real, if better-hidden, artifact —
+  // not just an uncovered gap).
+  skyTexture.repeat.set(2.33, 1.49); // shrinks the image to ~155°x121° of the dome's surface, centered on (u,v)=(0.75,0.504)
+  skyTexture.offset.set(0.5 - 0.75*2.33, 0.5 - 0.504*1.49);
+  var sky = new THREE.Mesh(
+    new THREE.SphereGeometry(150, 32, 24),
+    new THREE.MeshBasicMaterial({
+      map: skyTexture,
+      side: THREE.BackSide,
+      fog: false, depthWrite: false
+    })
+  );
+  scene.add(sky); // repositioned AND rotated to follow the player every frame — see frame() below
+
+  var camera = new THREE.PerspectiveCamera(BASE_FOV, 1.6, 0.1, 200);
+
+  var hemi = new THREE.HemisphereLight(0x8fa878, 0x1c2412, 1.5);
+  scene.add(hemi);
+  var ambient = new THREE.AmbientLight(0x6b7a55, 0.65);
+  scene.add(ambient);
+  var moon = new THREE.DirectionalLight(0xd8e0ff, 1.1);
+  moon.position.set(-4, 8, 4);
+  scene.add(moon);
+  var lantern = new THREE.PointLight(0xf2b705, 0.9, 14, 2);
+  lantern.position.set(0, -0.1, -0.4);
+  camera.add(lantern);
+  // camera.add(...) below, once `player` exists — see its own declaration
+  // for why literal parenting (not a manually-tracked position) is the
+  // whole point of this rewrite.
+
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.2;
+  renderer.outputEncoding = THREE.sRGBEncoding;
+
+  // This is only a fallback for wherever the grass-mud tiles don't reach — it
+  // used to be lit (MeshLambertMaterial), which meant its rendered brightness
+  // came from the scene lights and didn't actually match scene.background's
+  // flat, unlit color no matter how closely their hex values were tuned. At
+  // grazing view angles, fog hadn't finished blending the two by the time the
+  // ground's silhouette became visible, showing as a stray bright band right at
+  // the horizon. Using the exact same unlit color as the background removes the
+  // mismatch outright — lit or not, distance or not, there's nothing left to see.
+  var ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(200, 200),
+    new THREE.MeshBasicMaterial({color:COLOR_BG})
+  );
+  ground.rotation.x = -Math.PI/2;
+  scene.add(ground); // repositioned to follow player.position.z every frame — see frame() below
+
+  // tree.glb (a fourth CGTrader asset) replaces the old procedural cone-and-
+  // cylinder trees the user had removed earlier for looking bad. Unlike
+  // glass.glb, it's a single non-duplicated tree — but at ~45k triangles
+  // (mostly in the dense alpha-tested foliage cards) scattering ~40 of them
+  // still cost a real, reproducible ~24% of the frame budget, confirmed with
+  // fresh-tab A/B measurements (reused tabs gave misleadingly worse numbers
+  // from accumulated state — always re-check in a clean tab before trusting a
+  // "this is too slow" reading). `gltf-transform simplify` barely touched the
+  // foliage at moderate settings (edge-collapse decimation preserves thin
+  // leaf-card silhouettes almost as-is to avoid visible error), but a much
+  // more aggressive pass (ratio 0.02) took it from ~45k to ~5.9k triangles
+  // with no visible quality loss at gameplay distance, cutting the cost to
+  // ~9% — an acceptable, clearly-flagged trade for turning a flat field into
+  // an actual forest. Two things needed fixing after load:
+  //  1. The foliage mesh's matrixWorld was still identity when its bounding box
+  //     was first sampled (same pitfall as the grass-mud tiling earlier) — the
+  //     tree sits nested several groups deep at large local offsets, so anything
+  //     reading world position/bounds must call updateMatrixWorld(true) first.
+  //  2. The foliage material exported as metalness=1/roughness=1 with no color
+  //     texture (likely a Blender procedural "random season" shader that didn't
+  //     survive the glTF export) — fully metallic with no environment map reads
+  //     as near-black, not missing geometry. Overriding it to a plain non-metal
+  //     leaf-green material is a real fix, not a workaround for a real asset.
+  // Trees are scattered in two side bands flanking the play corridor: a
+  // tighter one close to the camera and a wider one further back for depth.
+  // Combined the two bands span Z=-6 to Z=-150 — TREE_WRAP_DEPTH below —
+  // and every tree's original Z (before any wrapping) is kept in
+  // treeInstances so frame() can recycle it into an endless corridor; see
+  // wrapZ() near the top of the file. The two bands' own tree counts are
+  // chosen so trees-per-unit-length stays close between them — an earlier
+  // version packed the near band far denser (62 trees in 64 units) than the
+  // far one (16 in 80), which looked fine walked past once on a straight
+  // line, but on a looping track this same 144-unit stretch recycles past
+  // the player over and over, so that density swing reads as a repeating
+  // dense clump followed by a bare stretch instead of one continuous
+  // forest.
+  var TREE_WRAP_DEPTH = 144;
+  var treeInstances = [];
+  new THREE.GLTFLoader().load('tree.glb', function(gltf){
+    gltf.scene.updateMatrixWorld(true);
+    var treeBox = new THREE.Box3();
+    var template = new THREE.Group();
+    gltf.scene.traverse(function(o){
+      if (o.isMesh && o.name !== 'Forest_A'){
+        if (o.material.metalness === 1 && !o.material.map){
+          o.material.metalness = 0;
+          o.material.roughness = 0.85;
+          o.material.color.setHex(0x39511f);
+        }
+        treeBox.expandByObject(o);
+        var clone = o.clone();
+        clone.matrix.copy(o.matrixWorld);
+        clone.matrix.decompose(clone.position, clone.quaternion, clone.scale);
+        template.add(clone);
+      }
+    });
+    var center = treeBox.getCenter(new THREE.Vector3());
+    template.children.forEach(function(c){ c.position.x -= center.x; c.position.z -= center.z; c.position.y -= treeBox.min.y; });
+
+    var rng = 1;
+    function rand(){ rng = (rng*9301+49297) % 233280; return rng/233280; } // deterministic, so the layout doesn't reshuffle on reload
+
+    function plantForest(count, xMin, xMax, zMin, zMax, excludeXHalfWidth){
+      for (var i=0;i<count;i++){
+        var x, z;
+        do {
+          x = xMin + rand()*(xMax-xMin);
+        } while (Math.abs(x) < excludeXHalfWidth);
+        z = zMin + rand()*(zMax-zMin);
+        var t = template.clone();
+        t.rotation.y = rand()*Math.PI*2;
+        var s = 1.55 + rand()*0.6; // averages ~1.85x, putting tree height around 3x the bear's (0.8948*ENEMY_MODEL_SCALE ≈ 4.47 units tall)
+        t.scale.set(s, s, s);
+        scene.add(t);
+        treeInstances.push({ obj: t, baseD: z, lateralX: x });
+      }
+    }
+    plantForest(45, -34, 34, -6, -70, 8);   // flanks the corridor, near-to-mid distance
+    plantForest(33, -70, 70, -70, -150, 20); // wider spread, further back for depth
+  }, undefined, function(err){ if (window.console) console.error(err); });
+
+  // (Tried adding a CGTrader meadow asset — glass.glb — as background dressing
+  // here, but its ~5000 flower/grass instances average ~2,300 triangles each
+  // (offline-render density, not real-time-ready), so even one un-tiled ~2m
+  // patch cost ~26% of the frame budget on desktop. No amount of draw-call
+  // batching fixes that since the GPU still has to shade every triangle of
+  // every instance. Skipped per "don't implement if it hurts performance.")
+
+  // grass-mud.glb ("Grass, Mud, and Puddles", a third CGTrader asset) replaced
+  // grass.glb here: a richer textured ground (grass/mud/small rocks, PBR normal
+  // + roughness maps) at ~271k triangles. The source .gltf shipped as 392
+  // separate mesh nodes (one per patch/puddle) — not the glass.glb problem of
+  // one tiny mesh duplicated thousands of times, so `gltf-transform join` safely
+  // batches them into 2 draw calls (one per material) without exploding file
+  // size, and `resize` capped its 2048px textures at 1024px. Tiled in both X and
+  // Z to cover the whole visible ground (rather than just a narrow strip down
+  // the middle); the flat `ground` plane still shows through past the tiled
+  // area as a matching-color fallback.
+  //
+  // Every tile used to sit at the exact same orientation, so the same rock/mud
+  // arrangement repeated in an obviously aligned grid. Each tile is now wrapped
+  // in its own Group: the patch is centered inside that wrapper first (its own
+  // bbox isn't centered on its local origin, hence GRASS_CENTER), then the
+  // *wrapper* is rotated by a pseudo-random multiple of 90° before being placed
+  // — rotating the already-centered patch keeps its footprint aligned with the
+  // grid slot instead of shifting off it. GRASS_TILE_SIZE is slightly smaller
+  // than the patch's own ~13.3-unit bbox so neighboring tiles overlap a hair
+  // rather than risk a gap at their (organically shaped, non-rectangular) edges.
+  var GRASS_CENTER = {x:-3.19, z:-3.28};
+  var GRASS_TILE_SIZE = 12.6;
+  var GRASS_TILES_X = 9, GRASS_TILES_Z = 8;
+  // Same recycling as the trees (see TREE_WRAP_DEPTH above): the 8 rows of
+  // tiles span this much depth, and frame() slides each wrapper to whichever
+  // copy of its baseZ is nearest the player every frame, via wrapZ().
+  var GRASS_WRAP_DEPTH = GRASS_TILES_Z * GRASS_TILE_SIZE;
+  var grassWrappers = [];
+  new THREE.GLTFLoader().load('grass-mud.glb', function(gltf){
+    var first = true;
+    for (var tz=0; tz<GRASS_TILES_Z; tz++){
+      for (var tx=0; tx<GRASS_TILES_X; tx++){
+        var patch = first ? gltf.scene : gltf.scene.clone();
+        first = false;
+        patch.position.set(GRASS_CENTER.x, 0, GRASS_CENTER.z);
+        var wrapper = new THREE.Group();
+        wrapper.add(patch);
+        wrapper.rotation.y = ((tx*7 + tz*13) % 4) * Math.PI/2;
+        wrapper.position.y = 0.001;
+        var baseD = 4 - tz*GRASS_TILE_SIZE;
+        var lateralX = (tx - (GRASS_TILES_X-1)/2) * GRASS_TILE_SIZE;
+        scene.add(wrapper);
+        grassWrappers.push({ obj: wrapper, baseD: baseD, lateralX: lateralX });
+      }
+    }
+  }, undefined, function(err){ if (window.console) console.error(err); });
+
+  // recovery-kinoko.glb: an occasional pickup, unlike the endless tiled
+  // trees/grass above — it doesn't use their wrapZ()/placeOnTrack()
+  // recycling at all, deliberately. That recycling keeps each copy within a
+  // window mostly *behind* the player in D (see WRAP_BEHIND_MARGIN above —
+  // that's the side the camera actually looks toward, back at the bear),
+  // which is exactly backwards for something the player has to walk *into*:
+  // an object placed that way sits near wherever the player already is or
+  // has been, not somewhere their own continuing walk will ever reach, so a
+  // kinoko positioned that way could go a full lap before it's physically
+  // reachable. Instead this always sits at a single fixed arc-length
+  // (kinokoSpawnD) chosen some distance *ahead* of the player's own D (see
+  // its update in frame()) — ahead being unambiguous here since D only ever
+  // increases — so ordinary forward walking is what brings the player to
+  // it, and it re-places itself further ahead once passed (picked up or
+  // not), same as a real dropped item would need to.
+  // The raw model is 2.77 units tall (a person-scale mushroom) — 0.18 was
+  // picked to bring that down to a plausible small-mushroom size, but at
+  // that scale (~0.46 units across) it subtends under 2° of view from any
+  // distance it's actually first seen at, which in practice reads as not
+  // there at all rather than just small. Scaled up well past "realistic"
+  // instead, since being spottable matters far more here than being
+  // correctly proportioned next to the player.
+  var KINOKO_SCALE = 0.42;
+  // A straight-line (Euclidean) radius around the kinoko's actual position —
+  // but only counts once the player has actually passed it (displayD >=
+  // kinokoSpawnD — see handleRecover()/frame()), i.e. a half-disk on the
+  // visible side, not a full circle. A pure D-only window (no radius,
+  // gated purely on having passed) was tried first and felt broken on the
+  // track's curves, where straight-line distance and along-track distance
+  // can diverge; a full circle (no gate at all) was tried after that and
+  // fixed the curve problem but let the kinoko be picked up while it was
+  // still ahead of the player and invisible — camera looks *back* toward
+  // the bear (see WRAP_BEHIND_MARGIN's own comment), so anything not yet
+  // passed is physically behind the retreating player's own back, same as
+  // it would be for someone actually backing away from something. This is
+  // the straight-line radius (so curves still behave), just clipped to the
+  // half where it's actually visible.
+  var KINOKO_PICKUP_RADIUS = 8;
+  // Charged for a V press that lands on nothing (see handleRecover()) —
+  // same idea as applyMissPenalty for a missed beat: stopping to crouch for
+  // nothing still costs real distance, so spamming V "just in case" isn't
+  // free.
+  var KINOKO_FAIL_PENALTY = 6;
+  // playerD only advances via handleLane()'s success branch, at roughly
+  // HIT_GAIN*combo*(PLAYER_RETREAT_RANGE/GAP_MAX) per hit — averaging
+  // combo's climb out, that's only around 0.5-0.6 per hit, or under 1
+  // unit/second even landing every single beat perfectly. 60-200 (the
+  // original range here) meant *at best* a full minute of flawless play
+  // before the very first spawn was even in range, which in practice reads
+  // identically to "there is no kinoko" for anything short of an extended,
+  // highly skilled run. Cut down by roughly 4x so a first encounter is
+  // realistic within the first half-minute of ordinary play, not reserved
+  // for a best-case marathon.
+  var KINOKO_SPAWN_LEAD_MIN = 15, KINOKO_SPAWN_LEAD_MAX = 45;
+  var KINOKO_LATERAL_MIN = 1.0, KINOKO_LATERAL_MAX = 2.0;
+  var kinokoObj = null, kinokoSpawnD = null, kinokoLateralX = 0;
+  // The poison variant — same model, same spawn/pickup rules (shares every
+  // KINOKO_* constant above), reused as its own separate clone rather than
+  // a second load: no reason to fetch+decode the same 281KB file twice.
+  // Distinguished purely by material tint (a sickly violet, swapped in on
+  // every mesh the clone contains) plus two thin vertical stripes added on
+  // top of the cap — real geometry, not a texture, sized/placed from the
+  // clone's own post-scale bounding box so it holds up even if this model
+  // is ever swapped for a differently-proportioned one later.
+  var POISON_TINT = 0x6a2f7a;
+  var poisonKinokoObj = null, poisonKinokoSpawnD = null, poisonKinokoLateralX = 0;
+  new THREE.GLTFLoader().load('recovery-kinoko.glb', function(gltf){
+    kinokoObj = gltf.scene;
+    kinokoObj.scale.setScalar(KINOKO_SCALE);
+    kinokoObj.position.y = 0.2 * KINOKO_SCALE; // the model's own base sits slightly below its own origin
+    kinokoObj.visible = false;
+    scene.add(kinokoObj);
+
+    poisonKinokoObj = kinokoObj.clone(true);
+    poisonKinokoObj.traverse(function(o){
+      if (o.isMesh){
+        o.material = o.material.clone();
+        o.material.color.setHex(POISON_TINT);
+        // Emphasize the tint's own value over whatever the source photo
+        // texture's albedo already was — a plain color swap on a textured
+        // material often reads as barely-tinted, since the texture's own
+        // luminance dominates the multiply.
+        o.material.map = null;
+      }
+    });
+    var poisonBox = new THREE.Box3().setFromObject(poisonKinokoObj);
+    var capTop = poisonBox.max.y, capHeight = (poisonBox.max.y-poisonBox.min.y) * 0.35;
+    var capRadius = Math.max(poisonBox.max.x-poisonBox.min.x, poisonBox.max.z-poisonBox.min.z) * 0.3;
+    var stripeMat = new THREE.MeshBasicMaterial({color:0xe8d8ff});
+    [-1, 1].forEach(function(side){
+      var stripe = new THREE.Mesh(new THREE.BoxGeometry(capRadius*0.16, capHeight, capRadius*0.16), stripeMat);
+      stripe.position.set(side*capRadius*0.55, capTop-capHeight*0.55, 0);
+      poisonKinokoObj.add(stripe);
+    });
+    poisonKinokoObj.visible = false;
+    scene.add(poisonKinokoObj);
+  }, undefined, function(err){ if (window.console) console.error(err); });
+
+  // Local +Z is the bear's forward (toward the camera, which sits at very negative
+  // world Z relative to the bear) so the eyes face the player. The visible mesh
+  // loads asynchronously (see GLTFLoader call below); the eye anchor is added
+  // immediately so the gaze mechanic works even before it finishes loading.
+  var bear = new THREE.Group();
+
+  var eyeMat = new THREE.MeshBasicMaterial({color:COLOR_ACCENT, fog:false});
+  eyeMat.toneMapped = false;
+  var eyeGroup = new THREE.Group();
+  eyeGroup.position.set(0, MODEL_EYE_Y, MODEL_EYE_Z);
+  [-1,1].forEach(function(sgn){
+    var eye = new THREE.Mesh(new THREE.SphereGeometry(0.045,8,6), eyeMat);
+    eye.position.set(sgn*0.13,0,0);
+    eyeGroup.add(eye);
+  });
+  bear.add(eyeGroup);
+  // bear.add(...) to `player` below, once `player` exists — see the
+  // camera's own parenting note for why.
+
+  // bear-rigged.glb is a proper skinned mesh with a 28-bone skeleton and a full
+  // Mixamo-style clip library. Poses are mapped to game state (see frame()):
+  //   approaching      -> Walk (slow, deliberate creep — not a run; see WALK_SPEED)
+  //   lunge telegraph  -> Sword_Attack (one shot "about to strike" threat display)
+  //   lunge burst      -> Sprint (the actual fast charge)
+  //   point-blank gap  -> Fighting_Idle (nowhere left to close, no reason to jog in place)
+  // rootBone's translation is re-zeroed every frame so any root motion baked into
+  // a clip can't drag the mesh out from under our own gap-driven positioning of
+  // the whole `bear` group.
+  var bearModel = null, headBone = null, handBone = null, rootBone = null, mixer = null;
+  var animActions = {}, animState = null;
+  var loadingLabel = document.getElementById('loadingLabel');
+
+  function findClip(animations, name){
+    for (var i=0;i<animations.length;i++){ if (animations[i].name === name) return animations[i]; }
+    return null;
+  }
+  function onModelError(err){
+    loadingLabel.textContent = '熊のモデルを読み込めませんでした';
+    if (window.console) console.error(err);
+  }
+  function setAnimState(name){
+    if (name === animState) return;
+    var prev = animActions[animState];
+    var next = animActions[name];
+    if (prev) prev.stop();
+    if (next) next.reset().play();
+    animState = name;
+  }
+  function finishGame(){
+    if (elapsed>highScore){ highScore=elapsed; try{ localStorage.setItem(HIGH_KEY, String(highScore)); }catch(e){} }
+    if (score>highScoreScore){ highScoreScore=score; try{ localStorage.setItem(SCORE_HIGH_KEY, String(highScoreScore)); }catch(e){} }
+    overStats.textContent = 'Survival Time '+elapsed.toFixed(1)+'s   Best Survival '+Math.max(highScore,elapsed).toFixed(1)+'s';
+    overScore.textContent = 'Score '+Math.round(score)+'   Best Score '+Math.round(Math.max(highScoreScore,score));
+    cardOver.classList.add('visible');
+    playDropIn(overReason);
+  }
+  function playDropIn(img){
+    img.classList.remove('drop-in');
+    void img.offsetWidth; // reflow so re-adding the class restarts the animation
+    img.classList.add('drop-in');
+  }
+
+  new THREE.GLTFLoader().load('bear-rigged.glb', function(gltf){
+    bearModel = gltf.scene;
+    bearModel.scale.setScalar(ENEMY_MODEL_SCALE);
+    bearModel.rotation.y = MODEL_FRONT_Z > 0 ? 0 : Math.PI;
+    bear.add(bearModel);
+
+    headBone = bearModel.getObjectByName('head');
+    handBone = bearModel.getObjectByName('hand_r');
+    rootBone = bearModel.getObjectByName('root');
+    if (headBone) scene.attach(eyeGroup); // reparent, keeping its current world position
+
+    mixer = new THREE.AnimationMixer(bearModel);
+    [['idle','Fighting_Idle'],['run','Walk'],['threat','Sword_Attack'],['sprint','Sprint'],['closing','Run_Anime']].forEach(function(pair){
+      var clip = findClip(gltf.animations, pair[1]);
+      if (clip){
+        var action = mixer.clipAction(clip);
+        action.setLoop(THREE.LoopRepeat);
+        animActions[pair[0]] = action;
+      }
+    });
+    setAnimState('idle');
+    loadingLabel.hidden = true;
+  }, undefined, onModelError);
+
+  // farmer.glb: a dedicated player character replacing the earlier debug
+  // placeholder (the bear rig reused as a stand-in). Same Mixamo-style skeleton
+  // naming as bear-rigged.glb (spine_02, hand_r, etc.), so the hit-bone lookup
+  // carries over unchanged. It shipped as a single 453k-triangle skinned mesh —
+  // simplified to ~27k (gltf-transform simplify, same approach as the bear
+  // model) with no visible quality loss and all 18 animation clips intact.
+  // Walk_Backwards replaces Dance_Charleston for the stepping-back loop — an
+  // actual retreat animation instead of a placeholder — and Hit_Knockback_RM
+  // plays once on a confirmed hit, only ending the game once it finishes
+  // (swapped in for Death_A, which at 4.5s ran far too long for a quick
+  // game-over beat and read more like an execution than a bear swatting you
+  // away). Idle_Shield is the default pose; Walk_Backwards plays through once
+  // (a single step) per successful on-beat press rather than looping for as
+  // long as a key is held, so the farmer only actually moves in step with
+  // real progress instead of pacing in place while a key is just held down.
+  var player = new THREE.Group();
+  player.position.set(0, 0, 0);
+  scene.add(player);
+  // The camera and the bear are both literal children of `player`, not
+  // positions manually kept in sync with it — wherever player.position
+  // ends up on the track, they structurally have to be there too, with zero
+  // chance of drifting apart. Their own position/rotation below are local
+  // offsets from the player (see the bottom of frame() for the camera, and
+  // the 'playing' block for the bear), unaffected by whatever curve the
+  // player's own position/rotation traces out.
+  player.add(camera);
+  player.add(bear);
+  var playerModel = null, playerHitBone = null, playerRootBone = null;
+  var playerMixer = null, playerWalkAction = null, playerIdleAction = null, playerKnockbackAction = null, knockbackDuration = 1.0;
+  var playerGetUpAction = null, getUpDuration = 1.0;
+  var playerDodgeLeftAction = null, playerDodgeRightAction = null, dodgeLeftDuration = 0.6, dodgeRightDuration = 0.6;
+  var playerBonusAction = null, bonusDuration = 1.0;
+  var playerRecoverAction = null, recoverDuration = 1.0;
+  var playerAnimState = null;
+  function setPlayerAnim(name){
+    if (name === playerAnimState) return;
+    var actions = {walk: playerWalkAction, idle: playerIdleAction, dodgeL: playerDodgeLeftAction, dodgeR: playerDodgeRightAction, bonus: playerBonusAction, recover: playerRecoverAction};
+    var prev = actions[playerAnimState];
+    var next = actions[name];
+    if (prev) prev.stop();
+    if (next) next.reset().play();
+    playerAnimState = name;
+  }
+
+  new THREE.GLTFLoader().load('farmer.glb', function(gltf){
+    playerModel = gltf.scene;
+    playerModel.scale.setScalar(PLAYER_MODEL_SCALE);
+    playerModel.rotation.y = MODEL_FRONT_Z > 0 ? Math.PI : 0; // face the bear, opposite of the bear's own convention
+    player.add(playerModel);
+    playerHitBone = playerModel.getObjectByName('spine_02') || playerModel.getObjectByName('head');
+    playerRootBone = playerModel.getObjectByName('root');
+
+    playerMixer = new THREE.AnimationMixer(playerModel);
+    var walkClip = findClip(gltf.animations, 'Walk_Backwards');
+    if (walkClip){
+      playerWalkAction = playerMixer.clipAction(walkClip);
+      // One physical step per successful on-beat press, not a loop for as
+      // long as the key stays held — LoopOnce so it plays through once and
+      // holds, retriggered fresh (reset().play()) on every hit instead of
+      // continuously driven by raw key-down state.
+      playerWalkAction.setLoop(THREE.LoopOnce);
+      playerWalkAction.clampWhenFinished = true;
+      walkStepDuration = walkClip.duration;
+    }
+    var idleClip = findClip(gltf.animations, 'Idle_Shield');
+    if (idleClip){
+      playerIdleAction = playerMixer.clipAction(idleClip);
+      playerIdleAction.setLoop(THREE.LoopRepeat);
+    }
+    var dodgeLeftClip = findClip(gltf.animations, 'Dodge_left_RM');
+    if (dodgeLeftClip){
+      playerDodgeLeftAction = playerMixer.clipAction(dodgeLeftClip);
+      playerDodgeLeftAction.setLoop(THREE.LoopOnce);
+      playerDodgeLeftAction.clampWhenFinished = true;
+      dodgeLeftDuration = dodgeLeftClip.duration;
+    }
+    var dodgeRightClip = findClip(gltf.animations, 'Dodge_right_RM');
+    if (dodgeRightClip){
+      playerDodgeRightAction = playerMixer.clipAction(dodgeRightClip);
+      playerDodgeRightAction.setLoop(THREE.LoopOnce);
+      playerDodgeRightAction.clampWhenFinished = true;
+      dodgeRightDuration = dodgeRightClip.duration;
+    }
+    playerAnimState = null;
+    setPlayerAnim('idle');
+    var knockbackClip = findClip(gltf.animations, 'Hit_Knockback_RM');
+    if (knockbackClip){
+      playerKnockbackAction = playerMixer.clipAction(knockbackClip);
+      playerKnockbackAction.setLoop(THREE.LoopOnce);
+      playerKnockbackAction.clampWhenFinished = true;
+      knockbackDuration = knockbackClip.duration;
+    }
+    var getUpClip = findClip(gltf.animations, 'LayToIdle');
+    if (getUpClip){
+      playerGetUpAction = playerMixer.clipAction(getUpClip);
+      playerGetUpAction.setLoop(THREE.LoopOnce);
+      playerGetUpAction.clampWhenFinished = true;
+      getUpDuration = getUpClip.duration;
+    }
+    // Played once in place of the usual single-step Walk_Backwards on
+    // whichever press actually completes a GREEN_STREAK_TARGET pass (see
+    // handleLane()'s success branch) — that hit already moves playerD by a
+    // full WORLD_SCROLL_PER_PASS bonus on top of the ordinary per-hit
+    // trickle, and displayD easing that jump in smoothly (rather than
+    // snapping) still reads as an unexplained sudden burst of speed with
+    // nothing on screen accounting for it. Jog reads as a real hustle —
+    // scrambling backward faster for a moment — selling the burst as an
+    // intentional payoff instead of a glitch.
+    var bonusClip = findClip(gltf.animations, 'Jog');
+    if (bonusClip){
+      playerBonusAction = playerMixer.clipAction(bonusClip);
+      playerBonusAction.setLoop(THREE.LoopOnce);
+      playerBonusAction.clampWhenFinished = true;
+      bonusDuration = bonusClip.duration;
+    }
+    // Played once when handleRecover() actually picks up the nearby
+    // kinokoObj — a kneel reads as "picking something up off the ground"
+    // far better than the walk step it replaces.
+    var recoverClip = findClip(gltf.animations, 'Fixing_Kneeling');
+    if (recoverClip){
+      playerRecoverAction = playerMixer.clipAction(recoverClip);
+      playerRecoverAction.setLoop(THREE.LoopOnce);
+      playerRecoverAction.clampWhenFinished = true;
+      // The raw clip reads as a slow, deliberate kneel — fine as a one-off,
+      // but noticeably sluggish for something that happens mid-retreat with
+      // a bear still closing in. Doubled speed here; recoverDuration (what
+      // walkStepTimer actually waits on before switching back to idle — see
+      // handleRecover()) is halved to match, so the idle switch still lines
+      // up with when the sped-up clip actually finishes instead of holding
+      // the pose twice as long as it now takes to play.
+      playerRecoverAction.timeScale = 2;
+      recoverDuration = recoverClip.duration / 2;
+    }
+    mixers.push(playerMixer);
+  }, undefined, onModelError);
+
+  function resetGame(){
+    gap = GAP_START; elapsed = 0; score = 0; reactionTimer = 0;
+    hp = maxHP; updateHpDisplay();
+    combo = 1; missReactionTimer = 0; greenStreak = 0; worldScroll = 0;
+    beatDur = 60/BPM; nextBeatTime = beatDur; beatOpen = false; beatHit = false;
+    currentLane = 'L'; beatParity = false;
+    lungeState = 'idle'; lungeTimer = 0; nextLungeAt = 1.2 + Math.random()*1.2;
+    dodged = false; dodgeAttempted = false; dodgeTimer = 0;
+    if (bearModel) bearModel.scale.x = ENEMY_MODEL_SCALE;
+    if (playerModel) playerModel.scale.x = PLAYER_MODEL_SCALE;
+    dodgeEls.forEach(function(el){ el.classList.remove('beat-active'); });
+    for (var k in sp){ sp[k].cur = 0; sp[k].vel = 0; sp[k].target = 0; }
+    yawTarget=0; pitchTarget=0; yawCur=0; pitchCur=0;
+    // Nulling this (rather than leaving whatever the previous run ended on)
+    // makes frame()'s own kinoko update schedule a brand new spawn ahead of
+    // this fresh run's own starting D, instead of one left over from
+    // wherever the last run happened to end.
+    kinokoSpawnD = null;
+    if (kinokoObj) kinokoObj.visible = false;
+    poisonKinokoSpawnD = null;
+    if (poisonKinokoObj) poisonKinokoObj.visible = false;
+    if (playerKnockbackAction) playerKnockbackAction.stop();
+    if (playerGetUpAction) playerGetUpAction.stop();
+    if (playerBonusAction) playerBonusAction.stop();
+    if (playerRecoverAction) playerRecoverAction.stop();
+    walkStepTimer = 0;
+    playerAnimState = null;
+    setPlayerAnim('idle');
+    // playerD restarts each run from the same small offset the initial gap
+    // itself represents (matching the scale handleLane()'s success branch
+    // uses for every later hit), back to the start of the track. displayD
+    // (see its own declaration) starts exactly caught up — no easing lag to
+    // play catch-up on at the start of a fresh run. Deriving
+    // player.position/rotation and the bear's own local offset here too
+    // (rather than waiting for the first frame() call) avoids a one-frame
+    // flash at the origin facing the default direction.
+    playerD = (GAP_START/GAP_MAX) * PLAYER_RETREAT_RANGE;
+    displayD = playerD;
+    var resetPP = pathAt(displayD);
+    player.position.set(resetPP.x, 0, resetPP.z);
+    player.rotation.y = -resetPP.phi;
+    bear.position.z = Z_NEAR + (GAP_START/GAP_MAX)*(Z_FAR-Z_NEAR);
+  }
+  resetGame();
+
+  // Shared by the "3,2,1" before a fresh run and the one after getting back
+  // up — only the caller differs in whether resetGame() ran first. Enters
+  // 'playing' right away; leadInBeats is what actually holds off scoring
+  // and highlighting for the first 3 beats (see frame()'s 'playing' block).
+  // `fresh` (only true from beginRun()) is what decides what happens to the
+  // BGM: a real new run restarts it at beat 1, but the knockback-recovery
+  // call (frame()'s 'gettingup' block, always passes nothing) leaves it
+  // playing straight through and just resyncs the flash clock to wherever
+  // the still-running music already is — cutting the music and jumping it
+  // back to the start on every single hit read as harsh, and there was no
+  // need for it: the music was never the thing that went out of sync, only
+  // the flash clock's own zero-point did.
+  function startLeadIn(fresh){
+    leadInBeats = 3;
+    beatDur = 60/BPM;
+    if (fresh){
+      restartBgm();
+      nextBeatTime = beatClockNow();
+    } else {
+      // Catch nextBeatTime up to the present by whole beats, starting from
+      // its own already-correct accumulated value — nextBeatTime was
+      // tracking correctly the entire time leading up to this (via its own
+      // += beatDur each cycle in frame()'s metronome block, each increment
+      // using whatever BPM was current *at that moment*), right up until
+      // knockback/gettingup froze the whole block. Recomputing it from
+      // scratch as Math.ceil(beatClockNow()/beatDur)*beatDur was tried
+      // first and is wrong whenever the BPM slider had been moved earlier
+      // in the run: beatClockNow() is *total* real time elapsed since the
+      // BGM itself started, and dividing all of that by only the *current*
+      // beatDur ignores however much of it played at a different rate,
+      // snapping to the wrong beat boundary — exactly the display/audio
+      // mismatch this resync exists to prevent, not reintroduce.
+      var now = beatClockNow();
+      while (nextBeatTime < now) nextBeatTime += beatDur;
+    }
+    beatOpen = false; beatHit = false;
+    // Not set to '3' here directly — that used to make the very first
+    // digit appear immediately (right at this synchronous call), while '2'
+    // and '1' only ever appear later, on each beatOpen rising edge in
+    // frame()'s metronome block (see the same `if (leadInBeats > 0)` there).
+    // For a fresh run nextBeatTime is ~0 already, so that gap was invisible
+    // in practice — but for a knockback resync, nextBeatTime can land
+    // anywhere up to a full beatDur after "now" (see the catch-up above),
+    // so '3' was showing for a *different*, variable-length stretch than
+    // '2' and '1' did right after it — the "ときどきあやしい" (occasionally
+    // off) timing. Hidden here and left for that same rising-edge code to
+    // show '3' itself, on-tempo, exactly like every other digit.
+    countdownLabel.style.opacity = 0;
+    // playerD is deliberately left alone here: for a fresh run, resetGame()
+    // (called just before this from beginRun()) already set it; for a
+    // post-getup lead-in, it should stay exactly wherever 'knockback' eased
+    // it to (dyingStartD + KNOCKBACK_DISTANCE) rather than snapping down to
+    // match current gap — see the ratchet comment in handleLane()'s success
+    // branch for why the camera never moves backward like that.
+  }
+  function beginRun(){
+    resumeAudioCtx();
+    playSfx('start');
+    stopGameoverBgm();
+    // Applied fresh at the top of every run (not just once, on page load)
+    // so BPM always starts at whichever LEVEL button was last picked on the
+    // title card, regardless of where the auto tempo-up (or a manual
+    // slider drag) left it during the previous attempt.
+    setBPM(startBPM);
+    resetGame();
+    state = 'playing';
+    startLeadIn(true);
+  }
+
+  function flashLane(lane, kind){
+    var cls = kind === 'hit' ? 'beat-good' : 'beat-bad';
+    laneEls[lane].forEach(function(el){
+      el.classList.add(cls);
+      setTimeout(function(){ el.classList.remove(cls); }, 220);
+    });
+  }
+
+  function flashDodge(kind){
+    var cls = kind === 'hit' ? 'beat-good' : 'beat-bad';
+    dodgeEls.forEach(function(el){
+      el.classList.add(cls);
+      setTimeout(function(){ el.classList.remove(cls); }, 220);
+    });
+  }
+
+  function flashRecover(kind){
+    var cls = kind === 'hit' ? 'beat-good' : kind === 'warn' ? 'beat-active' : 'beat-bad';
+    recoverEls.forEach(function(el){
+      el.classList.add(cls);
+      setTimeout(function(){ el.classList.remove(cls); }, 220);
+    });
+  }
+  // One dodge attempt per telegraph/lunge cycle, and only one button — there's
+  // no side to choose, only a timing window (lungeImpactAt ± DODGE_GOOD_WINDOW/2,
+  // see the lungeState FSM below) to land the press in. Landing it plays the
+  // dodge clip that actually matches attackSide and cancels the hit-radius
+  // check below outright (there's no lateral player movement to simulate a
+  // real dodge against, so this is a timing QTE rather than physical collision
+  // avoidance). A mistimed or missing press used to play the *other* dodge
+  // clip as a "flinched the wrong way" flourish, but blended so badly with
+  // the hit reaction that followed it read as a glitch rather than a story —
+  // it's a plain miss now: no animation of its own, the hit just lands.
+  function handleDodge(){
+    if (state !== 'playing') return;
+    if (lungeState !== 'telegraph' && lungeState !== 'lunge') return;
+    if (dodgeAttempted) return;
+    dodgeAttempted = true;
+    var onTime = Math.abs(elapsed - lungeImpactAt) <= DODGE_GOOD_WINDOW/2;
+    // Dodge_left/right_RM are already the correct clip for each side — if a
+    // walk step happened to leave the model mirrored (scale.x<0), a dodge
+    // firing mid-mirror would render backwards on top of that. Un-mirror
+    // before it plays, regardless of which side wins below.
+    if (playerModel) playerModel.scale.x = PLAYER_MODEL_SCALE;
+    if (onTime){
+      dodged = true;
+      setPlayerAnim(attackSide === 'L' ? 'dodgeL' : 'dodgeR');
+      dodgeTimer = attackSide === 'L' ? dodgeLeftDuration : dodgeRightDuration;
+      flashDodge('hit');
+    } else {
+      flashDodge('miss');
+    }
+  }
+
+  // Always stops the player to crouch (Fixing_Kneeling) on a V press while
+  // playing — a silent no-op read as "V doesn't work" the two times it
+  // actually mattered (nothing in range, or HP already full), so every
+  // press now visibly does *something*, and whether it actually finds a
+  // kinoko or not is shown by the flash on the button/HUD, the same way a
+  // dodge press always plays a dodge clip regardless of hit or miss.
+  function handleRecover(){
+    if (state !== 'playing') return;
+    var inRange = false;
+    if (kinokoSpawnD !== null && kinokoObj && kinokoObj.visible && displayD >= kinokoSpawnD){
+      var dx = kinokoObj.position.x - player.position.x, dz = kinokoObj.position.z - player.position.z;
+      if (Math.sqrt(dx*dx + dz*dz) < KINOKO_PICKUP_RADIUS) inRange = true;
+    }
+    var poisonInRange = false;
+    if (poisonKinokoSpawnD !== null && poisonKinokoObj && poisonKinokoObj.visible && displayD >= poisonKinokoSpawnD){
+      var pdx = poisonKinokoObj.position.x - player.position.x, pdz = poisonKinokoObj.position.z - player.position.z;
+      if (Math.sqrt(pdx*pdx + pdz*pdz) < KINOKO_PICKUP_RADIUS) poisonInRange = true;
+    }
+    if (poisonInRange){
+      // Same "always consumes on a successful press" logic as the healing
+      // kinoko below — relocating it is what makes the pickup register as
+      // having actually happened, not the crouch animation playing over a
+      // mushroom that just sits there unchanged.
+      poisonKinokoSpawnD = null;
+      setBPM(Math.max(BPM_MIN, BPM - 10));
+      flashRecover('warn');
+      playSfx('poisonEating');
+    } else if (inRange){
+      // Setting this to null (rather than just hiding the mesh) is what
+      // makes the pickup permanent for this spawn — frame()'s own update
+      // sees a null kinokoSpawnD and schedules a brand new one further
+      // ahead, same as if the player had simply walked past this one
+      // unpicked. Consumed on ANY successful press now, even at full HP:
+      // leaving it in place when there was nothing to heal meant the V
+      // button's own live "in range" light (see frame()) stayed lit right
+      // through the press, and the kinoko itself didn't move or react at
+      // all — the crouch animation played, but with no HP change and the
+      // mushroom still sitting right there unchanged, it read as the pickup
+      // having silently failed rather than succeeded-but-nothing-to-gain.
+      // Making it disappear (relocate far ahead, same as a real pickup)
+      // every time the crouch actually connects gives an unambiguous
+      // "yes, that worked" regardless of HP.
+      kinokoSpawnD = null;
+      if (hp < maxHP){
+        hp = Math.min(maxHP, hp + 1);
+        updateHpDisplay();
+      }
+      flashRecover('hit');
+      playSfx('eating');
+    } else {
+      // Nothing was actually there to grab.
+      gap = Math.max(0, gap - KINOKO_FAIL_PENALTY);
+      flashRecover('miss');
+    }
+    // Fixing_Kneeling isn't a side-specific clip, so it always plays
+    // un-mirrored regardless of whatever the last step happened to leave
+    // scale.x at.
+    if (playerModel) playerModel.scale.x = PLAYER_MODEL_SCALE;
+    if (playerRecoverAction){
+      if (playerIdleAction) playerIdleAction.stop();
+      if (playerWalkAction) playerWalkAction.stop();
+      if (playerBonusAction) playerBonusAction.stop();
+      playerRecoverAction.reset().play();
+      walkStepTimer = recoverDuration;
+      playerAnimState = 'recover';
+    }
+  }
+
+  // Retreating is now a rhythm check: a step only lands when `lane` matches the
+  // currently-highlighted beat AND the press falls inside that beat's open window
+  // (see frame() below). Anything else — wrong lane, a press outside the window,
+  // or no press at all before the window closes (see the beatOpen-closing edge
+  // in frame() below) — directly costs distance instead of being a no-op, which
+  // is what makes blind button-mashing (and simply not playing) actively
+  // counterproductive rather than merely neutral.
+  function applyMissPenalty(lane){
+    combo = 1; greenStreak = 0;
+    var missPenalty = MISS_PENALTY_BASE + MISS_PENALTY_SCALE * (gap/GAP_MAX);
+    gap = Math.max(0, gap - missPenalty);
+    missReactionTimer = 0.55; // brief Run_Anime surge so the sudden jump forward reads as a lunge, not a teleport
+    sp.fovKick.vel += 34;
+    ['camSway','camRoll','camBounce'].forEach(function(k){ sp[k].vel += (Math.random()*2-1)*3.2; });
+    flashLane(lane, 'miss');
+  }
+  function handleLane(lane){
+    if (state === 'title'){ beginRun(); cardTitle.classList.remove('visible'); cardOver.classList.remove('visible'); return; }
+    if (state === 'gameover'){ state='title'; resetGame(); stopGameoverBgm(); cardOver.classList.remove('visible'); cardTitle.classList.add('visible'); playDropIn(titleLogo); return; }
+    if (state !== 'playing') return;
+    if (leadInBeats > 0) return; // the "3,2,1" count-in — presses don't count either way
+
+    if (beatOpen && !beatHit && lane === currentLane){
+      beatHit = true;
+      var sign = lane==='L' ? 1 : -1;
+      sp.camSway.target = sign * 0.11;
+      sp.camRoll.target = sign * 0.045;
+      sp.camBounce.vel -= 1.9;
+      var hitGainAmt = HIT_GAIN*combo;
+      // max(gap, ...) rather than a plain clamp: gap can currently be
+      // sitting above GAP_MAX from a just-landed pass bonus (see below), and
+      // an ordinary hit landing right after one used to instantly clamp that
+      // right back down to GAP_MAX — silently erasing almost the entire
+      // bonus on the very next successful press, which is exactly what a
+      // player good enough to land a pass was going to do. Never letting an
+      // ordinary hit *decrease* gap keeps the bonus intact; it just stops
+      // stacking further gain until WALK_SPEED/misses bring it back under
+      // the normal ceiling.
+      gap = Math.max(gap, Math.min(GAP_MAX, gap + hitGainAmt));
+      // Every successful press moves playerD forward by a fixed share of
+      // this same hit's gain — a direct, unconditional ratchet (see
+      // playerD's own declaration), not the old `t*PLAYER_RETREAT_RANGE`
+      // ceiling. That old formula capped out the instant gap first reached
+      // GAP_MAX (t=1) and then went completely silent for the rest of the
+      // run unless a full GREEN_STREAK_TARGET streak landed — which is
+      // exactly the "background stops moving" bug: after the first minute
+      // or so of ordinary play, nothing short of a flawless 10-in-a-row
+      // streak advanced the track again. Scaled by PLAYER_RETREAT_RANGE/
+      // GAP_MAX to match the pace that formula had before it hit that
+      // ceiling, so normal play still feels the same early on — it just
+      // never stops.
+      playerD += hitGainAmt * (PLAYER_RETREAT_RANGE/GAP_MAX);
+      combo = Math.min(COMBO_MAX, combo + COMBO_STEP);
+      flashLane(lane, 'hit');
+      // Counts toward a pass only if this hit landed while the meter is
+      // actually showing green — use gap fresh off the update above rather
+      // than the frame-start `t`, so a hit that itself pushes into green
+      // still counts immediately instead of needing one more frame.
+      var passLanded = false;
+      if (gap/GAP_MAX > GREEN_T){
+        greenStreak += 1;
+        if (greenStreak >= GREEN_STREAK_TARGET){
+          greenStreak = 0;
+          passLanded = true;
+          setBPM(Math.min(BPM_MAX, BPM + 2));
+          playSfx('levelup');
+          // A bonus chunk of real distance on top of the steady per-hit
+          // trickle above, rewarding a clean streak instead of being the
+          // *only* thing that moves the track.
+          worldScroll += WORLD_SCROLL_PER_PASS;
+          playerD += WORLD_SCROLL_PER_PASS;
+          // gap is otherwise capped at GAP_MAX (see the ordinary hit-gain
+          // line above), so without this the bear — parented to the player
+          // and only ever repositioned via gap/GAP_MAX — would get dragged
+          // along for this same jump with no visible change in how far
+          // behind it is, reading as the bear teleporting forward in
+          // lockstep with the player instead of being left behind. Letting
+          // gap briefly exceed GAP_MAX (same conversion ratio as
+          // hitGainAmt's own playerD share, just inverted) gives the bear
+          // room to actually fall back further than its usual ceiling; the
+          // ordinary WALK_SPEED decay a few lines down then eats back into
+          // that surplus at its normal slow pace, same as any other gap
+          // value above where it "should" settle.
+          gap += WORLD_SCROLL_PER_PASS * (GAP_MAX/PLAYER_RETREAT_RANGE);
+        }
+      } else {
+        greenStreak = 0;
+      }
+      // A physical step (Walk_Backwards, one play-through) per successful
+      // press — not an animation tied to how long the key happens to be
+      // held. Bypasses setPlayerAnim's same-state no-op check so back-to-back
+      // hits each restart the clip from frame 0 instead of the second one
+      // being silently ignored. Walk_Backwards is a single clip covering one
+      // side's step; mirrored via scale.x (same trick as the bear's attack
+      // side) so 左足/L actually steps with the left foot and 右足/R with the
+      // right, instead of both buttons playing the identical animation and
+      // the distance-per-press never actually reading as a real step. The
+      // one press that actually completes a pass (passLanded) plays Jog
+      // instead — see its own loading for why a plain step isn't enough to
+      // sell that particular hit's extra distance. Jog isn't a side-specific
+      // clip like Walk_Backwards, so it always plays un-mirrored regardless
+      // of which lane happened to complete the pass.
+      if (passLanded && playerBonusAction){
+        if (playerModel) playerModel.scale.x = PLAYER_MODEL_SCALE;
+        if (playerIdleAction) playerIdleAction.stop();
+        if (playerWalkAction) playerWalkAction.stop();
+        if (playerRecoverAction) playerRecoverAction.stop();
+        playerBonusAction.reset().play();
+        walkStepTimer = bonusDuration;
+        playerAnimState = 'bonus';
+      } else if (playerWalkAction){
+        if (playerModel) playerModel.scale.x = (lane === 'L' ? 1 : -1) * PLAYER_MODEL_SCALE;
+        if (playerIdleAction) playerIdleAction.stop();
+        // A bonus Jog (or a kinoko pickup's Fixing_Kneeling — see
+        // handleRecover()) from just before this hit can still be clamped
+        // on its last frame here (LoopOnce/clampWhenFinished holds the pose
+        // but never stops the action on its own) — same class of bug as the
+        // knockback blend noted below, stopped explicitly for the same
+        // reason.
+        if (playerBonusAction) playerBonusAction.stop();
+        if (playerRecoverAction) playerRecoverAction.stop();
+        playerWalkAction.reset().play();
+        walkStepTimer = walkStepDuration;
+        playerAnimState = 'walk';
+      }
+    } else {
+      applyMissPenalty(lane);
+    }
+  }
+
+  function stageActivate(){
+    if (state === 'title'){ beginRun(); cardTitle.classList.remove('visible'); cardOver.classList.remove('visible'); }
+    else if (state === 'gameover'){ state='title'; resetGame(); stopGameoverBgm(); cardOver.classList.remove('visible'); cardTitle.classList.add('visible'); playDropIn(titleLogo); }
+    else if (state === 'playing'){ pauseGame(); }
+    else if (state === 'paused'){ resumeGame(); }
+  }
+  // Tapping the empty stage — not any of the lane/dodge/recover buttons,
+  // which stop this same click from bubbling here (see their own listeners
+  // below) — pauses mid-run and resumes on the next tap. No mid-air state to
+  // preserve: gap/HP/BPM are simply left exactly where they were (frame()'s
+  // per-frame updates are gated on state==='playing'/'knockback'/'gettingup',
+  // same freeze every other non-playing state already gets for free), only
+  // combo/greenStreak reset — same "clean restart of the current streak,
+  // not a punishing full reset" the countdown itself already implies.
+  function pauseGame(){
+    state = 'paused';
+    stopBgm();
+    cardPaused.classList.add('visible');
+    playDropIn(pausedLogo);
+  }
+  function resumeGame(){
+    combo = 1; greenStreak = 0;
+    cardPaused.classList.remove('visible');
+    state = 'playing';
+    startLeadIn(true);
+  }
+
+  window.addEventListener('keydown', function(e){
+    var k = e.key.toLowerCase();
+    if (k==='z' || k==='arrowleft'){ if(!e.repeat){ e.preventDefault(); handleLane('L'); } }
+    else if (k==='x' || k==='arrowright'){ if(!e.repeat){ e.preventDefault(); handleLane('R'); } }
+    else if (k==='c'){ if(!e.repeat){ e.preventDefault(); handleDodge(); } }
+    else if (k==='v'){ if(!e.repeat){ e.preventDefault(); handleRecover(); } }
+    else if (k==='d'){ if(!e.repeat){ debugMapOn = !debugMapOn; debugMapCanvas.hidden = !debugMapOn; } }
+  }, {passive:false});
+
+  // Debug-only top-down overlay (D to toggle) — shows the player/bear's
+  // actual world position against the dressed terrain's currently-recycled
+  // window, so a "why is the ground bare here" question can be answered by
+  // looking instead of guessing from synthetic tests that don't reproduce
+  // real play. Everything here is plain world coordinates now — no anchor,
+  // no rotation to account for.
+  var debugMapPlayerWorld = new THREE.Vector3();
+  var debugMapBearWorld = new THREE.Vector3();
+  function drawDebugMap(){
+    var ctx = debugMapCtx;
+    var W = debugMapCanvas.width, H = debugMapCanvas.height;
+    ctx.clearRect(0, 0, W, H);
+
+    player.getWorldPosition(debugMapPlayerWorld);
+    bear.getWorldPosition(debugMapBearWorld);
+
+    ctx.fillStyle = '#cfe8b0';
+    ctx.font = '11px monospace';
+    ctx.textBaseline = 'top';
+    var lines = [
+      'state:' + state,
+      't=' + (gap/GAP_MAX).toFixed(2) + ' gap=' + gap.toFixed(1),
+      'worldScroll=' + worldScroll.toFixed(1),
+      'playerD=' + playerD.toFixed(1) + ' displayD=' + displayD.toFixed(1)
+    ];
+    lines.forEach(function(line, i){ ctx.fillText(line, 6, 4 + i*13); });
+
+    var mapTop = 58, mapH = 150;
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    ctx.strokeRect(0.5, mapTop + 0.5, W - 1, mapH - 1);
+
+    var scale = 0.75; // px per world unit
+    var cx = W/2, cy = mapTop + mapH/2;
+    function toCanvas(wx, wz){
+      return { x: cx + (wx - debugMapPlayerWorld.x) * scale, y: cy + (wz - debugMapPlayerWorld.z) * scale };
+    }
+    // The recycled window each terrain group is currently drawing tiles/trees
+    // from — see wrapZ() near the top — centered on the player, same X extent
+    // the tree/grass placement code itself uses.
+    function drawWindowRect(xMin, xMax, depth, color, dash){
+      var zMin = debugMapPlayerWorld.z - depth/2, zMax = debugMapPlayerWorld.z + depth/2;
+      var corners = [[xMin,zMin],[xMax,zMin],[xMax,zMax],[xMin,zMax]];
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, mapTop, W, mapH);
+      ctx.clip();
+      ctx.strokeStyle = color;
+      ctx.setLineDash(dash || []);
+      ctx.beginPath();
+      corners.forEach(function(c, i){
+        var p = toCanvas(c[0], c[1]);
+        if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
+      });
+      ctx.closePath();
+      ctx.stroke();
+      ctx.restore();
+    }
+    drawWindowRect(-70, 70, TREE_WRAP_DEPTH, 'rgba(120,200,120,0.55)', [3, 3]);
+    drawWindowRect(-56.7, 56.7, GRASS_WRAP_DEPTH, 'rgba(255,220,90,0.85)', []);
+
+    // Every tree's actual current world position (not just the recycling
+    // window it's drawn from) — only worth the extra per-tree draw calls
+    // while this overlay is even on screen (see debugMapOn), so it doesn't
+    // cost anything during normal play.
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, mapTop, W, mapH);
+    ctx.clip();
+    ctx.fillStyle = 'rgba(120,200,120,0.9)';
+    treeInstances.forEach(function(tr){
+      var p = toCanvas(tr.obj.position.x, tr.obj.position.z);
+      ctx.beginPath(); ctx.arc(p.x, p.y, 2, 0, Math.PI*2); ctx.fill();
+    });
+    ctx.restore();
+
+    // The current kinoko spawn, if any — same clip region as the trees
+    // above, drawn bigger and in its own color since there's only ever one
+    // and it's worth being able to spot at a glance (was it actually
+    // spawned? where, relative to the player?).
+    if (kinokoObj && kinokoObj.visible){
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, mapTop, W, mapH);
+      ctx.clip();
+      var kpp = toCanvas(kinokoObj.position.x, kinokoObj.position.z);
+      // KINOKO_PICKUP_RADIUS ring first (underneath the dot) — this is the
+      // actual pickup check (handleRecover()): plain straight-line distance
+      // from the player to the kinoko's own rendered position, so standing
+      // anywhere inside this circle on the map is reachable.
+      ctx.strokeStyle = '#5cffb0';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(kpp.x, kpp.y, KINOKO_PICKUP_RADIUS*scale, 0, Math.PI*2); ctx.stroke();
+      ctx.fillStyle = '#ffd633';
+      ctx.beginPath(); ctx.arc(kpp.x, kpp.y, 4, 0, Math.PI*2); ctx.fill();
+      ctx.restore();
+    }
+    if (poisonKinokoObj && poisonKinokoObj.visible){
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, mapTop, W, mapH);
+      ctx.clip();
+      var pkpp = toCanvas(poisonKinokoObj.position.x, poisonKinokoObj.position.z);
+      ctx.strokeStyle = '#c07bff';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(pkpp.x, pkpp.y, KINOKO_PICKUP_RADIUS*scale, 0, Math.PI*2); ctx.stroke();
+      ctx.fillStyle = '#c07bff';
+      ctx.beginPath(); ctx.arc(pkpp.x, pkpp.y, 4, 0, Math.PI*2); ctx.fill();
+      ctx.restore();
+    }
+
+    var pp = toCanvas(debugMapPlayerWorld.x, debugMapPlayerWorld.z);
+    ctx.fillStyle = '#5fb2ff';
+    ctx.beginPath(); ctx.arc(pp.x, pp.y, 4, 0, Math.PI*2); ctx.fill();
+
+    var bp = toCanvas(debugMapBearWorld.x, debugMapBearWorld.z);
+    ctx.fillStyle = '#ff6a4a';
+    ctx.beginPath(); ctx.arc(bp.x, bp.y, 4, 0, Math.PI*2); ctx.fill();
+
+    // Lap overview: the player's retreat traces a real athletics-track
+    // shape — two straights joined by a semicircular curve at each end (see
+    // pathAt() near the top) — so the local window above never shows "the
+    // track" itself, only ever-recycled terrain around the player. This
+    // second panel draws the actual outline (sampled from the very same
+    // pathAt() the game itself positions everything with) and a marker at
+    // the player's current spot on it, so the real shape and lap progress
+    // can both be seen directly instead of just asserted.
+    var ovTop = mapTop + mapH + 20, ovH = H - ovTop - 4;
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    ctx.strokeRect(0.5, ovTop + 0.5, W - 1, ovH - 1);
+    var lap = Math.floor(displayD / TRACK_PERIMETER);
+    var lapProgress = displayD % TRACK_PERIMETER;
+    if (lapProgress < 0) lapProgress += TRACK_PERIMETER;
+    ctx.fillStyle = '#cfe8b0';
+    ctx.fillText('lap ' + lap + '  ' + lapProgress.toFixed(0) + '/' + TRACK_PERIMETER.toFixed(0), 6, ovTop - 13);
+    var trackW = 2*TRACK_CURVE_R, trackH = TRACK_STRAIGHT + 2*TRACK_CURVE_R;
+    var ovPad = 10;
+    var ovScale = Math.min((W - ovPad*2)/trackW, (ovH - ovPad*2)/trackH);
+    var ovCx = W/2, ovCy = ovTop + ovH/2;
+    function ovToCanvas(x, z){
+      return { x: ovCx + (x - TRACK_CURVE_R) * ovScale, y: ovCy + (z - TRACK_STRAIGHT/2) * ovScale };
+    }
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.beginPath();
+    var OV_SAMPLES = 80;
+    for (var oi = 0; oi <= OV_SAMPLES; oi++){
+      var ovPP = pathAt((oi/OV_SAMPLES) * TRACK_PERIMETER);
+      var ovP = ovToCanvas(ovPP.x, ovPP.z);
+      if (oi === 0) ctx.moveTo(ovP.x, ovP.y); else ctx.lineTo(ovP.x, ovP.y);
+    }
+    ctx.stroke();
+    var curPP = pathAt(displayD);
+    var curP = ovToCanvas(curPP.x, curPP.z);
+    ctx.fillStyle = '#5fb2ff';
+    ctx.beginPath(); ctx.arc(curP.x, curP.y, 4, 0, Math.PI*2); ctx.fill();
+  }
+  // stopPropagation on all four: stageWrap's own click listener
+  // (stageActivate) now pauses the game on any tap that reaches it during
+  // 'playing' — without this, every ordinary lane/dodge/recover tap would
+  // bubble up and immediately re-pause the run it just tried to play.
+  btnL.addEventListener('click', function(e){ e.stopPropagation(); handleLane('L'); });
+  btnR.addEventListener('click', function(e){ e.stopPropagation(); handleLane('R'); });
+  btnDodge.addEventListener('click', function(e){ e.stopPropagation(); handleDodge(); });
+  btnRecover.addEventListener('click', function(e){ e.stopPropagation(); handleRecover(); });
+  // Inline SVG rather than an icon font/library (nothing else in this
+  // single-file page loads one) — stroke/fill:currentColor so each icon
+  // just inherits its button's own color, including the .muted state's
+  // dimmer tone, with no separate icon-specific styling needed.
+  var ICON_SOUND_ON = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor" stroke="none"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19.5 6a9 9 0 0 1 0 12"/></svg>';
+  var ICON_SOUND_OFF = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor" stroke="none"/><path d="M16 9l5 6M21 9l-5 6"/></svg>';
+  var ICON_MUSHROOM = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none"><path d="M4 11a8 8 0 0 1 16 0c0 1.1-.9 2-2 2H6c-1.1 0-2-.9-2-2z" fill="currentColor"/><rect x="9.5" y="13" width="5" height="7" rx="2.5" fill="currentColor" opacity="0.55"/></svg>';
+  btnRecover.innerHTML = ICON_MUSHROOM;
+  // Independent of game state (state !== 'playing' doesn't gate these,
+  // unlike every other button above) — muting is something you want to be
+  // able to flip from the title screen or mid-run alike, and toggling gain
+  // on the persistent sfxGain/bgmGain nodes (see their own declaration)
+  // never touches playback position, so there's no timing risk in doing it
+  // at any moment.
+  function updateSfxMuteUI(){
+    btnSfxMute.innerHTML = sfxMuted ? ICON_SOUND_OFF : ICON_SOUND_ON;
+    btnSfxMute.classList.toggle('muted', sfxMuted);
+  }
+  function updateBgmMuteUI(){
+    btnBgmMute.innerHTML = bgmMuted ? ICON_SOUND_OFF : ICON_SOUND_ON;
+    btnBgmMute.classList.toggle('muted', bgmMuted);
+  }
+  btnSfxMute.addEventListener('click', function(){
+    sfxMuted = !sfxMuted;
+    if (sfxGain) sfxGain.gain.value = sfxMuted ? 0 : 1;
+    updateSfxMuteUI();
+  });
+  btnBgmMute.addEventListener('click', function(){
+    bgmMuted = !bgmMuted;
+    if (bgmGain) bgmGain.gain.value = bgmMuted ? 0 : BGM_VOLUME;
+    updateBgmMuteUI();
+  });
+  updateSfxMuteUI();
+  updateBgmMuteUI();
+  stageWrap.addEventListener('click', stageActivate);
+
+  if (!isCoarse){
+    stageWrap.addEventListener('mousemove', function(e){
+      var r = stageWrap.getBoundingClientRect();
+      mouseNX = ((e.clientX - r.left)/r.width)*2 - 1;
+      mouseNY = ((e.clientY - r.top)/r.height)*2 - 1;
+      yawTarget = -mouseNX * MAX_YAW;
+      pitchTarget = -mouseNY * MAX_PITCH;
+    });
+  } else {
+    var lookTouchId = null, lastTX = 0, lastTY = 0;
+    var TOUCH_SENS = 2.6;
+    stageWrap.addEventListener('touchstart', function(e){
+      if (lookTouchId === null && e.changedTouches.length){
+        var touch = e.changedTouches[0];
+        lookTouchId = touch.identifier;
+        lastTX = touch.clientX; lastTY = touch.clientY;
+      }
+    }, {passive:true});
+    stageWrap.addEventListener('touchmove', function(e){
+      for (var i=0;i<e.changedTouches.length;i++){
+        var touch = e.changedTouches[i];
+        if (touch.identifier === lookTouchId){
+          var r = stageWrap.getBoundingClientRect();
+          var dx = touch.clientX - lastTX, dy = touch.clientY - lastTY;
+          lastTX = touch.clientX; lastTY = touch.clientY;
+          yawTarget = Math.max(-MAX_YAW, Math.min(MAX_YAW, yawTarget - (dx/r.width)*TOUCH_SENS));
+          pitchTarget = Math.max(-MAX_PITCH, Math.min(MAX_PITCH, pitchTarget - (dy/r.height)*TOUCH_SENS));
+        }
+      }
+    }, {passive:true});
+    var releaseLookTouch = function(e){
+      for (var i=0;i<e.changedTouches.length;i++){
+        if (e.changedTouches[i].identifier === lookTouchId) lookTouchId = null;
+      }
+    };
+    stageWrap.addEventListener('touchend', releaseLookTouch, {passive:true});
+    stageWrap.addEventListener('touchcancel', releaseLookTouch, {passive:true});
+  }
+
+  function resize(){
+    var r = stageWrap.getBoundingClientRect();
+    renderer.setSize(r.width, r.height, false);
+    camera.aspect = r.width / r.height;
+    camera.updateProjectionMatrix();
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  var handWorldPos = new THREE.Vector3();
+  var playerWorldPos = new THREE.Vector3();
+  var lastT = performance.now();
+
+  function frame(now){
+    var dt = Math.max(0, Math.min(0.05, (now-lastT)/1000));
+    lastT = now;
+    var time = now/1000;
+
+    // The glowing eyes are a child of the static `bear` group, but the actual
+    // head moves with the animation — reparented to the scene root on load,
+    // so this just keeps them riding the real head bone every frame instead
+    // of sitting fixed at the bear's rest pose.
+    if (headBone) headBone.getWorldPosition(eyeGroup.position);
+
+    var t = gap/GAP_MAX;
+
+    if (state === 'playing'){
+      elapsed += dt;
+      score += (BPM/SCORE_BASE_BPM) * dt * SCORE_SCALE;
+      if (missReactionTimer > 0) missReactionTimer = Math.max(0, missReactionTimer - dt);
+      // playerD itself only ever moves in handleLane()'s success branch (a
+      // fixed amount per hit, plus a bonus per completed pass) and in the
+      // 'knockback' branch below — never here, and never downward on a miss
+      // or the passive WALK_SPEED decay. Moving a camera closer to whatever
+      // is in front of it always looks like "I walked forward", no matter
+      // the narrative intent, so the only way for a miss to read purely as
+      // "the bear closed in" is for the camera to really not move at all.
+      // Re-deriving player.position/rotation from playerD is done once,
+      // unconditionally, near the bottom of frame() (alongside the sky/
+      // ground/terrain sync) rather than here, since 'knockback' needs the
+      // exact same derivation every frame too.
+
+      // Metronome: beats alternate L/R forever, each with a fixed-width window
+      // (tighter at high BPM so windows never overlap) centered on its exact
+      // time. handleLane() above is what actually judges a press against
+      // `beatOpen`/`currentLane`/`beatHit`; this block only owns the clock and
+      // the on-screen highlight. Compared against beatClockNow() (the audio
+      // hardware clock), not `elapsed` (a plain frame-accumulated JS clock)
+      // — see beatClockNow()'s own comment for why that distinction is what
+      // actually keeps this in sync with the music instead of slowly (or
+      // not so slowly) drifting from it.
+      var beatNow = beatClockNow();
+      beatDur = 60/BPM;
+      var hitWindow = Math.min(HIT_WINDOW, beatDur*0.3);
+      if (!beatOpen && beatNow >= nextBeatTime - hitWindow){
+        beatOpen = true;
+        beatHit = false;
+        if (leadInBeats > 0){
+          countdownLabel.textContent = String(leadInBeats);
+          countdownLabel.style.opacity = 1;
+        }
+      }
+      if (beatOpen && beatNow >= nextBeatTime + hitWindow){
+        beatOpen = false;
+        // The window closed with no press at all — same consequence as
+        // pressing the wrong lane, otherwise standing still was strictly
+        // safer than trying and missing. Not during the "3,2,1" lead-in,
+        // though — those beats are free, matching the lane buttons staying
+        // unlit for them just below.
+        if (!beatHit && leadInBeats <= 0) applyMissPenalty(currentLane);
+        nextBeatTime += beatDur;
+        beatParity = !beatParity;
+        currentLane = beatParity ? 'R' : 'L';
+        if (leadInBeats > 0){
+          leadInBeats -= 1;
+          if (leadInBeats <= 0){
+            countdownLabel.style.opacity = 0;
+            // The toggle just above (beatParity flip + currentLane assign)
+            // already ran for this beat close, same as every other one —
+            // over exactly 3 lead-in beats that's an odd number of
+            // toggles, so without this it lands on 'R' every single time,
+            // fresh run or knockback recovery alike, even though both
+            // start from currentLane='L' beatParity=false. Forced back to
+            // 'L' here, once, right as real control is handed back, so the
+            // first real beat is always the left foot regardless of how
+            // many toggles the lead-in itself happened to use.
+            beatParity = false;
+            currentLane = 'L';
+            // Real control is only handed back now — give a fresh cooldown
+            // measured from THIS moment. The knockback hit-detection below
+            // already sets one when a swing lands, but elapsed keeps
+            // advancing through the whole "3,2,1" lead-in (unlike
+            // 'knockback'/'gettingup', which freeze it), so that earlier
+            // cooldown could already be half (or fully) burned through
+            // before the player has any agency at all — resetting it here
+            // guarantees the same real grace period regardless.
+            nextLungeAt = elapsed + 1.2 + Math.random()*1.2;
+          }
+        }
+      }
+      var laneActive = leadInBeats <= 0;
+      btnL.classList.toggle('beat-active', laneActive && beatOpen && currentLane==='L');
+      btnR.classList.toggle('beat-active', laneActive && beatOpen && currentLane==='R');
+      laneEls.L.forEach(function(el){ if (el!==btnL) el.classList.toggle('beat-active', laneActive && beatOpen && currentLane==='L'); });
+      laneEls.R.forEach(function(el){ if (el!==btnR) el.classList.toggle('beat-active', laneActive && beatOpen && currentLane==='R'); });
+
+      gapFill.style.width = (t*100).toFixed(1)+'%';
+      gapFill.style.backgroundColor = t<0.25 ? 'var(--danger)' : (t>0.75 ? 'var(--safe)' : 'var(--accent)');
+      timerLabel.textContent = elapsed.toFixed(1)+'s';
+
+      // Bear AI, hit-detection and gap decay are frozen through the "3,2,1"
+      // lead-in — the same breather the old separate 'countdown' state gave,
+      // just driven by this one real beat clock (leadInBeats) instead of a
+      // second timer that could disagree with it.
+      if (leadInBeats > 0){
+        if (mixer){ mixer.update(0); if (rootBone) rootBone.position.set(0,0,0); }
+      } else {
+
+      // The attack sequence (telegraph + lunge + the swing itself) only
+      // starts once the bear has actually closed to point-blank (t <
+      // CLOSE_RANGE_T); nextLungeAt then paces how often it swings from there.
+      if (lungeState==='idle' && elapsed>=nextLungeAt && t < CLOSE_RANGE_T){
+        lungeState='telegraph'; lungeTimer=TELEGRAPH_DUR;
+        // Pick which side this attack swings in from. Rather than a second
+        // named clip (the bear's own animations don't have a clean left/right
+        // pair), the same Sword_Attack/Sprint clips are mirrored by flipping
+        // scale.x — Three.js's renderer already handles the resulting
+        // negative-determinant winding correctly, so this is a cheap way to
+        // get a real, readable directional swing out of one clip instead of
+        // two that might not visually read as "from the left" vs "from the
+        // right" anyway.
+        attackSide = Math.random() < 0.5 ? 'L' : 'R';
+        dodged = false; dodgeAttempted = false;
+        if (bearModel) bearModel.scale.x = (attackSide === 'R' ? -1 : 1) * ENEMY_MODEL_SCALE;
+        // Measured empirically: the Sword_Attack clip's own swing brings the
+        // hand closest to the player around the midpoint of the telegraph
+        // phase, not during the lunge that follows (lunge plays a Sprint
+        // clip, not another swing) — so that's what the dodge window targets.
+        lungeImpactAt = elapsed + TELEGRAPH_DUR/2;
+      } else if (lungeState==='telegraph'){
+        lungeTimer -= dt;
+        if (lungeTimer<=0){ lungeState='lunge'; lungeTimer=0.9; }
+      } else if (lungeState==='lunge'){
+        lungeTimer -= dt;
+        if (lungeTimer<=0){
+          lungeState='idle';
+          // Still point-blank when this swing ends: skip the long "wander back
+          // in" cooldown and chain straight into the next one, so the bear
+          // presses a close-range advantage with a combo instead of stepping
+          // back to idle/run for several seconds between single swings.
+          nextLungeAt = elapsed + (t < CLOSE_RANGE_T ? (0.35 + Math.random()*0.3) : (3 + Math.random()*2));
+          // Keep gap consistent with wherever the charge actually left the bear,
+          // so it doesn't snap back out to the pre-lunge distance next frame.
+          // bear.position.z is already local to `player` (its literal
+          // parent), so no subtraction is needed to recover the pure
+          // t-equivalent distance — same as the original bear-only formula.
+          gap = Math.max(0, Math.min(GAP_MAX, ((bear.position.z - Z_NEAR)/(Z_FAR-Z_NEAR)) * GAP_MAX));
+          if (bearModel) bearModel.scale.x = ENEMY_MODEL_SCALE;
+        }
+      }
+      var dodgeWindowOpen = (lungeState==='telegraph' || lungeState==='lunge') && Math.abs(elapsed - lungeImpactAt) <= DODGE_GOOD_WINDOW/2;
+      dodgeEls.forEach(function(el){ el.classList.toggle('beat-active', dodgeWindowOpen); });
+
+      var attacking = lungeState==='telegraph' || lungeState==='lunge';
+      if (attacking){
+        // Once it commits to a swing, staring alone doesn't stop it — only
+        // keeping your distance beforehand does. No dash: the proximity gate
+        // above only lets an attack start when the bear is already close
+        // (t<0.05), so it just squares up and swings from where it's standing.
+        bear.position.x += (0 - bear.position.x) * (1 - Math.pow(0.0005, dt));
+      } else {
+        gap = Math.max(0, gap - WALK_SPEED*dt);
+        bear.position.x += (0 - bear.position.x) * (1 - Math.pow(0.002, dt));
+        t = gap/GAP_MAX;
+        // Eases toward the target instead of snapping straight to it, so a
+        // sudden jump (a miss cutting `gap` sharply) reads as the bear
+        // visibly *dashing* to close the new gap over the next few frames,
+        // not teleporting — while the continuous WALK_SPEED-driven approach
+        // (this branch, every frame) still tracks closely enough to feel
+        // smooth and immediate. Local to `player` (its literal parent — see
+        // player.add(bear) near player's own declaration): this alone is
+        // "the bear-to-player distance", not a second world-space formula.
+        var bearTargetZ = Z_NEAR + t*(Z_FAR-Z_NEAR);
+        bear.position.z += (bearTargetZ - bear.position.z) * (1 - Math.pow(0.0006, dt));
+      }
+
+      if (mixer){
+        // Between chained point-blank swings there's nowhere left to close,
+        // so standing there mid-"run" read as pointless jogging in place —
+        // idle (still facing/ready) instead, until the next telegraph fires.
+        var wantAnim = attacking ? (lungeState==='telegraph' ? 'threat' : 'sprint')
+          : (t < CLOSE_RANGE_T ? 'idle' : (missReactionTimer > 0 ? 'closing' : 'run'));
+        setAnimState(wantAnim);
+        mixer.update(dt);
+        if (rootBone) rootBone.position.set(0,0,0);
+      }
+
+      // Getting hit costs one HP and hands off to the 'knockback' state so
+      // Hit_Knockback_RM can actually play out; the run only actually ends
+      // (state='gameover') once HP runs out — see the 'knockback' branch
+      // below for where that's decided, once the reaction finishes.
+      if (handBone && playerHitBone && !dodged){
+        handBone.getWorldPosition(handWorldPos);
+        playerHitBone.getWorldPosition(playerWorldPos);
+        if (handWorldPos.distanceTo(playerWorldPos) < HIT_RADIUS){
+          hp = Math.max(0, hp - 1); updateHpDisplay();
+          setBPM(Math.max(BPM_MIN, BPM - 10));
+          playSfx('hit');
+          state = 'knockback'; reactionTimer = knockbackDuration; lastReason = 'You lost...';
+          dyingStartD = playerD;
+          dyingStartBearLocalZ = bear.position.z;
+          // A hit only ever lands while the bear is already at point-blank
+          // (t < CLOSE_RANGE_T) — left alone, gap is still pinned there
+          // through the whole knockback/gettingup/lead-in (all three freeze
+          // it), so the instant real control returns the bear is already
+          // primed to re-trigger CLOSE_RANGE_T's chained-attack cooldown
+          // again. Floor it back to GAP_START — the same distance a fresh
+          // run starts at — so getting hit at least buys genuine breathing
+          // room instead of a near-guaranteed immediate second hit.
+          gap = Math.max(gap, GAP_START);
+          // The swing that just landed was still live in lungeState/lungeTimer
+          // (and possibly still mirrored via bearModel.scale.x) — left alone,
+          // it would silently keep counting down through the whole knockback +
+          // get-up, and resume the *same* interrupted attack the instant
+          // 'playing' comes back, reconnecting again almost immediately with
+          // no real chance to recover. Abort it here and hand the bear a fresh
+          // cooldown instead, same shape as the natural post-swing one.
+          lungeState = 'idle'; nextLungeAt = elapsed + 1.2 + Math.random()*1.2;
+          if (bearModel) bearModel.scale.x = ENEMY_MODEL_SCALE;
+          // A walk step can leave the player model mirrored (scale.x<0) —
+          // Hit_Knockback_RM isn't a side-specific clip, so it should always
+          // play un-mirrored.
+          if (playerModel) playerModel.scale.x = PLAYER_MODEL_SCALE;
+          // A successful dodge from the *previous* chained swing can still be
+          // tailing off when this one lands (close-range attacks are chained
+          // with only a short recovery beat) — stop it explicitly so it
+          // doesn't blend with Hit_Knockback_RM on the same skeleton instead
+          // of cutting cleanly to it.
+          if (playerWalkAction) playerWalkAction.stop();
+          if (playerIdleAction) playerIdleAction.stop();
+          if (playerDodgeLeftAction) playerDodgeLeftAction.stop();
+          if (playerDodgeRightAction) playerDodgeRightAction.stop();
+          if (playerBonusAction) playerBonusAction.stop();
+          if (playerRecoverAction) playerRecoverAction.stop();
+          if (playerGetUpAction) playerGetUpAction.stop();
+          if (playerKnockbackAction) playerKnockbackAction.reset().play();
+        }
+      }
+      // Dropping out of green resets the streak even without a miss — see
+      // GREEN_T/GREEN_STREAK_TARGET above. The actual increment-on-hit lives
+      // in handleLane()'s success branch, since it only makes sense to count
+      // at the moment a press actually lands.
+      if (t <= GREEN_T) greenStreak = 0;
+      }
+    } else if (state === 'knockback'){
+      reactionTimer -= dt;
+      // Freeze the bear right where it struck; the player's own Hit_Knockback_RM
+      // (in `mixers`, updated every frame regardless of state) is what plays here.
+      // The player, on the other hand, recoils backward — ease-out so the
+      // push lands with the hit and settles rather than snapping or sliding
+      // at a constant rate. The camera is a child of `player`, so it just
+      // follows this for free, regardless of state.
+      var knockT = Math.min(1, 1 - reactionTimer/knockbackDuration);
+      // Starts from dyingStartD (captured the instant the hit landed, see
+      // above) and eases in the push on top of it — player.position/rotation
+      // are re-derived from this fresh every frame near the bottom of
+      // frame(), same as 'playing'. bear.position.z eases the opposite way,
+      // by the same push — since it's local to `player` now, leaving it
+      // alone would drag the bear along for the recoil instead of it
+      // staying frozen exactly where it struck.
+      var knockPush = KNOCKBACK_DISTANCE * (1 - Math.pow(1-knockT, 3));
+      playerD = dyingStartD + knockPush;
+      bear.position.z = dyingStartBearLocalZ - knockPush;
+      if (mixer) mixer.update(0);
+      if (rootBone) rootBone.position.set(0,0,0);
+      if (reactionTimer <= 0){
+        if (hp <= 0){
+          state = 'gameover'; finishGame(); stopBgm(); playGameoverBgm();
+        } else {
+          // Still got HP left: get back up (LayToIdle) instead of ending the
+          // run. playerAnimState is left stale from before the hit (the
+          // knockback/get-up clips play directly, bypassing setPlayerAnim's
+          // own tracking) — null it so the idle/walk gate below is guaranteed
+          // to actually (re)start an action once 'playing' resumes, rather
+          // than seeing an unchanged target state and treating it as a no-op.
+          state = 'gettingup'; reactionTimer = getUpDuration;
+          playerAnimState = null;
+          // Hit_Knockback_RM finished (clampWhenFinished) but was never
+          // stopped, so it was still "active" and blending with LayToIdle —
+          // same class of bug as the earlier dodge/Death_A mix-up. That blend
+          // let the frozen knockback pose dominate, which is why the get-up
+          // motion barely read as playing at all.
+          if (playerKnockbackAction) playerKnockbackAction.stop();
+          if (playerGetUpAction) playerGetUpAction.reset().play();
+        }
+      }
+    } else if (state === 'gettingup'){
+      reactionTimer -= dt;
+      // Bear stays frozen through the get-up too — same breather as the
+      // knockback itself, continuing into the "3,2,1" lead-in that follows
+      // (handled inside 'playing' now — see leadInBeats there).
+      if (mixer) mixer.update(0);
+      if (rootBone) rootBone.position.set(0,0,0);
+      if (reactionTimer <= 0){
+        if (playerGetUpAction) playerGetUpAction.stop();
+        state = 'playing';
+        startLeadIn();
+      }
+    } else {
+      bear.position.x = Math.sin(time*0.25)*0.45;
+      bear.position.z = Z_NEAR + t*(Z_FAR-Z_NEAR); // local to `player` — keeps bear-to-player distance identical to the old bear-only formula
+      if (mixer){
+        setAnimState('idle');
+        mixer.update(0);
+        if (rootBone) rootBone.position.set(0,0,0);
+      }
+    }
+
+    // player.position/rotation (and the terrain wrap below) are derived
+    // fresh from displayD every frame, regardless of state — not playerD
+    // directly. Every ordinary hit adds its share to playerD in one instant
+    // jump (see handleLane()'s success branch), and rendering that jump
+    // within a single frame would read as the camera teleporting once per
+    // beat instead of walking. 'knockback' already has its own tuned
+    // ease-out curve (knockT, above) baked directly into playerD itself, so
+    // easing *again* on top of that here would just be a second, redundant
+    // lag — displayD tracks playerD exactly, with no smoothing, through
+    // 'knockback' (and everywhere else playerD isn't the one place actually
+    // advancing every frame), and only eases during 'playing', where the
+    // per-hit jumps actually are instant.
+    if (state === 'knockback') displayD = playerD;
+    else displayD += (playerD - displayD) * (1 - Math.pow(0.0006, dt));
+    var pp = pathAt(displayD);
+    player.position.set(pp.x, 0, pp.z);
+    player.rotation.y = -pp.phi;
+
+    // The fallback ground plane just needs to translate to stay under
+    // wherever the player currently is — it's an unlit flat color, so its
+    // own rotation never matters. The sky dome now turns together with the
+    // player (sky.rotation.y here matches player.rotation.y above) instead
+    // of holding a fixed world orientation: the dome's own sky photo only
+    // covers a deliberately narrow, tuned patch of its surface (see
+    // skyTexture.repeat/offset near the dome's own declaration) sized for a
+    // camera that's always roughly facing the same relative direction —
+    // true while the player only ever walked a straight line, but not once
+    // the track gained curves the player (and the camera, its child) turn
+    // through. Rotating the dome with the player keeps that patch centered
+    // on the camera's view no matter which way the track has turned,
+    // trading away the sky visibly "sliding" as a turning cue (everything
+    // else still turns with the player, so that cue isn't lost, just no
+    // longer doubled up on the sky too) for never showing the dome's
+    // unmapped far side. Every grass tile and tree slides to the copy of
+    // its own original track position nearest the player (see
+    // placeOnTrack() near the top), which is what actually makes the
+    // corridor endless: the same ~150 objects forever, just relocated along
+    // the curve, never created fresh. This runs after every state branch
+    // above has had its chance to move playerD, so it's always working from
+    // this frame's final position, never last frame's.
+    sky.position.x = player.position.x;
+    sky.position.z = player.position.z;
+    sky.rotation.y = player.rotation.y;
+    ground.position.x = player.position.x;
+    ground.position.z = player.position.z;
+    grassWrappers.forEach(function(g){ placeOnTrack(g.obj, g.baseD, g.lateralX, displayD, GRASS_WRAP_DEPTH, WRAP_BEHIND_MARGIN); });
+    treeInstances.forEach(function(tr){ placeOnTrack(tr.obj, tr.baseD, tr.lateralX, displayD, TREE_WRAP_DEPTH, WRAP_BEHIND_MARGIN); });
+
+    // kinokoSpawnD is null right after a pickup (handleRecover()) or a
+    // fresh resetGame() — either way, the next spawn belongs some distance
+    // *ahead* of wherever the player is right now, not behind, so ordinary
+    // forward walking (D only ever increases) is what brings the player to
+    // it. The camera looks *back* toward the bear (see WRAP_BEHIND_MARGIN's
+    // own comment), so a kinoko ahead of the player is invisible right up
+    // until the player's own D actually reaches and passes it. Once passed
+    // (picked up or missed) it stays put behind the player for a while
+    // rather than teleporting away the instant it's out of reach — now
+    // finally on the visible side of that backward-facing camera, so a
+    // missed one is at least seen receding into the distance instead of
+    // just vanishing.
+    if (kinokoObj){
+      if (state === 'playing'){
+        if (kinokoSpawnD === null || displayD > kinokoSpawnD + 40){
+          kinokoSpawnD = displayD + KINOKO_SPAWN_LEAD_MIN + Math.random()*(KINOKO_SPAWN_LEAD_MAX-KINOKO_SPAWN_LEAD_MIN);
+          // Never near zero: the player always walks exactly along
+          // lateralX=0 (there's no strafing), and third-person cameras sit
+          // directly behind whatever they're following, so a kinoko placed
+          // close to that same line ends up almost exactly behind the
+          // player's own body once passed — permanently hidden by their own
+          // character model no matter how big the mesh is. Pushed off to
+          // one side instead, still comfortably inside KINOKO_PICKUP_RADIUS
+          // so it's reachable, but far enough from lateralX=0 to actually
+          // clear the player's silhouette.
+          kinokoLateralX = (Math.random() < 0.5 ? -1 : 1) * (KINOKO_LATERAL_MIN + Math.random()*(KINOKO_LATERAL_MAX-KINOKO_LATERAL_MIN));
+        }
+        var kp = pathAt(kinokoSpawnD);
+        kinokoObj.position.x = kp.x + kinokoLateralX*kp.rightX;
+        kinokoObj.position.z = kp.z + kinokoLateralX*kp.rightZ;
+        kinokoObj.visible = true;
+      } else {
+        kinokoObj.visible = false;
+      }
+    }
+    // Poison kinoko — identical spawn/recycle rules to the healing one
+    // above (same constants, same independent random draw), just its own
+    // separate spawnD/lateralX so the two don't have to stay in lockstep
+    // or avoid each other; occasionally landing at the same D is fine,
+    // they're offset to opposite-feeling sides often enough by the shared
+    // Β±KINOKO_LATERAL_MIN..MAX draw that they rarely fully overlap.
+    if (poisonKinokoObj){
+      if (state === 'playing'){
+        if (poisonKinokoSpawnD === null || displayD > poisonKinokoSpawnD + 40){
+          poisonKinokoSpawnD = displayD + KINOKO_SPAWN_LEAD_MIN + Math.random()*(KINOKO_SPAWN_LEAD_MAX-KINOKO_SPAWN_LEAD_MIN);
+          poisonKinokoLateralX = (Math.random() < 0.5 ? -1 : 1) * (KINOKO_LATERAL_MIN + Math.random()*(KINOKO_LATERAL_MAX-KINOKO_LATERAL_MIN));
+        }
+        var pkp = pathAt(poisonKinokoSpawnD);
+        poisonKinokoObj.position.x = pkp.x + poisonKinokoLateralX*pkp.rightX;
+        poisonKinokoObj.position.z = pkp.z + poisonKinokoLateralX*pkp.rightZ;
+        poisonKinokoObj.visible = true;
+      } else {
+        poisonKinokoObj.visible = false;
+      }
+    }
+    // Live "you can pick it up right now" cue on the V button/kbd — the
+    // only previous feedback was the ~220ms flash *after* pressing V, which
+    // is easy to miss entirely if the press itself was slightly early or
+    // late (there was no way to tell "not yet" from "just missed it" from
+    // "wrong entirely"). This uses the exact same distance check as
+    // handleRecover() itself, so if the button is lit, pressing V right
+    // now is guaranteed to succeed — same pattern as the beat lanes
+    // (beat-active while beatOpen) and the dodge button (beat-active while
+    // dodgeWindowOpen) above.
+    var kinokoInRange = false;
+    if (kinokoSpawnD !== null && kinokoObj && kinokoObj.visible && displayD >= kinokoSpawnD){
+      var krx = kinokoObj.position.x - player.position.x, krz = kinokoObj.position.z - player.position.z;
+      kinokoInRange = Math.sqrt(krx*krx + krz*krz) < KINOKO_PICKUP_RADIUS;
+    }
+    var poisonKinokoInRange = false;
+    if (poisonKinokoSpawnD !== null && poisonKinokoObj && poisonKinokoObj.visible && displayD >= poisonKinokoSpawnD){
+      var pkrx = poisonKinokoObj.position.x - player.position.x, pkrz = poisonKinokoObj.position.z - player.position.z;
+      poisonKinokoInRange = Math.sqrt(pkrx*pkrx + pkrz*pkrz) < KINOKO_PICKUP_RADIUS;
+    }
+    // Poison and healing share the same accent-yellow "you can interact"
+    // glow — same V button either way (handleRecover() below checks both),
+    // and which one you'll actually get is only revealed by the mushroom's
+    // own color, not the button.
+    recoverEls.forEach(function(el){
+      el.classList.toggle('beat-active', kinokoInRange || poisonKinokoInRange);
+    });
+
+    var smooth = 1 - Math.pow(0.0025, dt);
+    yawCur += (yawTarget-yawCur)*smooth;
+    pitchCur += (pitchTarget-pitchCur)*smooth;
+
+    stepSpring(sp.camBounce, dt, 150, 10);
+    stepSpring(sp.camSway, dt, 85, 8);
+    stepSpring(sp.camRoll, dt, 55, 6);
+    stepSpring(sp.fovKick, dt, 40, 7);
+
+    var idleSway = reducedMotion ? 0 : Math.sin(time*0.9)*0.012;
+    // Local offsets from `player` (its literal parent — see player.add(camera)
+    // near player's own declaration) — no "+player.position.z" needed here at
+    // all, that's the whole point: wherever the player is, this is where the
+    // camera sits relative to them, structurally, every frame.
+    camera.position.set(sp.camSway.cur, EYE_HEIGHT + THIRD_PERSON_UP + sp.camBounce.cur*0.05 + idleSway, THIRD_PERSON_BACK);
+    camera.rotation.set(pitchCur, yawCur, sp.camRoll.cur);
+    camera.fov = BASE_FOV + sp.fovKick.cur;
+    camera.updateProjectionMatrix();
+
+    if (bearModel){
+      bearModel.position.y = reducedMotion ? 0 : Math.sin(time*2.1)*0.02;
+    }
+
+    // Gated to 'playing' so a held key during the 'knockback'/'gettingup'
+    // states can't fight the Hit_Knockback_RM/LayToIdle pose those states
+    // (or resetGame()) already put in charge.
+    // Also holds off while a dodge clip or a walk step is playing
+    // (dodgeTimer/walkStepTimer>0) so the idle switch doesn't cut either
+    // short mid-animation — the walk step itself is triggered per successful
+    // hit in handleLane(), not by raw key-held state.
+    if (dodgeTimer > 0) dodgeTimer = Math.max(0, dodgeTimer - dt);
+    if (walkStepTimer > 0) walkStepTimer = Math.max(0, walkStepTimer - dt);
+    if (playerMixer && state === 'playing' && dodgeTimer <= 0 && walkStepTimer <= 0){
+      setPlayerAnim('idle');
+    }
+    mixers.forEach(function(m){ m.update(dt); });
+    // Same reason as the bear's own rootBone below: Hit_Knockback_RM (and
+    // potentially other clips) bakes real translation into this bone. Left
+    // alone it deforms the skinned mesh out from under the player group's own
+    // position — invisible to player.position.z, so the camera (which only
+    // tracks that) doesn't follow it, and the character visually rockets off
+    // whatever distance the clip itself encodes, independent of and on top of
+    // the scripted knockback push above. Re-zeroing it every frame makes our
+    // own positioning the only thing moving the character, same as the bear.
+    if (playerRootBone) playerRootBone.position.set(0,0,0);
+
+    renderer.render(scene, camera);
+    if (debugMapOn) drawDebugMap();
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
