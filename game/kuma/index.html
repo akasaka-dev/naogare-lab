@@ -994,10 +994,34 @@
     if (!t || !audioCtx) return;
     currentTrackKey = key;
     function apply(decoded){
+      // Captured before BGM_NATIVE_BPM is overwritten below: true only when
+      // this switch is a move to a *higher*-tempo track (the green-streak
+      // pass reward crossing a tier upward), never a bear-hit/poison-kinoko
+      // penalty crossing one downward — those call setBPM() with `state`
+      // still 'playing' too (the 'knockback' assignment right after it is
+      // what would otherwise race this), and a Victory pose playing while
+      // getting hit would be exactly backwards.
+      var isUpgrade = t.nativeBpm > BGM_NATIVE_BPM;
       bgmBuffer = decoded;
       BGM_NATIVE_BPM = t.nativeBpm;
       BGM_BEAT_OFFSET = t.offset;
-      if (bgmSource || bgmPendingFreshStart){ bgmPendingFreshStart = false; startLeadIn(true); }
+      if (bgmSource || bgmPendingFreshStart){
+        bgmPendingFreshStart = false;
+        if (state === 'playing' && isUpgrade && playerVictoryAction){
+          // Stop the old track outright rather than let it ride under the
+          // pose — see startLeadIn(true)'s own fresh-start path (called once
+          // this finishes) for why a clean restart, not a resync, is right
+          // here: this *is* the fresh start, just held for a couple of
+          // beats' worth of celebration first.
+          stopBgm();
+          state = 'trackswitch';
+          reactionTimer = victoryDuration;
+          if (playerModel) playerModel.scale.x = PLAYER_MODEL_SCALE;
+          playerVictoryAction.reset().play();
+        } else {
+          startLeadIn(true);
+        }
+      }
     }
     if (bgmBufferCache[key]){
       apply(bgmBufferCache[key]);
@@ -1803,6 +1827,7 @@
   var playerGetUpAction = null, getUpDuration = 1.0;
   var playerDodgeLeftAction = null, playerDodgeRightAction = null, dodgeLeftDuration = 0.6, dodgeRightDuration = 0.6;
   var playerBonusAction = null, bonusDuration = 1.0;
+  var playerVictoryAction = null, victoryDuration = 1.0;
   var playerRecoverAction = null, recoverDuration = 1.0;
   var playerAnimState = null;
   function setPlayerAnim(name){
@@ -1904,6 +1929,20 @@
       playerRecoverAction.timeScale = 2;
       recoverDuration = recoverClip.duration / 2;
     }
+    // Played once whenever the BGM actually switches to a different track
+    // mid-run (see loadBgmTrack()'s apply()) — a hard, silent cut straight
+    // into the next song's own lead-in read as a glitch more than a reward,
+    // even though the tempo-up it follows from is a genuinely good thing
+    // that just happened. This gives that moment its own beat: the old
+    // track stops, the player celebrates, then the normal "3,2,1" carries
+    // straight into the new song exactly as any other lead-in would.
+    var victoryClip = findClip(gltf.animations, 'Victory');
+    if (victoryClip){
+      playerVictoryAction = playerMixer.clipAction(victoryClip);
+      playerVictoryAction.setLoop(THREE.LoopOnce);
+      playerVictoryAction.clampWhenFinished = true;
+      victoryDuration = victoryClip.duration;
+    }
     mixers.push(playerMixer);
   }, undefined, onModelError);
 
@@ -1932,6 +1971,7 @@
     if (playerGetUpAction) playerGetUpAction.stop();
     if (playerBonusAction) playerBonusAction.stop();
     if (playerRecoverAction) playerRecoverAction.stop();
+    if (playerVictoryAction) playerVictoryAction.stop();
     walkStepTimer = 0;
     playerAnimState = null;
     setPlayerAnim('idle');
@@ -3072,6 +3112,19 @@
         if (playerGetUpAction) playerGetUpAction.stop();
         state = 'playing';
         startLeadIn();
+      }
+    } else if (state === 'trackswitch'){
+      // Bear frozen through the Victory pose the same way it is through
+      // knockback/gettingup — playerVictoryAction itself plays via the
+      // unconditional `mixers` update below regardless of state, so nothing
+      // else needs to drive it here.
+      reactionTimer -= dt;
+      if (mixer) mixer.update(0);
+      if (rootBone) rootBone.position.set(0,0,0);
+      if (reactionTimer <= 0){
+        if (playerVictoryAction) playerVictoryAction.stop();
+        state = 'playing';
+        startLeadIn(true);
       }
     } else {
       bear.position.x = Math.sin(time*0.25)*0.45;
