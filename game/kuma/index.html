@@ -2412,6 +2412,11 @@
     else if (k==='c'){ if(!e.repeat){ e.preventDefault(); handleDodge(); } }
     else if (k==='v'){ if(!e.repeat){ e.preventDefault(); handleRecover(); } }
     else if (k==='d'){ if(!e.repeat){ debugMapOn = !debugMapOn; debugMapCanvas.hidden = !debugMapOn; } }
+    // Debug-only: replays the player's track-switch pose in place, with no
+    // state/BGM/BPM side effects at all — for checking a clip on the actual
+    // rigged model in the actual scene without needing to play through to a
+    // real tier crossing every time.
+    else if (k==='j'){ if(!e.repeat){ if (playerVictoryAction) playerVictoryAction.reset().play(); } }
   }, {passive:false});
 
   // Debug-only top-down overlay (D to toggle) — shows the player/bear's
