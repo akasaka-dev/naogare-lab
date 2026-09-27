@@ -328,6 +328,17 @@
     font-family:var(--font-mono); font-weight:700;
     min-width:5.5em; display:inline-block;
   }
+  #audioAdjustTapCalibrate{
+    background:var(--accent); color:#1b1503; border-color:var(--accent-dim);
+    font-size:16px; padding:12px 22px;
+  }
+  #audioAdjustTapStatus{
+    font-size:12.5px; color:var(--ink-dim); margin:0 0 14px;
+  }
+  .audio-adjust-finetune-label{
+    font-size:11px; color:var(--ink-dim); margin:0 0 6px;
+    letter-spacing:0.04em;
+  }
   .modal-close{ margin-top:6px; }
 
   .touch-buttons{display:flex;gap:10px;}
@@ -497,11 +508,16 @@
 <div class="modal-overlay" id="audioAdjustModal" hidden>
   <div class="modal-card">
     <h3>Audio Adjust</h3>
-    <p>Bluetoothイヤホンなど、音が遅れて聞こえる環境向けの調整です。クリック音を再生し、光る点滅と実際に聞こえるタイミングが合うようにオフセットを調整してください。</p>
+    <p>Bluetoothイヤホンなど、音が遅れて聞こえる環境向けの調整です。クリック音に合わせて「Tap to Calibrate」を数回タップするだけで自動調整できます。</p>
     <div class="audio-adjust-flash" id="audioAdjustFlash"></div>
     <div class="audio-adjust-row">
       <button id="audioAdjustPlay" type="button">Play Click</button>
     </div>
+    <div class="audio-adjust-row">
+      <button id="audioAdjustTapCalibrate" type="button">Tap to Calibrate</button>
+    </div>
+    <p id="audioAdjustTapStatus">クリックに合わせてタップしてください</p>
+    <p class="audio-adjust-finetune-label">手動での微調整</p>
     <div class="audio-adjust-row">
       <button id="audioAdjustMinus" type="button">-10ms</button>
       <span id="audioAdjustValue">0ms</span>
@@ -2551,8 +2567,26 @@
   var audioAdjustPlus = document.getElementById('audioAdjustPlus');
   var audioAdjustValue = document.getElementById('audioAdjustValue');
   var audioAdjustClose = document.getElementById('audioAdjustClose');
+  var audioAdjustTapCalibrate = document.getElementById('audioAdjustTapCalibrate');
+  var audioAdjustTapStatus = document.getElementById('audioAdjustTapStatus');
   var TEST_CLICK_BPM = 120;
   var testClickSource = null, testClickStartCtxTime = null, testClickLastBeat = -1;
+  // ms-level nudging (the original -10ms/+10ms buttons) asks a beginner to
+  // reason about a number with no physical meaning to them. Tapping along
+  // with the click instead measures their own reaction directly: each tap's
+  // offset from the *nominal* (zero-latency) beat time it landed nearest to
+  // is a real sample of "how late the sound reaches this player, on this
+  // device, right now" — averaging a handful of those cancels out ordinary
+  // human tap jitter far better than one careful-but-still-imprecise manual
+  // nudge ever could.
+  var TAP_CALIBRATE_SAMPLES = 5;
+  var tapSamples = [];
+  function computeTapDelta(){
+    var beatDur = 60/TEST_CLICK_BPM;
+    var raw = (audioCtx.currentTime - testClickStartCtxTime) % beatDur;
+    if (raw > beatDur/2) raw -= beatDur;
+    return raw;
+  }
   function updateAudioAdjustLabel(){
     audioAdjustValue.textContent = (AUDIO_OFFSET>=0?'+':'') + Math.round(AUDIO_OFFSET*1000) + 'ms';
   }
@@ -2566,6 +2600,8 @@
     testClickStartCtxTime = null;
     testClickLastBeat = -1;
     audioAdjustPlay.textContent = 'Play Click';
+    tapSamples = [];
+    audioAdjustTapStatus.textContent = 'クリックに合わせてタップしてください';
   }
   function startTestClick(){
     var buf = bgmBufferCache.tempo120;
@@ -2602,6 +2638,23 @@
   });
   audioAdjustMinus.addEventListener('click', function(){ setAudioOffset(AUDIO_OFFSET - 0.01); });
   audioAdjustPlus.addEventListener('click', function(){ setAudioOffset(AUDIO_OFFSET + 0.01); });
+  audioAdjustTapCalibrate.addEventListener('click', function(){
+    if (!testClickSource){
+      startTestClick();
+      tapSamples = [];
+      audioAdjustTapStatus.textContent = 'クリックに合わせてもう一度タップしてください';
+      return;
+    }
+    tapSamples.push(computeTapDelta());
+    if (tapSamples.length < TAP_CALIBRATE_SAMPLES){
+      audioAdjustTapStatus.textContent = 'タップ ' + tapSamples.length + '/' + TAP_CALIBRATE_SAMPLES;
+    } else {
+      var avg = tapSamples.reduce(function(a,b){ return a+b; }, 0) / tapSamples.length;
+      setAudioOffset(avg);
+      audioAdjustTapStatus.textContent = '調整完了: ' + (avg>=0?'+':'') + Math.round(avg*1000) + 'ms';
+      tapSamples = [];
+    }
+  });
   // stopPropagation: btnAudioAdjust now lives inside #cardTitle, itself
   // inside #stageWrap — without this, opening the dialog from the title
   // screen would also bubble up into stageActivate() and immediately
