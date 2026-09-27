@@ -376,6 +376,7 @@
       <select id="bgmTrackSelect">
         <option value="auto">自動(BPM追従)</option>
         <option value="kuma">くまさん</option>
+        <option value="asobiba">サイコーのあそびば</option>
         <option value="oikakko">鬼ごっこ</option>
         <option value="doro">泥を蹴散らせ</option>
         <option value="tempo120">tempo120(debug)</option>
@@ -761,6 +762,7 @@
   // 124.225/0.08s, which applied only to the previous export of this file.)
   var BGM_TRACKS = {
     kuma: { file: 'まってよ_くまさん.mp3', nativeBpm: 71, offset: 1.0 },
+    asobiba: { file: 'サイコーのあそびば.mp3', nativeBpm: 105, offset: 1.0 },
     oikakko: { file: 'くまさんと鬼ごっこ.mp3', nativeBpm: 125, offset: 1.0 },
     doro: { file: '泥を蹴散らせ.mp3', nativeBpm: 150, offset: 1.0 },
     tempo120: { file: 'tempo120.mp3', nativeBpm: 120, offset: 0 }
@@ -772,7 +774,8 @@
   // threshold a given bpm clears wins.
   var BGM_AUTO_TIERS = [
     { minBpm: 150, key: 'doro' },
-    { minBpm: 120, key: 'oikakko' }
+    { minBpm: 120, key: 'oikakko' },
+    { minBpm: 100, key: 'asobiba' }
   ];
   function autoTrackForBpm(bpm){
     for (var i=0;i<BGM_AUTO_TIERS.length;i++){
@@ -2263,8 +2266,13 @@
   // single-file page loads one) — stroke/fill:currentColor so each icon
   // just inherits its button's own color, including the .muted state's
   // dimmer tone, with no separate icon-specific styling needed.
+  // Speaker+waves = SFX (short one-shot sounds), musical note = BGM (the
+  // continuous track) — these used to share the same speaker icon for both
+  // mute buttons, indistinguishable except by position on screen.
   var ICON_SOUND_ON = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor" stroke="none"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19.5 6a9 9 0 0 1 0 12"/></svg>';
   var ICON_SOUND_OFF = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor" stroke="none"/><path d="M16 9l5 6M21 9l-5 6"/></svg>';
+  var ICON_MUSIC_ON = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18a3 3 0 1 1 0-6 3 3 0 0 1 0 6z" fill="currentColor" stroke="none"/><path d="M12 15V4l7 3v8"/></svg>';
+  var ICON_MUSIC_OFF = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18a3 3 0 1 1 0-6 3 3 0 0 1 0 6z" fill="currentColor" stroke="none"/><path d="M12 15V4l7 3v8"/><path d="M4 4l16 16"/></svg>';
   var ICON_MUSHROOM = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none"><path d="M4 11a8 8 0 0 1 16 0c0 1.1-.9 2-2 2H6c-1.1 0-2-.9-2-2z" fill="currentColor"/><rect x="9.5" y="13" width="5" height="7" rx="2.5" fill="currentColor" opacity="0.55"/></svg>';
   btnRecover.innerHTML = ICON_MUSHROOM;
   // Independent of game state (state !== 'playing' doesn't gate these,
@@ -2278,7 +2286,7 @@
     btnSfxMute.classList.toggle('muted', sfxMuted);
   }
   function updateBgmMuteUI(){
-    btnBgmMute.innerHTML = bgmMuted ? ICON_SOUND_OFF : ICON_SOUND_ON;
+    btnBgmMute.innerHTML = bgmMuted ? ICON_MUSIC_OFF : ICON_MUSIC_ON;
     btnBgmMute.classList.toggle('muted', bgmMuted);
   }
   btnSfxMute.addEventListener('click', function(){
