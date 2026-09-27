@@ -93,10 +93,11 @@
     letter-spacing:0.02em;
     font-variant-numeric:tabular-nums;
     line-height:1;
+    text-align:right;
   }
   .hud-timer .score-label{
+    display:block;
     font-size:20px;
-    vertical-align:6px;
   }
   .score-popup-anchor{
     position:absolute; left:78%; top:60%;
@@ -2416,7 +2417,9 @@
     // state/BGM/BPM side effects at all — for checking a clip on the actual
     // rigged model in the actual scene without needing to play through to a
     // real tier crossing every time.
-    else if (k==='j'){ if(!e.repeat){ if (playerVictoryAction) playerVictoryAction.reset().play(); } }
+    else if (k==='j'){ if(!e.repeat){
+      if (playerVictoryAction) playerVictoryAction.reset().play();
+    } }
   }, {passive:false});
 
   // Debug-only top-down overlay (D to toggle) — shows the player/bear's
