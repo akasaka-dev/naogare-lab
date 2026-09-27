@@ -86,10 +86,9 @@
   }
   .hud-timer{
     position:absolute; right:10px; top:10px;
-    font-family:var(--font-display);
+    font-family:var(--font-mono); font-weight:700;
     font-size:66px;
     color:var(--accent);
-    -webkit-text-stroke:3px #1b1503;
     text-shadow:0 3px 6px rgba(0,0,0,0.7);
     letter-spacing:0.02em;
     font-variant-numeric:tabular-nums;
@@ -97,22 +96,20 @@
   }
   .hud-timer .score-label{
     font-size:20px;
-    -webkit-text-stroke:1.8px #1b1503;
     vertical-align:6px;
   }
   .score-popup-anchor{
-    position:absolute; left:70%; top:38%;
+    position:absolute; left:78%; top:60%;
     width:0; height:0;
   }
   .score-popup{
     position:absolute; left:0; top:0;
-    font-family:var(--font-display);
-    font-size:30px;
-    -webkit-text-stroke:2.2px #1b1503;
+    font-family:var(--font-mono); font-weight:700;
+    font-size:28px;
     text-shadow:0 3px 6px rgba(0,0,0,0.7);
     white-space:nowrap;
     pointer-events:none;
-    animation:scorePopUp 0.9s ease-out forwards;
+    animation:scorePopUp 0.6s ease-out forwards;
   }
   .score-popup.gain{ color:var(--safe); }
   .score-popup.loss{ color:var(--danger); }
@@ -1811,12 +1808,24 @@
   // a future deduction event without any changes here. `prefix` is an
   // optional short label (e.g. 'PASS ') for a bonus that deserves calling
   // out as more than just another ordinary hit.
+  // Stacked rather than dropped straight on top of each other: at high BPM
+  // (or just a lucky streak), a new hit can land before the previous popup
+  // has finished fading, and two/three landing on the exact same spot in
+  // quick succession reads as one number stuck on screen, not several award
+  // flashes — each extra one active at once climbs another notch higher so
+  // a fast run of them fans out into a little rising column instead.
+  var scorePopupDepth = 0;
   function showScorePopup(delta, prefix){
     var el = document.createElement('div');
     el.className = 'score-popup ' + (delta >= 0 ? 'gain' : 'loss');
     el.textContent = (prefix || '') + (delta >= 0 ? '+' : '') + delta;
+    el.style.marginTop = (-scorePopupDepth * 24) + 'px';
+    scorePopupDepth++;
     scorePopupAnchor.appendChild(el);
-    setTimeout(function(){ el.remove(); }, 900);
+    setTimeout(function(){
+      el.remove();
+      scorePopupDepth = Math.max(0, scorePopupDepth - 1);
+    }, 600);
   }
 
   function flashLane(lane, kind){
