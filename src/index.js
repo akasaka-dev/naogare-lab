@@ -1,4 +1,5 @@
 import { routeLine4 } from './line4-online.js';
+import { routeLine4Second } from './line4-second-online.js';
 import { routeFuwao } from './fuwao-ranking.js';
 import { routeSnake } from './snake-ranking.js';
 import { routeLikes } from './likes.js';
@@ -203,6 +204,18 @@ export default {
     if (path.startsWith('/api/line4/')) {
       try {
         const res = await routeLine4(request, env, path);
+        if (res) return res;
+      } catch (e) {
+        return jsonResponse({ ok: false, error: 'server_error' }, 500);
+      }
+    }
+
+    // line4-second (黄昏のフォー・イン・ア・ロウ 地平の行方) online multiplayer
+    // — isolated in line4-second-online.js / its own D1 database
+    // (LINE4_SECOND_DB), untouched by line4's own routes above.
+    if (path.startsWith('/api/line4-second/')) {
+      try {
+        const res = await routeLine4Second(request, env, path);
         if (res) return res;
       } catch (e) {
         return jsonResponse({ ok: false, error: 'server_error' }, 500);

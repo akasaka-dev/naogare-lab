@@ -3,5 +3,6 @@
 src
 schema.sql
 line4-schema.sql
+line4-second-schema.sql
 migrations
 wrangler.toml

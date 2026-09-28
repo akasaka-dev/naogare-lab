@@ -24,3 +24,14 @@ database_id = "dfa75866-0f70-4492-ba63-35879e9e676a"
 binding = "LINE4_DB"
 database_name = "line4-rooms-db"
 database_id = "1d686960-c6e4-4698-8560-f47040b523cb"
+
+# line4-second (黄昏のフォー・イン・ア・ロウ 地平の行方) online multiplayer
+# room storage. Deliberately its OWN database rather than reusing LINE4_DB
+# above — the two games have incompatible room shapes (3 players/8x7 board
+# here vs. 2 players/7x6 there), and keeping them separate means bugs or
+# schema changes made while building this out can never affect line4's
+# already-live, real-player-facing rooms.
+[[d1_databases]]
+binding = "LINE4_SECOND_DB"
+database_name = "line4-second-rooms-db"
+database_id = "fd1a7fa2-0276-48b4-8df2-898c666b36fd"
