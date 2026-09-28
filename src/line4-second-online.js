@@ -124,9 +124,22 @@ function checkWin(grid, row, col, player) {
 
 // ---- CPU filler AI (see handleFillCpu / resolveCpuTurn) ----
 // Ported from the client's getCpuMoveFor/scorePositionMulti (used for the
-// CPU-mode ladder) with no per-character wildness/depth tuning — this seat
-// always plays its strongest move, since it's standing in for a missing
-// human rather than performing as a themed, deliberately-beatable opponent.
+// CPU-mode ladder), including its per-character wildness/depth tuning — the
+// creator picks one of these three tiers in handleFillCpu (never the
+// stage-6 門番/Gatekeeper tier, which is reserved for the CPU-mode ladder's
+// final boss pair and would make this "don't want to wait" filler seat the
+// single strongest opponent in the whole game). wildness is the chance of
+// playing a random legal move instead of the heuristic-best one; depth >= 2
+// additionally makes it avoid moves that would hand another player an
+// immediate win next turn. Both always still take a free win and always
+// still block another player's immediate win, regardless of tier — see
+// chooseCpuColumn().
+const CPU_DIFFICULTIES = {
+  easy: { label: '弱め', depth: 1, wildness: 0.45 },
+  normal: { label: 'ふつう', depth: 2, wildness: 0.25 },
+  hard: { label: '強め', depth: 4, wildness: 0.05 },
+};
+const DEFAULT_CPU_DIFFICULTY = 'normal';
 
 function cloneGrid(g) {
   return g.map((row) => row.slice());
@@ -190,10 +203,13 @@ function scorePositionMulti(g, self) {
   return score;
 }
 
-function chooseCpuColumn(grid, player) {
+function chooseCpuColumn(grid, player, difficulty) {
   const validCols = getValidCols(grid);
   if (validCols.length === 0) return -1;
 
+  // Always take a free win and always block another player's immediate win,
+  // regardless of tier — so even the "easy" tier never looks broken by
+  // missing an obvious win or an obvious block.
   const myWin = findImmediateWin(grid, player);
   if (myWin !== null) return myWin;
 
@@ -203,6 +219,10 @@ function chooseCpuColumn(grid, player) {
     if (blockCol !== null) return blockCol;
   }
 
+  if (difficulty.wildness > 0 && Math.random() < difficulty.wildness) {
+    return validCols[Math.floor(Math.random() * validCols.length)];
+  }
+
   let bestCol = validCols[0];
   let bestScore = -Infinity;
   for (const col of validCols) {
@@ -210,7 +230,7 @@ function chooseCpuColumn(grid, player) {
     const copy = cloneGrid(grid);
     copy[row][col] = player;
     let s = scorePositionMulti(copy, player);
-    if (others.some((opp) => findImmediateWin(copy, opp) !== null)) s -= 5000;
+    if (difficulty.depth >= 2 && others.some((opp) => findImmediateWin(copy, opp) !== null)) s -= 5000;
     if (s > bestScore) { bestScore = s; bestCol = col; }
   }
   return bestCol;
@@ -238,6 +258,7 @@ function rowToRoom(row) {
     p1IsCpu: !!row.p1_is_cpu,
     p2IsCpu: !!row.p2_is_cpu,
     p3IsCpu: !!row.p3_is_cpu,
+    cpuDifficulty: row.cpu_difficulty,
     turnStartedAt: row.turn_started_at,
     matchStartedAt: row.match_started_at,
     startingPlayer: row.starting_player,
@@ -340,7 +361,8 @@ async function resolveTimeout(env, room) {
 // move never hands the turn to a second CPU seat and this never recurses.
 async function resolveCpuTurn(env, room) {
   const player = room.currentPlayer;
-  const col = chooseCpuColumn(room.grid, player);
+  const difficulty = CPU_DIFFICULTIES[room.cpuDifficulty] || CPU_DIFFICULTIES[DEFAULT_CPU_DIFFICULTY];
+  const col = chooseCpuColumn(room.grid, player, difficulty);
   if (col === -1) return room; // no legal move — isBoardFull would already have ended the match
 
   const row = getNextOpenRow(room.grid, col);
@@ -407,7 +429,7 @@ async function resolveFinishedExpiry(env, room) {
      p3_token = NULL, p3_name = NULL, p3_streak = 0, p3_is_cpu = 0,
      grid = ?1, current_player = 1, game_over = 0, winner = NULL, win_line = NULL, status = 'waiting',
      starting_player = NULL, turn_started_at = NULL, match_started_at = NULL, emote = NULL, emote_by = NULL,
-     rev = rev + 1, updated_at = ?2
+     cpu_difficulty = NULL, rev = rev + 1, updated_at = ?2
      WHERE code = ?3 AND rev = ?4`
   ).bind(JSON.stringify(grid), now, room.code, room.rev).run();
 
@@ -513,8 +535,9 @@ async function handleFillCpu(request, env, code) {
   } catch (e) {
     return errorResponse('invalid_json');
   }
-  const { token } = body || {};
+  const { token, difficulty } = body || {};
   if (typeof token !== 'string') return errorResponse('invalid_body');
+  const difficultyKey = CPU_DIFFICULTIES[difficulty] ? difficulty : DEFAULT_CPU_DIFFICULTY;
 
   const room = await loadRoom(env, code);
   if (!room) return errorResponse('room_not_found', 404);
@@ -535,13 +558,17 @@ async function handleFillCpu(request, env, code) {
   // Doesn't need to be secret (no browser needs to present it), just unique
   // enough that it can never collide with a real human's randomToken().
   const cpuToken = `CPU-${randomToken()}`;
+  // Baked into the display name itself (rather than exposed as a separate
+  // publicState field) so the client shows the chosen tier with no extra
+  // plumbing — it already renders whatever name the server sends.
+  const cpuName = `${CPU_NAME}（${CPU_DIFFICULTIES[difficultyKey].label}）`;
   const startingPlayer = Math.floor(Math.random() * 3) + 1;
   const now = Date.now();
 
   const result = await env.LINE4_SECOND_DB.prepare(
-    `UPDATE rooms SET ${tokenCol} = ?1, ${nameCol} = ?2, ${cpuCol} = 1, status = 'playing', starting_player = ?3, current_player = ?3, turn_started_at = ?4, match_started_at = ?4, rev = rev + 1, updated_at = ?4
-     WHERE code = ?5 AND ${tokenCol} IS NULL`
-  ).bind(cpuToken, CPU_NAME, startingPlayer, now, code).run();
+    `UPDATE rooms SET ${tokenCol} = ?1, ${nameCol} = ?2, ${cpuCol} = 1, cpu_difficulty = ?3, status = 'playing', starting_player = ?4, current_player = ?4, turn_started_at = ?5, match_started_at = ?5, rev = rev + 1, updated_at = ?5
+     WHERE code = ?6 AND ${tokenCol} IS NULL`
+  ).bind(cpuToken, cpuName, difficultyKey, startingPlayer, now, code).run();
 
   if (!result.meta || result.meta.changes === 0) {
     // Most likely a human joined that same slot in the moment between our
