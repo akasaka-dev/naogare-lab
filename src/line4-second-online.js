@@ -35,6 +35,8 @@ const TURN_TIMEOUT_MS = 60 * 1000;
 // post-game countdown so a rematch request that lands right at the deadline
 // doesn't lose the race.
 const FINISHED_ROOM_GRACE_MS = 35 * 1000;
+// Display name for the "skip waiting" filler seat — see handleFillCpu().
+const CPU_NAME = 'CPU';
 
 // Free text (unlike the emote whitelist), so it's capped and defaulted —
 // the client's own default is "ノア" but this is the backstop for anything
@@ -120,6 +122,104 @@ function checkWin(grid, row, col, player) {
   return null;
 }
 
+// ---- CPU filler AI (see handleFillCpu / resolveCpuTurn) ----
+// Ported from the client's getCpuMoveFor/scorePositionMulti (used for the
+// CPU-mode ladder) with no per-character wildness/depth tuning — this seat
+// always plays its strongest move, since it's standing in for a missing
+// human rather than performing as a themed, deliberately-beatable opponent.
+
+function cloneGrid(g) {
+  return g.map((row) => row.slice());
+}
+
+function getValidCols(g) {
+  const cols = [];
+  for (let c = 0; c < COLS; c++) if (g[0][c] === 0) cols.push(c);
+  return cols;
+}
+
+function findImmediateWin(g, player) {
+  for (const col of getValidCols(g)) {
+    const row = getNextOpenRow(g, col);
+    const copy = cloneGrid(g);
+    copy[row][col] = player;
+    if (checkWin(copy, row, col, player)) return col;
+  }
+  return null;
+}
+
+function evaluateWindowMulti(win, self) {
+  let score = 0;
+  const countSelf = win.filter((v) => v === self).length;
+  const countEmpty = win.filter((v) => v === 0).length;
+  if (countSelf === 3 && countEmpty === 1) score += 5;
+  else if (countSelf === 2 && countEmpty === 2) score += 2;
+  for (const opp of [1, 2, 3]) {
+    if (opp === self) continue;
+    const countOpp = win.filter((v) => v === opp).length;
+    if (countOpp === 3 && countEmpty === 1) score -= 4;
+  }
+  return score;
+}
+
+function scorePositionMulti(g, self) {
+  let score = 0;
+  const centerCol = Math.floor(COLS / 2);
+  score += g.reduce((acc, row) => acc + (row[centerCol] === self ? 1 : 0), 0) * 3;
+
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c <= COLS - 4; c++) {
+      score += evaluateWindowMulti([g[r][c], g[r][c + 1], g[r][c + 2], g[r][c + 3]], self);
+    }
+  }
+  for (let c = 0; c < COLS; c++) {
+    for (let r = 0; r <= ROWS - 4; r++) {
+      score += evaluateWindowMulti([g[r][c], g[r + 1][c], g[r + 2][c], g[r + 3][c]], self);
+    }
+  }
+  for (let r = 0; r <= ROWS - 4; r++) {
+    for (let c = 0; c <= COLS - 4; c++) {
+      score += evaluateWindowMulti([g[r][c], g[r + 1][c + 1], g[r + 2][c + 2], g[r + 3][c + 3]], self);
+    }
+  }
+  for (let r = 3; r < ROWS; r++) {
+    for (let c = 0; c <= COLS - 4; c++) {
+      score += evaluateWindowMulti([g[r][c], g[r - 1][c + 1], g[r - 2][c + 2], g[r - 3][c + 3]], self);
+    }
+  }
+  return score;
+}
+
+function chooseCpuColumn(grid, player) {
+  const validCols = getValidCols(grid);
+  if (validCols.length === 0) return -1;
+
+  const myWin = findImmediateWin(grid, player);
+  if (myWin !== null) return myWin;
+
+  const others = [1, 2, 3].filter((p) => p !== player);
+  for (const opp of others) {
+    const blockCol = findImmediateWin(grid, opp);
+    if (blockCol !== null) return blockCol;
+  }
+
+  let bestCol = validCols[0];
+  let bestScore = -Infinity;
+  for (const col of validCols) {
+    const row = getNextOpenRow(grid, col);
+    const copy = cloneGrid(grid);
+    copy[row][col] = player;
+    let s = scorePositionMulti(copy, player);
+    if (others.some((opp) => findImmediateWin(copy, opp) !== null)) s -= 5000;
+    if (s > bestScore) { bestScore = s; bestCol = col; }
+  }
+  return bestCol;
+}
+
+function isCpuSlot(room, playerNum) {
+  return (playerNum === 1 && room.p1IsCpu) || (playerNum === 2 && room.p2IsCpu) || (playerNum === 3 && room.p3IsCpu);
+}
+
 // ---- row <-> room object mapping ----
 
 function rowToRoom(row) {
@@ -135,6 +235,9 @@ function rowToRoom(row) {
     p1Streak: row.p1_streak,
     p2Streak: row.p2_streak,
     p3Streak: row.p3_streak,
+    p1IsCpu: !!row.p1_is_cpu,
+    p2IsCpu: !!row.p2_is_cpu,
+    p3IsCpu: !!row.p3_is_cpu,
     turnStartedAt: row.turn_started_at,
     matchStartedAt: row.match_started_at,
     startingPlayer: row.starting_player,
@@ -164,6 +267,9 @@ function publicState(room) {
     p1Streak: room.p1Streak,
     p2Streak: room.p2Streak,
     p3Streak: room.p3Streak,
+    p1IsCpu: room.p1IsCpu,
+    p2IsCpu: room.p2IsCpu,
+    p3IsCpu: room.p3IsCpu,
     turnStartedAt: room.turnStartedAt,
     matchStartedAt: room.matchStartedAt,
     startingPlayer: room.startingPlayer,
@@ -183,13 +289,25 @@ function publicState(room) {
 async function loadRoom(env, code) {
   const row = await env.LINE4_SECOND_DB.prepare('SELECT * FROM rooms WHERE code = ?1').bind(code).first();
   if (!row) return null;
-  const room = rowToRoom(row);
-  if (room.status === 'playing' && !room.gameOver && room.turnStartedAt
-      && Date.now() - room.turnStartedAt > TURN_TIMEOUT_MS) {
-    return resolveTimeout(env, room);
+  let room = rowToRoom(row);
+
+  if (room.status === 'playing' && !room.gameOver) {
+    if (isCpuSlot(room, room.currentPlayer)) {
+      // The CPU never actually waits out its turn — it's resolved the moment
+      // anyone next reads the room, so this fires before any timeout check
+      // could ever apply to it.
+      room = await resolveCpuTurn(env, room);
+    } else if (room.turnStartedAt && Date.now() - room.turnStartedAt > TURN_TIMEOUT_MS) {
+      room = await resolveTimeout(env, room);
+      // Skipping an AFK human can hand the turn straight to the CPU seat —
+      // resolve that immediately too instead of waiting for the next poll.
+      if (room.status === 'playing' && !room.gameOver && isCpuSlot(room, room.currentPlayer)) {
+        room = await resolveCpuTurn(env, room);
+      }
+    }
   }
   if (room.status === 'finished' && Date.now() - room.updatedAt > FINISHED_ROOM_GRACE_MS) {
-    return resolveFinishedExpiry(env, room);
+    room = await resolveFinishedExpiry(env, room);
   }
   return room;
 }
@@ -214,6 +332,64 @@ async function resolveTimeout(env, room) {
   return rowToRoom(row);
 }
 
+// Plays the CPU filler seat's move synchronously inside loadRoom() — the
+// server itself is the "client" driving this seat, so there's no separate
+// endpoint a browser calls for it. Mirrors handleMove()'s win/draw/streak
+// logic exactly, just with chooseCpuColumn() standing in for a submitted
+// column. Only one seat is ever CPU-controlled (see handleFillCpu), so the
+// move never hands the turn to a second CPU seat and this never recurses.
+async function resolveCpuTurn(env, room) {
+  const player = room.currentPlayer;
+  const col = chooseCpuColumn(room.grid, player);
+  if (col === -1) return room; // no legal move — isBoardFull would already have ended the match
+
+  const row = getNextOpenRow(room.grid, col);
+  room.grid[row][col] = player;
+  const winLine = checkWin(room.grid, row, col, player);
+  let gameOver = false;
+  let winner = null;
+  const nextPlayer = (player % 3) + 1;
+  let p1Streak = room.p1Streak || 0;
+  let p2Streak = room.p2Streak || 0;
+  let p3Streak = room.p3Streak || 0;
+  if (winLine) {
+    gameOver = true;
+    winner = String(player);
+    if (player === 1) p1Streak += 1; else if (player === 2) p2Streak += 1; else p3Streak += 1;
+  } else if (isBoardFull(room.grid)) {
+    gameOver = true;
+    winner = 'draw';
+    p1Streak = 0;
+    p2Streak = 0;
+    p3Streak = 0;
+  }
+
+  const now = Date.now();
+  await env.LINE4_SECOND_DB.prepare(
+    `UPDATE rooms SET grid = ?1, current_player = ?2, game_over = ?3, winner = ?4, win_line = ?5, rev = rev + 1, updated_at = ?6, status = ?7, p1_streak = ?8, p2_streak = ?9, p3_streak = ?10, turn_started_at = ?11
+     WHERE code = ?12 AND rev = ?13`
+  ).bind(
+    JSON.stringify(room.grid),
+    gameOver ? room.currentPlayer : nextPlayer,
+    gameOver ? 1 : 0,
+    winner,
+    winLine ? JSON.stringify(winLine) : null,
+    now,
+    gameOver ? 'finished' : 'playing',
+    p1Streak,
+    p2Streak,
+    p3Streak,
+    gameOver ? room.turnStartedAt : now,
+    room.code,
+    room.rev
+  ).run();
+
+  const updatedRow = await env.LINE4_SECOND_DB.prepare('SELECT * FROM rooms WHERE code = ?1').bind(room.code).first();
+  // As with resolveTimeout: if the UPDATE lost a race (a concurrent poll
+  // resolved the same CPU turn first), this just returns the real current row.
+  return rowToRoom(updatedRow);
+}
+
 // A finished match whose winner never requested a rematch (handleRematch)
 // within FINISHED_ROOM_GRACE_MS would otherwise keep the room code occupied
 // forever — handleJoin refuses to fill a room where all three slots are
@@ -226,9 +402,9 @@ async function resolveFinishedExpiry(env, room) {
   const now = Date.now();
   const grid = emptyGrid();
   await env.LINE4_SECOND_DB.prepare(
-    `UPDATE rooms SET p1_token = NULL, p1_name = NULL, p1_streak = 0,
-     p2_token = NULL, p2_name = NULL, p2_streak = 0,
-     p3_token = NULL, p3_name = NULL, p3_streak = 0,
+    `UPDATE rooms SET p1_token = NULL, p1_name = NULL, p1_streak = 0, p1_is_cpu = 0,
+     p2_token = NULL, p2_name = NULL, p2_streak = 0, p2_is_cpu = 0,
+     p3_token = NULL, p3_name = NULL, p3_streak = 0, p3_is_cpu = 0,
      grid = ?1, current_player = 1, game_over = 0, winner = NULL, win_line = NULL, status = 'waiting',
      starting_player = NULL, turn_started_at = NULL, match_started_at = NULL, emote = NULL, emote_by = NULL,
      rev = rev + 1, updated_at = ?2
@@ -320,6 +496,64 @@ async function handleJoin(request, env, code) {
 
   const updated = await loadRoom(env, code);
   return jsonResponse({ ok: true, token, player: fillingSlot, state: publicState(updated) });
+}
+
+// Lets the room's CREATOR (p1 specifically — see the comment on the token
+// check below) skip waiting for a third human once a second player has
+// joined: fills the one remaining empty seat with a CPU opponent instead.
+// Only offered/callable at exactly 2/3 filled — this is a "don't want to
+// wait" shortcut for the initial fill, not a general "replace anyone with a
+// bot" tool. The CPU's own turns are then played out lazily inside
+// loadRoom()/resolveCpuTurn() — no client ever holds its token, so nothing
+// separately "drives" it.
+async function handleFillCpu(request, env, code) {
+  let body;
+  try {
+    body = await request.json();
+  } catch (e) {
+    return errorResponse('invalid_json');
+  }
+  const { token } = body || {};
+  if (typeof token !== 'string') return errorResponse('invalid_body');
+
+  const room = await loadRoom(env, code);
+  if (!room) return errorResponse('room_not_found', 404);
+  // p1 is always the original creator's slot: handleJoin never assigns a
+  // fresh token into an already-occupied p1, and only handleRematch ever
+  // clears it (when p1 lost and didn't stay on) — in that edge case p1Token
+  // is NULL, so no caller's token can match it and this correctly becomes
+  // unavailable rather than letting some other occupant invite the CPU.
+  if (room.p1Token !== token) return errorResponse('not_creator', 403);
+  if (room.status !== 'waiting') return errorResponse('not_waiting', 409);
+
+  const filledCount = [room.p1Token, room.p2Token, room.p3Token].filter(Boolean).length;
+  if (filledCount !== 2) return errorResponse('wrong_fill_count', 409);
+
+  const emptySlot = !room.p1Token ? 1 : !room.p2Token ? 2 : 3;
+  const columns = { 1: ['p1_token', 'p1_name', 'p1_is_cpu'], 2: ['p2_token', 'p2_name', 'p2_is_cpu'], 3: ['p3_token', 'p3_name', 'p3_is_cpu'] };
+  const [tokenCol, nameCol, cpuCol] = columns[emptySlot];
+  // Doesn't need to be secret (no browser needs to present it), just unique
+  // enough that it can never collide with a real human's randomToken().
+  const cpuToken = `CPU-${randomToken()}`;
+  const startingPlayer = Math.floor(Math.random() * 3) + 1;
+  const now = Date.now();
+
+  const result = await env.LINE4_SECOND_DB.prepare(
+    `UPDATE rooms SET ${tokenCol} = ?1, ${nameCol} = ?2, ${cpuCol} = 1, status = 'playing', starting_player = ?3, current_player = ?3, turn_started_at = ?4, match_started_at = ?4, rev = rev + 1, updated_at = ?4
+     WHERE code = ?5 AND ${tokenCol} IS NULL`
+  ).bind(cpuToken, CPU_NAME, startingPlayer, now, code).run();
+
+  if (!result.meta || result.meta.changes === 0) {
+    // Most likely a human joined that same slot in the moment between our
+    // loadRoom() above and this write — just report the room as it is now.
+    const current = await loadRoom(env, code);
+    return errorResponse('conflict_retry', 409, current ? { state: publicState(current) } : undefined);
+  }
+
+  // If the coin flip landed on the CPU's own seat, loadRoom() below plays its
+  // opening move immediately, so the response already reflects it.
+  const updated = await loadRoom(env, code);
+  return jsonResponse({ ok: true, state: publicState(updated) });
 }
 
 async function handleState(env, code) {
@@ -444,12 +678,15 @@ async function handleRematch(request, env, code) {
        p1_token = CASE WHEN ?1 THEN NULL ELSE p1_token END,
        p1_name = CASE WHEN ?1 THEN NULL ELSE p1_name END,
        p1_streak = CASE WHEN ?1 THEN 0 ELSE p1_streak END,
+       p1_is_cpu = CASE WHEN ?1 THEN 0 ELSE p1_is_cpu END,
        p2_token = CASE WHEN ?2 THEN NULL ELSE p2_token END,
        p2_name = CASE WHEN ?2 THEN NULL ELSE p2_name END,
        p2_streak = CASE WHEN ?2 THEN 0 ELSE p2_streak END,
+       p2_is_cpu = CASE WHEN ?2 THEN 0 ELSE p2_is_cpu END,
        p3_token = CASE WHEN ?3 THEN NULL ELSE p3_token END,
        p3_name = CASE WHEN ?3 THEN NULL ELSE p3_name END,
        p3_streak = CASE WHEN ?3 THEN 0 ELSE p3_streak END,
+       p3_is_cpu = CASE WHEN ?3 THEN 0 ELSE p3_is_cpu END,
        grid = ?4, current_player = 1, game_over = 0, winner = NULL, win_line = NULL, status = 'waiting',
        starting_player = NULL, turn_started_at = NULL, match_started_at = NULL, rev = rev + 1, updated_at = ?5
      WHERE code = ?6 AND rev = ?7`
@@ -548,6 +785,13 @@ export async function routeLine4Second(request, env, path) {
     if (request.method !== 'POST') return errorResponse('method_not_allowed', 405);
     if (!(await checkRateLimit(env, 'line4-second-join', request, 20, 600))) return errorResponse('rate_limited', 429);
     return handleJoin(request, env, joinMatch[1]);
+  }
+
+  const fillCpuMatch = path.match(/^\/api\/line4-second\/room\/([A-Z0-9]{4,10})\/fill-cpu$/);
+  if (fillCpuMatch) {
+    if (request.method !== 'POST') return errorResponse('method_not_allowed', 405);
+    if (!(await checkRateLimit(env, 'line4-second-fill-cpu', request, 20, 600))) return errorResponse('rate_limited', 429);
+    return handleFillCpu(request, env, fillCpuMatch[1]);
   }
 
   const stateMatch = path.match(/^\/api\/line4-second\/room\/([A-Z0-9]{4,10})\/state$/);

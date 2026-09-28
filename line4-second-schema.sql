@@ -15,6 +15,9 @@ CREATE TABLE IF NOT EXISTS rooms (
   p1_streak INTEGER NOT NULL DEFAULT 0,     -- consecutive wins by this slot's current occupant
   p2_streak INTEGER NOT NULL DEFAULT 0,
   p3_streak INTEGER NOT NULL DEFAULT 0,
+  p1_is_cpu INTEGER NOT NULL DEFAULT 0,      -- 1 if this seat is the "skip waiting" CPU filler
+  p2_is_cpu INTEGER NOT NULL DEFAULT 0,      -- (see handleFillCpu / resolveCpuTurn) rather than a
+  p3_is_cpu INTEGER NOT NULL DEFAULT 0,      -- real joined human — token is still non-NULL for it
   turn_started_at INTEGER,                  -- epoch ms; a turn open longer than TURN_TIMEOUT_MS is skipped (checked lazily in loadRoom)
   match_started_at INTEGER,                 -- epoch ms when the current match began; NULL while waiting — shown as "elapsed time" to a would-be joiner who hits room_full
   starting_player INTEGER,                  -- 1 | 2 | 3 | NULL
