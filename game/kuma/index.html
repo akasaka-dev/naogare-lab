@@ -526,7 +526,7 @@
 <div class="modal-overlay" id="audioAdjustModal" hidden>
   <div class="modal-card">
     <h3>Audio Adjust</h3>
-    <p>Bluetoothイヤホンなど、音が遅れて聞こえる環境向けの調整です。クリック音に合わせて「Tap to Calibrate」を数回タップするだけで自動調整できます。</p>
+    <p>Bluetoothイヤホンなど、音が遅れて聞こえる場合は+方向に調整してください。クリック音に合わせて5回タップで自動調整できます。</p>
     <div class="audio-adjust-flash" id="audioAdjustFlash"><div class="audio-adjust-flash-inner" id="audioAdjustFlashInner"></div></div>
     <p class="audio-adjust-flash-caption">枠が赤くなる瞬間＝タップの目印／中の丸＝オフセット後</p>
     <div class="audio-adjust-row">
@@ -535,7 +535,7 @@
     <div class="audio-adjust-row">
       <button id="audioAdjustTapCalibrate" type="button">Tap to Calibrate</button>
     </div>
-    <p id="audioAdjustTapStatus">クリックに合わせてタップしてください</p>
+    <p id="audioAdjustTapStatus">強く鳴る拍（1小節に1回）に合わせてタップしてください</p>
     <p class="audio-adjust-finetune-label">手動での微調整</p>
     <div class="audio-adjust-row">
       <button id="audioAdjustMinus" type="button">-10ms</button>
@@ -2673,11 +2673,22 @@
   // human tap jitter far better than one careful-but-still-imprecise manual
   // nudge ever could.
   var TAP_CALIBRATE_SAMPLES = 5;
+  // Measuring against a single quarter-note beat (0.5s at 120 BPM) wrapped
+  // any real latency past ±250ms into a wrong value a full beat off in
+  // either direction — exactly what produced a wildly wrong offset on a
+  // real Bluetooth device (reported: calibrating against LEVEL2 landed on
+  // a value close to the ±500ms clamp, a full beat away from the value
+  // that actually worked). tempo120.mp3 is a snare-on-beat-1,
+  // hihat-on-2/3/4 4/4 pattern, so the snare — the one hit a tap can
+  // actually lock onto reliably by ear — only repeats every *measure*
+  // (4 beats = 2.0s here), not every quarter note. Measuring against that
+  // wider, measure-length period instead gives a ±1.0s safe range, well
+  // clear of AUDIO_OFFSET's own ±0.5s clamp.
+  var TAP_CALIBRATE_PERIOD = 4 * (60/TEST_CLICK_BPM);
   var tapSamples = [];
   function computeTapDelta(){
-    var beatDur = 60/TEST_CLICK_BPM;
-    var raw = (audioCtx.currentTime - testClickStartCtxTime) % beatDur;
-    if (raw > beatDur/2) raw -= beatDur;
+    var raw = (audioCtx.currentTime - testClickStartCtxTime) % TAP_CALIBRATE_PERIOD;
+    if (raw > TAP_CALIBRATE_PERIOD/2) raw -= TAP_CALIBRATE_PERIOD;
     return raw;
   }
   function updateAudioAdjustLabel(){
@@ -2695,7 +2706,7 @@
     testClickLastBeatAdj = -1;
     audioAdjustPlay.textContent = 'Play Click';
     tapSamples = [];
-    audioAdjustTapStatus.textContent = 'クリックに合わせてタップしてください';
+    audioAdjustTapStatus.textContent = '強く鳴る拍（1小節に1回）に合わせてタップしてください';
   }
   function startTestClick(){
     var buf = bgmBufferCache.tempo120;
@@ -2757,13 +2768,13 @@
   // exactly on it anyway. One button, straight to no compensation at all.
   audioAdjustReset.addEventListener('click', function(){
     setAudioOffset(0);
-    audioAdjustTapStatus.textContent = 'クリックに合わせてタップしてください';
+    audioAdjustTapStatus.textContent = '強く鳴る拍（1小節に1回）に合わせてタップしてください';
   });
   audioAdjustTapCalibrate.addEventListener('click', function(){
     if (!testClickSource){
       startTestClick();
       tapSamples = [];
-      audioAdjustTapStatus.textContent = 'クリックに合わせてもう一度タップしてください';
+      audioAdjustTapStatus.textContent = '強く鳴る拍（1小節に1回）に合わせてもう一度タップしてください';
       return;
     }
     tapSamples.push(computeTapDelta());
