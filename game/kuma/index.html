@@ -535,7 +535,7 @@
     <div class="audio-adjust-row">
       <button id="audioAdjustTapCalibrate" type="button">Tap to Calibrate</button>
     </div>
-    <p id="audioAdjustTapStatus">強く鳴る拍（1小節に1回）に合わせてタップしてください</p>
+    <p id="audioAdjustTapStatus">枠が赤く光ったらタップしてください</p>
     <p class="audio-adjust-finetune-label">手動での微調整</p>
     <div class="audio-adjust-row">
       <button id="audioAdjustMinus" type="button">-10ms</button>
@@ -2706,7 +2706,7 @@
     testClickLastBeatAdj = -1;
     audioAdjustPlay.textContent = 'Play Click';
     tapSamples = [];
-    audioAdjustTapStatus.textContent = '強く鳴る拍（1小節に1回）に合わせてタップしてください';
+    audioAdjustTapStatus.textContent = '枠が赤く光ったらタップしてください';
   }
   function startTestClick(){
     var buf = bgmBufferCache.tempo120;
@@ -2725,12 +2725,19 @@
   function audioAdjustTick(){
     if (audioAdjustModal.hidden) return;
     if (testClickStartCtxTime !== null){
-      var beatDur = 60/TEST_CLICK_BPM;
+      // Flashing on all 4 beats and describing "tap the strong one" in
+      // words was exactly backwards — it asked the player to filter the
+      // cue themselves instead of the cue just not lighting up for the 3
+      // beats that don't matter. Using TAP_CALIBRATE_PERIOD (one full
+      // measure) here instead of a single quarter-note beat means both
+      // flashes now land on beat 1 only, once every 2s — nothing to tap on
+      // in between, and no explanation needed.
+      //
       // Two independent pulses on purpose: a lone flash shifting by a
       // constant offset is invisible to the eye (a shifted repeating pulse
       // looks identical to an unshifted one — there's nothing to compare it
       // against). The outer ring always pulses red on the raw, un-offset
-      // clock — this is also exactly the nominal (zero-latency) beat
+      // clock — this is also exactly the nominal (zero-latency) beat 1
       // instant, so it doubles as the "tap here" cue for Tap to Calibrate,
       // in red rather than a subtle border tint so the peak to tap on
       // actually reads at a glance. The inner dot pulses on the
@@ -2739,7 +2746,7 @@
       // directly visible.
       var tRaw = audioCtx.currentTime - testClickStartCtxTime;
       if (tRaw >= 0){
-        var beatIndexRaw = Math.floor(tRaw/beatDur);
+        var beatIndexRaw = Math.floor(tRaw/TAP_CALIBRATE_PERIOD);
         if (beatIndexRaw !== testClickLastBeatRaw){
           testClickLastBeatRaw = beatIndexRaw;
           audioAdjustFlash.classList.add('flash-raw');
@@ -2748,7 +2755,7 @@
       }
       var tAdj = audioCtx.currentTime - testClickStartCtxTime - AUDIO_OFFSET;
       if (tAdj >= 0){
-        var beatIndexAdj = Math.floor(tAdj/beatDur);
+        var beatIndexAdj = Math.floor(tAdj/TAP_CALIBRATE_PERIOD);
         if (beatIndexAdj !== testClickLastBeatAdj){
           testClickLastBeatAdj = beatIndexAdj;
           audioAdjustFlashInner.classList.add('flash');
@@ -2768,13 +2775,13 @@
   // exactly on it anyway. One button, straight to no compensation at all.
   audioAdjustReset.addEventListener('click', function(){
     setAudioOffset(0);
-    audioAdjustTapStatus.textContent = '強く鳴る拍（1小節に1回）に合わせてタップしてください';
+    audioAdjustTapStatus.textContent = '枠が赤く光ったらタップしてください';
   });
   audioAdjustTapCalibrate.addEventListener('click', function(){
     if (!testClickSource){
       startTestClick();
       tapSamples = [];
-      audioAdjustTapStatus.textContent = '強く鳴る拍（1小節に1回）に合わせてもう一度タップしてください';
+      audioAdjustTapStatus.textContent = '枠が赤く光ったらもう一度タップしてください';
       return;
     }
     tapSamples.push(computeTapDelta());
