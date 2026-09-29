@@ -312,15 +312,30 @@
   }
   .audio-adjust-flash{
     width:80px; height:80px;
-    margin:0 auto 16px;
+    margin:0 auto 6px;
     border-radius:50%;
     background:var(--bg-panel-2);
-    border:2px solid var(--line);
+    border:3px solid var(--line);
+    display:flex; align-items:center; justify-content:center;
+    transition:border-color 0.05s, transform 0.05s;
+  }
+  .audio-adjust-flash.flash-raw{
+    border-color:var(--ink-dim);
+    transform:scale(1.08);
+  }
+  .audio-adjust-flash-inner{
+    width:46px; height:46px;
+    border-radius:50%;
+    background:var(--bg-panel-2);
     transition:background-color 0.05s, transform 0.05s;
   }
-  .audio-adjust-flash.flash{
+  .audio-adjust-flash-inner.flash{
     background:var(--accent);
     transform:scale(1.15);
+  }
+  .audio-adjust-flash-caption{
+    font-size:11px; color:var(--ink-dim);
+    margin:0 0 16px;
   }
   .audio-adjust-row{
     display:flex; align-items:center; justify-content:center;
@@ -511,7 +526,8 @@
   <div class="modal-card">
     <h3>Audio Adjust</h3>
     <p>Bluetoothイヤホンなど、音が遅れて聞こえる環境向けの調整です。クリック音に合わせて「Tap to Calibrate」を数回タップするだけで自動調整できます。</p>
-    <div class="audio-adjust-flash" id="audioAdjustFlash"></div>
+    <div class="audio-adjust-flash" id="audioAdjustFlash"><div class="audio-adjust-flash-inner" id="audioAdjustFlashInner"></div></div>
+    <p class="audio-adjust-flash-caption">外側の枠＝無補正／中の丸＝オフセット後</p>
     <div class="audio-adjust-row">
       <button id="audioAdjustPlay" type="button">Play Click</button>
     </div>
@@ -2636,6 +2652,7 @@
   var btnAudioAdjust = document.getElementById('btnAudioAdjust');
   var audioAdjustModal = document.getElementById('audioAdjustModal');
   var audioAdjustFlash = document.getElementById('audioAdjustFlash');
+  var audioAdjustFlashInner = document.getElementById('audioAdjustFlashInner');
   var audioAdjustPlay = document.getElementById('audioAdjustPlay');
   var audioAdjustMinus = document.getElementById('audioAdjustMinus');
   var audioAdjustPlus = document.getElementById('audioAdjustPlus');
@@ -2645,7 +2662,7 @@
   var audioAdjustTapCalibrate = document.getElementById('audioAdjustTapCalibrate');
   var audioAdjustTapStatus = document.getElementById('audioAdjustTapStatus');
   var TEST_CLICK_BPM = 120;
-  var testClickSource = null, testClickStartCtxTime = null, testClickLastBeat = -1;
+  var testClickSource = null, testClickStartCtxTime = null, testClickLastBeatRaw = -1, testClickLastBeatAdj = -1;
   // ms-level nudging (the original -10ms/+10ms buttons) asks a beginner to
   // reason about a number with no physical meaning to them. Tapping along
   // with the click instead measures their own reaction directly: each tap's
@@ -2673,7 +2690,8 @@
   function stopTestClick(){
     if (testClickSource){ try{ testClickSource.stop(); }catch(e){} testClickSource = null; }
     testClickStartCtxTime = null;
-    testClickLastBeat = -1;
+    testClickLastBeatRaw = -1;
+    testClickLastBeatAdj = -1;
     audioAdjustPlay.textContent = 'Play Click';
     tapSamples = [];
     audioAdjustTapStatus.textContent = 'クリックに合わせてタップしてください';
@@ -2695,14 +2713,30 @@
   function audioAdjustTick(){
     if (audioAdjustModal.hidden) return;
     if (testClickStartCtxTime !== null){
-      var t = audioCtx.currentTime - testClickStartCtxTime - AUDIO_OFFSET;
-      if (t >= 0){
-        var beatDur = 60/TEST_CLICK_BPM;
-        var beatIndex = Math.floor(t/beatDur);
-        if (beatIndex !== testClickLastBeat){
-          testClickLastBeat = beatIndex;
-          audioAdjustFlash.classList.add('flash');
-          setTimeout(function(){ audioAdjustFlash.classList.remove('flash'); }, 90);
+      var beatDur = 60/TEST_CLICK_BPM;
+      // Two independent pulses on purpose: a lone flash shifting by a
+      // constant offset is invisible to the eye (a shifted repeating pulse
+      // looks identical to an unshifted one — there's nothing to compare it
+      // against). The outer ring always pulses on the raw, un-offset clock
+      // as a fixed reference; the inner dot pulses on the AUDIO_OFFSET-
+      // compensated clock. With offset 0 they land together; as the offset
+      // grows the gap between ring and dot becomes directly visible.
+      var tRaw = audioCtx.currentTime - testClickStartCtxTime;
+      if (tRaw >= 0){
+        var beatIndexRaw = Math.floor(tRaw/beatDur);
+        if (beatIndexRaw !== testClickLastBeatRaw){
+          testClickLastBeatRaw = beatIndexRaw;
+          audioAdjustFlash.classList.add('flash-raw');
+          setTimeout(function(){ audioAdjustFlash.classList.remove('flash-raw'); }, 90);
+        }
+      }
+      var tAdj = audioCtx.currentTime - testClickStartCtxTime - AUDIO_OFFSET;
+      if (tAdj >= 0){
+        var beatIndexAdj = Math.floor(tAdj/beatDur);
+        if (beatIndexAdj !== testClickLastBeatAdj){
+          testClickLastBeatAdj = beatIndexAdj;
+          audioAdjustFlashInner.classList.add('flash');
+          setTimeout(function(){ audioAdjustFlashInner.classList.remove('flash'); }, 90);
         }
       }
     }
