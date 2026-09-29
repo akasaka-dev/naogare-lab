@@ -821,7 +821,7 @@
     // startLeadIn(true) -> restartBgm()) — the plain rate update below
     // would just be overwritten a moment later in that case, harmlessly.
     if (bgmAutoMode){
-      var want = autoTrackForBpm(BPM, currentTrackKey);
+      var want = autoTrackForBpm(BPM);
       if (want !== currentTrackKey){ loadBgmTrack(want); return; }
     }
     if (bgmSource) bgmSource.playbackRate.value = BPM / BGM_NATIVE_BPM;
@@ -960,25 +960,9 @@
     { minBpm: 120, key: 'oikakko' },
     { minBpm: 100, key: 'asobiba' }
   ];
-  // Every LEVEL button but LEVEL1 starts BPM *exactly* on one of these
-  // thresholds (100/120/150), so a single bear-hit or poison-kinoko penalty
-  // (a flat -10 BPM, see setBPM's own callers) used to immediately cross
-  // back below the tier the run just started in, restarting the BGM from
-  // its lead-in — every single time, right from the first hit — before the
-  // player had done anything BPM-wise. Reported as "LV2 never matches, no
-  // matter how you calibrate Audio Adjust": no offset can fix a track that
-  // keeps jumping back to its own intro out from under it. Crossing *up*
-  // stays a sharp threshold (right on the native tempo still reads as the
-  // reward it's meant to be), but once a tier is already active, dropping
-  // back out of it now needs bpm to clear this much further below its own
-  // floor — enough to absorb exactly one penalty without also masking a
-  // real, sustained drop back to the previous tier.
-  var BGM_TIER_DOWNSHIFT_MARGIN = 10;
-  function autoTrackForBpm(bpm, currentKey){
+  function autoTrackForBpm(bpm){
     for (var i=0;i<BGM_AUTO_TIERS.length;i++){
-      var tier = BGM_AUTO_TIERS[i];
-      var threshold = tier.minBpm - (currentKey === tier.key ? BGM_TIER_DOWNSHIFT_MARGIN : 0);
-      if (bpm >= threshold) return tier.key;
+      if (bpm >= BGM_AUTO_TIERS[i].minBpm) return BGM_AUTO_TIERS[i].key;
     }
     return 'kuma';
   }
