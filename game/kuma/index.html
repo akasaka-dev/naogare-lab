@@ -2742,8 +2742,11 @@
       var beatIndex = Math.floor(t/beatDur);
       if (beatIndex !== audioAdjustLastBeat){
         audioAdjustLastBeat = beatIndex;
-        audioAdjustParity = !audioAdjustParity;
+        // Selects on the *current* parity, then flips for next time — real
+        // gameplay's own currentLane/beatParity starts on 'L' (see
+        // resetGame()), so this needs to flash L first too, matching.
         var el = audioAdjustParity ? audioAdjustBtnR : audioAdjustBtnL;
+        audioAdjustParity = !audioAdjustParity;
         el.classList.add('beat-active');
         setTimeout(function(){ el.classList.remove('beat-active'); }, 90);
       }
