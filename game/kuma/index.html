@@ -310,33 +310,38 @@
     user-select:none;
     -webkit-user-select:none;
   }
-  .audio-adjust-flash{
-    width:80px; height:80px;
-    margin:0 auto 6px;
-    border-radius:50%;
-    background:var(--bg-panel-2);
-    border:3px solid var(--line);
-    display:flex; align-items:center; justify-content:center;
-    transition:border-color 0.05s, transform 0.05s;
+  .audio-adjust-meter{
+    width:260px; max-width:100%;
+    margin:4px auto 16px;
   }
-  .audio-adjust-flash.flash-raw{
-    border-color:var(--danger);
+  .audio-adjust-meter-track{
+    position:relative;
+    width:100%; height:8px;
+    background:var(--bg-panel-2);
+    border:1px solid var(--line);
+    border-radius:4px;
+  }
+  .audio-adjust-meter-center{
+    position:absolute; left:50%; top:-7px;
+    width:3px; height:22px;
     background:var(--danger);
-    transform:scale(1.08);
+    transform:translateX(-50%);
+    border-radius:2px;
   }
-  .audio-adjust-flash-inner{
-    width:46px; height:46px;
+  .audio-adjust-meter-knob{
+    position:absolute; left:50%; top:50%;
+    width:22px; height:22px;
     border-radius:50%;
-    background:var(--bg-panel-2);
-    transition:background-color 0.05s, transform 0.05s;
-  }
-  .audio-adjust-flash-inner.flash{
     background:var(--accent);
-    transform:scale(1.15);
+    border:2px solid #1b1503;
+    box-shadow:0 2px 6px rgba(0,0,0,0.5);
+    transform:translate(-50%,-50%);
+    transition:left 0.08s ease;
   }
-  .audio-adjust-flash-caption{
+  .audio-adjust-meter-scale{
+    display:flex; justify-content:space-between;
     font-size:11px; color:var(--ink-dim);
-    margin:0 0 16px;
+    margin-top:5px;
   }
   .audio-adjust-row{
     display:flex; align-items:center; justify-content:center;
@@ -345,17 +350,6 @@
   #audioAdjustValue{
     font-family:var(--font-mono); font-weight:700;
     min-width:5.5em; display:inline-block;
-  }
-  #audioAdjustTapCalibrate{
-    background:var(--accent); color:#1b1503; border-color:var(--accent-dim);
-    font-size:16px; padding:12px 22px;
-  }
-  #audioAdjustTapStatus{
-    font-size:12.5px; color:var(--ink-dim); margin:0 0 14px;
-  }
-  .audio-adjust-finetune-label{
-    font-size:11px; color:var(--ink-dim); margin:0 0 6px;
-    letter-spacing:0.04em;
   }
   .modal-close{ margin-top:6px; }
 
@@ -526,21 +520,27 @@
 <div class="modal-overlay" id="audioAdjustModal" hidden>
   <div class="modal-card">
     <h3>Audio Adjust</h3>
-    <p>Bluetoothイヤホンなど、音が遅れて聞こえる場合は+方向に調整してください。クリック音に合わせて5回タップで自動調整できます。</p>
-    <div class="audio-adjust-flash" id="audioAdjustFlash"><div class="audio-adjust-flash-inner" id="audioAdjustFlashInner"></div></div>
-    <p class="audio-adjust-flash-caption">枠が赤くなる瞬間＝タップの目印／中の丸＝オフセット後</p>
+    <p>Bluetoothイヤホンなど、音が遅れて聞こえる場合は+方向に調整してください。クリック音を再生しながら、ズレなくなるところまでメーターを動かしてください。</p>
     <div class="audio-adjust-row">
       <button id="audioAdjustPlay" type="button">Play Click</button>
     </div>
-    <div class="audio-adjust-row">
-      <button id="audioAdjustTapCalibrate" type="button">Tap to Calibrate</button>
+    <div class="audio-adjust-meter">
+      <div class="audio-adjust-meter-track">
+        <div class="audio-adjust-meter-center"></div>
+        <div class="audio-adjust-meter-knob" id="audioAdjustKnob"></div>
+      </div>
+      <div class="audio-adjust-meter-scale">
+        <span>-300ms</span><span>0</span><span>+300ms</span>
+      </div>
     </div>
-    <p id="audioAdjustTapStatus">枠が赤く光ったらタップしてください</p>
-    <p class="audio-adjust-finetune-label">手動での微調整</p>
     <div class="audio-adjust-row">
-      <button id="audioAdjustMinus" type="button">-10ms</button>
+      <button id="audioAdjustMinus10" type="button">-10ms</button>
+      <button id="audioAdjustMinus1" type="button">-1ms</button>
       <span id="audioAdjustValue">0ms</span>
-      <button id="audioAdjustPlus" type="button">+10ms</button>
+      <button id="audioAdjustPlus1" type="button">+1ms</button>
+      <button id="audioAdjustPlus10" type="button">+10ms</button>
+    </div>
+    <div class="audio-adjust-row">
       <button id="audioAdjustReset" type="button">Reset</button>
     </div>
     <button id="audioAdjustClose" class="modal-close" type="button">Close</button>
@@ -2645,68 +2645,45 @@
   // Audio Adjust dialog — lets a player compensate for their own device's
   // audio output latency (worst on Bluetooth headphones/speakers, which can
   // run well over 100ms behind the logic clock) by ear: play a steady click
-  // track and nudge AUDIO_OFFSET until the flash lines up with what they
-  // actually hear, not with when the browser thinks it just started the
-  // sound. Reuses the already-preloaded tempo120 debug click track (0.0s
-  // onset, exactly 120 BPM) rather than the real BGM tracks, since it needs
-  // an unambiguous, always-available click regardless of level/BGM choice.
+  // track and nudge AUDIO_OFFSET with the meter until presses land on it.
+  // Reuses the already-preloaded tempo120 debug click track (0.0s onset,
+  // exactly 120 BPM) rather than the real BGM tracks, since it needs an
+  // unambiguous, always-available click regardless of level/BGM choice.
+  //
+  // Previously this dialog also drove a flash animation (and, before that,
+  // a "Tap to Calibrate" button measuring reaction time against the click)
+  // to help gauge the offset. Both were dropped: comparing two things that
+  // each only exist for an instant asked the player to remember a timing
+  // and compare it against another timing a moment later, which is exactly
+  // the kind of judgment human short-term memory is bad at. A knob sitting
+  // at a fixed position on an always-visible ±300ms meter has none of that
+  // — it's just there, the whole time, to nudge while listening.
   var btnAudioAdjust = document.getElementById('btnAudioAdjust');
   var audioAdjustModal = document.getElementById('audioAdjustModal');
-  var audioAdjustFlash = document.getElementById('audioAdjustFlash');
-  var audioAdjustFlashInner = document.getElementById('audioAdjustFlashInner');
   var audioAdjustPlay = document.getElementById('audioAdjustPlay');
-  var audioAdjustMinus = document.getElementById('audioAdjustMinus');
-  var audioAdjustPlus = document.getElementById('audioAdjustPlus');
+  var audioAdjustKnob = document.getElementById('audioAdjustKnob');
+  var audioAdjustMinus10 = document.getElementById('audioAdjustMinus10');
+  var audioAdjustMinus1 = document.getElementById('audioAdjustMinus1');
+  var audioAdjustPlus1 = document.getElementById('audioAdjustPlus1');
+  var audioAdjustPlus10 = document.getElementById('audioAdjustPlus10');
   var audioAdjustReset = document.getElementById('audioAdjustReset');
   var audioAdjustValue = document.getElementById('audioAdjustValue');
   var audioAdjustClose = document.getElementById('audioAdjustClose');
-  var audioAdjustTapCalibrate = document.getElementById('audioAdjustTapCalibrate');
-  var audioAdjustTapStatus = document.getElementById('audioAdjustTapStatus');
-  var TEST_CLICK_BPM = 120;
-  var testClickSource = null, testClickStartCtxTime = null, testClickLastBeatRaw = -1, testClickLastBeatAdj = -1;
-  // ms-level nudging (the original -10ms/+10ms buttons) asks a beginner to
-  // reason about a number with no physical meaning to them. Tapping along
-  // with the click instead measures their own reaction directly: each tap's
-  // offset from the *nominal* (zero-latency) beat time it landed nearest to
-  // is a real sample of "how late the sound reaches this player, on this
-  // device, right now" — averaging a handful of those cancels out ordinary
-  // human tap jitter far better than one careful-but-still-imprecise manual
-  // nudge ever could.
-  var TAP_CALIBRATE_SAMPLES = 5;
-  // Measuring against a single quarter-note beat (0.5s at 120 BPM) wrapped
-  // any real latency past ±250ms into a wrong value a full beat off in
-  // either direction — exactly what produced a wildly wrong offset on a
-  // real Bluetooth device (reported: calibrating against LEVEL2 landed on
-  // a value close to the ±500ms clamp, a full beat away from the value
-  // that actually worked). tempo120.mp3 is a snare-on-beat-1,
-  // hihat-on-2/3/4 4/4 pattern, so the snare — the one hit a tap can
-  // actually lock onto reliably by ear — only repeats every *measure*
-  // (4 beats = 2.0s here), not every quarter note. Measuring against that
-  // wider, measure-length period instead gives a ±1.0s safe range, well
-  // clear of AUDIO_OFFSET's own ±0.5s clamp.
-  var TAP_CALIBRATE_PERIOD = 4 * (60/TEST_CLICK_BPM);
-  var tapSamples = [];
-  function computeTapDelta(){
-    var raw = (audioCtx.currentTime - testClickStartCtxTime) % TAP_CALIBRATE_PERIOD;
-    if (raw > TAP_CALIBRATE_PERIOD/2) raw -= TAP_CALIBRATE_PERIOD;
-    return raw;
-  }
+  var AUDIO_ADJUST_RANGE = 0.3; // matches the meter's printed -300ms..+300ms scale
+  var testClickSource = null;
   function updateAudioAdjustLabel(){
     audioAdjustValue.textContent = (AUDIO_OFFSET>=0?'+':'') + Math.round(AUDIO_OFFSET*1000) + 'ms';
+    var pct = 50 + (Math.max(-AUDIO_ADJUST_RANGE, Math.min(AUDIO_ADJUST_RANGE, AUDIO_OFFSET)) / AUDIO_ADJUST_RANGE) * 50;
+    audioAdjustKnob.style.left = pct + '%';
   }
   function setAudioOffset(v){
-    AUDIO_OFFSET = Math.max(-0.5, Math.min(0.5, v));
+    AUDIO_OFFSET = Math.max(-AUDIO_ADJUST_RANGE, Math.min(AUDIO_ADJUST_RANGE, v));
     try{ localStorage.setItem(AUDIO_OFFSET_KEY, String(AUDIO_OFFSET)); }catch(e){}
     updateAudioAdjustLabel();
   }
   function stopTestClick(){
     if (testClickSource){ try{ testClickSource.stop(); }catch(e){} testClickSource = null; }
-    testClickStartCtxTime = null;
-    testClickLastBeatRaw = -1;
-    testClickLastBeatAdj = -1;
     audioAdjustPlay.textContent = 'Play Click';
-    tapSamples = [];
-    audioAdjustTapStatus.textContent = '枠が赤く光ったらタップしてください';
   }
   function startTestClick(){
     var buf = bgmBufferCache.tempo120;
@@ -2717,83 +2694,17 @@
     testClickSource.buffer = buf;
     testClickSource.loop = true;
     testClickSource.connect(bgmGain);
-    var when = audioCtx.currentTime + 0.05;
-    testClickSource.start(when, 0);
-    testClickStartCtxTime = when;
+    testClickSource.start(audioCtx.currentTime + 0.05, 0);
     audioAdjustPlay.textContent = 'Stop Click';
-  }
-  function audioAdjustTick(){
-    if (audioAdjustModal.hidden) return;
-    if (testClickStartCtxTime !== null){
-      // Flashing on all 4 beats and describing "tap the strong one" in
-      // words was exactly backwards — it asked the player to filter the
-      // cue themselves instead of the cue just not lighting up for the 3
-      // beats that don't matter. Using TAP_CALIBRATE_PERIOD (one full
-      // measure) here instead of a single quarter-note beat means both
-      // flashes now land on beat 1 only, once every 2s — nothing to tap on
-      // in between, and no explanation needed.
-      //
-      // Two independent pulses on purpose: a lone flash shifting by a
-      // constant offset is invisible to the eye (a shifted repeating pulse
-      // looks identical to an unshifted one — there's nothing to compare it
-      // against). The outer ring always pulses red on the raw, un-offset
-      // clock — this is also exactly the nominal (zero-latency) beat 1
-      // instant, so it doubles as the "tap here" cue for Tap to Calibrate,
-      // in red rather than a subtle border tint so the peak to tap on
-      // actually reads at a glance. The inner dot pulses on the
-      // AUDIO_OFFSET-compensated clock; with offset 0 the two land
-      // together, and as the offset grows the gap between them becomes
-      // directly visible.
-      var tRaw = audioCtx.currentTime - testClickStartCtxTime;
-      if (tRaw >= 0){
-        var beatIndexRaw = Math.floor(tRaw/TAP_CALIBRATE_PERIOD);
-        if (beatIndexRaw !== testClickLastBeatRaw){
-          testClickLastBeatRaw = beatIndexRaw;
-          audioAdjustFlash.classList.add('flash-raw');
-          setTimeout(function(){ audioAdjustFlash.classList.remove('flash-raw'); }, 90);
-        }
-      }
-      var tAdj = audioCtx.currentTime - testClickStartCtxTime - AUDIO_OFFSET;
-      if (tAdj >= 0){
-        var beatIndexAdj = Math.floor(tAdj/TAP_CALIBRATE_PERIOD);
-        if (beatIndexAdj !== testClickLastBeatAdj){
-          testClickLastBeatAdj = beatIndexAdj;
-          audioAdjustFlashInner.classList.add('flash');
-          setTimeout(function(){ audioAdjustFlashInner.classList.remove('flash'); }, 90);
-        }
-      }
-    }
-    requestAnimationFrame(audioAdjustTick);
   }
   audioAdjustPlay.addEventListener('click', function(){
     if (testClickSource) stopTestClick(); else startTestClick();
   });
-  audioAdjustMinus.addEventListener('click', function(){ setAudioOffset(AUDIO_OFFSET - 0.01); });
-  audioAdjustPlus.addEventListener('click', function(){ setAudioOffset(AUDIO_OFFSET + 0.01); });
-  // A tap-calibrated offset is some arbitrary measured value (e.g. +37ms) —
-  // nudging back to exactly 0 with ±10ms steps is tedious and rarely lands
-  // exactly on it anyway. One button, straight to no compensation at all.
-  audioAdjustReset.addEventListener('click', function(){
-    setAudioOffset(0);
-    audioAdjustTapStatus.textContent = '枠が赤く光ったらタップしてください';
-  });
-  audioAdjustTapCalibrate.addEventListener('click', function(){
-    if (!testClickSource){
-      startTestClick();
-      tapSamples = [];
-      audioAdjustTapStatus.textContent = '枠が赤く光ったらもう一度タップしてください';
-      return;
-    }
-    tapSamples.push(computeTapDelta());
-    if (tapSamples.length < TAP_CALIBRATE_SAMPLES){
-      audioAdjustTapStatus.textContent = 'タップ ' + tapSamples.length + '/' + TAP_CALIBRATE_SAMPLES;
-    } else {
-      var avg = tapSamples.reduce(function(a,b){ return a+b; }, 0) / tapSamples.length;
-      setAudioOffset(avg);
-      audioAdjustTapStatus.textContent = '調整完了: ' + (avg>=0?'+':'') + Math.round(avg*1000) + 'ms';
-      tapSamples = [];
-    }
-  });
+  audioAdjustMinus10.addEventListener('click', function(){ setAudioOffset(AUDIO_OFFSET - 0.01); });
+  audioAdjustMinus1.addEventListener('click', function(){ setAudioOffset(AUDIO_OFFSET - 0.001); });
+  audioAdjustPlus1.addEventListener('click', function(){ setAudioOffset(AUDIO_OFFSET + 0.001); });
+  audioAdjustPlus10.addEventListener('click', function(){ setAudioOffset(AUDIO_OFFSET + 0.01); });
+  audioAdjustReset.addEventListener('click', function(){ setAudioOffset(0); });
   // stopPropagation: btnAudioAdjust now lives inside #cardTitle, itself
   // inside #stageWrap — without this, opening the dialog from the title
   // screen would also bubble up into stageActivate() and immediately
@@ -2805,7 +2716,6 @@
     resumeAudioCtx();
     updateAudioAdjustLabel();
     audioAdjustModal.hidden = false;
-    requestAnimationFrame(audioAdjustTick);
   });
   audioAdjustClose.addEventListener('click', function(){
     stopTestClick();
