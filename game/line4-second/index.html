@@ -1,0 +1,3747 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<!--
+  黄昏のフォー・イン・ア・ロウ 地平の行方
+  Created by naogare — https://www.youtube.com/@NMLabo
+-->
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="author" content="naogare">
+<title>黄昏のフォー・イン・ア・ロウ 地平の行方 - 4個並べ対戦ゲーム</title>
+<style>
+  :root {
+    --bg: #1e293b;
+    --board: #2563eb;
+    --slot: #0f172a;
+    --p1: #ef4444;
+    --p2: #eab308;
+    --p3: #22c55e;
+    --text: #f1f5f9;
+    --accent: #38bdf8;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #0f172a, #1e293b);
+    color: var(--text);
+    font-family: "Segoe UI", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
+    padding: 16px;
+    position: relative;
+    overflow-x: hidden;
+  }
+
+  /* ---- Audio toggles (always visible, above every screen) ---- */
+  #audioControls {
+    position: fixed;
+    top: max(10px, env(safe-area-inset-top));
+    left: max(10px, env(safe-area-inset-left));
+    z-index: 20;
+    display: flex;
+    gap: 8px;
+  }
+  .audio-btn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    background: rgba(15, 23, 42, 0.72);
+    border: 1.5px solid rgba(148, 163, 184, 0.45);
+    color: var(--text);
+    padding: 7px 10px;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    backdrop-filter: blur(4px);
+  }
+  .audio-btn .audio-icon { font-size: 0.95rem; line-height: 1; }
+  .audio-btn .kana-icon {
+    font-weight: 800;
+    font-size: 1.05rem;
+    color: var(--accent);
+  }
+  .audio-btn.muted .kana-icon { color: inherit; }
+  .audio-btn.muted {
+    border-color: rgba(148, 163, 184, 0.25);
+    color: rgba(241, 245, 249, 0.45);
+  }
+  .audio-btn.muted .audio-icon { filter: grayscale(1); opacity: 0.6; }
+  @media (max-width: 480px) {
+    .audio-btn .audio-label { display: none; }
+    .audio-btn { padding: 8px; }
+  }
+
+  /* ---- Splash / title screen ---- */
+  #splashScreen {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #000;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 1.1s ease;
+  }
+  #splashScreen.show { opacity: 1; }
+  #splashScreen.hide { opacity: 0; pointer-events: none; }
+  #splashScreen img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  /* title.webp is a wide landscape illustration — on narrow/portrait screens
+     "cover" crops off the characters and part of the logo at the sides, so
+     switch to "contain" (full artwork visible, letterboxed) there instead. */
+  @media (max-aspect-ratio: 1/1) {
+    #splashScreen img { object-fit: contain; }
+  }
+
+  /* ---- Full-screen CPU character backdrop (shown during play) ---- */
+  /* Two opponents now, flanking the board — left one as drawn, right one
+     mirrored (every character is illustrated facing left; see setCharBackground()
+     and the LV1〜6 STAGES roster). --avatar-pos is set inline per character
+     (only consumed on narrow screens, see the media query below) since each
+     illustration's face sits somewhere different — the tall desktop view
+     never crops so it doesn't need it. */
+  #charBgWrap {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    overflow: hidden;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    opacity: 0;
+    transition: opacity 0.6s ease;
+  }
+  #charBgWrap.show { opacity: 1; }
+  #charBgImgLeft, #charBgImgRight {
+    height: 96vh;
+    max-width: 46vw;
+    object-fit: contain;
+    filter: drop-shadow(0 10px 34px rgba(0,0,0,0.65));
+  }
+  #charBgImgLeft {
+    object-position: bottom left;
+    -webkit-mask-image: linear-gradient(to right, rgba(0,0,0,1) 30%, rgba(0,0,0,0) 85%);
+    mask-image: linear-gradient(to right, rgba(0,0,0,1) 30%, rgba(0,0,0,0) 85%);
+  }
+  #charBgImgRight {
+    object-position: bottom right;
+    transform: scaleX(-1);
+    -webkit-mask-image: linear-gradient(to left, rgba(0,0,0,1) 30%, rgba(0,0,0,0) 85%);
+    mask-image: linear-gradient(to left, rgba(0,0,0,1) 30%, rgba(0,0,0,0) 85%);
+  }
+  #charBgOverlay {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.6s ease;
+    /* Flat tint rather than the old single-side gradient — with characters
+       now peeking in from BOTH edges, a flat dim keeps the center (board/UI
+       text) readable regardless of which side is brighter. */
+    background: rgba(10, 15, 30, 0.55);
+  }
+  #charBgOverlay.show { opacity: 1; }
+
+  /* On narrow screens there's no side-by-side space for two full-height
+     figures: shrink both into a header band above the board, cropped to
+     each character's own face position (--avatar-pos, set inline per
+     character) via object-fit:cover instead of the desktop's uncropped
+     object-fit:contain. */
+  @media (max-width: 640px) {
+    #charBgWrap { align-items: flex-start; }
+    #charBgImgLeft, #charBgImgRight {
+      width: 48vw;
+      max-width: 48vw;
+      height: 30vh;
+      max-height: 30vh;
+      object-fit: cover;
+      object-position: var(--avatar-pos, top center);
+      opacity: 0.6;
+    }
+    #charBgImgLeft {
+      -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,0.95) 55%, rgba(0,0,0,0) 100%);
+      mask-image: linear-gradient(to bottom, rgba(0,0,0,0.95) 55%, rgba(0,0,0,0) 100%);
+    }
+    #charBgImgRight {
+      -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,0.95) 55%, rgba(0,0,0,0) 100%);
+      mask-image: linear-gradient(to bottom, rgba(0,0,0,0.95) 55%, rgba(0,0,0,0) 100%);
+    }
+  }
+
+  .page-content {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  h1 {
+    margin: 0 0 8px;
+    font-size: clamp(1.15rem, 6.2vw, 1.8rem);
+    letter-spacing: 0.05em;
+    overflow-wrap: break-word;
+    max-width: 100%;
+  }
+  #titleSequelSubtitle {
+    display: block;
+    font-size: clamp(0.75rem, 3.2vw, 1rem);
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    margin-top: 2px;
+  }
+  .hidden { display: none !important; }
+
+  /* ---- Title screen ---- */
+  #titleScreen, #onlineScreen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+    padding: 36px 30px;
+    background: rgba(15, 23, 42, 0.55);
+    border-radius: 18px;
+    box-shadow: 0 12px 30px rgba(0,0,0,0.45);
+    width: 100%;
+    max-width: min(820px, 92vw);
+    box-sizing: border-box;
+  }
+  @media (max-width: 480px) {
+    #titleScreen, #onlineScreen { padding: 28px 18px; gap: 14px; }
+  }
+  #titleScreen p.subtitle, #onlineScreen p.subtitle {
+    margin: -8px 0 4px;
+    opacity: 0.75;
+    font-size: 0.95rem;
+  }
+  #debugTrigger { user-select: none; }
+
+  /* ---- Online multiplayer (create/join room) ---- */
+  .player-name-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-size: 0.85rem;
+    opacity: 0.9;
+    margin-top: -6px;
+  }
+  #playerNameInput, .name-input {
+    background: #0f172a;
+    border: 2px solid #334155;
+    color: var(--text);
+    border-radius: 10px;
+    padding: 7px 12px;
+    font-size: 0.95rem;
+    width: 130px;
+    text-align: center;
+  }
+  #playerNameInput:focus, .name-input:focus { outline: none; border-color: var(--accent); }
+  #onlineJoinConfirm {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+  }
+  .online-join-row {
+    display: flex;
+    gap: 8px;
+  }
+  #onlineJoinCode {
+    background: #0f172a;
+    border: 2px solid #334155;
+    color: var(--text);
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: 1rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    width: 140px;
+    text-align: center;
+  }
+  #onlineJoinCode:focus { outline: none; border-color: var(--accent); }
+  #onlineJoinBtn {
+    padding: 10px 18px;
+    border-radius: 10px;
+  }
+  .online-error {
+    color: var(--p1);
+    font-size: 0.85rem;
+    min-height: 1.2em;
+    margin: 0;
+  }
+  .online-room-code {
+    font-size: 2.2rem;
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    color: var(--accent);
+    background: #0f172a;
+    border: 2px solid var(--accent);
+    border-radius: 14px;
+    padding: 14px 24px;
+  }
+  .online-waiting-text {
+    font-size: 0.95rem;
+    margin: 0;
+    animation: onlinePulse 1.6s ease-in-out infinite;
+  }
+  @keyframes onlinePulse {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 0.95; }
+  }
+  .mode-options {
+    display: flex;
+    gap: 18px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .mode-btn {
+    background: #0f172a;
+    border: 2px solid var(--accent);
+    color: var(--text);
+    padding: 22px 28px;
+    border-radius: 14px;
+    font-size: 1.05rem;
+    font-weight: 700;
+    cursor: pointer;
+    min-width: 180px;
+    transition: transform 0.15s ease, background 0.15s ease;
+  }
+  .mode-btn .emoji { font-size: 1.8rem; display: block; margin-bottom: 6px; }
+  .mode-btn-sub {
+    display: block;
+    font-size: 0.68rem;
+    font-weight: 500;
+    opacity: 0.65;
+    margin-top: 4px;
+  }
+  .mode-btn:hover {
+    background: var(--accent);
+    color: #0f172a;
+    transform: translateY(-3px);
+  }
+  .mode-btn:hover .mode-btn-sub { color: #0f172a; opacity: 0.8; }
+
+  .back-to-splash-btn {
+    background: transparent;
+    border: none;
+    color: var(--text);
+    opacity: 0.65;
+    font-size: 0.85rem;
+    cursor: pointer;
+    padding: 6px 10px;
+  }
+  .back-to-splash-btn:hover { opacity: 1; text-decoration: underline; }
+
+  .credit {
+    margin: 4px 0 0;
+    font-size: 0.72rem;
+    opacity: 0.45;
+    letter-spacing: 0.02em;
+  }
+  .credit strong { font-weight: 700; opacity: 0.9; }
+  .credit a {
+    color: inherit;
+    opacity: 0.8;
+    text-decoration: none;
+    border-bottom: 1px dotted currentColor;
+  }
+  .credit a:hover { opacity: 1; }
+
+  /* ---- Ladder result overlay (shown between/after CPU matches) ---- */
+  #resultOverlay {
+    position: fixed;
+    inset: 0;
+    z-index: 6;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(5, 8, 18, 0.82);
+    padding: 20px;
+  }
+  .result-card {
+    background: rgba(15, 23, 42, 0.96);
+    border: 2px solid var(--accent);
+    border-radius: 18px;
+    padding: 28px 30px;
+    max-width: 360px;
+    width: 100%;
+    text-align: center;
+    box-shadow: 0 16px 40px rgba(0,0,0,0.6);
+  }
+  .result-portrait {
+    width: 100%;
+    height: 190px;
+    border-radius: 12px;
+    background: #0f172a;
+    overflow: hidden;
+    display: flex;
+    align-items: stretch;
+    justify-content: center;
+    font-size: 3rem;
+    margin-bottom: 14px;
+  }
+  .result-portrait:empty { display: none; margin: 0; }
+  .result-portrait img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: top center;
+  }
+  /* CPU戦 shows both opponents side by side (see charPortraits()) — each
+     half gets its own emoji-fallback slot so one broken image doesn't wipe
+     out its neighbor the way a single shared portraitEl.innerHTML did. */
+  .result-portrait .portrait-half {
+    flex: 1 1 50%;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+  .result-portrait .portrait-half + .portrait-half {
+    border-left: 1px solid rgba(255, 255, 255, 0.08);
+  }
+  .result-portrait .portrait-half img.mirrored { transform: scaleX(-1); }
+  .result-title {
+    font-size: 1.15rem;
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+  .result-message {
+    font-size: 0.9rem;
+    opacity: 0.85;
+    line-height: 1.6;
+    margin-bottom: 20px;
+    white-space: pre-line;
+  }
+  .result-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .result-actions button {
+    width: 100%;
+  }
+  .result-actions .secondary {
+    background: transparent;
+    border: 2px solid #475569;
+    color: var(--text);
+  }
+  /* Online post-game countdown ("leave in N seconds") — see tickPostGameCountdown() */
+  .result-note {
+    margin-top: 12px;
+    font-size: 0.8rem;
+    opacity: 0.7;
+  }
+
+  /* ---- CPU ladder intro story, shown before LV1 and LV6 (see maybeShowStory()) ---- */
+  #storyOverlay {
+    position: fixed;
+    inset: 0;
+    z-index: 15;
+    background-color: #000;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 24px;
+    cursor: pointer;
+  }
+  #storyOverlay.hidden { display: none; }
+  #storyText {
+    color: #fff;
+    font-family: "Hiragino Mincho ProN", "Yu Mincho", YuMincho, "MS PMincho", serif;
+    font-size: 1.05rem;
+    line-height: 2.1;
+    white-space: pre-line;
+    max-width: 480px;
+    text-align: left;
+    opacity: 0;
+    transition: opacity 0.4s ease;
+  }
+  #storyText.show { opacity: 1; }
+  #storyHint {
+    position: absolute;
+    bottom: max(20px, env(safe-area-inset-bottom));
+    right: max(20px, env(safe-area-inset-right));
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 0.8rem;
+  }
+
+  /* ---- All-clear ending ---- */
+  #endingScreen {
+    position: fixed;
+    inset: 0;
+    z-index: 9;
+    background: #000;
+    overflow: hidden;
+    cursor: grab;
+    touch-action: none; /* the crawl is drag-scrubbed by hand, not natively scrolled */
+    user-select: none; /* otherwise a mouse-drag over the crawl text selects it instead of scrubbing */
+    opacity: 0;
+    transition: opacity 0.9s ease;
+  }
+  #endingScreen.dragging { cursor: grabbing; }
+  #endingScreen.show { opacity: 1; }
+  #endingScroll {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    position: relative;
+  }
+  #endingScroll img {
+    display: block;
+    position: absolute;
+    left: 50%;
+    top: 0;
+    -webkit-user-drag: none; /* native image drag would otherwise hijack the crawl-scrub gesture on desktop */
+    /* min-width/min-height (not plain width/height) is the pure-CSS
+       "cover" trick: the browser grows whichever axis is needed to fully
+       cover the screen, so no black #endingScreen background can ever
+       show through even on a phone taller than ending2.webp's own 2:1
+       ratio — it crops a bit off the sides instead. */
+    min-width: 100%;
+    min-height: 100%;
+    width: auto;
+    height: auto;
+    /* Base centering, also the animation's 0% state — starts on the
+       BOTTOM of the artwork (feet) and pans up to the top (sky/faces) by
+       the end, so the scene doesn't close on a close-up of someone's boots. */
+    transform: translate(-50%, calc(-100% + 100vh));
+  }
+  #endingScroll img.pan {
+    animation: endingPan 90s ease-in-out forwards;
+  }
+  @keyframes endingPan {
+    0%, 10% { transform: translate(-50%, calc(-100% + 100vh)); }
+    90%, 100% { transform: translate(-50%, 0); }
+  }
+  /* Narration crawl overlaid on the artwork — see showEndingScreen(). Its
+     start/end transform is set inline (via the Web Animations API) once the
+     text is built and its rendered height is known, so it always scrolls
+     fully clear of the screen regardless of how much text is in it. */
+  #endingTextWrap {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  #endingTextCrawl {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    width: min(560px, 86vw);
+    text-align: center;
+    color: #f6f1e7;
+    font-size: clamp(0.95rem, 2.6vw, 1.1rem);
+    line-height: 1.9;
+    text-shadow: 0 2px 10px rgba(0,0,0,0.9), 0 0 4px rgba(0,0,0,0.9);
+  }
+  #endingTextCrawl p { margin: 0 0 2.6em; white-space: pre-line; }
+  .ending-hint {
+    position: fixed;
+    left: 50%;
+    bottom: max(22px, env(safe-area-inset-bottom));
+    transform: translateX(-50%);
+    z-index: 10;
+    color: var(--text);
+    background: rgba(15, 23, 42, 0.65);
+    border: 1.5px solid rgba(148, 163, 184, 0.45);
+    padding: 8px 18px;
+    border-radius: 999px;
+    font-size: 0.85rem;
+    letter-spacing: 0.04em;
+    pointer-events: none;
+    opacity: 0;
+    animation: endingHintFade 2s ease 1s forwards;
+  }
+  @keyframes endingHintFade {
+    to { opacity: 0.9; }
+  }
+
+  /* ---- Online emote picker (flick/drag-scroll strip) + incoming popup ---- */
+  /* max-width must stay tied to the viewport (vw), not just a flat px cap:
+     #emoteScroller's 25 fixed-width icons give it a large intrinsic content
+     width, and on portrait phones a flat 480px let that intrinsic width
+     inflate #gameScreen (an auto-width flex column) past the viewport,
+     clipping the board's side columns under body's overflow-x:hidden. */
+  #onlineEmoteBar {
+    width: 100%;
+    max-width: min(480px, 92vw);
+    margin-top: 14px;
+  }
+  /* Applied for the post-game grace window (see resultNote/POST_GAME_WINDOW_MS)
+     so the emote strip stays reachable above the result overlay's backdrop
+     instead of being hidden underneath it — pinned to the bottom of the
+     viewport with a higher z-index than #resultOverlay (6). */
+  #onlineEmoteBar.postgame {
+    position: fixed;
+    left: 50%;
+    bottom: max(14px, env(safe-area-inset-bottom));
+    transform: translateX(-50%);
+    z-index: 7;
+    background: rgba(15, 23, 42, 0.9);
+    border: 2px solid #334155;
+    border-radius: 16px;
+    padding: 6px 8px 2px;
+    margin-top: 0;
+  }
+  #emoteScroller {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-x;
+    padding: 4px 4px 10px;
+    cursor: grab;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  #emoteScroller::-webkit-scrollbar { display: none; }
+  #emoteScroller.dragging { cursor: grabbing; }
+  .emote-icon-btn {
+    flex: 0 0 auto;
+    width: 52px;
+    height: 52px;
+    padding: 4px;
+    border-radius: 12px;
+    background: #0f172a;
+    border: 2px solid #334155;
+    cursor: pointer;
+    scroll-snap-align: start;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: border-color 0.15s ease, transform 0.15s ease;
+  }
+  .emote-icon-btn img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-drag: none;
+  }
+  .emote-icon-btn:hover { border-color: var(--accent); }
+  .emote-icon-btn:active { transform: scale(0.92); }
+
+  #incomingEmote {
+    position: fixed;
+    top: 16vh;
+    left: 50%;
+    z-index: 8;
+    width: 120px;
+    height: 120px;
+    opacity: 0;
+    pointer-events: none;
+    transform: translate(-50%, -12px) scale(0.5);
+    transition: opacity 0.25s ease, transform 0.25s ease;
+    filter: drop-shadow(0 6px 16px rgba(0,0,0,0.6));
+  }
+  #incomingEmote img { width: 100%; height: 100%; object-fit: contain; }
+  #incomingEmote.show {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+
+  /* Feedback for your OWN tap: a clone of the tapped icon rises from the
+     button and fades, so it's clear the tap registered (opponent's popup
+     via #incomingEmote is the only feedback that existed before). */
+  .emote-fly {
+    position: fixed;
+    width: 44px;
+    height: 44px;
+    object-fit: contain;
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+    pointer-events: none;
+    z-index: 9;
+    filter: drop-shadow(0 4px 10px rgba(0,0,0,0.5));
+    transition: transform 0.9s cubic-bezier(0.2, 0.7, 0.3, 1), opacity 0.9s ease 0.2s;
+  }
+  .emote-fly.rise {
+    transform: translate(-50%, calc(-50% - 38vh)) scale(1.3);
+    opacity: 0;
+  }
+
+  /* ---- Turn-order coin toss ---- */
+  #turnDecideOverlay {
+    position: fixed;
+    inset: 0;
+    z-index: 7;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(5, 8, 18, 0.82);
+  }
+  .turn-decide-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 18px;
+  }
+  .coin-wrap { perspective: 400px; }
+  .coin {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    background: var(--p1);
+    box-shadow: 0 0 20px 6px rgba(255,255,255,0.18), 0 8px 20px rgba(0,0,0,0.5);
+    animation: coinSpin 0.15s linear infinite;
+  }
+  .coin.settled { animation: coinSettle 0.4s cubic-bezier(0.34, 1.56, 0.64, 1); }
+  @keyframes coinSpin {
+    0%, 100% { transform: scaleX(1); }
+    50% { transform: scaleX(0.12); }
+  }
+  @keyframes coinSettle {
+    0% { transform: scaleX(0.12); }
+    55% { transform: scaleX(1.18) scaleY(0.85); }
+    75% { transform: scaleX(0.92) scaleY(1.06); }
+    100% { transform: scaleX(1) scaleY(1); }
+  }
+  .turn-decide-text {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--text);
+    opacity: 0;
+    transition: opacity 0.25s ease;
+    text-align: center;
+  }
+  .turn-decide-text.show { opacity: 1; }
+
+  /* ---- Game screen ---- */
+  #gameScreen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  #status {
+    font-size: 1.15rem;
+    margin-bottom: 14px;
+    min-height: 1.6em;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+  }
+  #turnTimeoutWarning {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: #f59e0b;
+    margin: -8px 0 12px;
+  }
+  .turn-indicator {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    display: inline-block;
+    box-shadow: 0 0 0 2px rgba(255,255,255,0.3) inset;
+  }
+  .turn-avatar {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    object-fit: cover;
+    object-position: top center;
+    box-shadow: 0 0 0 2px var(--p2);
+  }
+  #modeLabel {
+    font-size: 0.85rem;
+    opacity: 0.7;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .opponent-avatar-icon {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    object-fit: cover;
+    object-position: top center;
+  }
+  /* All character art is drawn facing left — mirror whichever one is shown
+     on the "right" side of a pair so the two don't both face the same way. */
+  .opponent-avatar-icon--mirrored { transform: scaleX(-1); }
+
+  /* ---- CPU speech bubble ---- */
+  /* Sits where the game title used to be — reserves its slot only in CPU
+     mode (toggled via the .hidden utility class in JS); the text itself
+     still cross-fades in/out per line via the .show class. */
+  #speechBubble {
+    width: 100%;
+    max-width: 420px;
+    min-height: 64px;
+    box-sizing: border-box;
+    background: rgba(15, 23, 42, 0.94);
+    border: 2px solid var(--accent);
+    border-radius: 16px;
+    padding: 12px 18px;
+    margin: 0 0 14px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    text-align: center;
+    opacity: 0;
+    transform: translateY(-6px);
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  }
+  #speechBubble.show {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  #speechBubble .bubble-name {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 4px;
+  }
+  #speechBubble .bubble-text {
+    font-size: 0.92rem;
+    line-height: 1.55;
+  }
+  #board-wrap {
+    background: var(--board);
+    padding: 10px;
+    border-radius: 14px;
+    box-shadow: 0 12px 30px rgba(0,0,0,0.45);
+    position: relative;
+  }
+  #board-wrap.locked { pointer-events: none; opacity: 0.85; }
+  #board {
+    display: grid;
+    grid-template-columns: repeat(8, minmax(34px, 56px));
+    gap: 8px;
+  }
+  .col-hitzone {
+    position: relative;
+    cursor: pointer;
+    aspect-ratio: 1 / 1;
+  }
+  .cell {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    background: var(--slot);
+    position: relative;
+    transition: transform 0.15s ease;
+  }
+  .cell.p1 { background: var(--p1); box-shadow: 0 0 10px rgba(239,68,68,0.7); }
+  .cell.p2 { background: var(--p2); box-shadow: 0 0 10px rgba(234,179,8,0.7); }
+  .cell.p3 { background: var(--p3); box-shadow: 0 0 10px rgba(34,197,94,0.7); }
+  .cell.drop {
+    /* Purely cosmetic — game state already updates instantly on click,
+       so this playing out slowly never blocks the next move. */
+    animation: drop 1.1s;
+    transform-origin: bottom center;
+  }
+  .cell.win {
+    animation: pulse 0.8s ease-in-out infinite;
+    box-shadow: 0 0 18px 4px var(--accent);
+  }
+  @keyframes drop {
+    0%   { transform: translateY(-260%) scale(1, 1);         animation-timing-function: cubic-bezier(0.2, 0, 1, 0.35); }
+    10%  { transform: translateY(-250%) scale(1, 1);         animation-timing-function: cubic-bezier(0.2, 0, 1, 0.35); }
+    58%  { transform: translateY(0) scale(1, 1);              animation-timing-function: ease-out; }
+    68%  { transform: translateY(3%) scale(1.1, 0.88);        animation-timing-function: ease-out; }
+    80%  { transform: translateY(-7%) scale(0.96, 1.05);      animation-timing-function: ease-out; }
+    91%  { transform: translateY(2%) scale(1.03, 0.97);       animation-timing-function: ease-out; }
+    97%  { transform: translateY(-1%) scale(0.99, 1.01); }
+    100% { transform: translateY(0) scale(1, 1); }
+  }
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.12); }
+  }
+  .col-hitzone:hover .cell:not(.p1):not(.p2):not(.p3) {
+    background: #1e293b;
+  }
+  #controls {
+    margin-top: 18px;
+    display: flex;
+    gap: 12px;
+  }
+  button {
+    background: var(--accent);
+    color: #0f172a;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: filter 0.15s ease;
+  }
+  button:hover { filter: brightness(1.1); }
+  button:active { filter: brightness(0.9); }
+  button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    filter: none;
+    pointer-events: none;
+  }
+  #titleBtn {
+    background: transparent;
+    border: 2px solid #475569;
+    color: var(--text);
+  }
+  #score {
+    margin-top: 14px;
+    display: flex;
+    gap: 20px;
+    font-size: 0.95rem;
+    opacity: 0.85;
+  }
+</style>
+</head>
+<body>
+
+  <!-- Always-on-top audio toggles — visible through every screen (splash, title, game, results) -->
+  <div id="audioControls">
+    <button id="bgmToggle" class="audio-btn" type="button" aria-label="BGMのオン/オフ" aria-pressed="true">
+      <span class="audio-icon">🎵</span><span class="audio-label">BGM</span>
+    </button>
+    <button id="seToggle" class="audio-btn" type="button" aria-label="効果音のオン/オフ" aria-pressed="true">
+      <span class="audio-icon">🔔</span><span class="audio-label">SE</span>
+    </button>
+    <button id="kanaToggle" class="audio-btn" type="button" aria-label="かなモードのオン/オフ" aria-pressed="false">
+      <span class="audio-icon kana-icon">あ</span><span class="audio-label">かな</span>
+    </button>
+  </div>
+  <audio id="bgmAudio" preload="none"></audio>
+
+  <div id="splashScreen">
+    <img src="title.webp" alt="黄昏のフォー・イン・ア・ロウ 地平の行方 タイトル">
+  </div>
+
+  <div id="charBgWrap"><img id="charBgImgLeft" src="" alt=""><img id="charBgImgRight" src="" alt=""></div>
+  <div id="charBgOverlay"></div>
+
+  <div class="page-content">
+
+  <!-- Title / mode select screen -->
+  <div id="titleScreen">
+    <h1><span id="titlePrefix">黄昏のフォー・イン・ア・</span><span id="debugTrigger">ロ</span>ウ <span id="titleSequelSubtitle">地平の行方</span></h1>
+    <p class="subtitle" id="titleSubtitle">遊び方を選んでください</p>
+    <div class="player-name-row">
+      <label for="playerNameInput" id="playerNameLabel"></label>
+      <input type="text" id="playerNameInput" maxlength="10" autocomplete="off">
+    </div>
+    <div class="mode-options" id="modeOptions">
+      <button class="mode-btn" id="pvpBtn"><span class="emoji">🧑‍🤝‍🧑</span><span id="pvpBtnLabel"></span></button>
+      <button class="mode-btn" id="cpuBtn"><span class="emoji">🤖</span><span id="cpuBtnLabel"></span><br><span class="mode-btn-sub" id="cpuBtnSub"></span></button>
+      <button class="mode-btn" id="onlineBtn"><span class="emoji">🌐</span><span id="onlineBtnLabel"></span><br><span class="mode-btn-sub" id="onlineBtnSub"></span></button>
+    </div>
+    <button class="back-to-splash-btn" id="backToSplashBtn"></button>
+    <p class="credit">
+      Created by <strong>naogare</strong> ／
+      <a href="https://www.youtube.com/@NMLabo" target="_blank" rel="noopener noreferrer">YouTube: NMLabo</a>
+    </p>
+  </div>
+
+  <!-- Online multiplayer: create/join a room, then wait for the opponent -->
+  <div id="onlineScreen" class="hidden">
+    <h1 id="onlineHeading"></h1>
+    <div id="onlineMenu">
+      <p class="subtitle" id="onlineIntro"></p>
+      <button class="mode-btn" id="onlineCreateBtn"><span class="emoji">🚪</span><span id="onlineCreateBtnLabel"></span></button>
+      <p class="subtitle" id="onlineOrJoin" style="margin-top:14px;"></p>
+      <div class="online-join-row">
+        <input type="text" id="onlineJoinCode" placeholder="部屋コード" maxlength="6" autocomplete="off" autocapitalize="characters">
+        <button id="onlineJoinBtn"></button>
+      </div>
+      <p class="online-error" id="onlineError"></p>
+      <button class="back-to-splash-btn" id="onlineBackBtn"></button>
+    </div>
+    <div id="onlineWaiting" class="hidden">
+      <p class="subtitle" id="onlineShareInstructions"></p>
+      <div class="online-room-code" id="onlineRoomCode"></div>
+      <button id="onlineCopyBtn"></button>
+      <p class="online-waiting-text" id="onlineWaitingText"></p>
+      <button class="back-to-splash-btn" id="onlineCancelBtn"></button>
+    </div>
+    <div id="onlineJoinConfirm" class="hidden">
+      <p class="subtitle" id="onlineJoinConfirmText"></p>
+      <div class="player-name-row">
+        <label for="onlineJoinNameInput" id="onlineJoinNameLabel"></label>
+        <input type="text" id="onlineJoinNameInput" class="name-input" maxlength="10" autocomplete="off">
+      </div>
+      <button id="onlineJoinConfirmBtn"></button>
+      <button class="back-to-splash-btn" id="onlineJoinCancelBtn"></button>
+    </div>
+  </div>
+
+  <!-- Game screen -->
+  <div id="gameScreen" class="hidden">
+    <div id="speechBubble" class="hidden">
+      <div class="bubble-name" id="bubbleName"></div>
+      <div class="bubble-text" id="bubbleText"></div>
+    </div>
+    <div id="modeLabel"></div>
+    <div id="status"></div>
+    <div id="turnTimeoutWarning" class="hidden"></div>
+    <div id="board-wrap">
+      <div id="board"></div>
+    </div>
+    <div id="onlineEmoteBar" class="hidden">
+      <div id="emoteScroller">
+        <button class="emote-icon-btn" data-emote="icon21_bubble_sweat"><img src="emotes/icon21_bubble_sweat.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon22_bubble_girl"><img src="emotes/icon22_bubble_girl.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon23_bubble_thanks"><img src="emotes/icon23_bubble_thanks.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon24_bubble_end"><img src="emotes/icon24_bubble_end.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon01_wave"><img src="emotes/icon01_wave.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon02_thumbsup"><img src="emotes/icon02_thumbsup.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon04_crying"><img src="emotes/icon04_crying.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon06_cat_surprised"><img src="emotes/icon06_cat_surprised.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon07_owl_question"><img src="emotes/icon07_owl_question.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon08_rose_heart"><img src="emotes/icon08_rose_heart.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon09_sparkle"><img src="emotes/icon09_sparkle.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon10_skull_ghost"><img src="emotes/icon10_skull_ghost.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon11_char_striker"><img src="emotes/icon11_char_striker.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon12_char_dealer"><img src="emotes/icon12_char_dealer.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon13_char_mask"><img src="emotes/icon13_char_mask.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon14_char_idol"><img src="emotes/icon14_char_idol.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon15_char_puppeteer"><img src="emotes/icon15_char_puppeteer.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon16_pet_owl"><img src="emotes/icon16_pet_owl.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon17_pet_fox"><img src="emotes/icon17_pet_fox.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon18_pet_badger"><img src="emotes/icon18_pet_badger.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon19_pet_mouse"><img src="emotes/icon19_pet_mouse.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon20_hand_wave"><img src="emotes/icon20_hand_wave.webp" alt="" draggable="false"></button>
+      </div>
+    </div>
+    <div id="controls">
+      <button id="resetBtn">最初からやり直す</button>
+      <button id="titleBtn">タイトルに戻る</button>
+    </div>
+    <div id="score">
+      <span id="score1">プレイヤー1（赤）: 0勝</span>
+      <span id="score2">プレイヤー2（黄）: 0勝</span>
+      <span id="score3">プレイヤー3（緑）: 0勝</span>
+    </div>
+  </div>
+
+  </div>
+
+  <!-- Ladder result overlay: shown after each CPU match (advance / game over / all-clear / draw) -->
+  <div id="resultOverlay" class="hidden">
+    <div class="result-card">
+      <div class="result-title" id="resultTitle"></div>
+      <div class="result-portrait" id="resultPortrait"></div>
+      <div class="result-message" id="resultMessage"></div>
+      <div class="result-actions" id="resultActions"></div>
+      <div class="result-note" id="resultNote"></div>
+    </div>
+  </div>
+
+  <!-- Turn-order coin toss: brief animation shown before every match starts -->
+  <div id="turnDecideOverlay" class="hidden">
+    <div class="turn-decide-card">
+      <div class="coin-wrap"><div class="coin" id="turnCoin"></div></div>
+      <div class="turn-decide-text" id="turnDecideText"></div>
+    </div>
+  </div>
+
+  <!-- CPU ladder intro story (LV1 and LV6): click anywhere to advance line by
+       line, then that stage's match begins. See maybeShowStory(). -->
+  <div id="storyOverlay" class="hidden">
+    <div id="storyText"></div>
+    <div id="storyHint">クリックして進む</div>
+  </div>
+
+  <!-- Opponent's emote pops up here briefly when it arrives via polling -->
+  <div id="incomingEmote"><img id="incomingEmoteIcon" src="" alt=""></div>
+
+  <!-- Hidden debug menu: double-click the "ロ" in the title to jump straight to any ladder level -->
+  <div id="debugLevelOverlay" class="hidden">
+    <div class="result-card">
+      <div class="result-title">🛠 デバッグ: 開始レベル選択</div>
+      <div class="result-message">CPU戦の開始レベルを選んでください</div>
+      <div class="result-actions" id="debugLevelActions"></div>
+    </div>
+  </div>
+
+  <!-- All-clear ending: slow scroll through ending2.webp with a narration
+       crawl overlaid on top; ending.mp3 kicks in as the crawl nears its end.
+       ending2.webp is a tall (2:1) crop specifically so width:100% scaling
+       still covers portrait phone screens without gaps — see ending.webp
+       (kept alongside it, unused) for the original, shorter (~1.5:1) art.
+       Click anywhere to return to title. -->
+  <div id="endingScreen" class="hidden">
+    <div id="endingScroll">
+      <img src="ending2.webp" alt="エンディング" draggable="false">
+      <div id="endingTextWrap"><div id="endingTextCrawl"></div></div>
+    </div>
+    <div class="ending-hint" id="endingHint"></div>
+  </div>
+
+<script>
+(function () {
+  // ---------- Audio: looping BGM (file-based, per-screen tracks) + synthesized SFX (Web Audio API) ----------
+  // Music lives in bgm/: title.mp3 plays on the splash/title screens, bgm.mp3
+  // plays during actual matches. Either file can be missing (bgm.mp3 isn't
+  // made yet) — playback just silently no-ops until it shows up. SFX are
+  // generated on the fly via Web Audio API so they work immediately, no files
+  // needed. Both toggles persist via localStorage and stay visible/functional
+  // across every screen (splash, title, game, result overlay).
+  // Some contexts (sandboxed embeds, certain mobile in-app browsers, strict
+  // private-browsing modes) throw on any localStorage access rather than
+  // just failing quietly — guard every call so a blocked storage API can
+  // never take the rest of the game down with it.
+  function safeStorageGet(key) {
+    try { return localStorage.getItem(key); } catch (e) { return null; }
+  }
+  function safeStorageSet(key, value) {
+    try { localStorage.setItem(key, value); } catch (e) { /* ignore */ }
+  }
+
+  const SoundMgr = (function () {
+    const STORAGE_BGM = 'lineup4_bgm_on';
+    const STORAGE_SE = 'lineup4_se_on';
+    let bgmOn = safeStorageGet(STORAGE_BGM) !== '0';
+    let seOn = safeStorageGet(STORAGE_SE) !== '0';
+    let unlocked = false;
+    let ctx = null;
+
+    // 'title' and 'game' are fixed tracks; 'level:N' is resolved to bgm/LVN.mp3
+    // for a per-character theme, falling back to the generic game track (and
+    // from there, silence) wherever a more specific file hasn't been added yet.
+    const TITLE_URL = 'bgm/title.mp3';
+    const GAME_URL = 'bgm/bgm.mp3';
+    const ENDING_URL = 'bgm/ending.mp3';
+    function levelUrl(level) { return 'bgm/LV' + level + '.mp3'; }
+    function urlForKey(key) {
+      if (key === 'title') return TITLE_URL;
+      if (key === 'game') return GAME_URL;
+      if (key === 'ending') return ENDING_URL;
+      if (key.indexOf('level:') === 0) return levelUrl(key.slice(6));
+      return null;
+    }
+
+    const BGM_VOLUME = 0.35;
+    const trackMissing = {};
+    let currentTrackKey = null;
+
+    const bgmEl = document.getElementById('bgmAudio');
+    bgmEl.volume = BGM_VOLUME;
+
+    function ensureContext() {
+      if (!ctx) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (AC) ctx = new AC();
+      }
+      if (ctx && ctx.state === 'suspended') ctx.resume();
+      return ctx;
+    }
+
+    function fadeVolume(target, duration) {
+      const start = bgmEl.volume;
+      const t0 = performance.now();
+      function step(now) {
+        const t = Math.min(1, (now - t0) / duration);
+        bgmEl.volume = start + (target - start) * t;
+        if (t < 1) requestAnimationFrame(step);
+      }
+      requestAnimationFrame(step);
+    }
+
+    function playTrack(key, fallbackKey) {
+      if (trackMissing[key]) {
+        if (fallbackKey) playTrack(fallbackKey, fallbackKey === 'game' ? null : 'game');
+        return;
+      }
+      if (currentTrackKey === key) {
+        if (bgmOn && unlocked) bgmEl.play().catch(() => {});
+        return;
+      }
+      currentTrackKey = key;
+      const switchSrc = () => {
+        const thisKey = key;
+        bgmEl.onerror = () => {
+          trackMissing[thisKey] = true;
+          if (fallbackKey && currentTrackKey === thisKey) {
+            playTrack(fallbackKey, fallbackKey === 'game' ? null : 'game');
+          }
+        };
+        bgmEl.src = urlForKey(key);
+        bgmEl.loop = key !== 'ending'; // the ending theme plays once, not on repeat
+        if (bgmOn && unlocked) {
+          bgmEl.volume = 0;
+          bgmEl.play().then(() => fadeVolume(BGM_VOLUME, 500)).catch(() => {});
+        } else {
+          bgmEl.volume = BGM_VOLUME;
+        }
+      };
+      if (!bgmEl.paused) {
+        fadeVolume(0, 250);
+        setTimeout(() => { bgmEl.pause(); switchSrc(); }, 260);
+      } else {
+        switchSrc();
+      }
+    }
+
+    // Prefer a level-specific theme (bgm/LV{level}.mp3); silently falls back
+    // to the shared game track if that file doesn't exist for this level yet.
+    function playLevelTrack(level) {
+      playTrack('level:' + level, 'game');
+    }
+
+    function tone(freq, duration, type, gainPeak, delay) {
+      if (!seOn) return;
+      const audioCtx = ensureContext();
+      if (!audioCtx) return;
+      const t0 = audioCtx.currentTime + (delay || 0);
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = type || 'sine';
+      osc.frequency.setValueAtTime(freq, t0);
+      gain.gain.setValueAtTime(0, t0);
+      gain.gain.linearRampToValueAtTime(gainPeak || 0.15, t0 + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.001, t0 + duration);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start(t0);
+      osc.stop(t0 + duration + 0.02);
+    }
+
+    return {
+      unlock() {
+        if (unlocked) return;
+        unlocked = true;
+        ensureContext();
+        playTrack(currentTrackKey || 'title');
+      },
+      playTrack,
+      playLevelTrack,
+      stop() {
+        fadeVolume(0, 250);
+        setTimeout(() => bgmEl.pause(), 260);
+        currentTrackKey = null; // so a later playTrack() re-inits fully instead of just resuming
+      },
+      setBgmOn(v) {
+        bgmOn = v;
+        safeStorageSet(STORAGE_BGM, v ? '1' : '0');
+        if (v) {
+          if (unlocked) bgmEl.play().catch(() => {});
+        } else {
+          bgmEl.pause();
+        }
+      },
+      setSeOn(v) {
+        seOn = v;
+        safeStorageSet(STORAGE_SE, v ? '1' : '0');
+      },
+      isBgmOn: () => bgmOn,
+      isSeOn: () => seOn,
+      seClick() { tone(520, 0.09, 'triangle', 0.12); },
+      seDrop() { tone(160, 0.16, 'sine', 0.22); tone(90, 0.22, 'sine', 0.15, 0.03); },
+      seWin() { [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => tone(f, 0.22, 'triangle', 0.16, i * 0.09)); },
+      seLose() { [392, 329.63, 261.63, 196].forEach((f, i) => tone(f, 0.28, 'sawtooth', 0.1, i * 0.11)); },
+      seDraw() { tone(300, 0.2, 'sine', 0.12); tone(300, 0.2, 'sine', 0.12, 0.15); },
+    };
+  })();
+
+  const bgmToggleBtn = document.getElementById('bgmToggle');
+  const seToggleBtn = document.getElementById('seToggle');
+  function refreshAudioButtons() {
+    const bgmIcon = bgmToggleBtn.querySelector('.audio-icon');
+    const seIcon = seToggleBtn.querySelector('.audio-icon');
+    bgmToggleBtn.classList.toggle('muted', !SoundMgr.isBgmOn());
+    bgmToggleBtn.setAttribute('aria-pressed', String(SoundMgr.isBgmOn()));
+    bgmIcon.textContent = SoundMgr.isBgmOn() ? '🎵' : '🔇';
+    seToggleBtn.classList.toggle('muted', !SoundMgr.isSeOn());
+    seToggleBtn.setAttribute('aria-pressed', String(SoundMgr.isSeOn()));
+    seIcon.textContent = SoundMgr.isSeOn() ? '🔔' : '🔕';
+  }
+  refreshAudioButtons();
+  bgmToggleBtn.addEventListener('click', () => {
+    SoundMgr.unlock();
+    SoundMgr.setBgmOn(!SoundMgr.isBgmOn());
+    refreshAudioButtons();
+  });
+  seToggleBtn.addEventListener('click', () => {
+    SoundMgr.unlock();
+    SoundMgr.setSeOn(!SoundMgr.isSeOn());
+    SoundMgr.seClick();
+    refreshAudioButtons();
+  });
+
+  // ---------- Player name: shown in place of "プレイヤー1" in CPU/online
+  // mode (PvP keeps the plain プレイヤー1/2 labels — there's no single
+  // "you" when two people share one screen), the ending's "あなた", and
+  // synced to the opponent in online play. Defaults to "マスク" (the
+  // protagonist's own name — see the LV1 intro story) so players who don't
+  // care can just ignore the field entirely.
+  const NAME_STORAGE_KEY = 'lineup4_player_name';
+  const DEFAULT_PLAYER_NAME = 'マスク';
+  const MAX_PLAYER_NAME_LENGTH = 10;
+  const playerNameInput = document.getElementById('playerNameInput');
+  playerNameInput.value = safeStorageGet(NAME_STORAGE_KEY) || DEFAULT_PLAYER_NAME;
+  playerNameInput.addEventListener('input', () => {
+    safeStorageSet(NAME_STORAGE_KEY, playerNameInput.value.slice(0, MAX_PLAYER_NAME_LENGTH));
+  });
+  function getPlayerName() {
+    return playerNameInput.value.trim().slice(0, MAX_PLAYER_NAME_LENGTH) || DEFAULT_PLAYER_NAME;
+  }
+  // Minimal HTML-escaping for the couple of spots that build a status string
+  // via innerHTML (for a colored-dot/avatar prefix) and splice a name into
+  // it — online mode means that name can be the OPPONENT's, so it must never
+  // be trusted as markup. Everywhere else a name is used with .textContent,
+  // which is already safe regardless.
+  function escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  // ---------- Kana mode: UI text only (buttons, labels, status messages).
+  // Character names/dialogue are left as-is — this is about making the game's
+  // own chrome readable without kanji, not a full localization pass. K()
+  // picks the right string for whichever mode is active *at the moment it's
+  // called*, so text built dynamically (status line, result overlays, etc.)
+  // always reflects the current mode with no extra wiring; only text that's
+  // set once into static HTML needs applyKanaMode() to re-run on toggle.
+  const KANA_STORAGE_KEY = 'lineup4_kana_on';
+  let kanaMode = safeStorageGet(KANA_STORAGE_KEY) === '1';
+  function K(kanji, kana) { return kanaMode ? kana : kanji; }
+
+  const kanaToggleBtn = document.getElementById('kanaToggle');
+  function refreshKanaButton() {
+    kanaToggleBtn.classList.toggle('muted', !kanaMode);
+    kanaToggleBtn.setAttribute('aria-pressed', String(kanaMode));
+  }
+  refreshKanaButton();
+  kanaToggleBtn.addEventListener('click', () => {
+    SoundMgr.unlock();
+    SoundMgr.seClick();
+    kanaMode = !kanaMode;
+    safeStorageSet(KANA_STORAGE_KEY, kanaMode ? '1' : '0');
+    refreshKanaButton();
+    applyKanaMode();
+  });
+
+  // Re-renders every *statically*-placed UI string (button labels, headings,
+  // placeholders) for the current kanaMode. Dynamic strings (status line,
+  // result overlays, ...) don't need this — they already call K() fresh each
+  // time they run — but if a match is already in progress we also nudge the
+  // couple of screens that only render once at match start.
+  function applyKanaMode() {
+    document.getElementById('titlePrefix').textContent = K('黄昏のフォー・イン・ア・', 'たそがれのフォー・イン・ア・');
+    document.getElementById('titleSequelSubtitle').textContent = K('地平の行方', 'ちへいのゆくえ');
+    document.getElementById('titleSubtitle').textContent = K('遊び方を選んでください', 'あそびかたをえらんでください');
+    document.getElementById('playerNameLabel').textContent = K('プレイヤー名', 'プレイヤーめい');
+    document.getElementById('pvpBtnLabel').textContent = K('対人戦（3人）', 'たいじんせん（3にん）');
+    document.getElementById('cpuBtnLabel').textContent = K('CPU戦', 'CPUせん');
+    document.getElementById('cpuBtnSub').textContent = K('LV1〜6・2体同時対戦', 'LV1〜6・2たいどうじたいせん');
+    document.getElementById('onlineBtnLabel').textContent = K('オンライン対戦', 'オンラインたいせん');
+    document.getElementById('onlineBtnSub').textContent = K('3人でリアルタイム対戦', '3にんでリアルタイムたいせん');
+    const backLabel = K('← タイトルに戻る', '← タイトルにもどる');
+    document.getElementById('backToSplashBtn').textContent = backLabel;
+    document.getElementById('onlineBackBtn').textContent = backLabel;
+
+    document.getElementById('onlineHeading').textContent = '🌐 ' + K('オンライン対戦', 'オンラインたいせん');
+    document.getElementById('onlineIntro').textContent = K('友達を招待して対戦しましょう', 'ともだちをしょうたいしてたいせんしましょう');
+    document.getElementById('onlineCreateBtnLabel').textContent = K('部屋を作る', 'へやをつくる');
+    document.getElementById('onlineOrJoin').textContent = K('または、もらったコードで参加', 'または、もらったコードでさんか');
+    document.getElementById('onlineJoinCode').placeholder = K('部屋コード', 'へやコード');
+    document.getElementById('onlineJoinBtn').textContent = K('参加する', 'さんかする');
+    document.getElementById('onlineShareInstructions').textContent = K('このコードを友達に伝えるか、URLを共有してください', 'このコードをともだちにつたえるか、URLをきょうゆうしてください');
+    document.getElementById('onlineCopyBtn').textContent = K('招待URLをコピー', 'しょうたいURLをコピー');
+    document.getElementById('onlineWaitingText').textContent = K('対戦相手を待っています…', 'たいせんあいてをまっています…');
+    document.getElementById('onlineCancelBtn').textContent = 'キャンセル';
+    document.getElementById('onlineJoinNameLabel').textContent = K('プレイヤー名', 'プレイヤーめい');
+    document.getElementById('onlineJoinConfirmBtn').textContent = K('開始する', 'かいしする');
+    document.getElementById('onlineJoinCancelBtn').textContent = 'キャンセル';
+    renderJoinConfirmText();
+    document.getElementById('endingHint').textContent = K('ドラッグで読み返せます／クリックでタイトルへ', 'ドラッグでよみかえせます／クリックでタイトルへ');
+
+    resetBtn.textContent = K('最初からやり直す', 'さいしょからやりなおす');
+    titleBtn.textContent = K('タイトルに戻る', 'タイトルにもどる');
+
+    // If a match is already up, refresh what's currently on screen too.
+    if (!gameScreen.classList.contains('hidden')) {
+      if (mode === 'pvp') {
+        modeLabelEl.textContent = K('対人戦モード', 'たいじんせんモード');
+      } else if (mode === 'online' && online) {
+        modeLabelEl.textContent = `${K('オンライン対戦', 'オンラインたいせん')}（${K('部屋', 'へや')}: ${online.code}） ／ ${K('あなたは', 'あなたは')}${onlineColorLabel(online.myPlayer)}`;
+      }
+      if (typeof currentPlayer !== 'undefined' && !gameOver) updateStatus();
+      updateScoreboard();
+    }
+  }
+
+  // ---------- Splash screen ----------
+  const splashScreen = document.getElementById('splashScreen');
+  function showSplash() {
+    SoundMgr.playTrack('title');
+    splashScreen.classList.remove('hide');
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => splashScreen.classList.add('show'));
+    });
+  }
+  function hideSplash() {
+    SoundMgr.unlock();
+    SoundMgr.seClick();
+    splashScreen.classList.remove('show');
+    splashScreen.classList.add('hide');
+  }
+  showSplash();
+  splashScreen.addEventListener('click', () => {
+    hideSplash();
+    // A friend's invite link (?room=CODE) skips straight to joining that room.
+    const roomParam = new URLSearchParams(location.search).get('room');
+    if (roomParam) {
+      const code = roomParam.trim().toUpperCase();
+      // Strip it from the URL right away — otherwise reloading this tab, or
+      // navigating back/forward to it later, re-triggers the auto-join every
+      // time (e.g. a match that already ended, or a room that's long gone).
+      history.replaceState(null, '', location.pathname);
+      goToOnlineScreen();
+      onlineJoinCodeEl.value = code;
+      joinOnlineRoom(code);
+    }
+  });
+
+  document.getElementById('backToSplashBtn').addEventListener('click', () => {
+    SoundMgr.seClick();
+    showSplash();
+  });
+
+  const ROWS = 7;
+  const COLS = 8;
+  const boardEl = document.getElementById('board');
+  const statusEl = document.getElementById('status');
+  const resetBtn = document.getElementById('resetBtn');
+  const titleBtn = document.getElementById('titleBtn');
+  const score1El = document.getElementById('score1');
+  const score2El = document.getElementById('score2');
+  const score3El = document.getElementById('score3');
+  const boardWrap = document.getElementById('board-wrap');
+  const modeLabelEl = document.getElementById('modeLabel');
+
+  const titleScreen = document.getElementById('titleScreen');
+  const gameScreen = document.getElementById('gameScreen');
+  const pvpBtn = document.getElementById('pvpBtn');
+  const cpuBtn = document.getElementById('cpuBtn');
+  const onlineBtn = document.getElementById('onlineBtn');
+
+  // ---------- CPU character roster ----------
+  // 5-stage strength ladder. `depth` = minimax search depth, `wildness` = chance
+  // the character ignores the calculated best move in favor of a rough/random one
+  // (a winning move is always taken regardless, so weaker levels never look "broken").
+  const CHARACTERS = [
+    { level: 1, name: '荒くれストライカー', stars: 2, img: 'chara/LV1.webp', emoji: '👊',
+      desc: '力任せで攻めてくるチンピラ系', depth: 1, wildness: 0.40,
+      lines: {
+        normal: [
+          'へへっ、どこに置こうが俺の勝ちだぜ！',
+          '考えすぎんな！　ガツンと来いよ！',
+          'その一手、俺には丸見えだぜ！',
+          'おいおい、そんなところに置いていいのか？',
+          'まだまだ！　ここからひっくり返してやる！',
+        ],
+        aboutToWin: [
+          '見たか！　もう逃げ道はねぇぞ！',
+          'ハハハッ！　あと一手でブッ飛ばしてやる！',
+        ],
+        aboutToLose: [
+          'ちょ、待て！　今のはナシだろ！',
+          'くそっ！　まだ終わっちゃいねぇぞ！',
+        ],
+        victory: 'ガハハハッ！　俺様の勝ちだ！　力ってのはな、最後にモノを言うんだよ！',
+        defeat: 'ぐおおお……！　俺が……負けただと……？　次は絶対ぶっ潰す！',
+      },
+      // Kana-mode dialogue: same shape as `lines`, hiragana-only (sound
+      // effects/loanwords stay katakana, e.g. ガツン・ナシ・モノ). speak()
+      // picks this over `lines` when kanaMode is on. Character names and
+      // speaker labels (PUPPETS, ch.name) are out of scope and stay as-is.
+      linesKana: {
+        normal: [
+          'へへっ、どこにおこうがおれのかちだぜ！',
+          'かんがえすぎんな！　ガツンとこいよ！',
+          'そのいって、おれにはまるみえだぜ！',
+          'おいおい、そんなところにおいていいのか？',
+          'まだまだ！　ここからひっくりかえしてやる！',
+        ],
+        aboutToWin: [
+          'みたか！　もうにげみちはねぇぞ！',
+          'ハハハッ！　あといってでぶっとばしてやる！',
+        ],
+        aboutToLose: [
+          'ちょ、まて！　いまのはナシだろ！',
+          'くそっ！　まだおわっちゃいねぇぞ！',
+        ],
+        victory: 'ガハハハッ！　おれさまのかちだ！　ちからってのはな、さいごにモノをいうんだよ！',
+        defeat: 'ぐおおお……！　おれが……まけただと……？　つぎはぜったいぶっつぶす！',
+      } },
+    // Reused verbatim from line4 (original) except lines/linesKana — the
+    // sequel reveals this ladder's protagonist to BE 狂犬マスク (this same
+    // CHARACTERS roster's own LV3 boss), so ディーラー/アイドル now speak as
+    // former fellow performers on the first game's stage facing him as a
+    // challenger for the first time, instead of the original's generic
+    // "あなた" opponent dialogue. See STORY_LV6_LINES for the matching twist.
+    { level: 2, name: '黒衣のディーラー', stars: 3, img: 'chara/LV2.webp', emoji: '🃏',
+      desc: '冷静・知的な悪役', depth: 2, wildness: 0.25,
+      lines: {
+        normal: [
+          '……まさか、あなたが挑戦者側に回るとはね。',
+          'あの時は同じ舞台に立つ者同士でしたが……今日は勝負相手のようです。',
+          'なるほど。あなたは、そういう手を選ぶんですね。相変わらずだ。',
+          '面白い。かつてのお仲間が、どんな手を打つか見せてもらいましょう。',
+          '焦らなくても結構ですよ。時間はありますから。',
+        ],
+        aboutToWin: [
+          'チェックメイト……と言うには、まだ早いですかね。かつての狂犬も形無しか。',
+          'どうやら勝負の流れは、こちらに傾いたようですね。',
+        ],
+        aboutToLose: [
+          '……これは少々、計算が狂いましたね。さすが、あの舞台に立っていただけはある。',
+          'なるほど。そう来ましたか。実に興味深い。',
+        ],
+        victory: '勝負あり、ですね。かつてのお仲間とはいえ、手札はすべて見えていましたよ。',
+        defeat: '……私の読みを上回りましたか。お見事。まさか、あなたに負ける日が来るとはね。',
+      },
+      linesKana: {
+        normal: [
+          '……まさか、あなたがちょうせんしゃがわにまわるとはね。',
+          'あのときはおなじぶたいにたつものどうしでしたが……きょうはしょうぶあいてのようです。',
+          'なるほど。あなたは、そういうてをえらぶんですね。あいかわらずだ。',
+          'おもしろい。かつてのおなかまが、どんなてをうつかみせてもらいましょう。',
+          'あせらなくてもけっこうですよ。じかんはありますから。',
+        ],
+        aboutToWin: [
+          'チェックメイト……というには、まだはやいですかね。かつてのきょうけんもなしか。',
+          'どうやらしょうぶのながれは、こちらにかたむいたようですね。',
+        ],
+        aboutToLose: [
+          '……これはしょうしょう、けいさんがくるいましたね。さすが、あのぶたいにたっていただけはある。',
+          'なるほど。そうきましたか。じつにきょうみぶかい。',
+        ],
+        victory: 'しょうぶあり、ですね。かつてのおなかまとはいえ、てふだはすべてみえていましたよ。',
+        defeat: '……わたしのよみをうわまわりましたか。おみごと。まさか、あなたにまけるひがくるとはね。',
+      } },
+    { level: 3, name: '狂犬マスク', stars: 4, img: 'chara/LV3.webp', emoji: '🐺',
+      desc: '不気味で攻撃的', depth: 3, wildness: 0.15,
+      lines: {
+        normal: [
+          'ククク……そこに置くんだ？　へぇ……。',
+          'もっと来いよ。まだ全然足りねぇ。',
+          'その顔……いいねぇ。追い詰められてきた顔だ。',
+          '次はどこかな？　どこかなぁ？',
+          'ハハッ！　盤面がぐちゃぐちゃになってきたぜ！',
+        ],
+        aboutToWin: [
+          '見える……見えるぞ！　お前が負ける瞬間が！',
+          'ヒャハハハ！　あと一手だ！　逃げてみろよ！',
+        ],
+        aboutToLose: [
+          '……へぇ。やるじゃねぇか。',
+          'ハハッ……最高だ！　もっとギリギリまで来いよ！',
+        ],
+        victory: 'アハハハハ！　終わっちまった！　もっと遊びたかったのになぁ！',
+        defeat: '……負けた？　俺が？　ハハ……ハハハッ！　最高じゃねぇか！',
+      },
+      linesKana: {
+        normal: [
+          'ククク……そこにおくんだ？　へぇ……。',
+          'もっとこいよ。まだぜんぜんたりねぇ。',
+          'そのかお……いいねぇ。おいつめられてきたかおだ。',
+          'つぎはどこかな？　どこかなぁ？',
+          'ハハッ！　ばんめんがぐちゃぐちゃになってきたぜ！',
+        ],
+        aboutToWin: [
+          'みえる……みえるぞ！　おまえがまけるしゅんかんが！',
+          'ヒャハハハ！　あといってだ！　にげてみろよ！',
+        ],
+        aboutToLose: [
+          '……へぇ。やるじゃねぇか。',
+          'ハハッ……さいこうだ！　もっとギリギリまでこいよ！',
+        ],
+        victory: 'アハハハハ！　おわっちまった！　もっとあそびたかったのになぁ！',
+        defeat: '……まけた？　おれが？　ハハ……ハハハッ！　さいこうじゃねぇか！',
+      } },
+    { level: 4, name: '黒薔薇アイドル', stars: 4, img: 'chara/LV4.webp', emoji: '🌹',
+      desc: '美貌と妖しさを兼ね備えた人気者', depth: 4, wildness: 0.05,
+      lines: {
+        normal: [
+          'あら、久しぶり。まさかこっち側に来るなんて、思わなかったわ♡',
+          'ふふっ、前の舞台では同じ側だったのにね。今日は敵同士かぁ。',
+          '大丈夫。まだ負けたわけじゃないもの。',
+          'その手……前のあなたなら、どう指示してたのかしら？',
+          '勝負って、相手が変わるとこんなにドキドキするのね♡',
+        ],
+        aboutToWin: [
+          'うふふ……もう逃げられないわよ？　昔のよしみで手加減……はしないけどね♡',
+          'さあ、最後の一手よ。私をもっと楽しませて？',
+        ],
+        aboutToLose: [
+          '……あら？　ちょっと予定と違うわね。さすが、あの舞台に立ってた人は違うわ。',
+          'ふふっ……まだ私が笑ってる理由、分からない？',
+        ],
+        victory: 'みんなーっ！　勝ったよーっ♡ ……ねえ、昔のお仲間に勝つのって、ちょっと特別な気分。',
+        defeat: '……え？　私が……負けたの？　……ふふ、あなたにだけは、負けたくなかったのになぁ♡',
+      },
+      linesKana: {
+        normal: [
+          'あら、ひさしぶり。まさかこっちがわにくるなんて、おもわなかったわ♡',
+          'ふふっ、まえのぶたいではおなじがわだったのにね。きょうはてきどうしかぁ。',
+          'だいじょうぶ。まだまけたわけじゃないもの。',
+          'そのて……まえのあなたなら、どうしじしてたのかしら？',
+          'しょうぶって、あいてがかわるとこんなにドキドキするのね♡',
+        ],
+        aboutToWin: [
+          'うふふ……もうにげられないわよ？　むかしのよしみでかげん……はしないけどね♡',
+          'さあ、さいごのいってよ。わたしをもっとたのしませて？',
+        ],
+        aboutToLose: [
+          '……あら？　ちょっとよていとちがうわね。さすが、あのぶたいにたってたひとはちがうわ。',
+          'ふふっ……まだわたしがわらってるりゆう、わからない？',
+        ],
+        victory: 'みんなーっ！　かったよーっ♡ ……ねえ、むかしのおなかまにかつのって、ちょっととくべつなきぶん。',
+        defeat: '……え？　わたしが……まけたの？　……ふふ、あなたにだけは、まけたくなかったのになぁ♡',
+      } },
+    { level: 5, name: '傀儡師', stars: 5, img: 'chara/LV5.webp', emoji: '🎭',
+      desc: '名人・ラスボス。ゲーム盤そのものを操る', depth: 6, wildness: 0,
+      // LV5 only: lines are multi-speaker conversations between the puppeteer
+      // ("master") and his four puppets, instead of a single character's line.
+      // See PUPPETS/speakerName() for how `speaker` keys are rendered.
+      lines: {
+        normal: [
+          [
+            { speaker: 'master', text: 'さて……次は、誰に踊ってもらいましょうか。' },
+            { speaker: 'fox', text: 'ボクがいい！' },
+            { speaker: 'owl', text: 'お前は少し黙っていなさい。' },
+          ],
+          [
+            { speaker: 'owl', text: 'マスター、左です。左の手をお忘れなく。' },
+            { speaker: 'master', text: 'おや。私より先に気づきましたか。' },
+          ],
+          [
+            { speaker: 'mouse', text: '……あの……こっち、危ないと思う……。' },
+            { speaker: 'master', text: 'ふふ。ネズミの勘は、侮れませんからね。' },
+          ],
+          [
+            { speaker: 'badger', text: '……。' },
+            { speaker: 'master', text: 'どうしました？' },
+            { speaker: 'badger', text: '……勝てる。' },
+            { speaker: 'master', text: 'それは頼もしい。' },
+          ],
+          [
+            { speaker: 'fox', text: 'ねえねえ、あいつ、次どうすると思う？' },
+            { speaker: 'owl', text: '静かにしなさい。今、考えているところです。' },
+            { speaker: 'fox', text: 'じゃあボクは分かった！' },
+            { speaker: 'master', text: '……では、聞かせてもらいましょうか。' },
+          ],
+        ],
+        aboutToWin: [
+          [
+            { speaker: 'master', text: '……ほら。もう、糸が見えてきましたよ。' },
+            { speaker: 'owl', text: 'あと一手です。' },
+            { speaker: 'fox', text: 'やったー！' },
+            { speaker: 'badger', text: '……まだだ。' },
+            { speaker: 'mouse', text: '……うん。まだ。' },
+            { speaker: 'master', text: 'ふふ。慎重ですね。' },
+          ],
+          [
+            { speaker: 'master', text: 'さあ、最後の一手です。' },
+            { speaker: 'fox', text: 'もう勝った？' },
+            { speaker: 'owl', text: 'まだです。油断は禁物ですよ。' },
+            { speaker: 'mouse', text: '……でも、たぶん勝てる。' },
+            { speaker: 'badger', text: '……勝つ。' },
+            { speaker: 'master', text: '皆さん、ずいぶん気が早いようで。' },
+          ],
+        ],
+        aboutToLose: [
+          [
+            { speaker: 'mouse', text: '……マスター。' },
+            { speaker: 'master', text: 'ええ。分かっていますよ。' },
+            { speaker: 'owl', text: 'これは……なかなか。' },
+            { speaker: 'fox', text: 'えっ、ちょっと待って！　負けるの!?' },
+            { speaker: 'badger', text: '……まだ終わってない。' },
+            { speaker: 'master', text: 'その通りです。' },
+          ],
+          [
+            { speaker: 'owl', text: 'マスター。これは、予定外では？' },
+            { speaker: 'master', text: 'ええ。実に愉快な予定外です。' },
+            { speaker: 'fox', text: '全然愉快じゃないよ！' },
+            { speaker: 'badger', text: '……まだ打てる。' },
+            { speaker: 'mouse', text: '……一手、ある。' },
+            { speaker: 'master', text: 'なるほど。では、その一手に賭けてみましょう。' },
+          ],
+        ],
+        victory: [
+          { speaker: 'master', text: '……終幕です。' },
+          { speaker: 'owl', text: '見事な勝負でした。' },
+          { speaker: 'fox', text: 'やったー！　勝ったー！' },
+          { speaker: 'badger', text: '……当然。' },
+          { speaker: 'mouse', text: '……よかった。' },
+          { speaker: 'master', text: '皆さん、お疲れ様でした。では……次の舞台へ参りましょう。' },
+        ],
+        defeat: [
+          { speaker: 'fox', text: '……負けちゃった。' },
+          { speaker: 'owl', text: '認めましょう。完敗です。' },
+          { speaker: 'badger', text: '……強い。' },
+          { speaker: 'mouse', text: '……すごかった。' },
+          { speaker: 'master', text: '……ふふ。' },
+          { speaker: 'master', text: 'まさか、この私が操られるとはね。' },
+          { speaker: 'fox', text: 'えっ、マスターが人形になったの？' },
+          { speaker: 'master', text: '……それは、次の舞台でのお楽しみです。' },
+        ],
+      },
+      linesKana: {
+        normal: [
+          [
+            { speaker: 'master', text: 'さて……つぎは、だれにおどってもらいましょうか。' },
+            { speaker: 'fox', text: 'ボクがいい！' },
+            { speaker: 'owl', text: 'おまえはすこしだまっていなさい。' },
+          ],
+          [
+            { speaker: 'owl', text: 'マスター、ひだりです。ひだりのてをおわすれなく。' },
+            { speaker: 'master', text: 'おや。わたしよりさきにきづきましたか。' },
+          ],
+          [
+            { speaker: 'mouse', text: '……あの……こっち、あぶないとおもう……。' },
+            { speaker: 'master', text: 'ふふ。ネズミのかんは、あなどれませんからね。' },
+          ],
+          [
+            { speaker: 'badger', text: '……。' },
+            { speaker: 'master', text: 'どうしました？' },
+            { speaker: 'badger', text: '……かてる。' },
+            { speaker: 'master', text: 'それはたのもしい。' },
+          ],
+          [
+            { speaker: 'fox', text: 'ねえねえ、あいつ、つぎどうするとおもう？' },
+            { speaker: 'owl', text: 'しずかにしなさい。いま、かんがえているところです。' },
+            { speaker: 'fox', text: 'じゃあボクはわかった！' },
+            { speaker: 'master', text: '……では、きかせてもらいましょうか。' },
+          ],
+        ],
+        aboutToWin: [
+          [
+            { speaker: 'master', text: '……ほら。もう、いとがみえてきましたよ。' },
+            { speaker: 'owl', text: 'あといってです。' },
+            { speaker: 'fox', text: 'やったー！' },
+            { speaker: 'badger', text: '……まだだ。' },
+            { speaker: 'mouse', text: '……うん。まだ。' },
+            { speaker: 'master', text: 'ふふ。しんちょうですね。' },
+          ],
+          [
+            { speaker: 'master', text: 'さあ、さいごのいってです。' },
+            { speaker: 'fox', text: 'もうかった？' },
+            { speaker: 'owl', text: 'まだです。ゆだんはきんもつですよ。' },
+            { speaker: 'mouse', text: '……でも、たぶんかてる。' },
+            { speaker: 'badger', text: '……かつ。' },
+            { speaker: 'master', text: 'みなさん、ずいぶんきがはやいようで。' },
+          ],
+        ],
+        aboutToLose: [
+          [
+            { speaker: 'mouse', text: '……マスター。' },
+            { speaker: 'master', text: 'ええ。わかっていますよ。' },
+            { speaker: 'owl', text: 'これは……なかなか。' },
+            { speaker: 'fox', text: 'えっ、ちょっとまって！　まけるの!?' },
+            { speaker: 'badger', text: '……まだおわってない。' },
+            { speaker: 'master', text: 'そのとおりです。' },
+          ],
+          [
+            { speaker: 'owl', text: 'マスター。これは、よていがいでは？' },
+            { speaker: 'master', text: 'ええ。じつにゆかいなよていがいです。' },
+            { speaker: 'fox', text: 'ぜんぜんゆかいじゃないよ！' },
+            { speaker: 'badger', text: '……まだうてる。' },
+            { speaker: 'mouse', text: '……いって、ある。' },
+            { speaker: 'master', text: 'なるほど。では、そのいってにかけてみましょう。' },
+          ],
+        ],
+        victory: [
+          { speaker: 'master', text: '……しゅうまくです。' },
+          { speaker: 'owl', text: 'みごとなしょうぶでした。' },
+          { speaker: 'fox', text: 'やったー！　かったー！' },
+          { speaker: 'badger', text: '……とうぜん。' },
+          { speaker: 'mouse', text: '……よかった。' },
+          { speaker: 'master', text: 'みなさん、おつかれさまでした。では……つぎのぶたいへまいりましょう。' },
+        ],
+        defeat: [
+          { speaker: 'fox', text: '……まけちゃった。' },
+          { speaker: 'owl', text: 'みとめましょう。かんぱいです。' },
+          { speaker: 'badger', text: '……つよい。' },
+          { speaker: 'mouse', text: '……すごかった。' },
+          { speaker: 'master', text: '……ふふ。' },
+          { speaker: 'master', text: 'まさか、このわたしがあやつられるとはね。' },
+          { speaker: 'fox', text: 'えっ、マスターがにんぎょうになったの？' },
+          { speaker: 'master', text: '……それは、つぎのぶたいでのおたのしみです。' },
+        ],
+      } },
+  ];
+
+  // ---------- Sequel CPU ladder: 6 stages, 2 CPU opponents each (3-player
+  // free-for-all vs. the human on player 1) ----------
+  // LV1/LV2/LV6 are new characters the game creator hasn't designed yet —
+  // dummy/placeholder entries (emoji only, no art, minimal lines) stand in
+  // until real art/dialogue replaces them. LV3/LV4/LV5 reuse the original
+  // cast (CHARACTERS' original LV1/LV2/LV4) under their stage-appropriate
+  // slot instead — img/desc/lines all carry over unchanged.
+  // avatarPosition is an optional CSS object-position override, applied
+  // inline wherever this art is cover-cropped (mode-label icon, turn avatar,
+  // result portrait). Per-character tuning turned out to be a maintenance
+  // trap (one value per new character, easy to get wrong), so the shared
+  // default is now 'left top' everywhere and — by art convention — every
+  // character is drawn facing left with the face at the top-left of its own
+  // canvas, so the plain default should just work without an override. Only
+  // pass this when a specific character's source art doesn't follow that
+  // convention (e.g. クロッキー below, whose face sits lower in its canvas).
+  // lines/linesKana are optional — omitted entirely (as for the LV6
+  // gatekeepers, still undesigned) falls back to a generic placeholder voice.
+  function makeDummyChar(name, emoji, depth, wildness, img, avatarPosition, lines, linesKana) {
+    return {
+      // Falls back to a deliberately-missing path when no real art exists
+      // yet, so every onerror fallback (avatar, background, portrait)
+      // reliably swaps to the emoji glyph instead of relying on
+      // browser-inconsistent behavior for src="".
+      name, stars: 1, img: img || 'chara/__placeholder__.webp', emoji, avatarPosition, desc: '（新キャラ・デザイン未定）', depth, wildness,
+      lines: lines || {
+        normal: ['……。', 'ふふ……。'],
+        aboutToWin: ['……もう終わりだよ。'],
+        aboutToLose: ['……くっ。'],
+        victory: '……勝った。',
+        defeat: '……負けた……？',
+      },
+      linesKana: linesKana || {
+        normal: ['……。', 'ふふ……。'],
+        aboutToWin: ['……もうおわりだよ。'],
+        aboutToLose: ['……くっ。'],
+        victory: '……かった。',
+        defeat: '……まけた……？',
+      },
+    };
+  }
+
+  // Same 4 animals as line4's original puppet-master finale (きつね/ねずみ/
+  // あなぐま/ふくろう) — voice and personality carried over from there
+  // (フェネック=fox: energetic/childish; クロッキー=mouse: shy/hesitant;
+  // バドリング=badger: terse/stoic; ノクチュア=owl: calm/formal, a bit
+  // scolding), just recast from puppets reacting to a master's moves into
+  // direct 1-on-1 opponents in the CHARACTERS-style "normal/aboutToWin/
+  // aboutToLose/victory/defeat" format.
+  const MARIONETTE_LV1_A = makeDummyChar('フェネック', '🦊', 1, 0.5, 'chara/marionette_fennec.webp', null, {
+    normal: [
+      'えいっ！　ボクはここに置くよ！',
+      'ねえねえ、次はどこに来ると思う？',
+      'むむっ、そこに来たか！　でもボクも負けないよ！',
+      'わーい、盤面がにぎやかになってきた！',
+      'ボクの番だね！　よーし……えいっ！',
+    ],
+    aboutToWin: ['やった、これで勝てるかも！？', '見て見て！　あと少しでボクの勝ちだよ！'],
+    aboutToLose: ['ええっ、ちょっと待って！？　そんな……！', 'うわーん、このままじゃ負けちゃうよ……！'],
+    victory: 'やったー！　ボクの勝ちー！　えへへ、どう、すごいでしょ！',
+    defeat: '……負けちゃった。でも次は絶対勝つもん！',
+  }, {
+    normal: [
+      'えいっ！　ボクはここにおくよ！',
+      'ねえねえ、つぎはどこにくるとおもう？',
+      'むむっ、そこにきたか！　でもボクもまけないよ！',
+      'わーい、ばんめんがにぎやかになってきた！',
+      'ボクのばんだね！　よーし……えいっ！',
+    ],
+    aboutToWin: ['やった、これでかてるかも！？', 'みてみて！　あとすこしでボクのかちだよ！'],
+    aboutToLose: ['ええっ、ちょっとまって！？　そんな……！', 'うわーん、このままじゃまけちゃうよ……！'],
+    victory: 'やったー！　ボクのかちー！　えへへ、どう、すごいでしょ！',
+    defeat: '……まけちゃった。でもつぎはぜったいかつもん！',
+  });
+  const MARIONETTE_LV1_B = makeDummyChar('クロッキー', '🐭', 1, 0.5, 'chara/marionette_mouse.webp', '32% 58%', {
+    normal: [
+      '……あの、そこに置いても、いい……？',
+      '……ちょっと、ドキドキする……。',
+      '……ここ、かな……。たぶん、これでいい、はず……。',
+      '……あなたの手、少し、こわい……。',
+      '……えっと……うん、これで、いってみる……。',
+    ],
+    aboutToWin: ['……あと少し、かも……。', '……勝てる、と思う……たぶん……。'],
+    aboutToLose: ['……あ……これ、まずいかも……。', '……どうしよう……負けちゃいそう……。'],
+    victory: '……よかった……勝てた……。',
+    defeat: '……負けちゃった……。でも、頑張った……と思う……。',
+  }, {
+    normal: [
+      '……あの、そこにおいても、いい……？',
+      '……ちょっと、ドキドキする……。',
+      '……ここ、かな……。たぶん、これでいい、はず……。',
+      '……あなたのて、すこし、こわい……。',
+      '……えっと……うん、これで、いってみる……。',
+    ],
+    aboutToWin: ['……あとすこし、かも……。', '……かてる、とおもう……たぶん……。'],
+    aboutToLose: ['……あ……これ、まずいかも……。', '……どうしよう……まけちゃいそう……。'],
+    victory: '……よかった……かてた……。',
+    defeat: '……まけちゃった……。でも、がんばった……とおもう……。',
+  });
+  // Multiple LV2 variants so stage 3's "LV2(ランダム選択)" slot has something
+  // to pick from; stage 2 ("LV2+LV2") just uses both of them together.
+  const MARIONETTE_LV2_POOL = [
+    makeDummyChar('バドリング', '🦡', 2, 0.35, 'chara/marionette_badger.webp', null, {
+      normal: ['……そこか。', '……悪くない。', '……次だ。', '……見えている。', '……いく。'],
+      aboutToWin: ['……勝てる。', '……もう、終わりだ。'],
+      aboutToLose: ['……まずい。', '……まだ、終わってない。'],
+      victory: '……当然だ。',
+      defeat: '……強い。だが、次は勝つ。',
+    }, {
+      normal: ['……そこか。', '……わるくない。', '……つぎだ。', '……みえている。', '……いく。'],
+      aboutToWin: ['……かてる。', '……もう、おわりだ。'],
+      aboutToLose: ['……まずい。', '……まだ、おわってない。'],
+      victory: '……とうぜんだ。',
+      defeat: '……つよい。だが、つぎはかつ。',
+    }),
+    makeDummyChar('ノクチュア', '🦉', 2, 0.35, 'chara/marionette_owl.webp', null, {
+      normal: [
+        'なるほど。その一手を選びましたか。',
+        '冷静に見極めれば、答えは自ずと見えてきます。',
+        '焦りは禁物ですよ。ゆっくり、まいりましょう。',
+        'ふむ、興味深い配置ですね。',
+        'では、こちらの手はいかがでしょう。',
+      ],
+      aboutToWin: ['あと一手です。油断はしませんが。', '勝負の流れは、こちらに傾いたようですね。'],
+      aboutToLose: ['……これは、少々厄介ですね。', 'ふむ。予定外の一手です。'],
+      victory: '見事な勝負でした。……とはいえ、この結果は必然です。',
+      defeat: '……認めましょう。完敗です。次はこうはいきません。',
+    }, {
+      normal: [
+        'なるほど。そのいってをえらびましたか。',
+        'れいせいにみきわめれば、こたえはおのずとみえてきます。',
+        'あせりはきんもつですよ。ゆっくり、まいりましょう。',
+        'ふむ、きょうみぶかいはいちですね。',
+        'では、こちらのてはいかがでしょう。',
+      ],
+      aboutToWin: ['あといってです。ゆだんはしませんが。', 'しょうぶのながれは、こちらにかたむいたようですね。'],
+      aboutToLose: ['……これは、しょうしょうやっかいですね。', 'ふむ。よていがいのいってです。'],
+      victory: 'みごとなしょうぶでした。……とはいえ、このけっかはひつぜんです。',
+      defeat: '……みとめましょう。かんぱいです。つぎはこうはいきません。',
+    }),
+  ];
+  // Voice carried over from STORY_LV6_LINES — 獣 is blunt/impatient and keeps
+  // trying to shove 影 out of the way and take the kill himself; 影 stays
+  // composed and openly treats 獣's recklessness as a tool/decoy he exploits.
+  const GATEKEEPER_A = makeDummyChar('影の門番', '🌑', 5, 0.05, 'chara/gatekeeper_shadow.webp', null, {
+    normal: [
+      '……なるほど、そう来ますか。',
+      '獣、そのまま好きに暴れていなさい。私はその隙を使うだけです。',
+      '盤面はもう、私の中で出来上がっています。',
+      '焦る必要はありません。すべては計算の内です。',
+      '……次の一手、見えましたよ。',
+    ],
+    aboutToWin: ['終わりです。……獣、良い囮になりましたね。', 'この盤は、もう私のものです。'],
+    aboutToLose: ['……ふむ、少々予定が狂いましたね。', '獣、余計な手出しはしないでください……いえ、私が調整しましょう。'],
+    victory: '……終幕です。獣、あなたの乱暴も、少しは役に立ちましたよ。',
+    defeat: '……これは、誤算でした。獣、次があるなら・・',
+  }, {
+    normal: [
+      '……なるほど、そうきますか。',
+      'けもの、そのまますきにあばれていなさい。わたしはそのすきをつかうだけです。',
+      'ばんめんはもう、わたしのなかでできあがっています。',
+      'あせるひつようはありません。すべてはけいさんのうちです。',
+      '……つぎのいって、みえましたよ。',
+    ],
+    aboutToWin: ['おわりです。……けもの、よいおとりになりましたね。', 'このばんは、もうわたしのものです。'],
+    aboutToLose: ['……ふむ、しょうしょうよていがくるいましたね。', 'けもの、よけいなてだしはしないでください……いえ、わたしがちょうせいしましょう。'],
+    victory: '……しゅうまくです。けもの、あなたのらんぼうも、すこしはやくにたちましたよ。',
+    defeat: '……これは、ごさんでした。けもの、つぎがあるなら・・',
+  });
+  const GATEKEEPER_B = makeDummyChar('獣の門番', '🐺', 5, 0.05, 'chara/gatekeeper_beast.webp', null, {
+    normal: [
+      'そこか！　俺が叩き潰す！',
+      '影、退け。ここは俺の獲物だ。',
+      '小細工はいらねぇ。力でねじ伏せる！',
+      'ふん、甘く見るなよ。',
+      '行くぞ！　次はここだ！',
+    ],
+    aboutToWin: ['見たか！　これで終わりだ！', '影の出る幕はねぇ。俺だけで十分だ！'],
+    aboutToLose: ['くっ……このタイミングでか！', '影、何をボサッとしてやがる……いや、自分でなんとかする！'],
+    victory: '俺の勝ちだ！　……影？　お前の入る隙間なんて、端からなかったな。',
+    defeat: 'くそっ……まさか、俺が……。影、笑うなよ。',
+  }, {
+    normal: [
+      'そこか！　おれがたたきつぶす！',
+      'かげ、どけ。ここはおれのえものだ。',
+      'こざいくはいらねぇ。ちからでねじふせる！',
+      'ふん、あまくみるなよ。',
+      'いくぞ！　つぎはここだ！',
+    ],
+    aboutToWin: ['みたか！　これでおわりだ！', 'かげのでるまくはねぇ。おれだけでじゅうぶんだ！'],
+    aboutToLose: ['くっ……このタイミングでか！', 'かげ、なにをボサッとしてやがる……いや、じぶんでなんとかする！'],
+    victory: 'おれのかちだ！　……かげ？　おまえのはいるすきまなんて、はなからなかったな。',
+    defeat: 'くそっ……まさか、おれが……。かげ、わらうなよ。',
+  });
+
+  const STRIKER = CHARACTERS.find(c => c.level === 1); // 荒くれストライカー
+  const DEALER = CHARACTERS.find(c => c.level === 2);  // 黒衣のディーラー
+  const IDOL = CHARACTERS.find(c => c.level === 4);    // 黒薔薇アイドル
+
+  // Each entry is a function (not a fixed pair) so the LV2 slot can roll a
+  // fresh random pick from its pool every time stage 3 is (re)played.
+  const STAGES = [
+    () => [MARIONETTE_LV1_A, MARIONETTE_LV1_B],
+    () => [MARIONETTE_LV2_POOL[0], MARIONETTE_LV2_POOL[1]],
+    () => [MARIONETTE_LV2_POOL[Math.floor(Math.random() * MARIONETTE_LV2_POOL.length)], STRIKER],
+    () => [STRIKER, DEALER],
+    () => [DEALER, IDOL],
+    () => [GATEKEEPER_A, GATEKEEPER_B],
+  ];
+
+  const PUPPETS = {
+    fox: '🦊 きつね',
+    owl: '🦉 ふくろう',
+    mouse: '🐭 ねずみ',
+    badger: '🦡 あなぐま',
+  };
+  function speakerName(ch, speakerKey) {
+    return speakerKey === 'master' ? ch.name : (PUPPETS[speakerKey] || speakerKey);
+  }
+
+  let grid, currentPlayer, gameOver, cellEls;
+  let scores = { 1: 0, 2: 0, 3: 0 };
+  let mode = 'pvp'; // 'pvp' | 'cpu' | 'online'
+  let stageOpponents = [null, null]; // [player2's char, player3's char] for the current CPU stage
+  let ladderIndex = 0; // index into STAGES (0-5) for the current CPU ladder run
+  function charForPlayer(player) {
+    if (player === 2) return stageOpponents[0];
+    if (player === 3) return stageOpponents[1];
+    return null;
+  }
+  let cpuThinking = false;
+  let online = null; // { code, token, myPlayer, rev, timer, busy } while in an online match
+  // Pending setTimeout that will call handleLadderOutcome() after a CPU
+  // match's win/lose/draw line finishes playing. Must be cancelled by
+  // initGame() — otherwise clicking "retry" while it's still pending lets it
+  // fire mid-way through the NEW match and pop up a stale result overlay.
+  let ladderOutcomeTimer = null;
+
+  // ---------- Title screen wiring ----------
+  function starString(n) {
+    return '★'.repeat(n) + '☆'.repeat(5 - n);
+  }
+
+  pvpBtn.addEventListener('click', () => { SoundMgr.seClick(); startGame('pvp'); });
+  cpuBtn.addEventListener('click', () => { SoundMgr.seClick(); startLadder(); });
+
+  function startLadder() {
+    ladderIndex = 0;
+    stageOpponents = STAGES[0]();
+    maybeShowStory(0, () => startGame('cpu'));
+  }
+
+  // Shown once every time a fresh CPU ladder run begins, before LV1's match
+  // starts — click anywhere to advance line by line; startGame() only runs
+  // once the last line has been dismissed.
+  const STORY_LV1_LINES = [
+    '___',
+    '塔の一室。',
+    'マスクをした男が一人、床に座っている。',
+    '頭の中に響いていた声が消えている。',
+    '俺は・・いったい・・',
+    '混乱する頭に先ほど現れたフクロウの人形の言葉が響いた。',
+    'この塔にしばられた自分は、外に出るため、ゲームに勝利しなければならない、と。',
+    'まずはこの人形どもを倒して辛気臭い塔から出る。それだけだ。'
+  ];
+  // 塔の門番 (LV6) confrontation script — the protagonist's in-story name,
+  // 狂犬マスク, appears here for the first time (the title-screen name field
+  // is a separate, player-chosen display name; see DEFAULT_PLAYER_NAME).
+  const STORY_LV6_LINES = [
+    '獣の門番 「……来たか。」',
+    '影の門番 「随分と遅かったな。」',
+    '狂犬マスク 「道を塞いでんのは、お前らか。」',
+    '獣の門番 「俺が止める。」',
+    '影の門番 「いや、私が止める。」',
+    '獣の門番 「お前に任せれば、日が暮れる。」',
+    '影の門番 「お前に任せれば、盤面が壊れる。」',
+    '狂犬マスク 「……。」',
+    '狂犬マスク 「お前ら、仲悪いのか？」',
+    '獣の門番「別に。」\n影の門番 「別に。」',
+    '狂犬マスク 「……そうかよ。」',
+    '獣の門番 「ならば、どちらが奴を止めるか決めよう。」',
+    '影の門番 「同意する。」',
+    '狂犬マスク 「ゲームで決めるってか。」',
+    '獣の門番 「それが、この塔のやり方だ。」',
+    '影の門番 「三人で戦う。」',
+    '狂犬マスク 「三人……？」',
+    '獣の門番 「俺と、こいつと、お前だ。」',
+    '影の門番 「勝った者が、この先へ進む。」',
+    '狂犬マスク 「なるほどな。」',
+    '狂犬マスク 「だったら、まとめて相手してやる。」',
+    '獣の門番 「言うようになったな。」',
+    '影の門番 「では始めよう。」',
+    '獣の門番 「俺が勝つ。」',
+    '影の門番 「それは私の台詞だ。」',
+    '狂犬マスク 「……どっちでもいい。\n最後に立ってりゃ、それでいい。」',
+  ];
+  // Keyed by ladder stage index (0-5), not level number, to match STAGES/ladderIndex.
+  // `bg` is optional — omitted (as for LV1) just keeps #storyOverlay's plain
+  // black background; a dark scrim is layered under the text either way so
+  // it stays readable over a busy image like LV6's gate scene.
+  const STORY_BY_STAGE = {
+    0: { lines: STORY_LV1_LINES },
+    [STAGES.length - 1]: { lines: STORY_LV6_LINES, bg: 'story_lv6.webp' },
+  };
+  let storyLineIndex = 0;
+  let storyTransitioning = false;
+  const STORY_FADE_MS = 400; // must match #storyText's transition duration
+  // Double rAF: forces the browser to register the opacity:0 state (class
+  // just removed/absent) as a real paint before adding it back, otherwise
+  // the two changes can collapse into one and the fade silently never plays.
+  function fadeStoryTextIn(textEl) {
+    requestAnimationFrame(() => requestAnimationFrame(() => textEl.classList.add('show')));
+  }
+  // Looks up STORY_BY_STAGE for the given ladder stage index — shows the
+  // story and defers onDone until it's dismissed, or just calls onDone
+  // immediately for a stage with no story of its own (LV2-5, for now).
+  function maybeShowStory(stageIndex, onDone) {
+    const story = STORY_BY_STAGE[stageIndex];
+    if (!story) { onDone(); return; }
+    showStoryScreen(story, onDone);
+  }
+  function showStoryScreen({ lines, bg }, onDone) {
+    const overlay = document.getElementById('storyOverlay');
+    const textEl = document.getElementById('storyText');
+    storyLineIndex = 0;
+    storyTransitioning = false;
+    textEl.textContent = lines[0];
+    textEl.classList.remove('show');
+    overlay.style.backgroundImage = bg
+      ? `linear-gradient(rgba(0,0,0,0.55), rgba(0,0,0,0.55)), url('${bg}')`
+      : '';
+    overlay.classList.remove('hidden');
+    fadeStoryTextIn(textEl);
+    overlay.onclick = () => {
+      if (storyTransitioning) return; // ignore clicks mid-fade
+      SoundMgr.seClick();
+      storyTransitioning = true;
+      textEl.classList.remove('show'); // fade out the current line
+      setTimeout(() => {
+        storyLineIndex++;
+        if (storyLineIndex >= lines.length) {
+          overlay.classList.add('hidden');
+          overlay.onclick = null;
+          onDone();
+          return;
+        }
+        textEl.textContent = lines[storyLineIndex];
+        storyTransitioning = false;
+        fadeStoryTextIn(textEl); // fade in the next line
+      }, STORY_FADE_MS);
+    };
+  }
+
+  // ---------- Online multiplayer (friend invite via room code / URL) ----------
+  // Server is authoritative: the Worker (src/line4-online.js) owns the grid,
+  // turn order and win/draw detection in a dedicated D1 database. This client
+  // only ever sends "I choose column N" and renders whatever state comes back
+  // — it never decides a win/turn locally the way the pvp/cpu modes do.
+  const ONLINE_API = '/api/line4-second';
+  const ONLINE_POLL_MS = 1300;
+
+  // Mirrors TURN_TIMEOUT_MS / the 30s warning point in src/line4-online.js —
+  // the server is what actually enforces the forfeit (checked lazily on the
+  // next /state poll from either side); this is purely the countdown display.
+  const TURN_TIMEOUT_MS = 60000;
+  const TURN_TIMEOUT_WARNING_MS = 30000;
+  // How long the post-game emote/leave window stays open — mirrors (and
+  // must stay a bit under) FINISHED_ROOM_GRACE_MS in src/line4-online.js.
+  const POST_GAME_WINDOW_MS = 30000;
+
+  // #resultOverlay is a direct child of <body>, but #onlineEmoteBar normally
+  // lives inside .page-content (position:relative + z-index:1, its own
+  // stacking context) — so no z-index on the emote bar, however high, could
+  // ever out-rank the overlay; it only LOOKED like it was on top while
+  // actually eating no clicks (confirmed via elementFromPoint). Reparenting
+  // it to <body> during the post-game window makes it a real sibling of
+  // #resultOverlay so z-index:7 vs 6 finally applies, then it's moved back
+  // next to the board once the window ends.
+  function pinEmoteBarForPostGame() {
+    document.body.appendChild(document.getElementById('onlineEmoteBar'));
+  }
+  function restoreEmoteBarPosition() {
+    document.getElementById('board-wrap').insertAdjacentElement('afterend', document.getElementById('onlineEmoteBar'));
+  }
+
+  // Called from the finished/leave room after either a decisive win/loss/draw:
+  // stops the post-game countdown, tears down the emote bar's temporary
+  // "postgame" positioning, and returns to the title screen. If *I* was the
+  // winner, also tells the server so the room frees up immediately instead
+  // of waiting for FINISHED_ROOM_GRACE_MS — a loser leaving needs no such
+  // call (the winner might still request a rematch), so this is skipped
+  // when online.wonLastMatch is falsy. Fire-and-forget: the values are read
+  // synchronously before goToTitle() clears `online`, so it's safe even
+  // though the request itself resolves after we've already left.
+  function leavePostGameRoom() {
+    if (online) {
+      online.postGameDeadline = null;
+      if (online.wonLastMatch) {
+        apiPost(`/room/${online.code}/leave`, { token: online.token }).catch(() => {});
+      }
+    }
+    document.getElementById('resultOverlay').classList.add('hidden');
+    goToTitle();
+  }
+
+  function tickPostGameCountdown() {
+    const noteEl = document.getElementById('resultNote');
+    if (mode !== 'online' || !online || !online.postGameDeadline) {
+      noteEl.textContent = '';
+      return;
+    }
+    const remaining = online.postGameDeadline - Date.now();
+    if (remaining <= 0) {
+      leavePostGameRoom();
+      return;
+    }
+    const seconds = Math.ceil(remaining / 1000);
+    noteEl.textContent = `⏱ ${K(`あと${seconds}秒で退室します`, `あと${seconds}びょうでたいしゅつします`)}`;
+  }
+
+  setInterval(() => {
+    tickPostGameCountdown();
+    const warnEl = document.getElementById('turnTimeoutWarning');
+    if (mode !== 'online' || !online || gameOver || !online.turnStartedAt) {
+      warnEl.classList.add('hidden');
+      return;
+    }
+    const remaining = TURN_TIMEOUT_MS - (Date.now() - online.turnStartedAt);
+    if (remaining <= 0 || remaining > TURN_TIMEOUT_WARNING_MS) {
+      warnEl.classList.add('hidden');
+      return;
+    }
+    const seconds = Math.ceil(remaining / 1000);
+    const isMyTurn = currentPlayer === online.myPlayer;
+    // With 3 players an AFK turn is skipped (not a forfeit — see
+    // resolveTimeout() in line4-second-online.js), so this names whichever
+    // opponent is stalling rather than claiming a win is coming.
+    const afkName = onlineNameFor(currentPlayer);
+    warnEl.textContent = isMyTurn
+      ? `⏱ ${K(`あと${seconds}秒で時間切れになります`, `あと${seconds}びょうでじかんぎれになります`)}`
+      : `⏱ ${K(`${afkName}さんが操作していません…あと${seconds}秒で番が飛ばされます`, `${afkName}さんがそうさしていません…あと${seconds}びょうでばんがとばされます`)}`;
+    warnEl.classList.remove('hidden');
+  }, 1000);
+
+  const onlineScreenEl = document.getElementById('onlineScreen');
+  const onlineMenuEl = document.getElementById('onlineMenu');
+  const onlineWaitingEl = document.getElementById('onlineWaiting');
+  const onlineErrorEl = document.getElementById('onlineError');
+  const onlineRoomCodeEl = document.getElementById('onlineRoomCode');
+  const onlineJoinCodeEl = document.getElementById('onlineJoinCode');
+
+  async function apiPost(path, body) {
+    const res = await fetch(ONLINE_API + path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {}),
+    });
+    return res.json();
+  }
+  async function apiGet(path) {
+    const res = await fetch(ONLINE_API + path);
+    return res.json();
+  }
+
+  // 赤/黄/緑 — matches --p1/--p2/--p3 and the color each player's disc uses.
+  function onlineColorLabel(playerNum) {
+    return playerNum === 1 ? K('赤', 'あか') : playerNum === 2 ? K('黄', 'き') : K('緑', 'みどり');
+  }
+
+  function onlineErrorMessages() {
+    return {
+      room_not_found: K('部屋が見つかりませんでした。コードを確認してください。', 'へやがみつかりませんでした。コードをかくにんしてください。'),
+      room_full: K('その部屋は現在対戦中です。', 'そのへやはげんざいたいせんちゅうです。'),
+      invalid_body: K('コードを入力してください。', 'コードをにゅうりょくしてください。'),
+      server_error: K('通信エラーが発生しました。もう一度お試しください。', 'つうしんエラーがはっせいしました。もういちどおためしください。'),
+    };
+  }
+  // "3分12秒" / "45秒" — used only for the room_full detail message below.
+  function formatElapsed(ms) {
+    const totalSec = Math.max(0, Math.floor(ms / 1000));
+    const min = Math.floor(totalSec / 60);
+    const sec = totalSec % 60;
+    if (min <= 0) return K(`${sec}秒`, `${sec}びょう`);
+    return K(`${min}分${sec}秒`, `${min}ふん${sec}びょう`);
+  }
+  // room_full carries the occupied room's state (names/streaks/match start
+  // time) so we can tell a blocked joiner who's playing instead of just
+  // "in use" — falls back to the plain message if state is missing.
+  function roomFullDetailMessage(state) {
+    if (!state || !state.p1Name || !state.p2Name || !state.p3Name) return null;
+    const entries = [
+      { name: state.p1Name, streak: state.p1Streak },
+      { name: state.p2Name, streak: state.p2Streak },
+      { name: state.p3Name, streak: state.p3Streak },
+    ];
+    let msg = `${entries.map((e) => e.name).join(K('さん、', 'さん、'))}${K('さんが対戦中', 'さんがたいせんちゅう')}`;
+    const parts = [];
+    if (state.matchStartedAt) {
+      parts.push(`${K('経過', 'けいか')}${formatElapsed(Date.now() - state.matchStartedAt)}`);
+    }
+    const leader = entries.reduce((a, b) => (b.streak > a.streak ? b : a));
+    if (leader.streak > 0) {
+      parts.push(`${leader.name}${K('さんが', 'さんが')}${leader.streak}${K('連勝中', 'れんしょうちゅう')}`);
+    }
+    if (parts.length) msg += `（${parts.join('／')}）`;
+    return msg;
+  }
+  function showOnlineError(code, res) {
+    const detail = code === 'room_full' && res && roomFullDetailMessage(res.state);
+    onlineErrorEl.textContent = detail || onlineErrorMessages()[code] || onlineErrorMessages().server_error;
+  }
+  function clearOnlineError() {
+    onlineErrorEl.textContent = '';
+  }
+
+  function showOnlineMenu() {
+    stopOnlinePolling();
+    online = null;
+    onlineWaitingEl.classList.add('hidden');
+    hideJoinConfirm();
+    onlineMenuEl.classList.remove('hidden');
+    clearOnlineError();
+  }
+
+  function goToOnlineScreen() {
+    titleScreen.classList.add('hidden');
+    onlineScreenEl.classList.remove('hidden');
+    showOnlineMenu();
+  }
+
+  onlineBtn.addEventListener('click', () => { SoundMgr.seClick(); goToOnlineScreen(); });
+  document.getElementById('onlineBackBtn').addEventListener('click', () => {
+    SoundMgr.seClick();
+    onlineScreenEl.classList.add('hidden');
+    titleScreen.classList.remove('hidden');
+  });
+  document.getElementById('onlineCancelBtn').addEventListener('click', () => {
+    SoundMgr.seClick();
+    // Waiting for a *new challenger* after a win is a different context than
+    // waiting right after creating a room — cancelling there should abandon
+    // the streak and go home, not drop into the create/join menu.
+    if (online && online.awaitingRematch) goToTitle();
+    else showOnlineMenu();
+  });
+
+  function inviteUrl(code) {
+    const url = new URL(location.href);
+    url.search = '?room=' + code;
+    return url.toString();
+  }
+
+  document.getElementById('onlineCopyBtn').addEventListener('click', async (e) => {
+    SoundMgr.seClick();
+    const url = inviteUrl(online.code);
+    const btn = e.currentTarget;
+    try {
+      await navigator.clipboard.writeText(url);
+      const original = btn.textContent;
+      btn.textContent = 'コピーしました！';
+      setTimeout(() => { btn.textContent = original; }, 1500);
+    } catch (err) {
+      window.prompt('このURLをコピーして送ってください:', url);
+    }
+  });
+
+  async function createOnlineRoom() {
+    clearOnlineError();
+    const res = await apiPost('/room', { name: getPlayerName() });
+    if (!res.ok) { showOnlineError(res.error); return; }
+    online = { code: res.code, token: res.token, myPlayer: 1, rev: res.state.rev, emoteRev: res.state.emoteRev || 0, timer: null, busy: false, awaitingRematch: false, waitingPrefix: '', askedCpuFallback: false };
+    onlineMenuEl.classList.add('hidden');
+    onlineWaitingEl.classList.remove('hidden');
+    onlineRoomCodeEl.textContent = res.code;
+    updateWaitingText(1);
+    pollForOpponent();
+  }
+
+  // "N/3人" — shown while a room waits for the other two seats to fill, both
+  // right after creating a room and after a win (requestRematch), where
+  // waitingPrefix carries the streak message in the latter case.
+  function updateWaitingText(filled) {
+    const prefix = (online && online.waitingPrefix) || '';
+    document.getElementById('onlineWaitingText').textContent =
+      `${prefix}${K(`対戦相手を待っています…（${filled}/3人）`, `たいせんあいてをまっています…（${filled}/3にん）`)}`;
+  }
+
+  // Used both right after creating a room (waiting for p2/p3) and after a
+  // win, once the winner opts to stay (waiting for two new challengers to
+  // fill the two slots the losers just vacated) — so it just watches for the
+  // room going back to 'playing' (all three seats filled) rather than
+  // checking any specific slot.
+  function pollForOpponent() {
+    online.timer = setInterval(async () => {
+      if (!online) return;
+      try {
+        const res = await apiGet(`/room/${online.code}/state`);
+        if (!res.ok) return;
+        if (res.state.status === 'playing') {
+          stopOnlinePolling();
+          beginOnlineMatch(res.state);
+          return;
+        }
+        const filled = [res.state.hasP1, res.state.hasP2, res.state.hasP3].filter(Boolean).length;
+        updateWaitingText(filled);
+        // Only the room's creator (myPlayer 1) gets asked, and only once per
+        // wait — a friend has just filled the 2nd seat, so offer to skip
+        // waiting for a 3rd human and let a CPU take the last seat instead.
+        if (online.myPlayer === 1 && filled === 2 && !online.askedCpuFallback) {
+          online.askedCpuFallback = true;
+          stopOnlinePolling();
+          promptCpuFallback();
+        }
+      } catch (e) { /* transient — try again next tick */ }
+    }, ONLINE_POLL_MS);
+  }
+
+  function promptCpuFallback() {
+    showResultOverlay({
+      title: K('もう一人待ちますか？', 'もうひとりまちますか？'),
+      message: K('あと1人揃えば対戦を始められます。待たずにCPUを3人目に迎えて始めますか？', 'あと1にんそろえばたいせんをはじめられます。またずにCPUを3にんめにむかえてはじめますか？'),
+      buttons: [
+        { label: K('待つ', 'まつ'), primary: true, onClick: pollForOpponent },
+        { label: K('CPUと対戦する', 'CPUとたいせんする'), onClick: promptCpuDifficulty },
+      ],
+    });
+  }
+
+  // Server-side labels (CPU_DIFFICULTIES in line4-second-online.js) are baked
+  // straight into the seat's display name ("CPU（ふつう）" etc.) once chosen —
+  // this list only drives the picker itself.
+  const CPU_DIFFICULTY_OPTIONS = [
+    { key: 'easy', label: K('弱め', 'よわめ') },
+    { key: 'normal', label: K('ふつう', 'ふつう') },
+    { key: 'hard', label: K('強め', 'つよめ') },
+  ];
+
+  function promptCpuDifficulty() {
+    showResultOverlay({
+      title: K('CPUの強さを選んでください', 'CPUのつよさをえらんでください'),
+      message: K('選んだ強さでCPUが3人目として参戦します。', 'えらんだつよさでCPUが3にんめとしてさんせんします。'),
+      buttons: [
+        ...CPU_DIFFICULTY_OPTIONS.map((opt) => ({
+          label: opt.label,
+          primary: opt.key === 'normal',
+          onClick: () => fillRoomWithCpu(opt.key),
+        })),
+        { label: K('やっぱり待つ', 'やっぱりまつ'), onClick: pollForOpponent },
+      ],
+    });
+  }
+
+  async function fillRoomWithCpu(difficulty) {
+    try {
+      const res = await apiPost(`/room/${online.code}/fill-cpu`, { token: online.token, difficulty });
+      if (!res.ok) { pollForOpponent(); return; } // e.g. a 3rd human beat us to it — just resume waiting normally
+      beginOnlineMatch(res.state);
+    } catch (e) {
+      pollForOpponent();
+    }
+  }
+
+  // Entering a code no longer joins immediately — it peeks at the room first
+  // (GET /state, no side effects) so we can ask "play against 〇〇さん?"
+  // before actually taking a seat. Both the manual join button and the
+  // ?room=CODE invite-link auto-join (see the splash click handler above)
+  // go through this same confirm step.
+  let pendingJoinCode = null;
+  let pendingJoinState = null;
+
+  function renderJoinConfirmText() {
+    const el = document.getElementById('onlineJoinConfirmText');
+    if (!pendingJoinState) return;
+    const state = pendingJoinState;
+    const names = [
+      state.hasP1 && state.p1Name,
+      state.hasP2 && state.p2Name,
+      state.hasP3 && state.p3Name,
+    ].filter(Boolean);
+    el.textContent = names.length
+      ? `${names.join(K('さん、', 'さん、'))}${K('さんと対戦します。開始しますか？', 'さんとたいせんします。かいししますか？')}`
+      : K('この部屋に参加します。開始しますか？', 'このへやにさんかします。かいししますか？');
+  }
+
+  function showJoinConfirm(code, state) {
+    pendingJoinCode = code;
+    pendingJoinState = state;
+    renderJoinConfirmText();
+    document.getElementById('onlineJoinNameInput').value = getPlayerName();
+    onlineMenuEl.classList.add('hidden');
+    document.getElementById('onlineJoinConfirm').classList.remove('hidden');
+  }
+
+  function hideJoinConfirm() {
+    pendingJoinCode = null;
+    pendingJoinState = null;
+    document.getElementById('onlineJoinConfirm').classList.add('hidden');
+  }
+
+  async function joinOnlineRoom(code) {
+    clearOnlineError();
+    if (!code) { showOnlineError('invalid_body'); return; }
+    const res = await apiGet(`/room/${code}/state`);
+    if (!res.ok) { showOnlineError(res.error); return; }
+    if (res.state.hasP1 && res.state.hasP2 && res.state.hasP3) {
+      onlineErrorEl.textContent = roomFullDetailMessage(res.state) || onlineErrorMessages().room_full;
+      return;
+    }
+    showJoinConfirm(code, res.state);
+  }
+
+  document.getElementById('onlineJoinConfirmBtn').addEventListener('click', async () => {
+    SoundMgr.seClick();
+    const code = pendingJoinCode;
+    // The name field here IS playerNameInput's value everywhere else reads
+    // from (getPlayerName()) — write-through to storage so a change made
+    // right before this match sticks for later matches too.
+    playerNameInput.value = document.getElementById('onlineJoinNameInput').value;
+    safeStorageSet(NAME_STORAGE_KEY, getPlayerName());
+    hideJoinConfirm();
+    const res = await apiPost(`/room/${code}/join`, { name: getPlayerName() });
+    if (!res.ok) {
+      onlineMenuEl.classList.remove('hidden');
+      showOnlineError(res.error, res);
+      return;
+    }
+    online = { code, token: res.token, myPlayer: res.player, rev: res.state.rev, emoteRev: res.state.emoteRev || 0, timer: null, busy: false, awaitingRematch: false, waitingPrefix: '', askedCpuFallback: false };
+    if (res.state.status === 'playing') {
+      beginOnlineMatch(res.state);
+    } else {
+      // Joined but a 3rd player hasn't shown up yet — drop into the same
+      // waiting screen createOnlineRoom() uses, watching for the room to
+      // fill the rest of the way.
+      onlineMenuEl.classList.add('hidden');
+      onlineWaitingEl.classList.remove('hidden');
+      onlineRoomCodeEl.textContent = code;
+      const filled = [res.state.hasP1, res.state.hasP2, res.state.hasP3].filter(Boolean).length;
+      updateWaitingText(filled);
+      pollForOpponent();
+    }
+  });
+  document.getElementById('onlineJoinCancelBtn').addEventListener('click', () => {
+    SoundMgr.seClick();
+    hideJoinConfirm();
+    onlineMenuEl.classList.remove('hidden');
+  });
+
+  // "Winner stays on": called from the win result overlay. Vacates BOTH
+  // losers' slots server-side and reuses the same waiting-room UI/polling as
+  // a freshly created room while two new challengers join via the same code.
+  async function requestRematch() {
+    online.postGameDeadline = null;
+    restoreEmoteBarPosition();
+    document.getElementById('onlineEmoteBar').classList.remove('postgame');
+    document.getElementById('onlineEmoteBar').classList.add('hidden');
+    document.getElementById('resultNote').textContent = '';
+    try {
+      const res = await apiPost(`/room/${online.code}/rematch`, { token: online.token });
+      if (!res.ok) { goToTitle(); return; }
+      online.rev = res.state.rev;
+      online.awaitingRematch = true;
+      const myStreak = online.myPlayer === 1 ? res.state.p1Streak : online.myPlayer === 2 ? res.state.p2Streak : res.state.p3Streak;
+      online.waitingPrefix = `${myStreak}${K('連勝中！', 'れんしょうちゅう！')}`;
+      online.askedCpuFallback = false;
+      gameScreen.classList.add('hidden');
+      onlineScreenEl.classList.remove('hidden');
+      onlineMenuEl.classList.add('hidden');
+      onlineWaitingEl.classList.remove('hidden');
+      onlineRoomCodeEl.textContent = online.code;
+      updateWaitingText(1);
+      pollForOpponent();
+    } catch (e) {
+      goToTitle();
+    }
+  }
+
+  document.getElementById('onlineCreateBtn').addEventListener('click', () => { SoundMgr.seClick(); createOnlineRoom(); });
+  document.getElementById('onlineJoinBtn').addEventListener('click', () => {
+    SoundMgr.seClick();
+    joinOnlineRoom(onlineJoinCodeEl.value.trim().toUpperCase());
+  });
+  onlineJoinCodeEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('onlineJoinBtn').click();
+  });
+
+  function stopOnlinePolling() {
+    if (online && online.timer) { clearInterval(online.timer); online.timer = null; }
+  }
+
+  function startOnlinePolling() {
+    stopOnlinePolling();
+    online.timer = setInterval(async () => {
+      if (!online || online.busy) return;
+      try {
+        const res = await apiGet(`/room/${online.code}/state`);
+        if (!res.ok) return;
+        // Emote check rides on this same poll — no separate request needed.
+        if (res.state.emoteRev !== online.emoteRev) {
+          online.emoteRev = res.state.emoteRev;
+          if (res.state.emoteBy && res.state.emoteBy !== online.myPlayer) {
+            showIncomingEmote(res.state.emote);
+          }
+        }
+        if (res.state.rev !== online.rev) applyOnlineState(res.state);
+      } catch (e) { /* transient — try again next tick */ }
+    }, ONLINE_POLL_MS);
+  }
+
+  const ONLINE_EMOTE_COOLDOWN_MS = 1500;
+  let onlineEmoteCooldownUntil = 0;
+  function flyEmoteFromButton(btn, iconId) {
+    const rect = btn.getBoundingClientRect();
+    const fly = document.createElement('img');
+    fly.src = `emotes/${iconId}.webp`;
+    fly.alt = '';
+    fly.className = 'emote-fly';
+    fly.style.left = `${rect.left + rect.width / 2}px`;
+    fly.style.top = `${rect.top + rect.height / 2}px`;
+    document.body.appendChild(fly);
+    requestAnimationFrame(() => requestAnimationFrame(() => fly.classList.add('rise')));
+    fly.addEventListener('transitionend', () => fly.remove());
+    setTimeout(() => fly.remove(), 1400); // safety net if transitionend never fires
+  }
+
+  async function sendOnlineEmote(emoji, btn) {
+    if (!online || mode !== 'online') return;
+    const now = Date.now();
+    if (now < onlineEmoteCooldownUntil) return;
+    onlineEmoteCooldownUntil = now + ONLINE_EMOTE_COOLDOWN_MS;
+    if (btn) flyEmoteFromButton(btn, emoji);
+    try {
+      const res = await apiPost(`/room/${online.code}/emote`, { token: online.token, emote: emoji });
+      if (res.ok) online.emoteRev = res.state.emoteRev; // it's our own — don't pop it up for ourselves
+    } catch (e) { /* not critical — just drop it */ }
+  }
+
+  function showIncomingEmote(iconId) {
+    const el = document.getElementById('incomingEmote');
+    document.getElementById('incomingEmoteIcon').src = `emotes/${iconId}.webp`;
+    SoundMgr.seClick();
+    el.classList.remove('show');
+    void el.offsetWidth; // restart the pop animation even if one is already mid-flight
+    el.classList.add('show');
+    clearTimeout(showIncomingEmote._t);
+    showIncomingEmote._t = setTimeout(() => el.classList.remove('show'), 1800);
+  }
+
+  // 25-icon picker: flicks/drags to scroll (native touch scrolling handles
+  // that on its own), tap an icon to send. Only mouse pointers get a custom
+  // click-and-drag pan, since a mouse has no native drag-to-scroll — touch
+  // and pen are left to the browser's own momentum scrolling untouched, and
+  // mobile browsers already suppress a click when a touch ends up scrolling.
+  (function setupEmoteScroller() {
+    const scroller = document.getElementById('emoteScroller');
+    let isDown = false;
+    let dragged = false;
+    let startX = 0;
+    let startScrollLeft = 0;
+
+    scroller.addEventListener('pointerdown', (e) => {
+      if (e.pointerType !== 'mouse') return;
+      isDown = true;
+      dragged = false;
+      startX = e.clientX;
+      startScrollLeft = scroller.scrollLeft;
+      scroller.classList.add('dragging');
+    });
+    scroller.addEventListener('pointermove', (e) => {
+      if (!isDown || e.pointerType !== 'mouse') return;
+      const dx = e.clientX - startX;
+      if (Math.abs(dx) > 6) dragged = true;
+      scroller.scrollLeft = startScrollLeft - dx;
+    });
+    function endDrag(e) {
+      if (e.pointerType && e.pointerType !== 'mouse') return;
+      isDown = false;
+      scroller.classList.remove('dragging');
+    }
+    scroller.addEventListener('pointerup', endDrag);
+    scroller.addEventListener('pointercancel', endDrag);
+    scroller.addEventListener('pointerleave', endDrag);
+
+    scroller.addEventListener('click', (e) => {
+      if (dragged) { dragged = false; return; } // that was a drag, not a tap
+      const btn = e.target.closest('.emote-icon-btn');
+      if (!btn) return;
+      SoundMgr.seClick();
+      sendOnlineEmote(btn.dataset.emote, btn);
+    });
+  })();
+
+  function beginOnlineMatch(state) {
+    mode = 'online';
+    online.awaitingRematch = false;
+    online.postGameDeadline = null;
+    online.wonLastMatch = false;
+    online.names = { 1: state.p1Name, 2: state.p2Name, 3: state.p3Name };
+    online.turnStartedAt = state.turnStartedAt;
+    onlineScreenEl.classList.add('hidden');
+    titleScreen.classList.add('hidden');
+    gameScreen.classList.remove('hidden');
+    document.getElementById('speechBubble').classList.add('hidden');
+    document.getElementById('score').classList.add('hidden');
+    resetBtn.classList.add('hidden');
+    restoreEmoteBarPosition();
+    document.getElementById('onlineEmoteBar').classList.remove('hidden', 'postgame');
+    document.getElementById('resultNote').textContent = '';
+    setCharBackground(null);
+    SoundMgr.playTrack('game');
+    const streakNotes = [1, 2, 3]
+      .filter((p) => p !== online.myPlayer && state[`p${p}Streak`] > 0)
+      .map((p) => `${online.names[p]}${K('さんが', 'さんが')}${state[`p${p}Streak`]}${K('連勝中', 'れんしょうちゅう')}`);
+    modeLabelEl.textContent = `${K('オンライン対戦', 'オンラインたいせん')}（${K('部屋', 'へや')}: ${online.code}） ／ ${K('あなたは', 'あなたは')}${onlineColorLabel(online.myPlayer)}`
+      + (streakNotes.length ? `（${streakNotes.join('／')}）` : '');
+
+    grid = state.grid;
+    gameOver = false;
+    cellEls = [];
+    buildBoard();
+    hideBubble();
+    updateStatus(K('先攻・後攻を決めています…', 'せんこう・こうこうをきめています…'));
+    boardWrap.classList.add('locked');
+    online.rev = state.rev;
+    online.emoteRev = state.emoteRev || 0;
+    decideStartingPlayer((starter) => {
+      currentPlayer = starter;
+      boardWrap.classList.remove('locked');
+      updateStatus();
+      startOnlinePolling();
+    }, state.startingPlayer);
+  }
+
+  async function submitOnlineMove(col) {
+    if (!online || online.busy || gameOver) return;
+    if (currentPlayer !== online.myPlayer) return;
+    online.busy = true;
+    boardWrap.classList.add('locked');
+    try {
+      const res = await apiPost(`/room/${online.code}/move`, { token: online.token, col });
+      if (res.ok) {
+        applyOnlineState(res.state);
+      } else {
+        boardWrap.classList.remove('locked');
+      }
+    } catch (e) {
+      boardWrap.classList.remove('locked');
+    }
+    online.busy = false;
+  }
+
+  // Renders whatever the server says the room looks like now — used both for
+  // the response to our own move and for a poll that picked up the opponent's.
+  function applyOnlineState(state) {
+    if (!online || state.rev === online.rev) return;
+    // We're sitting on the post-game result screen and the room just went
+    // back to "not game over" under us — that's not a new match starting,
+    // it's the room having been vacated (the opponent left, or it expired
+    // server-side per FINISHED_ROOM_GRACE_MS). Without this, the code below
+    // would silently redraw an empty board underneath our still-visible
+    // result overlay instead of just sending us home too.
+    if (online.postGameDeadline && !state.gameOver) {
+      leavePostGameRoom();
+      return;
+    }
+    online.rev = state.rev;
+    online.turnStartedAt = state.turnStartedAt;
+
+    // Find the single cell that changed since our local copy and animate it
+    // the same way a local drop does, then adopt the server grid as-is.
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        if (grid[r][c] === 0 && state.grid[r][c] !== 0) {
+          const player = state.grid[r][c];
+          cellEls[r][c].classList.add(player === 1 ? 'p1' : player === 2 ? 'p2' : 'p3', 'drop');
+          SoundMgr.seDrop();
+        }
+      }
+    }
+    grid = state.grid;
+    currentPlayer = state.currentPlayer;
+    gameOver = state.gameOver;
+
+    if (state.gameOver) {
+      // Polling stays on through the post-game grace window (see
+      // tickPostGameCountdown/leavePostGameRoom below) — opponent emotes
+      // still arrive via the same poll, and this early-return guard at the
+      // top of applyOnlineState() makes re-entrant calls on the same rev a
+      // no-op, so it's safe to keep ticking.
+      if (state.winLine) state.winLine.forEach(([r, c]) => cellEls[r][c].classList.add('win'));
+      const iWon = state.winner === String(online.myPlayer);
+      online.wonLastMatch = iWon; // read by leavePostGameRoom() to notify the server
+      const isDraw = state.winner === 'draw';
+      const winnerLabel = isDraw ? null : (state.winner === '1' ? player1Label() : state.winner === '2' ? player2Label() : player3Label());
+      if (isDraw) {
+        updateStatus(K('引き分けです！', 'ひきわけです！'));
+        SoundMgr.seDraw();
+      } else {
+        updateStatus(`🎉 ${escapeHtml(winnerLabel)}${K('の勝利！', 'のしょうり！')}`);
+        if (iWon) SoundMgr.seWin(); else SoundMgr.seLose();
+      }
+      const myStreak = online.myPlayer === 1 ? state.p1Streak : online.myPlayer === 2 ? state.p2Streak : state.p3Streak;
+      setTimeout(() => {
+        if (!online) return;
+        // Keep the emote strip up (re-pinned above the modal backdrop) so
+        // both players can send a quick thanks/gg — see req: 30秒間スタンプ.
+        pinEmoteBarForPostGame();
+        document.getElementById('onlineEmoteBar').classList.add('postgame');
+        online.postGameDeadline = Date.now() + POST_GAME_WINDOW_MS;
+        if (iWon) {
+          showResultOverlay({
+            title: K('勝利！', 'しょうり！'),
+            message: `${K('相手に勝利しました！', 'あいてにしょうりしました！')}\n${myStreak}${K('連勝中！', 'れんしょうちゅう！')}`,
+            buttons: [
+              { label: K('次の挑戦者を待つ', 'つぎのちょうせんしゃをまつ'), primary: true, onClick: requestRematch },
+              { label: K('退室する', 'たいしゅつする'), onClick: leavePostGameRoom },
+            ],
+          });
+        } else {
+          const loseMessage = isDraw
+            ? K('オンライン対戦は引き分けに終わりました。', 'オンラインたいせんはひきわけにおわりました。')
+            : `${winnerLabel}${K('さんに敗れました……', 'さんにやぶれました……')}`;
+          showResultOverlay({
+            title: isDraw ? K('引き分け', 'ひきわけ') : K('敗北……', 'はいぼく……'),
+            message: loseMessage,
+            buttons: [{ label: K('退室する', 'たいしゅつする'), primary: true, onClick: leavePostGameRoom }],
+          });
+        }
+      }, 1200);
+      return;
+    }
+
+    boardWrap.classList.remove('locked');
+    updateStatus();
+  }
+
+  // ---------- Hidden debug menu: double-click the "ロ" in the title ----------
+  document.getElementById('debugTrigger').addEventListener('dblclick', (e) => {
+    e.preventDefault();
+    const overlay = document.getElementById('debugLevelOverlay');
+    const actions = document.getElementById('debugLevelActions');
+    actions.innerHTML = '';
+    // STAGES (not CHARACTERS) — this menu jumps straight to any of the 6
+    // two-opponent stages. Rolled once here just for the button label;
+    // clicking re-rolls (stageOpponents = stageFn()) so stage 3's random
+    // LV2 pick isn't locked to whatever the label happened to show.
+    STAGES.forEach((stageFn, idx) => {
+      const [a, b] = stageFn();
+      const btn = document.createElement('button');
+      btn.textContent = `LV.${idx + 1} ${a.name} & ${b.name}`;
+      if (idx > 0) btn.classList.add('secondary');
+      btn.addEventListener('click', () => {
+        SoundMgr.seClick();
+        overlay.classList.add('hidden');
+        ladderIndex = idx;
+        stageOpponents = stageFn();
+        startGame('cpu');
+      });
+      actions.appendChild(btn);
+    });
+    const endingBtn = document.createElement('button');
+    endingBtn.textContent = 'エンディング';
+    endingBtn.classList.add('secondary');
+    endingBtn.addEventListener('click', () => {
+      SoundMgr.seClick();
+      overlay.classList.add('hidden');
+      showEndingScreen();
+    });
+    actions.appendChild(endingBtn);
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.textContent = 'キャンセル';
+    cancelBtn.classList.add('secondary');
+    cancelBtn.addEventListener('click', () => overlay.classList.add('hidden'));
+    actions.appendChild(cancelBtn);
+    overlay.classList.remove('hidden');
+  });
+
+  function startGame(selectedMode) {
+    mode = selectedMode;
+    titleScreen.classList.add('hidden');
+    gameScreen.classList.remove('hidden');
+    resetBtn.classList.remove('hidden');
+    document.getElementById('score').classList.remove('hidden');
+    const speechBubbleEl = document.getElementById('speechBubble');
+    if (mode === 'cpu' && stageOpponents[0] && stageOpponents[1]) {
+      const stageNum = ladderIndex + 1;
+      const [opp2, opp3] = stageOpponents;
+      SoundMgr.playLevelTrack(stageNum);
+      modeLabelEl.innerHTML = `
+        <img class="opponent-avatar-icon" src="${opp2.img}" alt="" style="object-position: ${opp2.avatarPosition || 'left top'};" onerror="this.style.display='none'">
+        <img class="opponent-avatar-icon opponent-avatar-icon--mirrored" src="${opp3.img}" alt="" style="object-position: ${opp3.avatarPosition || 'left top'};" onerror="this.style.display='none'">
+        LV.${stageNum}/6 ${escapeHtml(opp2.name)} & ${escapeHtml(opp3.name)} ／ ${K('あなたは赤', 'あなたはあか')}`;
+      setCharBackground(opp2, opp3);
+      speechBubbleEl.classList.remove('hidden');
+    } else {
+      SoundMgr.playTrack('game');
+      modeLabelEl.textContent = K('対人戦モード', 'たいじんせんモード');
+      setCharBackground(null);
+      speechBubbleEl.classList.add('hidden');
+    }
+    scores = { 1: 0, 2: 0, 3: 0 };
+    updateScoreboard();
+    initGame();
+  }
+
+  // Returns the inline style attribute value for one character's art —
+  // --avatar-pos feeds the mobile cover-crop media query (see CSS); the
+  // desktop view never crops so it ignores the custom property entirely.
+  function avatarStyle(ch) {
+    return `--avatar-pos: ${(ch && ch.avatarPosition) || 'left top'};`;
+  }
+
+  // Shows both CPU opponents flanking the board (leftCh/rightCh) for the
+  // rest of the match — unlike the old 1-opponent version, this is no longer
+  // a per-turn "spotlight whoever's thinking" swap, it's just set once when
+  // the stage starts. Call with no arguments (or leftCh falsy) to hide both,
+  // e.g. leaving CPU mode.
+  function setCharBackground(leftCh, rightCh) {
+    const wrap = document.getElementById('charBgWrap');
+    const overlay = document.getElementById('charBgOverlay');
+    const leftImg = document.getElementById('charBgImgLeft');
+    const rightImg = document.getElementById('charBgImgRight');
+    if (!leftCh) {
+      wrap.classList.remove('show');
+      overlay.classList.remove('show');
+      return;
+    }
+    let loaded = 0;
+    const onOneLoaded = () => { if (++loaded >= 2) { wrap.classList.add('show'); overlay.classList.add('show'); } };
+    const onOneErrored = () => { wrap.classList.remove('show'); overlay.classList.remove('show'); };
+    leftImg.onload = onOneLoaded;
+    leftImg.onerror = onOneErrored;
+    leftImg.setAttribute('style', avatarStyle(leftCh));
+    leftImg.src = leftCh.img;
+    rightImg.onload = onOneLoaded;
+    rightImg.onerror = onOneErrored;
+    rightImg.setAttribute('style', avatarStyle(rightCh));
+    rightImg.src = rightCh.img;
+  }
+
+  function goToTitle() {
+    if (ladderOutcomeTimer) { clearTimeout(ladderOutcomeTimer); ladderOutcomeTimer = null; }
+    stopEndingCrawl();
+    SoundMgr.playTrack('title');
+    stopOnlinePolling();
+    online = null;
+    gameScreen.classList.add('hidden');
+    onlineScreenEl.classList.add('hidden');
+    titleScreen.classList.remove('hidden');
+    restoreEmoteBarPosition();
+    document.getElementById('onlineEmoteBar').classList.add('hidden');
+    document.getElementById('onlineEmoteBar').classList.remove('postgame');
+    document.getElementById('resultNote').textContent = '';
+    document.getElementById('incomingEmote').classList.remove('show');
+    setCharBackground(null);
+    hideBubble();
+  }
+
+  // ---------- All-clear ending: narration crawl over ending2.webp ----------
+  // Kanji/kana pairs, one entry per crawl paragraph — '\n' is an intentional
+  // line break *within* a paragraph (rendered via CSS white-space:pre-line),
+  // a blank line between entries is the paragraph gap.
+  // Replaces the fork's inherited line4 (original) puppeteer/puppets text —
+  // that scene belonged to the old plot, not this sequel's tower/門番/呪い
+  // story. First-person throughout (the protagonist's own narration), so
+  // unlike the old text this one has no {name} placeholder to fill in.
+  const ENDING_TEXT = [
+    '最後の一手。',
+    '静寂。',
+    'ピシッ……',
+    '仮面に細い亀裂が走る。',
+    '「……？」',
+    'もう一度、仮面を見る。',
+    'ピキ……ピキッ……\n亀裂が広がる。',
+    'マスクが仮面に手を添える。',
+    'パキン。',
+    '仮面が割れ、床に落ちた。',
+    '扉から、風の音が通り抜けた。',
+    '「……俺は……」',
+
+    '記憶が戻っていく。',
+    '隣で笑う女性が見える。',
+    'しかし彼女の身体には、\n呪いの力がまとわりついている。',
+    'そうだ、俺はあいつを助けるためにこの塔へ上った・・\nそして・・',
+    '首元に触れる。',
+    '首元には解呪のネックレスがぶらさがっていた。',
+    '断片的な記憶。',
+    'あと一つ。\n二つのネックレスが揃えば、呪いを解くことができる。',
+    'だが、その直後。',
+    '俺は、あいつに敗れた。',
+    'そして、塔に囚われた。',
+
+    'マスクは扉に向かって歩き出す。',
+    '首元のネックレスが淡く輝く。',
+    'マスクは、顔を上げる。',
+    'その目は地平の彼方の空に浮かぶ\n巨大な城を見つめていた・・',
+  ];
+  const ENDING_TEXT_KANA = [
+    'さいごのいって。',
+    'せいじゃく。',
+    'ピシッ……',
+    'かめんにほそいひびがはしる。',
+    '「……？」',
+    'もういちど、かめんをみる。',
+    'ピキ……ピキッ……\nひびがひろがる。',
+    'マスクがかめんにてをそえる。',
+    'パキン。',
+    'かめんがわれ、ゆかにおちた。',
+    'とびらから、かぜのおとがとおりぬけた。',
+    '「……おれは……」',
+
+    'きおくがもどっていく。',
+    'となりでわらうじょせいがみえる。',
+    'しかしかのじょのからだには、\nのろいのちからがまとわりついている。',
+    'そうだ、おれはあいつをたすけるためにこのとうへのぼった・・\nそして・・',
+    'くびもとにふれる。',
+    'くびもとにはかいじゅのネックレスがぶらさがっていた。',
+    'だんぺんてきなきおく。',
+    'あとひとつ。\nふたつのネックレスがそろえば、のろいをとくことができる。',
+    'だが、そのちょくご。',
+    'おれは、あいつにやぶれた。',
+    'そして、とうにとらわれた。',
+
+    'マスクはとびらにむかってあるきだす。',
+    'くびもとのネックレスがあわくかがやく。',
+    'マスクは、かおをあげる。',
+    'そのめはちへいのかなたのそらにうかぶ\nきょだいなしろをみつめていた・・',
+  ];
+
+  let endingCrawlAnim = null;
+  let endingBgmTimer = null;
+  let endingCrawlTotalMs = 0;
+  let endingCrawlFinished = false; // click-to-title is only honored once this is true
+
+  function stopEndingCrawl() {
+    if (endingCrawlAnim) { endingCrawlAnim.cancel(); endingCrawlAnim = null; }
+    if (endingBgmTimer) { clearTimeout(endingBgmTimer); endingBgmTimer = null; }
+  }
+
+  function showEndingScreen() {
+    SoundMgr.stop(); // the previous track (e.g. LV5's battle theme) would
+                      // otherwise just keep looping until ending.mp3 kicks in
+    const el = document.getElementById('endingScreen');
+    const img = el.querySelector('img');
+    // ending2.webp is the OLD puppeteer-ending artwork — wrong scene for
+    // this sequel's new ending text below. Hiding it for now so the crawl
+    // just runs over #endingScreen's own plain black background (per spec:
+    // "黒バックスクロールで白字で") until matching art exists; re-enable the
+    // pan by restoring the three lines this replaced.
+    img.classList.add('hidden');
+    el.classList.remove('hidden');
+    requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('show')));
+
+    stopEndingCrawl();
+    endingCrawlFinished = false;
+    const wrap = document.getElementById('endingTextWrap');
+    const crawl = document.getElementById('endingTextCrawl');
+    const lines = kanaMode ? ENDING_TEXT_KANA : ENDING_TEXT;
+    crawl.innerHTML = '';
+    lines.forEach(text => {
+      const p = document.createElement('p');
+      p.textContent = text.replace(/\{name\}/g, getPlayerName());
+      crawl.appendChild(p);
+    });
+
+    // Pace the crawl by how much text there actually is, so editing ENDING_TEXT
+    // later doesn't require re-tuning a hardcoded duration.
+    const charCount = lines.join('').length;
+    const totalMs = Math.max(45000, Math.min(120000, charCount * 150));
+    endingCrawlTotalMs = totalMs;
+    const startY = wrap.clientHeight;
+    const endY = -crawl.scrollHeight;
+    crawl.style.transform = `translate(-50%, ${startY}px)`;
+    endingCrawlAnim = crawl.animate(
+      [
+        { transform: `translate(-50%, ${startY}px)` },
+        { transform: `translate(-50%, ${endY}px)` },
+      ],
+      { duration: totalMs, easing: 'linear', fill: 'forwards' }
+    );
+    endingCrawlAnim.onfinish = () => { endingCrawlFinished = true; };
+    // Let the ending theme swell in a few seconds before the crawl finishes,
+    // rather than the moment the screen appears.
+    endingBgmTimer = setTimeout(() => SoundMgr.playTrack('ending', 'title'), Math.max(0, totalMs - 5000));
+  }
+
+  // Drag up/down to scrub the crawl back and forth (a young player found the
+  // auto-pace too fast to read) — pauses the WAAPI animation and scrubs its
+  // currentTime while dragging, then resumes auto-play on release. Shares
+  // the "was this a drag or a tap" pattern already used by the emote
+  // scroller, since a plain tap still needs to return to the title screen.
+  (function setupEndingCrawlDrag() {
+    const screen = document.getElementById('endingScreen');
+    let isDown = false;
+    let dragged = false;
+    let startClientY = 0;
+    let startTime = 0;
+
+    screen.addEventListener('pointerdown', (e) => {
+      if (!endingCrawlAnim) return;
+      isDown = true;
+      dragged = false;
+      startClientY = e.clientY;
+      startTime = endingCrawlAnim.currentTime || 0;
+      endingCrawlAnim.pause();
+    });
+    screen.addEventListener('pointermove', (e) => {
+      if (!isDown || !endingCrawlAnim) return;
+      const dy = e.clientY - startClientY;
+      if (Math.abs(dy) > 6) dragged = true;
+      if (!dragged) return;
+      screen.classList.add('dragging');
+      const wrap = document.getElementById('endingTextWrap');
+      const crawl = document.getElementById('endingTextCrawl');
+      const travelPx = wrap.clientHeight + crawl.scrollHeight;
+      // Dragging down (positive dy) reveals earlier text — i.e. rewinds.
+      const deltaTime = travelPx > 0 ? -(dy / travelPx) * endingCrawlTotalMs : 0;
+      const newTime = Math.max(0, Math.min(endingCrawlTotalMs, startTime + deltaTime));
+      endingCrawlAnim.currentTime = newTime;
+    });
+    function endDrag() {
+      if (!isDown) return;
+      isDown = false;
+      screen.classList.remove('dragging');
+      if (dragged && endingCrawlAnim) {
+        if (endingBgmTimer) { clearTimeout(endingBgmTimer); endingBgmTimer = null; }
+        if (endingCrawlAnim.currentTime >= endingCrawlTotalMs) {
+          // .play() on an animation already at its end rewinds it to the
+          // start instead of finishing it (per spec) — .finish() is what
+          // actually fires onfinish here, so dragged-to-the-end doesn't
+          // silently restart the whole crawl.
+          endingCrawlAnim.finish();
+          SoundMgr.playTrack('ending', 'title');
+        } else {
+          endingCrawlAnim.play();
+          // Re-time the BGM cue relative to the scrubbed position, or it'd
+          // fire on the original schedule regardless of where the crawl is now.
+          const remaining = endingCrawlTotalMs - endingCrawlAnim.currentTime;
+          endingBgmTimer = setTimeout(() => SoundMgr.playTrack('ending', 'title'), Math.max(0, remaining - 5000));
+        }
+      }
+    }
+    screen.addEventListener('pointerup', endDrag);
+    screen.addEventListener('pointercancel', endDrag);
+    screen.addEventListener('pointerleave', endDrag);
+
+    screen.addEventListener('click', () => {
+      if (dragged) { dragged = false; return; } // that was a drag, not a tap
+      if (!endingCrawlFinished) return; // a slightly-off drag can register as a click — ignore it until the crawl has actually played through
+      SoundMgr.seClick();
+      stopEndingCrawl();
+      screen.classList.remove('show');
+      setTimeout(() => screen.classList.add('hidden'), 500);
+      goToTitle();
+    });
+  })();
+
+  titleBtn.addEventListener('click', () => { SoundMgr.seClick(); goToTitle(); });
+
+  // ---------- Ladder progression (win → next challenger, lose → run over) ----------
+  // `portraits` is a list of 0-2 entries ({img, emoji, position, mirror}) —
+  // CPU戦 passes both opponents (see charPortraits()) so the result screen
+  // matches the in-match dual backdrop; other modes that don't pass any
+  // portraits at all leave resultPortrait truly empty, so :empty still hides
+  // the box for them.
+  // titleBold/messageBold default to the normal look (bold title, regular
+  // message) — the CPU戦 "stage cleared, next opponents incoming" screen
+  // flips this (see its call below) so the upcoming-challenger line reads
+  // as the more important one.
+  function showResultOverlay({ title, message, portraits, buttons, titleBold, messageBold }) {
+    const overlay = document.getElementById('resultOverlay');
+    const portraitEl = document.getElementById('resultPortrait');
+    const titleEl = document.getElementById('resultTitle');
+    const messageEl = document.getElementById('resultMessage');
+    titleEl.textContent = title;
+    titleEl.style.fontWeight = titleBold === false ? '400' : '700';
+    messageEl.textContent = message;
+    messageEl.style.fontWeight = messageBold ? '700' : '400';
+    portraitEl.innerHTML = '';
+    (portraits || []).forEach(p => {
+      if (!p) return;
+      const half = document.createElement('div');
+      half.className = 'portrait-half';
+      if (p.img) {
+        const img = document.createElement('img');
+        img.src = p.img;
+        img.alt = '';
+        img.style.objectPosition = p.position || 'left top';
+        if (p.mirror) img.classList.add('mirrored');
+        img.onerror = () => { half.textContent = p.emoji || ''; };
+        half.appendChild(img);
+      } else {
+        half.textContent = p.emoji || '';
+      }
+      portraitEl.appendChild(half);
+    });
+    const actionsEl = document.getElementById('resultActions');
+    actionsEl.innerHTML = '';
+    buttons.forEach(btn => {
+      const b = document.createElement('button');
+      b.textContent = btn.label;
+      if (!btn.primary) b.classList.add('secondary');
+      b.addEventListener('click', () => {
+        SoundMgr.seClick();
+        overlay.classList.add('hidden');
+        btn.onClick();
+      });
+      actionsEl.appendChild(b);
+    });
+    overlay.classList.remove('hidden');
+  }
+
+  // Left half as drawn, right half mirrored — same convention as the
+  // in-match dual backdrop and mode-label icons.
+  function charPortraits(left, right) {
+    return [
+      { img: left.img, emoji: left.emoji, position: left.avatarPosition },
+      { img: right.img, emoji: right.emoji, position: right.avatarPosition, mirror: true },
+    ];
+  }
+
+  function handleLadderOutcome(result) {
+    const [opp2, opp3] = stageOpponents;
+    const stageNum = ladderIndex + 1;
+    const bothNames = `${opp2.name} & ${opp3.name}`;
+
+    if (result === 'draw') {
+      showResultOverlay({
+        title: K('引き分け', 'ひきわけ'),
+        message: `${bothNames} ${K('との勝負は引き分けに終わりました。', 'とのしょうぶはひきわけにおわりました。')}`,
+        portraits: charPortraits(opp2, opp3),
+        buttons: [
+          { label: K('もう一度対戦する', 'もういちどたいせんする'), primary: true, onClick: () => initGame() },
+          { label: K('タイトルに戻る', 'タイトルにもどる'), onClick: goToTitle },
+        ],
+      });
+      return;
+    }
+
+    if (result === 'lose') {
+      showResultOverlay({
+        title: K('敗北……', 'はいぼく……'),
+        message: `LV.${stageNum} ${bothNames} ${K('に敗れました。', 'にやぶれました。')}\n${K('到達ステージ', 'とうたつステージ')}: LV.${stageNum}`,
+        portraits: charPortraits(opp2, opp3),
+        buttons: [
+          { label: K('このステージに再挑戦する', 'このステージにさいちょうせんする'), primary: true, onClick: () => startGame('cpu') },
+          { label: K('LV1からやり直す', 'LV1からやりなおす'), onClick: startLadder },
+          { label: K('タイトルに戻る', 'タイトルにもどる'), onClick: goToTitle },
+        ],
+      });
+      return;
+    }
+
+    // result === 'win'
+    if (ladderIndex >= STAGES.length - 1) {
+      showEndingScreen();
+      return;
+    }
+
+    // Rolled once here (not re-rolled on click) so stage 3's random LV2 pick
+    // stays consistent between this preview and the match that actually starts.
+    const nextOpponents = STAGES[ladderIndex + 1]();
+    const [next2, next3] = nextOpponents;
+    showResultOverlay({
+      title: `LV.${stageNum} ${bothNames} ${K('撃破！', 'げきは！')}`,
+      message: `${K('次の刺客が現れた……', 'つぎのしかくがあらわれた……')}\nLV.${stageNum + 1} ${next2.name} & ${next3.name}`,
+      titleBold: false,
+      messageBold: true,
+      portraits: charPortraits(next2, next3),
+      buttons: [
+        { label: K('対戦開始', 'たいせんかいし'), primary: true, onClick: () => {
+            ladderIndex++;
+            stageOpponents = nextOpponents;
+            maybeShowStory(ladderIndex, () => startGame('cpu'));
+          } },
+        { label: K('ここでやめる（タイトルへ）', 'ここでやめる（タイトルへ）'), onClick: goToTitle },
+      ],
+    });
+  }
+
+  // ---------- Core game ----------
+  function initGame() {
+    if (ladderOutcomeTimer) { clearTimeout(ladderOutcomeTimer); ladderOutcomeTimer = null; }
+    grid = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+    gameOver = false;
+    resetBtn.disabled = false;
+    cpuThinking = false;
+    buildBoard();
+    hideBubble();
+    updateStatus(K('先攻・後攻を決めています…', 'せんこう・こうこうをきめています…'));
+    boardWrap.classList.add('locked');
+    decideStartingPlayer((starter) => {
+      currentPlayer = starter;
+      boardWrap.classList.remove('locked');
+      updateStatus();
+      if (mode === 'cpu' && currentPlayer !== 1 && !gameOver) {
+        triggerCpuMove();
+      }
+    });
+  }
+
+  // Brief (~2s) coin-toss animation deciding who moves first, run before
+  // every match (fresh game, reset, and each new CPU ladder opponent).
+  function decideStartingPlayer(onDone, forcedStarter) {
+    const overlay = document.getElementById('turnDecideOverlay');
+    const coin = document.getElementById('turnCoin');
+    const textEl = document.getElementById('turnDecideText');
+    const starter = forcedStarter != null ? forcedStarter : (Math.floor(Math.random() * 3) + 1);
+    const labelFor = (p) => p === 1 ? player1Label() : p === 2 ? player2Label() : player3Label();
+    const colorFor = (p) => p === 1 ? 'var(--p1)' : p === 2 ? 'var(--p2)' : 'var(--p3)';
+    const starterLabel = labelFor(starter);
+
+    coin.classList.remove('settled');
+    coin.style.background = colorFor(1);
+    textEl.classList.remove('show');
+    textEl.textContent = K('先攻・後攻を決めています…', 'せんこう・こうこうをきめています…');
+    overlay.classList.remove('hidden');
+
+    let flip = 0;
+    const flickerTimer = setInterval(() => {
+      flip++;
+      coin.style.background = colorFor((flip % 3) + 1);
+    }, 110);
+
+    setTimeout(() => {
+      clearInterval(flickerTimer);
+      coin.style.background = colorFor(starter);
+      coin.classList.add('settled');
+      SoundMgr.seDrop();
+      textEl.textContent = `${starterLabel}${K('の先攻です！', 'のせんこうです！')}`;
+      textEl.classList.add('show');
+    }, 1250);
+
+    setTimeout(() => {
+      overlay.classList.add('hidden');
+      onDone(starter);
+    }, 2000);
+  }
+
+  function buildBoard() {
+    boardEl.innerHTML = '';
+    cellEls = [];
+    for (let r = 0; r < ROWS; r++) {
+      cellEls.push([]);
+      for (let c = 0; c < COLS; c++) {
+        const hitzone = document.createElement('div');
+        hitzone.className = 'col-hitzone';
+        hitzone.dataset.col = c;
+        const cell = document.createElement('div');
+        cell.className = 'cell';
+        hitzone.appendChild(cell);
+        hitzone.addEventListener('click', () => handleColumnClick(c));
+        boardEl.appendChild(hitzone);
+        cellEls[r].push(cell);
+      }
+    }
+  }
+
+  // Player-1 side: PvP keeps the plain label (no single "you" when two
+  // people share a screen); CPU/online show the chosen player name instead
+  // — with no color suffix, since the turn indicator dot already conveys
+  // that everywhere this is used.
+  // For online mode: my own slot always shows my current name (so a mid-match
+  // kana-mode toggle etc. never goes stale); the other two slots show
+  // whatever name the server told us in beginOnlineMatch() (online.names).
+  function onlineNameFor(playerNum) {
+    return online.myPlayer === playerNum ? getPlayerName() : online.names[playerNum];
+  }
+  function player1Label() {
+    if (mode === 'pvp') return K('プレイヤー1（赤）', 'プレイヤー1（あか）');
+    if (mode === 'online') return onlineNameFor(1);
+    return getPlayerName();
+  }
+  function player2Label() {
+    if (mode === 'cpu') { const ch = charForPlayer(2); return ch ? ch.name : K('プレイヤー2（黄）', 'プレイヤー2（き）'); }
+    if (mode === 'online') return onlineNameFor(2);
+    return K('プレイヤー2（黄）', 'プレイヤー2（き）');
+  }
+  function player3Label() {
+    if (mode === 'cpu') { const ch = charForPlayer(3); return ch ? ch.name : K('プレイヤー3（緑）', 'プレイヤー3（みどり）'); }
+    if (mode === 'online') return onlineNameFor(3);
+    return K('プレイヤー3（緑）', 'プレイヤー3（みどり）');
+  }
+
+  function updateStatus(message) {
+    if (message) {
+      statusEl.innerHTML = message;
+      return;
+    }
+    const colorVar = currentPlayer === 1 ? '--p1' : currentPlayer === 2 ? '--p2' : '--p3';
+    const name = currentPlayer === 1 ? player1Label() : currentPlayer === 2 ? player2Label() : player3Label();
+    const activeChar = mode === 'cpu' ? charForPlayer(currentPlayer) : null;
+    const indicator = activeChar
+      ? `<img class="turn-avatar" src="${activeChar.img}" alt="" style="object-position: ${activeChar.avatarPosition || 'left top'};" onerror="this.outerHTML='<span class=&quot;turn-indicator&quot; style=&quot;background:var(${colorVar})&quot;></span>'">`
+      : `<span class="turn-indicator" style="background:var(${colorVar})"></span>`;
+    statusEl.innerHTML = `${indicator} ${escapeHtml(name)}${K('の番です', 'のばんです')}`;
+  }
+
+  function handleColumnClick(col) {
+    if (gameOver || cpuThinking) return;
+    if (mode === 'cpu' && currentPlayer !== 1) return; // block manual clicks during either CPU's turn
+    if (mode === 'online') { submitOnlineMove(col); return; }
+    dropPiece(col, currentPlayer);
+  }
+
+  function dropPiece(col, player) {
+    const targetRow = getNextOpenRow(grid, col);
+    if (targetRow === -1) return false;
+
+    grid[targetRow][col] = player;
+    const cellEl = cellEls[targetRow][col];
+    cellEl.classList.add(player === 1 ? 'p1' : player === 2 ? 'p2' : 'p3', 'drop');
+    SoundMgr.seDrop();
+
+    const winLine = checkWin(targetRow, col, player);
+    if (winLine) {
+      gameOver = true;
+      winLine.forEach(([r, c]) => cellEls[r][c].classList.add('win'));
+      scores[player]++;
+      updateScoreboard();
+      const name = player === 1 ? player1Label() : player === 2 ? player2Label() : player3Label();
+      updateStatus(`🎉 ${escapeHtml(name)}${K('の勝利！', 'のしょうり！')}`);
+      if (mode === 'cpu') {
+        resetBtn.disabled = true; // re-enabled by initGame() once the next match actually starts
+        if (player === 1) {
+          SoundMgr.seWin();
+          const spokenMs = speakSequential([charForPlayer(2), charForPlayer(3)], 'defeat');
+          ladderOutcomeTimer = setTimeout(() => handleLadderOutcome('win'), Math.max(1800, spokenMs + 600));
+        } else {
+          SoundMgr.seLose();
+          const spokenMs = speak(charForPlayer(player), 'victory');
+          ladderOutcomeTimer = setTimeout(() => handleLadderOutcome('lose'), Math.max(1800, spokenMs + 600));
+        }
+      } else {
+        SoundMgr.seWin();
+      }
+      return true;
+    }
+
+    if (isBoardFull()) {
+      gameOver = true;
+      updateStatus(K('引き分けです！', 'ひきわけです！'));
+      hideBubble();
+      SoundMgr.seDraw();
+      if (mode === 'cpu') {
+        resetBtn.disabled = true; // re-enabled by initGame() once the next match actually starts
+        ladderOutcomeTimer = setTimeout(() => handleLadderOutcome('draw'), 1000);
+      }
+      return true;
+    }
+
+    currentPlayer = currentPlayer % 3 + 1; // 1→2→3→1 (pvp/cpu are 3-player; online is still 2-player and unreachable for now)
+    updateStatus();
+
+    if (mode === 'cpu' && player !== 1) {
+      const ch = charForPlayer(player);
+      const others = [1, 2, 3].filter(p => p !== player);
+      if (others.some(p => findImmediateWin(grid, p) !== null)) speak(ch, 'aboutToLose');
+      else if (findImmediateWin(grid, player) !== null) speak(ch, 'aboutToWin');
+      else speak(ch, 'normal');
+    }
+
+    if (mode === 'cpu' && currentPlayer !== 1 && !gameOver) {
+      triggerCpuMove();
+    }
+    return true;
+  }
+
+  // ---------- CPU speech bubble ----------
+  // Most characters speak a single line per category. LV5 (傀儡師) instead has
+  // multi-speaker conversations (master + 4 puppets) — see PUPPETS above.
+  // speak() returns how long (ms) the bubble will be showing, so callers can
+  // delay any follow-up (e.g. the ladder result overlay) until it's done.
+  let conversationTimer = null;
+
+  function lineDelay(text) {
+    return Math.max(1300, Math.min(2600, text.length * 110));
+  }
+
+  function showSingleLine(name, text) {
+    const bubble = document.getElementById('speechBubble');
+    document.getElementById('bubbleName').textContent = name;
+    document.getElementById('bubbleText').textContent = text;
+    bubble.classList.remove('show');
+    void bubble.offsetWidth; // restart the fade/slide animation
+    bubble.classList.add('show');
+    return lineDelay(text);
+  }
+
+  function playConversation(ch, convo) {
+    if (conversationTimer) { clearTimeout(conversationTimer); conversationTimer = null; }
+    let i = 0;
+    function step() {
+      const line = convo[i];
+      i++;
+      showSingleLine(speakerName(ch, line.speaker), line.text);
+      if (i < convo.length) {
+        conversationTimer = setTimeout(step, lineDelay(line.text));
+      }
+    }
+    step();
+    return convo.reduce((sum, line) => sum + lineDelay(line.text), 0);
+  }
+
+  function speak(ch, category) {
+    if (!ch || !ch.lines) return 0;
+    const lineSet = (kanaMode && ch.linesKana) ? ch.linesKana : ch.lines;
+    const data = lineSet[category];
+    if (!data) return 0;
+
+    if (category === 'victory' || category === 'defeat') {
+      return Array.isArray(data) && typeof data[0] === 'object'
+        ? playConversation(ch, data)
+        : showSingleLine(ch.name, data);
+    }
+
+    if (!data.length) return 0;
+    const picked = data[Math.floor(Math.random() * data.length)];
+    return Array.isArray(picked)
+      ? playConversation(ch, picked)
+      : showSingleLine(ch.name, picked);
+  }
+
+  // Queues each character's fixed victory/defeat line one after another in
+  // the single shared speech bubble (used when the human beats both CPU
+  // opponents at once, so each gets to react instead of only one). Only
+  // handles the plain-string case (victory/defeat are always a fixed string,
+  // never the multi-speaker conversation array), since the total delay must
+  // be known up front to schedule each setTimeout.
+  function speakSequential(chars, category) {
+    let total = 0;
+    chars.filter(Boolean).forEach((ch) => {
+      const lineSet = (kanaMode && ch.linesKana) ? ch.linesKana : ch.lines;
+      const text = lineSet && lineSet[category];
+      if (typeof text !== 'string') return;
+      const startAt = total;
+      setTimeout(() => showSingleLine(ch.name, text), startAt);
+      total += lineDelay(text);
+    });
+    return total;
+  }
+
+  function hideBubble() {
+    if (conversationTimer) { clearTimeout(conversationTimer); conversationTimer = null; }
+    document.getElementById('speechBubble').classList.remove('show');
+  }
+
+  function triggerCpuMove() {
+    const player = currentPlayer; // 2 or 3
+    const ch = charForPlayer(player);
+    const colorVar = player === 2 ? '--p2' : '--p3';
+    const label = player === 2 ? player2Label() : player3Label();
+    cpuThinking = true;
+    boardWrap.classList.add('locked');
+    const thinkingAvatar = ch
+      ? `<img class="turn-avatar" src="${ch.img}" alt="" style="object-position: ${ch.avatarPosition || 'left top'};" onerror="this.outerHTML='<span class=&quot;turn-indicator&quot; style=&quot;background:var(${colorVar})&quot;></span>'">`
+      : `<span class="turn-indicator" style="background:var(${colorVar})"></span>`;
+    updateStatus(`${thinkingAvatar} ${escapeHtml(label)}${K('が考え中...', 'がかんがえちゅう...')}`);
+    setTimeout(() => {
+      const col = getCpuMoveFor(player, ch);
+      cpuThinking = false;
+      boardWrap.classList.remove('locked');
+      if (col !== null) dropPiece(col, player);
+    }, 450);
+  }
+
+  function isBoardFull() {
+    return grid[0].every(cell => cell !== 0);
+  }
+
+  function getNextOpenRow(g, col) {
+    for (let r = ROWS - 1; r >= 0; r--) {
+      if (g[r][col] === 0) return r;
+    }
+    return -1;
+  }
+
+  function checkWin(row, col, player) {
+    const directions = [
+      [[0, 1], [0, -1]],   // horizontal
+      [[1, 0], [-1, 0]],   // vertical
+      [[1, 1], [-1, -1]],  // diagonal \
+      [[1, -1], [-1, 1]],  // diagonal /
+    ];
+
+    for (const pair of directions) {
+      let line = [[row, col]];
+      for (const [dr, dc] of pair) {
+        let r = row + dr;
+        let c = col + dc;
+        while (r >= 0 && r < ROWS && c >= 0 && c < COLS && grid[r][c] === player) {
+          line.push([r, c]);
+          r += dr;
+          c += dc;
+        }
+      }
+      if (line.length >= 4) return line;
+    }
+    return null;
+  }
+
+  function updateScoreboard() {
+    score1El.textContent = `${player1Label()}: ${scores[1]}${K('勝', 'しょう')}`;
+    score2El.textContent = `${player2Label()}: ${scores[2]}${K('勝', 'しょう')}`;
+    score3El.textContent = `${player3Label()}: ${scores[3]}${K('勝', 'しょう')}`;
+  }
+
+  resetBtn.addEventListener('click', () => { SoundMgr.seClick(); initGame(); });
+
+  // ---------- CPU AI (heuristic, 3-player-aware) ----------
+  // A true minimax/alpha-beta search assumes a 2-player zero-sum game and
+  // doesn't generalize cleanly to 3 (that's a much harder "maxn" search
+  // problem, and the bigger 8x7 board makes deep search expensive anyway).
+  // Instead: always grab a free win, always block whichever of the OTHER
+  // two players has one, and otherwise score each candidate column by how
+  // much it helps the mover's own open lines while hurting both opponents'
+  // — reusing the same per-window scoring idea the old minimax eval used,
+  // just generalized to "one active player vs every other value on the
+  // board" instead of a hardcoded piece===1/2 pair.
+  function getValidCols(g) {
+    const cols = [];
+    for (let c = 0; c < COLS; c++) if (g[0][c] === 0) cols.push(c);
+    return cols;
+  }
+
+  function cloneGrid(g) {
+    return g.map(row => row.slice());
+  }
+
+  function winningMoveGrid(g, player) {
+    // horizontal
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c <= COLS - 4; c++) {
+        if (g[r][c] === player && g[r][c+1] === player && g[r][c+2] === player && g[r][c+3] === player) return true;
+      }
+    }
+    // vertical
+    for (let c = 0; c < COLS; c++) {
+      for (let r = 0; r <= ROWS - 4; r++) {
+        if (g[r][c] === player && g[r+1][c] === player && g[r+2][c] === player && g[r+3][c] === player) return true;
+      }
+    }
+    // diagonal down-right
+    for (let r = 0; r <= ROWS - 4; r++) {
+      for (let c = 0; c <= COLS - 4; c++) {
+        if (g[r][c] === player && g[r+1][c+1] === player && g[r+2][c+2] === player && g[r+3][c+3] === player) return true;
+      }
+    }
+    // diagonal up-right
+    for (let r = 3; r < ROWS; r++) {
+      for (let c = 0; c <= COLS - 4; c++) {
+        if (g[r][c] === player && g[r-1][c+1] === player && g[r-2][c+2] === player && g[r-3][c+3] === player) return true;
+      }
+    }
+    return false;
+  }
+
+  // Returns a column that would immediately win for `player`, or null.
+  function findImmediateWin(g, player) {
+    for (const col of getValidCols(g)) {
+      const row = getNextOpenRow(g, col);
+      const gCopy = cloneGrid(g);
+      gCopy[row][col] = player;
+      if (winningMoveGrid(gCopy, player)) return col;
+    }
+    return null;
+  }
+
+  function evaluateWindowMulti(win, self) {
+    let score = 0;
+    const countSelf = win.filter(v => v === self).length;
+    const countEmpty = win.filter(v => v === 0).length;
+    if (countSelf === 3 && countEmpty === 1) score += 5;
+    else if (countSelf === 2 && countEmpty === 2) score += 2;
+    for (const opp of [1, 2, 3]) {
+      if (opp === self) continue;
+      const countOpp = win.filter(v => v === opp).length;
+      if (countOpp === 3 && countEmpty === 1) score -= 4;
+    }
+    return score;
+  }
+
+  function scorePositionMulti(g, self) {
+    let score = 0;
+    const centerCol = Math.floor(COLS / 2);
+    score += g.reduce((acc, row) => acc + (row[centerCol] === self ? 1 : 0), 0) * 3;
+
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c <= COLS - 4; c++) {
+        score += evaluateWindowMulti([g[r][c], g[r][c+1], g[r][c+2], g[r][c+3]], self);
+      }
+    }
+    for (let c = 0; c < COLS; c++) {
+      for (let r = 0; r <= ROWS - 4; r++) {
+        score += evaluateWindowMulti([g[r][c], g[r+1][c], g[r+2][c], g[r+3][c]], self);
+      }
+    }
+    for (let r = 0; r <= ROWS - 4; r++) {
+      for (let c = 0; c <= COLS - 4; c++) {
+        score += evaluateWindowMulti([g[r][c], g[r+1][c+1], g[r+2][c+2], g[r+3][c+3]], self);
+      }
+    }
+    for (let r = 3; r < ROWS; r++) {
+      for (let c = 0; c <= COLS - 4; c++) {
+        score += evaluateWindowMulti([g[r][c], g[r-1][c+1], g[r-2][c+2], g[r-3][c+3]], self);
+      }
+    }
+    return score;
+  }
+
+  // `player` is whichever CPU seat (2 or 3) is moving; `ch` is its character
+  // (for depth/wildness — null falls back to a middling default).
+  function getCpuMoveFor(player, ch) {
+    const validCols = getValidCols(grid);
+    if (validCols.length === 0) return null;
+
+    // Always take a free win, regardless of character strength, so weaker
+    // stages never look "broken" by missing an obvious win.
+    const myWin = findImmediateWin(grid, player);
+    if (myWin !== null) return myWin;
+
+    // Always block whichever OTHER player (human or the other CPU) has an
+    // immediate win on offer.
+    const others = [1, 2, 3].filter(p => p !== player);
+    for (const opp of others) {
+      const blockCol = findImmediateWin(grid, opp);
+      if (blockCol !== null) return blockCol;
+    }
+
+    const wildness = ch ? ch.wildness : 0.2;
+    if (wildness > 0 && Math.random() < wildness) {
+      return validCols[Math.floor(Math.random() * validCols.length)];
+    }
+
+    // Stronger characters (depth >= 2) also check one ply ahead: does this
+    // candidate move hand ANY opponent an immediate win next turn?
+    const depth = ch ? ch.depth : 2;
+    let bestCol = validCols[0];
+    let bestScore = -Infinity;
+    for (const col of validCols) {
+      const row = getNextOpenRow(grid, col);
+      const gCopy = cloneGrid(grid);
+      gCopy[row][col] = player;
+      let s = scorePositionMulti(gCopy, player);
+      if (depth >= 2 && others.some(opp => findImmediateWin(gCopy, opp) !== null)) {
+        s -= 5000;
+      }
+      if (s > bestScore) { bestScore = s; bestCol = col; }
+    }
+    return bestCol;
+  }
+
+  applyKanaMode(); // render the title/online screens in the persisted mode
+})();
+</script>
+</body>
+</html>
