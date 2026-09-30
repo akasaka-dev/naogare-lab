@@ -372,6 +372,9 @@
     font-family:var(--font-mono); font-weight:700;
     min-width:5.5em; display:inline-block;
   }
+  #audioAdjustPressStatus{
+    font-size:12.5px; color:var(--ink-dim); margin:0 0 14px;
+  }
   .modal-close{ margin-top:6px; }
 
   .touch-buttons{display:flex;gap:10px;}
@@ -541,7 +544,7 @@
 <div class="modal-overlay" id="audioAdjustModal" hidden>
   <div class="modal-card">
     <h3>Audio Adjust</h3>
-    <p>Bluetoothイヤホンなど、音が遅れて聞こえる場合は+方向に調整してください。クリック音を再生しながら、ズレなくなるところまでメーターを動かしてください。</p>
+    <p>Bluetoothイヤホンなど、音が遅れて聞こえる場合は+方向に調整してください。クリック音を再生しながら、本番と同じようにLeft/Rightを押して、ズレなくなるところまでメーターを動かしてください。</p>
     <div class="audio-adjust-row">
       <button id="audioAdjustPlay" type="button">Play Click</button>
     </div>
@@ -549,6 +552,7 @@
       <button id="audioAdjustBtnL" type="button">Left</button>
       <button id="audioAdjustBtnR" type="button">Right</button>
     </div>
+    <p id="audioAdjustPressStatus">Left/Rightを押すとズレが表示されます</p>
     <div class="audio-adjust-meter">
       <div class="audio-adjust-meter-track">
         <div class="audio-adjust-meter-center"></div>
@@ -2687,6 +2691,7 @@
   var audioAdjustReset = document.getElementById('audioAdjustReset');
   var audioAdjustValue = document.getElementById('audioAdjustValue');
   var audioAdjustClose = document.getElementById('audioAdjustClose');
+  var audioAdjustPressStatus = document.getElementById('audioAdjustPressStatus');
   var AUDIO_ADJUST_RANGE = 0.3; // matches the meter's printed -300ms..+300ms scale
   var testClickSource = null, testClickStartCtxTime = null;
   var TEST_CLICK_BPM = 120;
@@ -2711,6 +2716,7 @@
     audioAdjustBtnL.classList.remove('beat-active');
     audioAdjustBtnR.classList.remove('beat-active');
     audioAdjustPlay.textContent = 'Play Click';
+    audioAdjustPressStatus.textContent = 'Left/Rightを押すとズレが表示されます';
   }
   function startTestClick(){
     var buf = bgmBufferCache.tempo120;
@@ -2756,6 +2762,29 @@
   audioAdjustPlay.addEventListener('click', function(){
     if (testClickSource) stopTestClick(); else startTestClick();
   });
+  // Feedback only — pressing Left/Right never touches AUDIO_OFFSET itself,
+  // it just reports how far off *this* press landed from the beat this
+  // dialog is currently showing (i.e. already compensated by whatever the
+  // meter is set to), the same way real gameplay's own hit judgment would
+  // see it. The player reads the number and nudges the meter themselves.
+  function handleAudioAdjustPress(lane){
+    if (!testClickStartCtxTime){
+      audioAdjustPressStatus.textContent = '先にPlay Clickを押してください';
+      return;
+    }
+    var beatDur = 60/TEST_CLICK_BPM;
+    var beatNow = audioCtx.currentTime - testClickStartCtxTime - AUDIO_OFFSET;
+    var nearestIndex = Math.round(beatNow/beatDur);
+    var deltaMs = Math.round((beatNow - nearestIndex*beatDur)*1000);
+    var expectedLane = (((nearestIndex % 2) + 2) % 2 === 0) ? 'L' : 'R';
+    var laneOk = expectedLane === lane;
+    audioAdjustPressStatus.textContent =
+      (laneOk ? '' : '(反対のボタン) ') +
+      (deltaMs>=0 ? '+' : '') + deltaMs + 'ms' +
+      (deltaMs>=0 ? ' 遅い' : ' 早い');
+  }
+  audioAdjustBtnL.addEventListener('click', function(){ handleAudioAdjustPress('L'); });
+  audioAdjustBtnR.addEventListener('click', function(){ handleAudioAdjustPress('R'); });
   audioAdjustReset.addEventListener('click', function(){ setAudioOffset(0); });
   // stopPropagation: btnAudioAdjust now lives inside #cardTitle, itself
   // inside #stageWrap — without this, opening the dialog from the title
