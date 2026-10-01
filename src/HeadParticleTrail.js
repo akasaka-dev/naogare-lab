@@ -494,7 +494,7 @@ export class HeadParticleTrail {
       //     ribbon into a scattered "spray" of individual sparkle points.
       uSpreadAmount: { value: 3.4 },
       uSpreadCurve: { value: 1.6 },
-      uSpreadRandomness: { value: 3.0 },
+      uSpreadRandomness: { value: 0.7 },
       // Particle Glow V1 — Brightness/Particle Bloom alone stayed subtle
       // even turned way up because the existing HDR highlight term
       // (highlightEnergy below) is gated to a small central radius (`core`,
@@ -517,8 +517,8 @@ export class HeadParticleTrail {
       //   uGlowAgeFalloff: 0 = only young particles glow (matching
       //     highlightEnergy's own existing age gating); 1 = the whole
       //     trail glows at equal strength regardless of age.
-      uGlowIntensity: { value: 0.0 },
-      uGlowRadius: { value: 1.2 },
+      uGlowIntensity: { value: 1.05 },
+      uGlowRadius: { value: 0.3 },
       uGlowAgeFalloff: { value: 1.0 },
       // Trail Linger V1 — see the vertex shader's own comment on fadeOut for
       // what this does. 0.55 reproduces today's exact fade timing; free to
