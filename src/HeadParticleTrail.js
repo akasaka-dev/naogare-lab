@@ -234,7 +234,14 @@ class HeadPath {
 // ---------------------------------------------------------------------------
 //  Tunables
 // ---------------------------------------------------------------------------
-const POOL_SIZE = 600; // preallocated particle pool (spec 7: 400-900, start 600)
+// Bumped from 600 to the top of the originally-anticipated 400-900 range
+// (spec 7) — 600 meant the pool ran out of room (started recycling
+// particles before they'd naturally aged out, capping the trail's real
+// density) at any Emission Rate above ~600/avg.lifetime(~3.03s) ≈ 198, i.e.
+// most of the GUI slider's upper half (up to 300) was already fully
+// saturated and did nothing visible. 900 raises that ceiling to ~297,
+// covering the slider's whole range.
+const POOL_SIZE = 900;
 const MAX_LIFETIME = 4.0; // hard upper bound across the lifetime distribution (spec 9)
 const SPAWN_JITTER = 0.22; // world units — much smaller than the head's visible halo (spec 11)
 
@@ -263,7 +270,7 @@ export class HeadParticleTrail {
     // alive per second, reading as visually quieter even though spacing
     // itself never changed. Raising this restores denser sparkle along the
     // trail without touching speed.
-    this.emissionRate = 220;
+    this.emissionRate = 300;
     this.phase = 'flight';
 
     // ---- Head path (spec 22). ----
@@ -338,6 +345,21 @@ export class HeadParticleTrail {
     headGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(3), 3).setUsage(THREE.DynamicDrawUsage));
     const headMat = new THREE.ShaderMaterial({
       transparent: true,
+      // Tried depthWrite:true here (see git history) to fix the head
+      // getting visually muted under the volumetric cloud layer from a low
+      // "Low Skim" shot — the cloud pass raymarches against the scene's
+      // OPAQUE depth buffer, which a depthWrite:false point never
+      // contributes to, so clouds (correctly, by their own logic) have no
+      // way to know anything nearer than the sky is there and composite
+      // straight over it. Reverted: the cloud pass runs at a much LOWER
+      // resolution than the main scene and samples the depth texture at
+      // that lower resolution too, so one sharp, isolated depth spike from
+      // a single small point (unlike continuous geometry like the island
+      // or ocean) produced a hard-edged blocky square artifact in the
+      // upsampled cloud buffer — a worse bug than the one it fixed. Needs a
+      // different approach (e.g. having Clouds.js itself account for the
+      // head's position directly, rather than depth-buffer occlusion)
+      // before trying again.
       depthWrite: false,
       depthTest: true,
       toneMapped: false,
@@ -445,6 +467,56 @@ export class HeadParticleTrail {
       // Both bumped from 1.0 — see uHeadBloom's own comment above.
       uBrightness: { value: 1.15 },
       uParticleBloom: { value: 1.3 },
+      // Comet Tail Spread V1 — scales the existing age-grown sway/bob drift
+      // (see the vertex shader's own comment) without changing its shape at
+      // the defaults below, so a promo-style wide flaring tail is just a
+      // matter of turning these up, not a different system. No extra
+      // particles, textures or draw calls — same per-particle math either
+      // way, so there's no meaningful performance cost at any setting.
+      //   uSpreadAmount: overall multiplier on how far a particle drifts
+      //     sideways by the time it's fully aged (1.0 = today's look).
+      //   uSpreadCurve: exponent on normalized age — 1.0 grows the drift
+      //     linearly (today's look); higher values keep young particles
+      //     tight near the head and concentrate the widening later, closer
+      //     to a comet's flared tail than an evenly-thickening ribbon.
+      //   uSpreadRandomness: blends in a fixed-per-particle random scatter
+      //     direction on top of the smooth sinusoidal sway (0 = today's
+      //     smooth wave only) — this is what turns a gently undulating
+      //     ribbon into a scattered "spray" of individual sparkle points.
+      uSpreadAmount: { value: 3.4 },
+      uSpreadCurve: { value: 1.6 },
+      uSpreadRandomness: { value: 3.0 },
+      // Particle Glow V1 — Brightness/Particle Bloom alone stayed subtle
+      // even turned way up because the existing HDR highlight term
+      // (highlightEnergy below) is gated to a small central radius (`core`,
+      // r<0.35) and only the youngest half of each particle's life
+      // (youngMask) — a tiny, short-lived hot pixel doesn't give the
+      // screen-space bloom post-process much to spread, no matter how
+      // bright that pixel gets. This is a SEPARATE additive term with its
+      // own, much wider radius and its own age falloff, so turning it up
+      // makes each particle radiate a genuine soft halo (which the same
+      // existing bloom pass then spreads further) instead of just
+      // intensifying an already-tiny point. Defaults to 0 (no visible
+      // change at all) — same per-particle fragment shader either way, so
+      // there's no performance cost even at high settings, just different
+      // constants.
+      //   uGlowIntensity: overall strength of this glow term. 0 = off.
+      //   uGlowRadius: how far from the particle's centre the glow extends
+      //     (in the same r units as the existing core/halo, where 1.0 is
+      //     the point sprite's own edge) — bigger reads as a softer, wider
+      //     glow, not just a brighter dot.
+      //   uGlowAgeFalloff: 0 = only young particles glow (matching
+      //     highlightEnergy's own existing age gating); 1 = the whole
+      //     trail glows at equal strength regardless of age.
+      uGlowIntensity: { value: 0.0 },
+      uGlowRadius: { value: 1.2 },
+      uGlowAgeFalloff: { value: 1.0 },
+      // Trail Linger V1 — see the vertex shader's own comment on fadeOut for
+      // what this does. 0.55 reproduces today's exact fade timing; free to
+      // tune either way (no extra particles, pool size, or lifetime
+      // implications — purely how an already-alive particle's own
+      // brightness/size are shaped over its existing lifetime).
+      uFadeStart: { value: 0.55 },
     };
     const trailMat = new THREE.ShaderMaterial({
       transparent: true,
@@ -458,28 +530,55 @@ export class HeadParticleTrail {
         attribute vec3 aVelocity;
         attribute float aBirthTime, aLifetime, aSeed, aSize, aToneBias;
         uniform float uTime, uPixelSize;
+        uniform float uSpreadAmount, uSpreadCurve, uSpreadRandomness;
+        uniform float uFadeStart;
         varying float vAlpha, vAge, vSeed, vToneBias, vBirthTime;
+        // Cheap deterministic hash, only for the fixed-per-particle random
+        // scatter direction below — never for anything needing high quality.
+        float hash(float n) { return fract(sin(n) * 43758.5453123); }
         void main(){
           float age = uTime - aBirthTime;
           float na = clamp(age / aLifetime, 0.0, 1.0);
           // Slow deterministic drift (spec 13): "luminous dust suspended in
           // air" — sideways/vertical spread that grows with age, built from
-          // per-particle seed + two gentle frequencies, never violent.
+          // per-particle seed + two gentle frequencies, never violent. See
+          // uSpreadAmount/uSpreadCurve/uSpreadRandomness's own comments
+          // (above, by the uniform declarations) for what each one does —
+          // all three default to values that make this reduce EXACTLY to
+          // the original formula.
           float phase = aSeed * 6.2831853;
-          float sway = sin(uTime * 0.6 + phase) * (0.10 + na * 0.55);
-          float bob  = cos(uTime * 0.5 + phase * 1.3) * (0.08 + na * 0.35);
+          float ageCurve = pow(na, uSpreadCurve);
+          float swayWave = sin(uTime * 0.6 + phase) * (0.10 + ageCurve * 0.55);
+          float bobWave  = cos(uTime * 0.5 + phase * 1.3) * (0.08 + ageCurve * 0.35);
+          float rHashX = hash(aSeed * 127.1) * 2.0 - 1.0;
+          float rHashY = hash(aSeed * 269.5 + 13.1) * 2.0 - 1.0;
+          float rHashZ = hash(aSeed * 391.7 + 47.7) * 2.0 - 1.0;
+          float randomScatter = ageCurve * uSpreadRandomness;
+          float sway = (swayWave + rHashX * randomScatter) * uSpreadAmount;
+          float bob  = (bobWave + rHashY * randomScatter) * uSpreadAmount;
+          float zScatter = rHashZ * randomScatter * uSpreadAmount;
           vec3 pos = position + aVelocity * age;
           pos.x += sway;
-          pos.z += sway * 0.4;
+          pos.z += sway * 0.4 + zScatter;
           pos.y += bob + na * 0.22;
           vec4 mv = modelViewMatrix * vec4(pos, 1.0);
           gl_Position = projectionMatrix * mv;
           // Age/size profile (spec 10): small&dense near birth -> a touch
-          // larger/softer mid-life -> shrinking again as it fades.
-          float sizeCurve = mix(0.75, 1.15, smoothstep(0.0, 0.5, na)) * mix(1.15, 0.5, smoothstep(0.5, 1.0, na));
+          // larger/softer mid-life -> shrinking again as it fades. The
+          // shrink and the alpha fadeOut below now share uFadeStart (both
+          // hardcoded to 0.55 before) so a particle's size and brightness
+          // always wind down together, not size shrinking while it's still
+          // fully opaque or vice versa.
+          float sizeCurve = mix(0.75, 1.15, smoothstep(0.0, 0.5, na)) * mix(1.15, 0.5, smoothstep(uFadeStart, 1.0, na));
           gl_PointSize = uPixelSize * aSize * sizeCurve / max(-mv.z, 1.0);
           float fadeIn = smoothstep(0.0, 0.05, na);
-          float fadeOut = 1.0 - smoothstep(0.55, 1.0, na);
+          // Trail Linger V1 — uFadeStart (0.55 = today's exact look) is how
+          // far through its life a particle stays fully bright before
+          // beginning to fade; raising it makes the trail read as crisp and
+          // present for longer, with the actual fade-out saved for a
+          // shorter, gentler dim right at the very end, rather than
+          // spending nearly half its life already visibly dimming.
+          float fadeOut = 1.0 - smoothstep(uFadeStart, 1.0, na);
           vAlpha = fadeIn * fadeOut * step(age, aLifetime) * step(0.0, age);
           vAge = na;
           vSeed = aSeed;
@@ -493,6 +592,7 @@ export class HeadParticleTrail {
         uniform vec3 uYoungColor, uMidColor, uOldColor;
         uniform float uColorMode, uRainbowSpeed, uRainbowSaturation;
         uniform float uBrightness, uParticleBloom;
+        uniform float uGlowIntensity, uGlowRadius, uGlowAgeFalloff;
         varying float vAlpha, vAge, vSeed, vToneBias, vBirthTime;
         vec3 hsv2rgb(vec3 c){
           vec4 K = vec4(1.0, 2.0/3.0, 1.0/3.0, 3.0);
@@ -553,7 +653,15 @@ export class HeadParticleTrail {
           float youngMask = smoothstep(0.5, 0.0, vAge);
           vec3 highlightColor = mix(tone, vec3(1.0), 0.3);
           vec3 highlightEnergy = highlightColor * core * youngMask * uParticleBloom;
-          vec3 emissive = visibleColor + highlightEnergy;
+          // Particle Glow V1 — see uGlowIntensity's own comment above. A
+          // wide, soft radial falloff (uGlowRadius, independent of the
+          // tight core radius) so this reads as a halo the bloom pass can
+          // spread, not just a brighter version of the existing tiny hot
+          // centre.
+          float glowFalloff = smoothstep(uGlowRadius, 0.0, r);
+          float glowAgeMask = mix(youngMask, 1.0, uGlowAgeFalloff);
+          vec3 glowEnergy = tone * glowFalloff * glowAgeMask * uGlowIntensity;
+          vec3 emissive = visibleColor + highlightEnergy + glowEnergy;
           gl_FragColor = vec4(emissive, shapeAlpha);
         }
       `,
@@ -651,10 +759,28 @@ export class HeadParticleTrail {
 
   setBrightness(v) { this.trailUniforms.uBrightness.value = v; }
   setParticleBloom(v) { this.trailUniforms.uParticleBloom.value = v; }
+  setSpreadAmount(v) { this.trailUniforms.uSpreadAmount.value = v; }
+  setSpreadCurve(v) { this.trailUniforms.uSpreadCurve.value = v; }
+  setSpreadRandomness(v) { this.trailUniforms.uSpreadRandomness.value = v; }
+  setGlowIntensity(v) { this.trailUniforms.uGlowIntensity.value = v; }
+  setGlowRadius(v) { this.trailUniforms.uGlowRadius.value = v; }
+  setGlowAgeFalloff(v) { this.trailUniforms.uGlowAgeFalloff.value = v; }
+  setFadeStart(v) { this.trailUniforms.uFadeStart.value = v; }
   setHeadBloom(v) { this.headUniforms.uHeadBloom.value = v; }
 
   setEmissionRate(r) {
     this.emissionRate = Math.max(1, r);
+    // Re-sync the emission counter to what the NEW rate would already have
+    // emitted by the current distanceTraveled. Without this, lowering the
+    // rate (e.g. 280 -> 100) leaves _emitCount — a running total under the
+    // OLD, higher rate — ahead of targetCount computed under the new, lower
+    // one (distanceTraveled * emissionRate/STEER_BASE_SPEED never
+    // decreases, and emissionRate just did), so update()'s `while
+    // (_emitCount < targetCount)` loop stops firing entirely until the head
+    // travels far enough at the NEW rate to close that gap — which, for a
+    // big drop, can take many seconds, reading as "no particles at all"
+    // once the existing ones age out in the meantime.
+    this._emitCount = Math.floor(this.distanceTraveled * (this.emissionRate / STEER_BASE_SPEED));
   }
 
   setAltitudeOffset(value) { this.altitudeOffset = value; }

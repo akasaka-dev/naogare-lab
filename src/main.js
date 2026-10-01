@@ -465,6 +465,42 @@ window.addEventListener('keydown', (event) => {
 });
 
 // ---------------------------------------------------------------------------
+//  Promo Screenshot V1 — press P to save the current frame as a PNG to the
+//  browser's default downloads folder, for grabbing promotional stills.
+//  screenshotRequested is only ever set here and read/cleared once per frame
+//  in animate(), right after post.render()'s own final composite draws to
+//  the screen (see that call site) — capturing any earlier would grab a
+//  partially-composited frame, and waiting until a LATER frame risks the
+//  browser having already presented/cleared this one. This avoids needing
+//  the renderer's preserveDrawingBuffer option (a permanent perf cost on
+//  every frame, not just the rare one a screenshot is actually taken on)
+//  since toBlob() reads the buffer synchronously at call time, still within
+//  the same frame the composite pass just wrote to it.
+let screenshotRequested = false;
+window.addEventListener('keydown', (event) => {
+  if (event.code !== 'KeyP') return;
+  if (event.repeat) return;
+  const t = event.target;
+  const tag = t && t.tagName;
+  if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || (t && t.isContentEditable)) return;
+  screenshotRequested = true;
+});
+function downloadScreenshot() {
+  renderer.domElement.toBlob((blob) => {
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+    a.href = url;
+    a.download = `forevermore-${ts}.png`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }, 'image/png');
+}
+
+// ---------------------------------------------------------------------------
 //  Presentation Mode V1 — press H to hide non-MV editor UI (lil-gui panel,
 //  debug HUD) for clean MV playback/recording. A single CSS class toggle on
 //  <body> (see index.html's `.editor-ui` rule) — nothing is
@@ -1584,6 +1620,20 @@ if (headParticlesEnabled) {
     paused: false,
     follow: true,
     meanderStrength: 0.0,
+    // Comet Tail Spread V1 — read live from HeadParticleTrail.js's own
+    // defaults (1.0/1.0/0.0, i.e. today's established look byte-for-byte)
+    // rather than repeated here, so the GUI can never drift out of sync
+    // with them.
+    spreadAmount: headParticleTrail.trailUniforms.uSpreadAmount.value,
+    spreadCurve: headParticleTrail.trailUniforms.uSpreadCurve.value,
+    spreadRandomness: headParticleTrail.trailUniforms.uSpreadRandomness.value,
+    // Particle Glow V1 — same "read live, defaults to no visible change"
+    // convention as Comet Tail Spread above.
+    glowIntensity: headParticleTrail.trailUniforms.uGlowIntensity.value,
+    glowRadius: headParticleTrail.trailUniforms.uGlowRadius.value,
+    glowAgeFalloff: headParticleTrail.trailUniforms.uGlowAgeFalloff.value,
+    // Trail Linger V1 — same "read live" convention as the others above.
+    fadeStart: headParticleTrail.trailUniforms.uFadeStart.value,
   };
   const fHeadParticles = gui.addFolder('Head Particle Trail');
   fHeadParticles.add({ restart: () => headParticleTrail.restart() }, 'restart').name('Restart');
@@ -1603,6 +1653,29 @@ if (headParticlesEnabled) {
   // Organic Meander V1 debug control (0 = pure base Catmull-Rom path, 1 =
   // intended V1 feel, 2 = exaggerated diagnostic).
   fHeadParticles.add(headParticleGuiState, 'meanderStrength', 0.0, 2.0, 0.05).name('Meander Strength').onChange((v) => headParticleTrail.setMeanderStrength(v));
+  // Comet Tail Spread V1 — a promo-style wide flaring tail is these three
+  // turned up, not a different system (see HeadParticleTrail.js's own
+  // uSpreadAmount/uSpreadCurve/uSpreadRandomness comments for what each
+  // does) — no extra particles or draw calls, so no performance cost at
+  // any setting. Defaults (1.0/1.0/0.0) reproduce today's look exactly.
+  fHeadParticles.add(headParticleGuiState, 'spreadAmount', 0.0, 10.0, 0.1).name('Tail Spread Amount').onChange((v) => headParticleTrail.setSpreadAmount(v));
+  fHeadParticles.add(headParticleGuiState, 'spreadCurve', 0.3, 4.0, 0.05).name('Tail Spread Curve').onChange((v) => headParticleTrail.setSpreadCurve(v));
+  fHeadParticles.add(headParticleGuiState, 'spreadRandomness', 0.0, 3.0, 0.05).name('Tail Spread Randomness').onChange((v) => headParticleTrail.setSpreadRandomness(v));
+  // Particle Glow V1 — a wide additive halo per particle (separate from,
+  // and much more visible than, Brightness/Particle Bloom alone — see
+  // HeadParticleTrail.js's own uGlowIntensity comment for why those two
+  // stayed subtle even turned way up). No extra particles/draw calls, so no
+  // performance cost at any setting. Defaults to 0 (no visible change).
+  fHeadParticles.add(headParticleGuiState, 'glowIntensity', 0.0, 3.0, 0.05).name('Glow Intensity').onChange((v) => headParticleTrail.setGlowIntensity(v));
+  fHeadParticles.add(headParticleGuiState, 'glowRadius', 0.3, 4.0, 0.05).name('Glow Radius').onChange((v) => headParticleTrail.setGlowRadius(v));
+  fHeadParticles.add(headParticleGuiState, 'glowAgeFalloff', 0.0, 1.0, 0.05).name('Glow Age Falloff').onChange((v) => headParticleTrail.setGlowAgeFalloff(v));
+  // Trail Linger V1 — how far through its (unchanged) lifetime a particle
+  // stays fully bright/full-size before its fade-out begins (see
+  // HeadParticleTrail.js's own uFadeStart comment). Higher = looks crisp
+  // and present for longer, fading only right at the very end, rather than
+  // visibly dimming for nearly half its life. No particle-count, pool, or
+  // lifetime implications either way — same cost as today at any setting.
+  fHeadParticles.add(headParticleGuiState, 'fadeStart', 0.05, 0.95, 0.01).name('Fade Start (life fraction)').onChange((v) => headParticleTrail.setFadeStart(v));
   fHeadParticles.add(headParticleGuiState, 'follow').name('Follow Camera').onChange((v) => { headParticleFollowCam.inited = false; if (!v) controls.enabled = true; });
   // Apply the default custom palette to the uniforms immediately so
   // switching Color Mode to "custom" shows the intended colours right away
@@ -2387,6 +2460,10 @@ function animate() {
     cloudTexture: clouds.enabled ? clouds.texture : null,
     rainbowStrength,
   });
+  if (screenshotRequested) {
+    screenshotRequested = false;
+    downloadScreenshot();
+  }
 
   // --- HUD ---
   const depthBelow = surfaceH - camera.position.y;
