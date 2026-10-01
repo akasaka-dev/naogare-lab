@@ -531,6 +531,16 @@
     0%, 10% { transform: translate(-50%, calc(-100% + 100vh)); }
     90%, 100% { transform: translate(-50%, 0); }
   }
+  /* Payoff image revealed once the crawl finishes (see showEndingScreen()'s
+     endingCrawlAnim.onfinish) — overrides #endingScroll img's pan-start
+     transform with a plain centered cover-fit, since this one doesn't pan. */
+  #endingScroll img#endingVista {
+    transform: translate(-50%, 0);
+    opacity: 0;
+    transition: opacity 1.8s ease;
+    pointer-events: none; /* clicking through it still returns to title */
+  }
+  #endingScroll img#endingVista.show { opacity: 1; }
   /* Narration crawl overlaid on the artwork — see showEndingScreen(). Its
      start/end transform is set inline (via the Web Animations API) once the
      text is built and its rendered height is known, so it always scrolls
@@ -804,6 +814,7 @@
     transform: translateY(-6px);
     transition: opacity 0.3s ease, transform 0.3s ease;
     box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    cursor: pointer; /* click skips to the next queued line, or dismisses — see handleBubbleClick() */
   }
   #speechBubble.show {
     opacity: 1;
@@ -940,7 +951,6 @@
 
   <!-- Title / mode select screen -->
   <div id="titleScreen">
-    <h1><span id="titlePrefix">黄昏のフォー・イン・ア・</span><span id="debugTrigger">ロ</span>ウ <span id="titleSequelSubtitle">地平の行方</span></h1>
     <p class="subtitle" id="titleSubtitle">遊び方を選んでください</p>
     <div class="player-name-row">
       <label for="playerNameInput" id="playerNameLabel"></label>
@@ -953,7 +963,7 @@
     </div>
     <button class="back-to-splash-btn" id="backToSplashBtn"></button>
     <p class="credit">
-      Created by <strong>naogare</strong> ／
+      <span id="debugTrigger">C</span>reated by <strong>naogare</strong> ／
       <a href="https://www.youtube.com/@NMLabo" target="_blank" rel="noopener noreferrer">YouTube: NMLabo</a>
     </p>
   </div>
@@ -1084,10 +1094,13 @@
        ending2.webp is a tall (2:1) crop specifically so width:100% scaling
        still covers portrait phone screens without gaps — see ending.webp
        (kept alongside it, unused) for the original, shorter (~1.5:1) art.
-       Click anywhere to return to title. -->
+       Once the crawl finishes, endingVista fades in over it — see
+       showEndingScreen()'s endingCrawlAnim.onfinish. Click anywhere to
+       return to title. -->
   <div id="endingScreen" class="hidden">
     <div id="endingScroll">
       <img src="ending2.webp" alt="エンディング" draggable="false">
+      <img id="endingVista" src="ending_vista.webp" alt="" draggable="false">
       <div id="endingTextWrap"><div id="endingTextCrawl"></div></div>
     </div>
     <div class="ending-hint" id="endingHint"></div>
@@ -1342,8 +1355,6 @@
   // time they run — but if a match is already in progress we also nudge the
   // couple of screens that only render once at match start.
   function applyKanaMode() {
-    document.getElementById('titlePrefix').textContent = K('黄昏のフォー・イン・ア・', 'たそがれのフォー・イン・ア・');
-    document.getElementById('titleSequelSubtitle').textContent = K('地平の行方', 'ちへいのゆくえ');
     document.getElementById('titleSubtitle').textContent = K('遊び方を選んでください', 'あそびかたをえらんでください');
     document.getElementById('playerNameLabel').textContent = K('プレイヤー名', 'プレイヤーめい');
     document.getElementById('pvpBtnLabel').textContent = K('対人戦（3人）', 'たいじんせん（3にん）');
@@ -2050,9 +2061,10 @@
     'マスクをした男が一人、床に座っている。',
     '頭の中に響いていた声が消えている。',
     '俺は・・いったい・・',
-    '混乱する頭に先ほど現れたフクロウの人形の言葉が響いた。',
+    '混乱する頭に先ほど現れた奇怪なフクロウの人形の言葉がリフレインする。',
     'この塔にしばられた自分は、外に出るため、ゲームに勝利しなければならない、と。',
-    'まずはこの人形どもを倒して辛気臭い塔から出る。それだけだ。'
+    '見覚えのあるキツネとネズミの人形が嬉しそうに盤面を加えて現れた。',
+    'まずはこいつらを倒してこの辛気臭い塔から出る。それだけだ。'
   ];
   // 塔の門番 (LV6) confrontation script — the protagonist's in-story name,
   // 狂犬マスク, appears here for the first time (the title-screen name field
@@ -2060,30 +2072,29 @@
   const STORY_LV6_LINES = [
     '獣の門番 「……来たか。」',
     '影の門番 「随分と遅かったな。」',
-    '狂犬マスク 「道を塞いでんのは、お前らか。」',
+    'マスク 「道を塞いでんのは、お前らか。」',
     '獣の門番 「俺が止める。」',
     '影の門番 「いや、私が止める。」',
     '獣の門番 「お前に任せれば、日が暮れる。」',
     '影の門番 「お前に任せれば、盤面が壊れる。」',
-    '狂犬マスク 「……。」',
-    '狂犬マスク 「お前ら、仲悪いのか？」',
+    'マスク 「……。」',
+    'マスク 「お前ら、仲悪いのか？」',
     '獣の門番「別に。」\n影の門番 「別に。」',
-    '狂犬マスク 「……そうかよ。」',
+    'マスク 「……そうかよ。」',
     '獣の門番 「ならば、どちらが奴を止めるか決めよう。」',
     '影の門番 「同意する。」',
-    '狂犬マスク 「ゲームで決めるってか。」',
+    'マスク 「ゲームで決めるってか。」',
     '獣の門番 「それが、この塔のやり方だ。」',
     '影の門番 「三人で戦う。」',
-    '狂犬マスク 「三人……？」',
+    'マスク 「三人……？」',
     '獣の門番 「俺と、こいつと、お前だ。」',
     '影の門番 「勝った者が、この先へ進む。」',
-    '狂犬マスク 「なるほどな。」',
-    '狂犬マスク 「だったら、まとめて相手してやる。」',
+    'マスク 「ふん。まとめて相手してやるよ。」',
     '獣の門番 「言うようになったな。」',
     '影の門番 「では始めよう。」',
     '獣の門番 「俺が勝つ。」',
     '影の門番 「それは私の台詞だ。」',
-    '狂犬マスク 「……どっちでもいい。\n最後に立ってりゃ、それでいい。」',
+    'マスク 「……どっちでもいい。\n最後に立ってりゃ、それでいい。」',
   ];
   // Keyed by ladder stage index (0-5), not level number, to match STAGES/ladderIndex.
   // `bg` is optional — omitted (as for LV1) just keeps #storyOverlay's plain
@@ -3038,6 +3049,7 @@
     // "黒バックスクロールで白字で") until matching art exists; re-enable the
     // pan by restoring the three lines this replaced.
     img.classList.add('hidden');
+    document.getElementById('endingVista').classList.remove('show'); // reset in case the ending is replayed
     el.classList.remove('hidden');
     requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('show')));
 
@@ -3068,7 +3080,10 @@
       ],
       { duration: totalMs, easing: 'linear', fill: 'forwards' }
     );
-    endingCrawlAnim.onfinish = () => { endingCrawlFinished = true; };
+    endingCrawlAnim.onfinish = () => {
+      endingCrawlFinished = true;
+      document.getElementById('endingVista').classList.add('show');
+    };
     // Let the ending theme swell in a few seconds before the crawl finishes,
     // rather than the moment the screen appears.
     endingBgmTimer = setTimeout(() => SoundMgr.playTrack('ending', 'title'), Math.max(0, totalMs - 5000));
@@ -3460,11 +3475,27 @@
   // Most characters speak a single line per category. LV5 (傀儡師) instead has
   // multi-speaker conversations (master + 4 puppets) — see PUPPETS above.
   // speak() returns how long (ms) the bubble will be showing, so callers can
-  // delay any follow-up (e.g. the ladder result overlay) until it's done.
-  let conversationTimer = null;
+  // delay any follow-up (e.g. the ladder result overlay) until it's done —
+  // that total is always the full un-skipped duration, even if the player
+  // clicks through early, so downstream pacing (e.g. the result overlay)
+  // never arrives faster than it would without clicking.
+  //
+  // Multi-line runs (playConversation/speakSequential) go through this one
+  // shared, click-skippable sequencer instead of independent setTimeouts, so
+  // "the first of two lines vanishes before it can be read" (the bug this
+  // replaced) can't happen — see handleBubbleClick().
+  let bubbleSequence = null; // { steps: [{name, text}], index, timer } | null
 
+  function clearBubbleSequence() {
+    if (bubbleSequence && bubbleSequence.timer) clearTimeout(bubbleSequence.timer);
+    bubbleSequence = null;
+  }
+
+  // ~3s floor even for a short line, so a reader always gets a real chance
+  // to read it before the next one in a sequence replaces it; scales up for
+  // longer lines rather than clipping them at a fixed ceiling.
   function lineDelay(text) {
-    return Math.max(1300, Math.min(2600, text.length * 110));
+    return Math.max(3000, Math.min(5500, text.length * 110));
   }
 
   function showSingleLine(name, text) {
@@ -3477,19 +3508,47 @@
     return lineDelay(text);
   }
 
-  function playConversation(ch, convo) {
-    if (conversationTimer) { clearTimeout(conversationTimer); conversationTimer = null; }
-    let i = 0;
-    function step() {
-      const line = convo[i];
-      i++;
-      showSingleLine(speakerName(ch, line.speaker), line.text);
-      if (i < convo.length) {
-        conversationTimer = setTimeout(step, lineDelay(line.text));
-      }
+  function advanceBubbleSequence() {
+    if (!bubbleSequence) return;
+    bubbleSequence.index++;
+    if (bubbleSequence.index >= bubbleSequence.steps.length) {
+      bubbleSequence = null; // last line stays on screen until something else replaces/hides it
+      return;
     }
-    step();
-    return convo.reduce((sum, line) => sum + lineDelay(line.text), 0);
+    const step = bubbleSequence.steps[bubbleSequence.index];
+    showSingleLine(step.name, step.text);
+    bubbleSequence.timer = setTimeout(advanceBubbleSequence, lineDelay(step.text));
+  }
+
+  // Shared by playConversation/speakSequential: shows steps[0] now, auto-
+  // advances on a timer, and leaves the sequence in `bubbleSequence` so a
+  // click (handleBubbleClick) can jump ahead of the timer at any point.
+  function runBubbleSequence(steps) {
+    clearBubbleSequence();
+    if (!steps.length) return 0;
+    bubbleSequence = { steps, index: 0, timer: null };
+    showSingleLine(steps[0].name, steps[0].text);
+    bubbleSequence.timer = setTimeout(advanceBubbleSequence, lineDelay(steps[0].text));
+    return steps.reduce((sum, s) => sum + lineDelay(s.text), 0);
+  }
+
+  // Click anywhere on the bubble: jump straight to the next queued line
+  // (for a multi-line run), or dismiss the bubble immediately if this was
+  // the last one — "もう読まなくていい人はクリックして飛ばせるように". Dismissing
+  // (rather than just silently ending the sequence, as the natural
+  // timer-driven finish does) is what makes clicking through to the end
+  // take exactly as many clicks as there are lines, not one extra.
+  function handleBubbleClick() {
+    if (bubbleSequence && bubbleSequence.index < bubbleSequence.steps.length - 1) {
+      clearTimeout(bubbleSequence.timer);
+      advanceBubbleSequence();
+    } else {
+      hideBubble();
+    }
+  }
+
+  function playConversation(ch, convo) {
+    return runBubbleSequence(convo.map((line) => ({ name: speakerName(ch, line.speaker), text: line.text })));
   }
 
   function speak(ch, category) {
@@ -3515,25 +3574,26 @@
   // the single shared speech bubble (used when the human beats both CPU
   // opponents at once, so each gets to react instead of only one). Only
   // handles the plain-string case (victory/defeat are always a fixed string,
-  // never the multi-speaker conversation array), since the total delay must
-  // be known up front to schedule each setTimeout.
+  // never the multi-speaker conversation array).
   function speakSequential(chars, category) {
-    let total = 0;
+    const steps = [];
     chars.filter(Boolean).forEach((ch) => {
       const lineSet = (kanaMode && ch.linesKana) ? ch.linesKana : ch.lines;
       const text = lineSet && lineSet[category];
-      if (typeof text !== 'string') return;
-      const startAt = total;
-      setTimeout(() => showSingleLine(ch.name, text), startAt);
-      total += lineDelay(text);
+      if (typeof text === 'string') steps.push({ name: ch.name, text });
     });
-    return total;
+    return runBubbleSequence(steps);
   }
 
   function hideBubble() {
-    if (conversationTimer) { clearTimeout(conversationTimer); conversationTimer = null; }
+    clearBubbleSequence();
     document.getElementById('speechBubble').classList.remove('show');
   }
+
+  document.getElementById('speechBubble').addEventListener('click', () => {
+    SoundMgr.seClick();
+    handleBubbleClick();
+  });
 
   function triggerCpuMove() {
     const player = currentPlayer; // 2 or 3
