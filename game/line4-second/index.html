@@ -3498,6 +3498,19 @@
     return Math.max(3000, Math.min(5500, text.length * 110));
   }
 
+  // The OTHER place two lines could clobber each other: in CPU mode, the
+  // board itself cycles turns independently of how long a bubble has been
+  // showing. On two human-free turns in a row (P2 then P3, neither one you),
+  // triggerCpuMove() used to always wait a flat 450ms "thinking" pause no
+  // matter what — so opponent 2's just-shown line got overwritten by
+  // opponent 3's well before anyone could read it. bubbleReadyAt is "don't
+  // let a NEW bubble line replace this one before this timestamp"; the fix
+  // in triggerCpuMove() below waits for it instead of the flat 450ms when
+  // that's longer. Reset to 0 (no wait) on an explicit skip-click, since a
+  // player who dismissed a line early clearly doesn't want the game to keep
+  // pausing for it.
+  let bubbleReadyAt = 0;
+
   function showSingleLine(name, text) {
     const bubble = document.getElementById('speechBubble');
     document.getElementById('bubbleName').textContent = name;
@@ -3505,7 +3518,9 @@
     bubble.classList.remove('show');
     void bubble.offsetWidth; // restart the fade/slide animation
     bubble.classList.add('show');
-    return lineDelay(text);
+    const delay = lineDelay(text);
+    bubbleReadyAt = Date.now() + delay;
+    return delay;
   }
 
   function advanceBubbleSequence() {
@@ -3587,6 +3602,7 @@
 
   function hideBubble() {
     clearBubbleSequence();
+    bubbleReadyAt = 0; // nothing left to protect a read-time for
     document.getElementById('speechBubble').classList.remove('show');
   }
 
@@ -3606,12 +3622,17 @@
       ? `<img class="turn-avatar" src="${ch.img}" alt="" style="object-position: ${ch.avatarPosition || 'left top'};" onerror="this.outerHTML='<span class=&quot;turn-indicator&quot; style=&quot;background:var(${colorVar})&quot;></span>'">`
       : `<span class="turn-indicator" style="background:var(${colorVar})"></span>`;
     updateStatus(`${thinkingAvatar} ${escapeHtml(label)}${K('が考え中...', 'がかんがえちゅう...')}`);
+    // Normally just a brief "thinking" pause, but if the OTHER CPU opponent
+    // just spoke (bubbleReadyAt in the future — see showSingleLine()), wait
+    // for that line's read time instead so this move's own speak() call
+    // doesn't overwrite it within the same ~450ms, before anyone can read it.
+    const delay = Math.max(450, bubbleReadyAt - Date.now());
     setTimeout(() => {
       const col = getCpuMoveFor(player, ch);
       cpuThinking = false;
       boardWrap.classList.remove('locked');
       if (col !== null) dropPiece(col, player);
-    }, 450);
+    }, delay);
   }
 
   function isBoardFull() {
