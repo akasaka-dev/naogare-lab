@@ -323,7 +323,7 @@
     border-radius:4px;
   }
   .audio-adjust-meter-center{
-    position:absolute; left:50%; top:-7px;
+    position:absolute; top:-7px;
     width:3px; height:22px;
     background:var(--danger);
     transform:translateX(-50%);
@@ -360,21 +360,30 @@
     box-shadow:0 2px 6px rgba(0,0,0,0.5);
   }
   .audio-adjust-meter-scale{
-    display:flex; justify-content:space-between;
+    position:relative;
+    height:14px;
     font-size:11px; color:var(--ink-dim);
     margin-top:5px;
   }
+  .audio-adjust-scale-min{ position:absolute; left:0; }
+  .audio-adjust-scale-max{ position:absolute; right:0; }
+  .audio-adjust-scale-zero{ position:absolute; transform:translateX(-50%); }
   .audio-adjust-row{
     display:flex; align-items:center; justify-content:center;
     gap:10px; margin-bottom:12px;
   }
+  .audio-adjust-lr-row{ gap:8px; }
   #audioAdjustValue{
     font-family:var(--font-mono); font-weight:700;
     min-width:5.5em; display:inline-block;
   }
-  #audioAdjustPressStatus{
-    font-size:12.5px; color:var(--ink-dim); margin:0 0 14px;
+  .audio-adjust-delta{
+    font-family:var(--font-mono); font-weight:700; font-size:13px;
+    min-width:4.2em;
+    color:var(--ink-dim);
   }
+  .audio-adjust-delta-l{ text-align:right; }
+  .audio-adjust-delta-r{ text-align:left; }
   .modal-close{ margin-top:6px; }
 
   .touch-buttons{display:flex;gap:10px;}
@@ -548,25 +557,32 @@
     <div class="audio-adjust-row">
       <button id="audioAdjustPlay" type="button">Play Click</button>
     </div>
-    <div class="audio-adjust-row touch-buttons">
-      <button id="audioAdjustBtnL" type="button">Left</button>
-      <button id="audioAdjustBtnR" type="button">Right</button>
+    <div class="audio-adjust-row audio-adjust-lr-row">
+      <span id="audioAdjustDeltaL" class="audio-adjust-delta audio-adjust-delta-l"></span>
+      <div class="touch-buttons">
+        <button id="audioAdjustBtnL" type="button">Left</button>
+        <button id="audioAdjustBtnR" type="button">Right</button>
+      </div>
+      <span id="audioAdjustDeltaR" class="audio-adjust-delta audio-adjust-delta-r"></span>
     </div>
-    <p id="audioAdjustPressStatus">Left/Rightを押すとズレが表示されます</p>
     <div class="audio-adjust-meter">
       <div class="audio-adjust-meter-track">
-        <div class="audio-adjust-meter-center"></div>
+        <div class="audio-adjust-meter-center" id="audioAdjustMeterCenter"></div>
       </div>
-      <input type="range" id="audioAdjustSlider" class="audio-adjust-meter-slider" min="-300" max="300" step="1" value="0">
+      <input type="range" id="audioAdjustSlider" class="audio-adjust-meter-slider" min="-100" max="500" step="1" value="0">
       <div class="audio-adjust-meter-scale">
-        <span>-300ms</span><span>0</span><span>+300ms</span>
+        <span class="audio-adjust-scale-min">-100ms</span>
+        <span class="audio-adjust-scale-zero" id="audioAdjustScaleZero">0</span>
+        <span class="audio-adjust-scale-max">+500ms</span>
       </div>
     </div>
     <div class="audio-adjust-row">
       <span id="audioAdjustValue">0ms</span>
     </div>
     <div class="audio-adjust-row">
+      <button id="audioAdjustMinus1" type="button">-1ms</button>
       <button id="audioAdjustReset" type="button">Reset</button>
+      <button id="audioAdjustPlus1" type="button">+1ms</button>
     </div>
     <button id="audioAdjustClose" class="modal-close" type="button">Close</button>
   </div>
@@ -2689,10 +2705,24 @@
   var audioAdjustBtnR = document.getElementById('audioAdjustBtnR');
   var audioAdjustSlider = document.getElementById('audioAdjustSlider');
   var audioAdjustReset = document.getElementById('audioAdjustReset');
+  var audioAdjustMinus1 = document.getElementById('audioAdjustMinus1');
+  var audioAdjustPlus1 = document.getElementById('audioAdjustPlus1');
   var audioAdjustValue = document.getElementById('audioAdjustValue');
   var audioAdjustClose = document.getElementById('audioAdjustClose');
-  var audioAdjustPressStatus = document.getElementById('audioAdjustPressStatus');
-  var AUDIO_ADJUST_RANGE = 0.3; // matches the meter's printed -300ms..+300ms scale
+  var audioAdjustDeltaL = document.getElementById('audioAdjustDeltaL');
+  var audioAdjustDeltaR = document.getElementById('audioAdjustDeltaR');
+  var audioAdjustMeterCenter = document.getElementById('audioAdjustMeterCenter');
+  var audioAdjustScaleZero = document.getElementById('audioAdjustScaleZero');
+  // Real device latency is a one-way delay (audio always arrives *late*,
+  // never early), so the negative side only needs enough room to correct
+  // a slight overshoot, not to mirror the positive side. Matches the
+  // slider's own min/max in the markup above.
+  var AUDIO_ADJUST_MIN = -0.1, AUDIO_ADJUST_MAX = 0.5;
+  (function(){
+    var zeroPct = (0 - AUDIO_ADJUST_MIN) / (AUDIO_ADJUST_MAX - AUDIO_ADJUST_MIN) * 100;
+    audioAdjustMeterCenter.style.left = zeroPct + '%';
+    audioAdjustScaleZero.style.left = zeroPct + '%';
+  })();
   var testClickSource = null, testClickStartCtxTime = null;
   var TEST_CLICK_BPM = 120;
   var audioAdjustLastBeat = -1, audioAdjustParity = false;
@@ -2701,13 +2731,15 @@
     audioAdjustSlider.value = Math.round(AUDIO_OFFSET*1000);
   }
   function setAudioOffset(v){
-    AUDIO_OFFSET = Math.max(-AUDIO_ADJUST_RANGE, Math.min(AUDIO_ADJUST_RANGE, v));
+    AUDIO_OFFSET = Math.max(AUDIO_ADJUST_MIN, Math.min(AUDIO_ADJUST_MAX, v));
     try{ localStorage.setItem(AUDIO_OFFSET_KEY, String(AUDIO_OFFSET)); }catch(e){}
     updateAudioAdjustLabel();
   }
   audioAdjustSlider.addEventListener('input', function(){
     setAudioOffset(parseInt(audioAdjustSlider.value, 10) / 1000);
   });
+  audioAdjustMinus1.addEventListener('click', function(){ setAudioOffset(AUDIO_OFFSET - 0.001); });
+  audioAdjustPlus1.addEventListener('click', function(){ setAudioOffset(AUDIO_OFFSET + 0.001); });
   function stopTestClick(){
     if (testClickSource){ try{ testClickSource.stop(); }catch(e){} testClickSource = null; }
     testClickStartCtxTime = null;
@@ -2716,7 +2748,8 @@
     audioAdjustBtnL.classList.remove('beat-active');
     audioAdjustBtnR.classList.remove('beat-active');
     audioAdjustPlay.textContent = 'Play Click';
-    audioAdjustPressStatus.textContent = 'Left/Rightを押すとズレが表示されます';
+    audioAdjustDeltaL.textContent = '';
+    audioAdjustDeltaR.textContent = '';
   }
   function startTestClick(){
     var buf = bgmBufferCache.tempo120;
@@ -2768,8 +2801,12 @@
   // meter is set to), the same way real gameplay's own hit judgment would
   // see it. The player reads the number and nudges the meter themselves.
   function handleAudioAdjustPress(lane){
+    // Reported landing under the pressing finger/thumb on a phone — Left's
+    // own readout sits to its *left* and Right's to its *right*, outside
+    // where either thumb actually covers the screen.
+    var target = lane === 'L' ? audioAdjustDeltaL : audioAdjustDeltaR;
     if (!testClickStartCtxTime){
-      audioAdjustPressStatus.textContent = '先にPlay Clickを押してください';
+      target.textContent = '再生して';
       return;
     }
     var beatDur = 60/TEST_CLICK_BPM;
@@ -2778,10 +2815,9 @@
     var deltaMs = Math.round((beatNow - nearestIndex*beatDur)*1000);
     var expectedLane = (((nearestIndex % 2) + 2) % 2 === 0) ? 'L' : 'R';
     var laneOk = expectedLane === lane;
-    audioAdjustPressStatus.textContent =
-      (laneOk ? '' : '(反対のボタン) ') +
+    target.textContent =
       (deltaMs>=0 ? '+' : '') + deltaMs + 'ms' +
-      (deltaMs>=0 ? ' 遅い' : ' 早い');
+      (laneOk ? '' : '(反対)');
   }
   audioAdjustBtnL.addEventListener('click', function(){ handleAudioAdjustPress('L'); });
   audioAdjustBtnR.addEventListener('click', function(){ handleAudioAdjustPress('R'); });
