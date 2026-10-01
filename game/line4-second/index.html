@@ -794,8 +794,17 @@
 
   /* ---- CPU speech bubble ---- */
   /* Sits where the game title used to be — reserves its slot only in CPU
-     mode (toggled via the .hidden utility class in JS); the text itself
-     still cross-fades in/out per line via the .show class. */
+     mode (toggled via the .hidden utility class in JS, now on the wrapping
+     #speechBubbleRow instead of the bubble itself — see below); the bubble's
+     own text still cross-fades in/out per line via the .show class. */
+  #speechBubbleRow {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+    width: 100%;
+    max-width: 472px; /* bubble's own 420px budget + gap + the toggle button */
+    margin: 0 0 14px;
+  }
   #speechBubble {
     width: 100%;
     max-width: 420px;
@@ -805,7 +814,7 @@
     border: 2px solid var(--accent);
     border-radius: 16px;
     padding: 12px 18px;
-    margin: 0 0 14px;
+    margin: 0;
     display: flex;
     flex-direction: column;
     justify-content: center;
@@ -829,6 +838,19 @@
   #speechBubble .bubble-text {
     font-size: 0.92rem;
     line-height: 1.55;
+  }
+  /* Stopwatch toggle sitting in the gap beside the bubble (see
+     #speechBubbleRow) — controls dialogueWaitEnabled. Reuses .audio-btn's
+     look (same pill/icon style as the BGM/SE/かな toggles) but icon-only. */
+  .dialogue-wait-btn {
+    flex: 0 0 auto;
+    align-self: center;
+    opacity: 0.55;
+  }
+  .dialogue-wait-btn.active {
+    opacity: 1;
+    border-color: var(--accent);
+    background: rgba(56, 189, 248, 0.18);
   }
   #board-wrap {
     background: var(--board);
@@ -1002,9 +1024,14 @@
 
   <!-- Game screen -->
   <div id="gameScreen" class="hidden">
-    <div id="speechBubble" class="hidden">
-      <div class="bubble-name" id="bubbleName"></div>
-      <div class="bubble-text" id="bubbleText"></div>
+    <div id="speechBubbleRow" class="hidden">
+      <div id="speechBubble">
+        <div class="bubble-name" id="bubbleName"></div>
+        <div class="bubble-text" id="bubbleText"></div>
+      </div>
+      <button id="dialogueWaitToggle" class="audio-btn dialogue-wait-btn" type="button" aria-label="セリフウェイトのオン/オフ" aria-pressed="false">
+        <span class="audio-icon">⏱️</span>
+      </button>
     </div>
     <div id="modeLabel"></div>
     <div id="status"></div>
@@ -1322,6 +1349,26 @@
   function escapeHtml(str) {
     return String(str).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
+
+  // ---------- Dialogue wait toggle (stopwatch button beside the speech
+  // bubble) — off by default so CPU-mode play stays fast/smooth out of the
+  // box; switching it on makes triggerCpuMove() wait out each line's full
+  // read time (see lineDelay/bubbleReadyAt) instead of just a brief
+  // "thinking" pause, for players who want to actually read the banter.
+  const DIALOGUE_WAIT_STORAGE_KEY = 'lineup4_dialogue_wait_on';
+  let dialogueWaitEnabled = safeStorageGet(DIALOGUE_WAIT_STORAGE_KEY) === '1';
+  const dialogueWaitBtn = document.getElementById('dialogueWaitToggle');
+  function updateDialogueWaitButton() {
+    dialogueWaitBtn.classList.toggle('active', dialogueWaitEnabled);
+    dialogueWaitBtn.setAttribute('aria-pressed', String(dialogueWaitEnabled));
+  }
+  updateDialogueWaitButton();
+  dialogueWaitBtn.addEventListener('click', () => {
+    SoundMgr.seClick();
+    dialogueWaitEnabled = !dialogueWaitEnabled;
+    safeStorageSet(DIALOGUE_WAIT_STORAGE_KEY, dialogueWaitEnabled ? '1' : '0');
+    updateDialogueWaitButton();
+  });
 
   // ---------- Kana mode: UI text only (buttons, labels, status messages).
   // Character names/dialogue are left as-is — this is about making the game's
@@ -2700,7 +2747,7 @@
     onlineScreenEl.classList.add('hidden');
     titleScreen.classList.add('hidden');
     gameScreen.classList.remove('hidden');
-    document.getElementById('speechBubble').classList.add('hidden');
+    document.getElementById('speechBubbleRow').classList.add('hidden');
     document.getElementById('score').classList.add('hidden');
     resetBtn.classList.add('hidden');
     restoreEmoteBarPosition();
@@ -2882,7 +2929,7 @@
     gameScreen.classList.remove('hidden');
     resetBtn.classList.remove('hidden');
     document.getElementById('score').classList.remove('hidden');
-    const speechBubbleEl = document.getElementById('speechBubble');
+    const speechBubbleEl = document.getElementById('speechBubbleRow');
     if (mode === 'cpu' && stageOpponents[0] && stageOpponents[1]) {
       const stageNum = ladderIndex + 1;
       const [opp2, opp3] = stageOpponents;
@@ -3622,11 +3669,14 @@
       ? `<img class="turn-avatar" src="${ch.img}" alt="" style="object-position: ${ch.avatarPosition || 'left top'};" onerror="this.outerHTML='<span class=&quot;turn-indicator&quot; style=&quot;background:var(${colorVar})&quot;></span>'">`
       : `<span class="turn-indicator" style="background:var(${colorVar})"></span>`;
     updateStatus(`${thinkingAvatar} ${escapeHtml(label)}${K('が考え中...', 'がかんがえちゅう...')}`);
-    // Normally just a brief "thinking" pause, but if the OTHER CPU opponent
-    // just spoke (bubbleReadyAt in the future — see showSingleLine()), wait
-    // for that line's read time instead so this move's own speak() call
-    // doesn't overwrite it within the same ~450ms, before anyone can read it.
-    const delay = Math.max(450, bubbleReadyAt - Date.now());
+    // With the dialogue-wait toggle off (the default), just a brief
+    // "thinking" pause — CPU mode stays fast regardless of dialogue. With it
+    // on, always wait at least a full read-time (lineDelay's 3000ms floor)
+    // before this move's own speak() call can overwrite whatever's showing
+    // — uniformly, including the very first CPU move after the player's own
+    // turn, not just between two CPU opponents' moves — and longer still if
+    // the line just shown needs more than that (bubbleReadyAt).
+    const delay = dialogueWaitEnabled ? Math.max(3000, bubbleReadyAt - Date.now()) : 450;
     setTimeout(() => {
       const col = getCpuMoveFor(player, ch);
       cpuThinking = false;
