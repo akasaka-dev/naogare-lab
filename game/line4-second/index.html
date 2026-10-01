@@ -1351,12 +1351,14 @@
   }
 
   // ---------- Dialogue wait toggle (stopwatch button beside the speech
-  // bubble) — off by default so CPU-mode play stays fast/smooth out of the
-  // box; switching it on makes triggerCpuMove() wait out each line's full
-  // read time (see lineDelay/bubbleReadyAt) instead of just a brief
-  // "thinking" pause, for players who want to actually read the banter.
+  // bubble) — on by default so a line always gets its full read time (see
+  // lineDelay/bubbleReadyAt); switching it off drops straight back to the
+  // brief 450ms "thinking" pause regardless of dialogue, for players who
+  // just want to play fast. Either way it only ever affects a CPU-to-CPU
+  // handoff, never the move right after the player's own turn — see
+  // triggerCpuMove()'s `previousMover` parameter.
   const DIALOGUE_WAIT_STORAGE_KEY = 'lineup4_dialogue_wait_on';
-  let dialogueWaitEnabled = safeStorageGet(DIALOGUE_WAIT_STORAGE_KEY) === '1';
+  let dialogueWaitEnabled = safeStorageGet(DIALOGUE_WAIT_STORAGE_KEY) !== '0';
   const dialogueWaitBtn = document.getElementById('dialogueWaitToggle');
   function updateDialogueWaitButton() {
     dialogueWaitBtn.classList.toggle('active', dialogueWaitEnabled);
@@ -3346,7 +3348,7 @@
       boardWrap.classList.remove('locked');
       updateStatus();
       if (mode === 'cpu' && currentPlayer !== 1 && !gameOver) {
-        triggerCpuMove();
+        triggerCpuMove(1); // match just started — nothing to protect a read-time for yet
       }
     });
   }
@@ -3513,7 +3515,7 @@
     }
 
     if (mode === 'cpu' && currentPlayer !== 1 && !gameOver) {
-      triggerCpuMove();
+      triggerCpuMove(player); // who just moved — see triggerCpuMove's own comment on why this matters
     }
     return true;
   }
@@ -3658,7 +3660,11 @@
     handleBubbleClick();
   });
 
-  function triggerCpuMove() {
+  // previousMover: who moved just before this CPU's turn came up (1 = the
+  // human, or the match just started — see call sites). Only a CPU-to-CPU
+  // handoff (previousMover 2 or 3) ever applies the dialogue-wait delay —
+  // see the comment on `delay` below for why.
+  function triggerCpuMove(previousMover) {
     const player = currentPlayer; // 2 or 3
     const ch = charForPlayer(player);
     const colorVar = player === 2 ? '--p2' : '--p3';
@@ -3669,14 +3675,16 @@
       ? `<img class="turn-avatar" src="${ch.img}" alt="" style="object-position: ${ch.avatarPosition || 'left top'};" onerror="this.outerHTML='<span class=&quot;turn-indicator&quot; style=&quot;background:var(${colorVar})&quot;></span>'">`
       : `<span class="turn-indicator" style="background:var(${colorVar})"></span>`;
     updateStatus(`${thinkingAvatar} ${escapeHtml(label)}${K('が考え中...', 'がかんがえちゅう...')}`);
-    // With the dialogue-wait toggle off (the default), just a brief
-    // "thinking" pause — CPU mode stays fast regardless of dialogue. With it
-    // on, always wait at least a full read-time (lineDelay's 3000ms floor)
-    // before this move's own speak() call can overwrite whatever's showing
-    // — uniformly, including the very first CPU move after the player's own
-    // turn, not just between two CPU opponents' moves — and longer still if
-    // the line just shown needs more than that (bubbleReadyAt).
-    const delay = dialogueWaitEnabled ? Math.max(3000, bubbleReadyAt - Date.now()) : 450;
+    // The dialogue-wait toggle only ever holds up a CPU-to-CPU handoff
+    // (opponent 2 → opponent 3), never the move right after the player's
+    // own turn — waiting there felt laggy/unresponsive (you just acted, and
+    // the game stalls on "thinking..." before anything happens), whereas the
+    // gap between the two CPUs' moves is fine since the player has nothing
+    // to do but watch anyway. With the toggle off, or right after the
+    // player's own move, it's always just the brief 450ms "thinking" pause.
+    const delay = (dialogueWaitEnabled && previousMover !== 1)
+      ? Math.max(3000, bubbleReadyAt - Date.now())
+      : 450;
     setTimeout(() => {
       const col = getCpuMoveFor(player, ch);
       cpuThinking = false;
