@@ -2089,6 +2089,11 @@ const _headParticleDesiredPos = new THREE.Vector3();
 const _headParticleLookTmp = new THREE.Vector3();
 const _headParticleRightTmp = new THREE.Vector3();
 const _headParticleUpWorld = new THREE.Vector3(0, 1, 0);
+// Reused each frame by Clouds.render()'s head/wake clearance (see its own
+// comment) — one Vector3 per HeadParticleTrail.CLOUD_SAMPLE_OFFSETS entry.
+const _cloudHeadSamples = headParticleTrail
+  ? HeadParticleTrail.CLOUD_SAMPLE_OFFSETS.map(() => new THREE.Vector3())
+  : null;
 
 function setVisible(underwater, refractionPass) {
   if (refractionPass) {
@@ -2438,10 +2443,10 @@ function animate() {
 
   // --- Volumetric clouds: raymarch a low-res HDR buffer from the scene depth ---
   if (clouds.enabled) {
-    const headPosForClouds = headParticleTrail
-      ? headParticleTrail.getHeadPosition(_headParticleHeadTmp)
+    const headSamplesForClouds = headParticleTrail
+      ? headParticleTrail.getCloudClearanceSamples(_cloudHeadSamples)
       : null;
-    clouds.render(dt, camera, hdrRT.depthTexture, headPosForClouds);
+    clouds.render(dt, camera, hdrRT.depthTexture, headSamplesForClouds);
   }
 
   // Rainbow V1 — only while rain is actually falling (not underwater, where

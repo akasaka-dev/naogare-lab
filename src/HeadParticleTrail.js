@@ -254,6 +254,11 @@ const COLOR_HEAD_OUTER = new THREE.Color(0xffcf85); // pale amber-gold
 const COLOR_WATER_GLINT = new THREE.Color(0xe9c98a); // muted pale gold, darker than the head
 
 export class HeadParticleTrail {
+  // Seconds-back-from-now offsets used by getCloudClearanceSamples() — see
+  // its own comment. Spans roughly the still-fully-bright part of the trail
+  // (uFadeStart defaults to 0.55 of a ~2.3-3.4s lifetime, i.e. ~1.3-1.9s).
+  static CLOUD_SAMPLE_OFFSETS = [0, 0.3, 0.6, 1.0, 1.5];
+
   constructor(scene, opts = {}) {
     const { seed = 4242 } = opts;
     this._seedBase = seed >>> 0;
@@ -805,6 +810,24 @@ export class HeadParticleTrail {
   setPaused(p) { this.paused = !!p; }
   restart() { this.localTime = 0; this._reconstructAt(0, this._ocean); }
   getHeadPosition(out = new THREE.Vector3()) { return out.copy(this._headPos); }
+
+  // ---- Cloud head-clearance samples: the head point is a single position,
+  // but the visible wake is a whole trail of equally depthWrite:false
+  // particles behind it, which clouds would occlude exactly the same way
+  // (see Clouds.js's own uHeadNdc/uHeadDist comment). Rather than sampling
+  // every pool particle (expensive, and the oldest/dimmest ones are already
+  // faded most of the way out by uFadeStart, so clouds dimming them further
+  // isn't visually obvious), this returns the head plus a handful of points
+  // spaced back along CLOUD_SAMPLE_OFFSETS — covering the still-bright,
+  // not-yet-faded span of the trail — via the same real-particle lookup
+  // getHeadPositionAtTime() already uses for TrailLyrics.
+  getCloudClearanceSamples(outArray) {
+    const offsets = HeadParticleTrail.CLOUD_SAMPLE_OFFSETS;
+    for (let i = 0; i < offsets.length; i++) {
+      this.getHeadPositionAtTime(this.localTime - offsets[i], outArray[i]);
+    }
+    return outArray;
+  }
 
   // ---- V1.2 (Trail Lyrics): minimal read-only historical-trajectory
   // sample, added so consumers outside this module (TrailLyrics) can place
