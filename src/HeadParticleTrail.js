@@ -829,6 +829,22 @@ export class HeadParticleTrail {
     return outArray;
   }
 
+  // Companion to getCloudClearanceSamples(): each sample's actual on-screen
+  // footprint is its point sprite's own uPixelSize (gl_PointSize's numerator
+  // — see headMat/trailMat's vertex shaders), NOT an arbitrary world-space
+  // size. A first version used a guessed fixed world radius, which looked
+  // right at the one close-up distance it was tuned at but punched a huge,
+  // obviously fake hole in the clouds in every more distant shot (a fixed
+  // world size subtends a LARGER angle, not a smaller one, as its distance
+  // from the point-sprite-correct value grows). Reusing the sprites' own
+  // sizing keeps the clearing exactly matched to what's actually visible.
+  getCloudClearanceSizes(outArray) {
+    const offsets = HeadParticleTrail.CLOUD_SAMPLE_OFFSETS;
+    outArray[0] = this.headUniforms.uPixelSize.value;
+    for (let i = 1; i < offsets.length; i++) outArray[i] = this.trailUniforms.uPixelSize.value;
+    return outArray;
+  }
+
   // ---- V1.2 (Trail Lyrics): minimal read-only historical-trajectory
   // sample, added so consumers outside this module (TrailLyrics) can place
   // things ON the same curve the visible wake was drawn from, without

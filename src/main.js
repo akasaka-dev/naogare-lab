@@ -1236,7 +1236,7 @@ fClouds.add(cu.uWindSpeed, 'value', 0.0, 0.15, 0.005).name('wind speed');
 fClouds.add(cu.uSunStrength, 'value', 0.5, 6.0, 0.1).name('sun strength');
 fClouds.add(cu.uAmbient, 'value', 0.0, 1.2, 0.02).name('ambient');
 fClouds.add(cloudShadowP, 'strength', 0.0, 1.0, 0.02).name('sea shadows');
-fClouds.add(cu.uHeadRadius, 'value', 0.0, 0.4, 0.01).name('head clearance');
+fClouds.add(cu.uHeadRadiusMargin, 'value', 1.0, 4.0, 0.1).name('head clearance margin');
 
 const fUnder = gui.addFolder('Underwater').close();
 fUnder.add(post.underwaterMat.uniforms.uShaftDensity, 'value', 0.0, 0.2, 0.005).name('god-ray density');
@@ -2090,9 +2090,13 @@ const _headParticleLookTmp = new THREE.Vector3();
 const _headParticleRightTmp = new THREE.Vector3();
 const _headParticleUpWorld = new THREE.Vector3(0, 1, 0);
 // Reused each frame by Clouds.render()'s head/wake clearance (see its own
-// comment) — one Vector3 per HeadParticleTrail.CLOUD_SAMPLE_OFFSETS entry.
+// comment) — one Vector3/number per HeadParticleTrail.CLOUD_SAMPLE_OFFSETS
+// entry.
 const _cloudHeadSamples = headParticleTrail
   ? HeadParticleTrail.CLOUD_SAMPLE_OFFSETS.map(() => new THREE.Vector3())
+  : null;
+const _cloudHeadSizes = headParticleTrail
+  ? new Array(HeadParticleTrail.CLOUD_SAMPLE_OFFSETS.length).fill(0)
   : null;
 
 function setVisible(underwater, refractionPass) {
@@ -2446,7 +2450,10 @@ function animate() {
     const headSamplesForClouds = headParticleTrail
       ? headParticleTrail.getCloudClearanceSamples(_cloudHeadSamples)
       : null;
-    clouds.render(dt, camera, hdrRT.depthTexture, headSamplesForClouds);
+    const headSizesForClouds = headParticleTrail
+      ? headParticleTrail.getCloudClearanceSizes(_cloudHeadSizes)
+      : null;
+    clouds.render(dt, camera, hdrRT.depthTexture, headSamplesForClouds, headSizesForClouds);
   }
 
   // Rainbow V1 — only while rain is actually falling (not underwater, where

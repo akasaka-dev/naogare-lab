@@ -95,7 +95,14 @@ export class Clouds {
         // look blocky.
         uHeadNdc: { value: Array.from({ length: MAX_HEAD_SAMPLES }, () => new THREE.Vector2()) },
         uHeadDist: { value: new Array(MAX_HEAD_SAMPLES).fill(-1) }, // <=0 = unused slot / behind camera
-        uHeadRadius: { value: 0.1 },  // NDC-space falloff radius (aspect-corrected), shared by all samples
+        // Per-sample NDC falloff radius, computed in render() straight from
+        // each sample's own point-sprite uPixelSize (see
+        // HeadParticleTrail.getCloudClearanceSizes()'s own comment) — NOT a
+        // fixed NDC or world-space guess, either of which ends up punching
+        // an obviously oversized, fake-looking hole in most shots that
+        // aren't the one distance they happened to be tuned at.
+        uHeadRadiusNdc: { value: new Array(MAX_HEAD_SAMPLES).fill(0) },
+        uHeadRadiusMargin: { value: 1.6 }, // soft-glow margin beyond the raw sprite size
         uAspect: { value: 1 },
       },
       vertexShader: /* glsl */ `
@@ -116,7 +123,8 @@ export class Clouds {
         uniform vec2 uWindDir;
         uniform vec2 uHeadNdc[${MAX_HEAD_SAMPLES}];
         uniform float uHeadDist[${MAX_HEAD_SAMPLES}];
-        uniform float uHeadRadius, uAspect;
+        uniform float uHeadRadiusNdc[${MAX_HEAD_SAMPLES}];
+        uniform float uAspect;
         uniform float uTime, uFrame, uHalfXZ, uBase, uHeight, uHeightFalloff,
                       uDensity, uCoverage, uCoverageEdge, uNoiseScale, uDetail,
                       uDetailScale, uEdgeFade, uWindSpeed, uSteps, uMaxSpan,
@@ -242,7 +250,7 @@ export class Clouds {
             if (hd <= 0.0 || hd >= sceneDist) continue;
             vec2 d = pixNdc - uHeadNdc[i];
             d.x *= uAspect;
-            float mask = smoothstep(uHeadRadius, 0.0, length(d));
+            float mask = smoothstep(uHeadRadiusNdc[i], 0.0, length(d));
             if (mask > 0.0) tF = mix(tF, min(tF, hd), mask);
           }
 
@@ -414,7 +422,7 @@ export class Clouds {
     this.material.uniforms.uMoonDir.value.copy(moonDir);
   }
 
-  render(dt, camera, depthTexture, headPositions = null) {
+  render(dt, camera, depthTexture, headPositions = null, headSizes = null) {
     const u = this.material.uniforms;
     u.uTime.value += dt;
     u.uFrame.value = this._frame;
@@ -428,18 +436,35 @@ export class Clouds {
     // world position to NDC here (not in the shader, which only has the
     // inverse matrices for reconstructing rays, not a forward projection)
     // and disable any unused/behind-camera slot via uHeadDist[i] <= 0.
+    //
+    // The clearing radius is computed straight from each sample's own
+    // uPixelSize (headSizes[i], from HeadParticleTrail.getCloudClearance-
+    // Sizes()) using the EXACT SAME formula the point sprite itself uses
+    // (gl_PointSize = uPixelSize / max(dist, 1)) — this keeps the hole's
+    // screen size matched to what's actually visible at any distance,
+    // unlike a fixed NDC or world-space guess (both tried and reverted:
+    // either stayed a constant screen size regardless of how far/tiny the
+    // trail actually was, or subtended a growing angle at typical
+    // mid-range shots — both punched an obviously oversized fake hole in
+    // most shots that weren't the one distance they'd been eyeballed at).
     this._camFwd = this._camFwd || new THREE.Vector3();
     this._headRel = this._headRel || new THREE.Vector3();
     this._headNdcTmp = this._headNdcTmp || new THREE.Vector3();
     if (headPositions && headPositions.length) camera.getWorldDirection(this._camFwd);
+    const halfH = this._h * 0.5;
+    const margin = u.uHeadRadiusMargin.value;
     for (let i = 0; i < MAX_HEAD_SAMPLES; i++) {
       const pos = headPositions && i < headPositions.length ? headPositions[i] : null;
       if (pos) {
         this._headRel.subVectors(pos, camera.position);
         if (this._headRel.dot(this._camFwd) > 0) {
+          const dist = this._headRel.length();
           this._headNdcTmp.copy(pos).project(camera);
           u.uHeadNdc.value[i].set(this._headNdcTmp.x, this._headNdcTmp.y);
-          u.uHeadDist.value[i] = this._headRel.length();
+          u.uHeadDist.value[i] = dist;
+          const pixelSize = headSizes && i < headSizes.length ? headSizes[i] : 0;
+          const radiusPx = (pixelSize / Math.max(dist, 1)) * 0.5 * margin;
+          u.uHeadRadiusNdc.value[i] = Math.min(radiusPx / halfH, 0.6);
           continue;
         }
       }
