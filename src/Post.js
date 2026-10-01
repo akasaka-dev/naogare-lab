@@ -384,6 +384,18 @@ export class Post {
       sceneOut = this.sceneRT2;
     }
 
+    // 1c) draw the traveler's head/wake overlay scene directly on top, HDR,
+    // AFTER clouds are composited — see main.js's headOverlay/Pass B comment
+    // for why (it's drawn as a separate scene specifically so clouds can
+    // never dim it). Still picked up by the bloom pass below same as
+    // anything else, since that reads sceneOut right after this.
+    if (params.headOverlay) {
+      this.renderer.setRenderTarget(sceneOut);
+      this.renderer.autoClear = false;
+      this.renderer.render(params.headOverlay.scene, params.headOverlay.camera);
+      this.renderer.autoClear = true;
+    }
+
     // 2) bright pass → brightRT
     this.brightMat.uniforms.tDiffuse.value = sceneOut.texture;
     this._draw(this.brightMat, this.brightRT);

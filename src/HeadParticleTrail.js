@@ -254,14 +254,15 @@ const COLOR_HEAD_OUTER = new THREE.Color(0xffcf85); // pale amber-gold
 const COLOR_WATER_GLINT = new THREE.Color(0xe9c98a); // muted pale gold, darker than the head
 
 export class HeadParticleTrail {
-  // Seconds-back-from-now offsets used by getCloudClearanceSamples() — see
-  // its own comment. Spans roughly the still-fully-bright part of the trail
-  // (uFadeStart defaults to 0.55 of a ~2.3-3.4s lifetime, i.e. ~1.3-1.9s).
-  static CLOUD_SAMPLE_OFFSETS = [0, 0.3, 0.6, 1.0, 1.5];
-
-  constructor(scene, opts = {}) {
+  constructor(opts = {}) {
     const { seed = 4242 } = opts;
     this._seedBase = seed >>> 0;
+    // headMesh/trailPoints live in this OWN scene, not the main app scene —
+    // see headMat's own comment above for why: main.js renders this scene in
+    // a separate pass, after clouds are composited, so the wake is always
+    // drawn in front of them (underwater mode folds it back into the main
+    // render instead — see main.js's Pass B).
+    this.overlayScene = new THREE.Scene();
     this.speed = 0.3;
     this.paused = false;
     this.localTime = 0;
@@ -350,21 +351,24 @@ export class HeadParticleTrail {
     headGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(3), 3).setUsage(THREE.DynamicDrawUsage));
     const headMat = new THREE.ShaderMaterial({
       transparent: true,
-      // Tried depthWrite:true here (see git history) to fix the head
-      // getting visually muted under the volumetric cloud layer from a low
-      // "Low Skim" shot — the cloud pass raymarches against the scene's
-      // OPAQUE depth buffer, which a depthWrite:false point never
-      // contributes to, so clouds (correctly, by their own logic) have no
-      // way to know anything nearer than the sky is there and composite
-      // straight over it. Reverted: the cloud pass runs at a much LOWER
-      // resolution than the main scene and samples the depth texture at
-      // that lower resolution too, so one sharp, isolated depth spike from
-      // a single small point (unlike continuous geometry like the island
-      // or ocean) produced a hard-edged blocky square artifact in the
-      // upsampled cloud buffer — a worse bug than the one it fixed. Needs a
-      // different approach (e.g. having Clouds.js itself account for the
-      // head's position directly, rather than depth-buffer occlusion)
-      // before trying again.
+      // depthWrite:false (additive point sprites shouldn't self-occlude —
+      // see trailMat's own comment for the same reasoning). This used to mean
+      // the volumetric cloud layer's depth-buffer-based occlusion test never
+      // saw the head, so clouds would composite straight over it and dim it
+      // (most visible from a low, grazing "Low Skim" shot). Fixed not by
+      // touching depth at all, but by excluding the head/trail from the main
+      // scene render entirely and drawing them in a later, separate pass
+      // AFTER clouds are composited (see main.js's Pass B / headOverlay and
+      // this.overlayScene below) — they never fly above the cloud layer, so
+      // they belong in front of it unconditionally, the same way they always
+      // render in clear sky. Two prior attempts are worth not repeating: (1)
+      // depthWrite:true here alone caused a blocky artifact, because the
+      // cloud pass's low-resolution depth sampling reacted badly to one
+      // isolated sharp depth spike; (2) analytically carving a soft circular
+      // "clearing" hole into the cloud raymarch around the head's projected
+      // position worked numerically but still looked like an artificial
+      // glowing disc cut out of the sky — this scene-split approach has no
+      // such seam, since the head's own sprite is simply drawn last.
       depthWrite: false,
       depthTest: true,
       toneMapped: false,
@@ -423,7 +427,7 @@ export class HeadParticleTrail {
     });
     this.headMesh = new THREE.Points(headGeo, headMat);
     this.headMesh.frustumCulled = false;
-    scene.add(this.headMesh);
+    this.overlayScene.add(this.headMesh);
 
     // ---- Trail: ONE preallocated THREE.Points pool. "position" here is the
     // particle's BIRTH position — an immutable anchor, never touched again
@@ -673,7 +677,7 @@ export class HeadParticleTrail {
     });
     this.trailPoints = new THREE.Points(trailGeo, trailMat);
     this.trailPoints.frustumCulled = false;
-    scene.add(this.trailPoints);
+    this.overlayScene.add(this.trailPoints);
 
     this._birthPos = birthPos;
     this._velocity = velocity;
@@ -810,40 +814,6 @@ export class HeadParticleTrail {
   setPaused(p) { this.paused = !!p; }
   restart() { this.localTime = 0; this._reconstructAt(0, this._ocean); }
   getHeadPosition(out = new THREE.Vector3()) { return out.copy(this._headPos); }
-
-  // ---- Cloud head-clearance samples: the head point is a single position,
-  // but the visible wake is a whole trail of equally depthWrite:false
-  // particles behind it, which clouds would occlude exactly the same way
-  // (see Clouds.js's own uHeadNdc/uHeadDist comment). Rather than sampling
-  // every pool particle (expensive, and the oldest/dimmest ones are already
-  // faded most of the way out by uFadeStart, so clouds dimming them further
-  // isn't visually obvious), this returns the head plus a handful of points
-  // spaced back along CLOUD_SAMPLE_OFFSETS — covering the still-bright,
-  // not-yet-faded span of the trail — via the same real-particle lookup
-  // getHeadPositionAtTime() already uses for TrailLyrics.
-  getCloudClearanceSamples(outArray) {
-    const offsets = HeadParticleTrail.CLOUD_SAMPLE_OFFSETS;
-    for (let i = 0; i < offsets.length; i++) {
-      this.getHeadPositionAtTime(this.localTime - offsets[i], outArray[i]);
-    }
-    return outArray;
-  }
-
-  // Companion to getCloudClearanceSamples(): each sample's actual on-screen
-  // footprint is its point sprite's own uPixelSize (gl_PointSize's numerator
-  // — see headMat/trailMat's vertex shaders), NOT an arbitrary world-space
-  // size. A first version used a guessed fixed world radius, which looked
-  // right at the one close-up distance it was tuned at but punched a huge,
-  // obviously fake hole in the clouds in every more distant shot (a fixed
-  // world size subtends a LARGER angle, not a smaller one, as its distance
-  // from the point-sprite-correct value grows). Reusing the sprites' own
-  // sizing keeps the clearing exactly matched to what's actually visible.
-  getCloudClearanceSizes(outArray) {
-    const offsets = HeadParticleTrail.CLOUD_SAMPLE_OFFSETS;
-    outArray[0] = this.headUniforms.uPixelSize.value;
-    for (let i = 1; i < offsets.length; i++) outArray[i] = this.trailUniforms.uPixelSize.value;
-    return outArray;
-  }
 
   // ---- V1.2 (Trail Lyrics): minimal read-only historical-trajectory
   // sample, added so consumers outside this module (TrailLyrics) can place

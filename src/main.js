@@ -738,7 +738,7 @@ function fireFireworkSalvo(camera) {
 //  to tail that could ever misalign with it.
 // ---------------------------------------------------------------------------
 const headParticlesEnabled = queryFlag('headParticles');
-const headParticleTrail = headParticlesEnabled ? new HeadParticleTrail(scene) : null;
+const headParticleTrail = headParticlesEnabled ? new HeadParticleTrail() : null;
 let headParticleGuiState = null;
 let freeNavGuiState = null;
 const headParticleFollowCam = { look: new THREE.Vector3(), inited: false };
@@ -1236,7 +1236,6 @@ fClouds.add(cu.uWindSpeed, 'value', 0.0, 0.15, 0.005).name('wind speed');
 fClouds.add(cu.uSunStrength, 'value', 0.5, 6.0, 0.1).name('sun strength');
 fClouds.add(cu.uAmbient, 'value', 0.0, 1.2, 0.02).name('ambient');
 fClouds.add(cloudShadowP, 'strength', 0.0, 1.0, 0.02).name('sea shadows');
-fClouds.add(cu.uHeadRadiusMargin, 'value', 1.0, 4.0, 0.1).name('head clearance margin');
 
 const fUnder = gui.addFolder('Underwater').close();
 fUnder.add(post.underwaterMat.uniforms.uShaftDensity, 'value', 0.0, 0.2, 0.005).name('god-ray density');
@@ -2089,15 +2088,28 @@ const _headParticleDesiredPos = new THREE.Vector3();
 const _headParticleLookTmp = new THREE.Vector3();
 const _headParticleRightTmp = new THREE.Vector3();
 const _headParticleUpWorld = new THREE.Vector3(0, 1, 0);
-// Reused each frame by Clouds.render()'s head/wake clearance (see its own
-// comment) — one Vector3/number per HeadParticleTrail.CLOUD_SAMPLE_OFFSETS
-// entry.
-const _cloudHeadSamples = headParticleTrail
-  ? HeadParticleTrail.CLOUD_SAMPLE_OFFSETS.map(() => new THREE.Vector3())
-  : null;
-const _cloudHeadSizes = headParticleTrail
-  ? new Array(HeadParticleTrail.CLOUD_SAMPLE_OFFSETS.length).fill(0)
-  : null;
+// Head/wake-vs-island occlusion (see the Pass B comment below): reused each
+// frame rather than allocated fresh.
+const _headOcclusionSample = new THREE.Vector3();
+
+// Marches the camera→head segment in fixed world-space steps, comparing each
+// sample's height against Island's own CPU heightfield (island.heightAt() —
+// the exact same terrain used for its GPU vertex displacement, so this is
+// not an approximation of some separate collision mesh). Used instead of a
+// Raycaster against island.mesh because that mesh's CPU-side geometry is a
+// flat, undisplaced disc — the actual dune shape only exists in its vertex
+// shader, so a real raycast against it would almost never hit. Cheap enough
+// for once a frame: islandHeight() is a couple of noise lookups, and this
+// only needs to run near the island's footprint, not along the whole segment
+// (the step/count below spans comfortably past Island's uRouter radius).
+function isSegmentOccludedByIsland(from, to, steps = 24) {
+  for (let i = 1; i < steps; i++) {
+    const t = i / steps;
+    _headOcclusionSample.lerpVectors(from, to, t);
+    if (_headOcclusionSample.y < island.heightAt(_headOcclusionSample.x, _headOcclusionSample.z)) return true;
+  }
+  return false;
+}
 
 function setVisible(underwater, refractionPass) {
   if (refractionPass) {
@@ -2441,20 +2453,40 @@ function animate() {
   }
 
   // --- Pass B: full scene to HDR ---
+  // headParticleTrail's wake lives in its own overlayScene, not `scene` (see
+  // HeadParticleTrail's own comment on why) — this render never includes it.
   setVisible(underwater, false);
   renderer.setRenderTarget(hdrRT);
   renderer.render(scene, camera);
 
-  // --- Volumetric clouds: raymarch a low-res HDR buffer from the scene depth ---
-  if (clouds.enabled) {
-    const headSamplesForClouds = headParticleTrail
-      ? headParticleTrail.getCloudClearanceSamples(_cloudHeadSamples)
-      : null;
-    const headSizesForClouds = headParticleTrail
-      ? headParticleTrail.getCloudClearanceSizes(_cloudHeadSizes)
-      : null;
-    clouds.render(dt, camera, hdrRT.depthTexture, headSamplesForClouds, headSizesForClouds);
+  // Underwater: fold the wake straight back into the normal pipeline (same
+  // depth buffer, so it's still correctly hidden behind the island/terrain,
+  // then subject to the underwater fog pass exactly as before this overlay
+  // split existed) — clouds aren't a visible concern once submerged, so
+  // there's nothing to gain from keeping it split out here.
+  let headOccludedByIsland = false;
+  if (headParticleTrail) {
+    if (underwater) {
+      renderer.autoClear = false;
+      renderer.render(headParticleTrail.overlayScene, camera);
+      renderer.autoClear = true;
+    } else {
+      // Above water: the wake is drawn in a LATER pass, after clouds are
+      // composited (see headOverlay below / Post.js), so clouds never touch
+      // it at all — it never flies above the cloud layer, so it belongs in
+      // front of it unconditionally. The only real occluder left to honor is
+      // the island, checked once via isSegmentOccludedByIsland() (this later
+      // pass's target has no depth buffer of its own, so a GPU depth test
+      // isn't available here) — the ocean surface never needs this, since
+      // the wake is always defined a fixed few units above the local wave
+      // height, never behind it.
+      const headPos = headParticleTrail.getHeadPosition(_headParticleHeadTmp);
+      headOccludedByIsland = isSegmentOccludedByIsland(camera.position, headPos);
+    }
   }
+
+  // --- Volumetric clouds: raymarch a low-res HDR buffer from the scene depth ---
+  if (clouds.enabled) clouds.render(dt, camera, hdrRT.depthTexture);
 
   // Rainbow V1 — only while rain is actually falling (not underwater, where
   // there's no rain to refract light through) AND the sun is low enough
@@ -2477,6 +2509,13 @@ function animate() {
     surfaceY: OCEAN_CONFIG.surfaceY,
     cloudTexture: clouds.enabled ? clouds.texture : null,
     rainbowStrength,
+    // See Pass B above: drawn here, after clouds are already composited, so
+    // the wake is never dimmed by them. Omitted outright (rather than just
+    // relying on headOccludedByIsland) while underwater, since that case
+    // already drew it earlier, folded into the normal pipeline.
+    headOverlay: (headParticleTrail && !underwater && !headOccludedByIsland)
+      ? { scene: headParticleTrail.overlayScene, camera }
+      : null,
   });
   if (screenshotRequested) {
     screenshotRequested = false;

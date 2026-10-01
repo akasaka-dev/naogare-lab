@@ -1,11 +1,6 @@
 import * as THREE from 'three';
 import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
 
-// Fixed shader-side capacity for the head-clearance samples (see uHeadNdc's
-// own comment below) — render()'s headPositions array may be shorter (any
-// unused slots are disabled via uHeadDist <= 0), never longer.
-const MAX_HEAD_SAMPLES = 8;
-
 // Volumetric sky clouds — a raymarch through a high-altitude slab that follows
 // the camera, rendered at HALF resolution into an HDR buffer (scatter.rgb,
 // transmittance.a) and smoothed with TEMPORAL REPROJECTION: each frame is
@@ -77,33 +72,6 @@ export class Clouds {
         uMoonDir: { value: new THREE.Vector3(0, 1, 0) },
         uMoonColor: { value: new THREE.Color(0xdfe6f0) },
         uMoonWeight: { value: 0.0 },
-
-        // Head-particle clearance: the traveler's head AND its trailing wake
-        // particles are additive/depthWrite:false (see HeadParticleTrail.js),
-        // so the scene depth texture never knows they're there and the cloud
-        // march happily runs straight through them, visibly dimming them
-        // under cloud cover (most noticeable from "Low Skim", where the
-        // traveler sits right in front of the cloud layer on screen). Rather
-        // than writing real depth for them (tried: a depthWrite:true head
-        // point caused a blocky artifact once this low-res raymarch's depth
-        // sample was upsampled), a handful of world positions along the
-        // still-bright part of the wake (see HeadParticleTrail's
-        // getCloudClearanceSamples()) are projected to NDC on the CPU each
-        // frame and used here to punch small, smoothly-falling-off holes in
-        // the march wherever one is the nearest thing on screen — an
-        // analytic, per-pixel effect, so it has no fixed-resolution edges to
-        // look blocky.
-        uHeadNdc: { value: Array.from({ length: MAX_HEAD_SAMPLES }, () => new THREE.Vector2()) },
-        uHeadDist: { value: new Array(MAX_HEAD_SAMPLES).fill(-1) }, // <=0 = unused slot / behind camera
-        // Per-sample NDC falloff radius, computed in render() straight from
-        // each sample's own point-sprite uPixelSize (see
-        // HeadParticleTrail.getCloudClearanceSizes()'s own comment) — NOT a
-        // fixed NDC or world-space guess, either of which ends up punching
-        // an obviously oversized, fake-looking hole in most shots that
-        // aren't the one distance they happened to be tuned at.
-        uHeadRadiusNdc: { value: new Array(MAX_HEAD_SAMPLES).fill(0) },
-        uHeadRadiusMargin: { value: 1.6 }, // soft-glow margin beyond the raw sprite size
-        uAspect: { value: 1 },
       },
       vertexShader: /* glsl */ `
         varying vec2 vUv;
@@ -121,10 +89,6 @@ export class Clouds {
         uniform vec3 uMoonDir, uMoonColor;
         uniform float uMoonWeight;
         uniform vec2 uWindDir;
-        uniform vec2 uHeadNdc[${MAX_HEAD_SAMPLES}];
-        uniform float uHeadDist[${MAX_HEAD_SAMPLES}];
-        uniform float uHeadRadiusNdc[${MAX_HEAD_SAMPLES}];
-        uniform float uAspect;
         uniform float uTime, uFrame, uHalfXZ, uBase, uHeight, uHeightFalloff,
                       uDensity, uCoverage, uCoverageEdge, uNoiseScale, uDetail,
                       uDetailScale, uEdgeFade, uWindSpeed, uSteps, uMaxSpan,
@@ -239,21 +203,6 @@ export class Clouds {
           vec2 hit = intersectBox(ro, rd, bmin, bmax);
           float tN = max(hit.x, 0.0);
           float tF = min(min(hit.y, sceneDist), tN + uMaxSpan);
-
-          // Head/wake clearance (see uHeadNdc/uHeadDist declaration above):
-          // for each sample, only clamp the march when it's actually the
-          // nearest thing on screen here, and only within a small, soft
-          // screen-space radius around its projected position.
-          vec2 pixNdc = vUv * 2.0 - 1.0;
-          for (int i = 0; i < ${MAX_HEAD_SAMPLES}; i++) {
-            float hd = uHeadDist[i];
-            if (hd <= 0.0 || hd >= sceneDist) continue;
-            vec2 d = pixNdc - uHeadNdc[i];
-            d.x *= uAspect;
-            float mask = smoothstep(uHeadRadiusNdc[i], 0.0, length(d));
-            if (mask > 0.0) tF = mix(tF, min(tF, hd), mask);
-          }
-
           if (tF <= tN) { gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
 
           float span = tF - tN;
@@ -422,7 +371,7 @@ export class Clouds {
     this.material.uniforms.uMoonDir.value.copy(moonDir);
   }
 
-  render(dt, camera, depthTexture, headPositions = null, headSizes = null) {
+  render(dt, camera, depthTexture) {
     const u = this.material.uniforms;
     u.uTime.value += dt;
     u.uFrame.value = this._frame;
@@ -430,46 +379,6 @@ export class Clouds {
     u.uInvProj.value.copy(camera.projectionMatrixInverse);
     u.uInvView.value.copy(camera.matrixWorld);
     u.uCameraPos.value.copy(camera.position);
-    u.uAspect.value = camera.aspect || 1;
-
-    // See the uHeadNdc/uHeadDist declaration up top: project each sample's
-    // world position to NDC here (not in the shader, which only has the
-    // inverse matrices for reconstructing rays, not a forward projection)
-    // and disable any unused/behind-camera slot via uHeadDist[i] <= 0.
-    //
-    // The clearing radius is computed straight from each sample's own
-    // uPixelSize (headSizes[i], from HeadParticleTrail.getCloudClearance-
-    // Sizes()) using the EXACT SAME formula the point sprite itself uses
-    // (gl_PointSize = uPixelSize / max(dist, 1)) — this keeps the hole's
-    // screen size matched to what's actually visible at any distance,
-    // unlike a fixed NDC or world-space guess (both tried and reverted:
-    // either stayed a constant screen size regardless of how far/tiny the
-    // trail actually was, or subtended a growing angle at typical
-    // mid-range shots — both punched an obviously oversized fake hole in
-    // most shots that weren't the one distance they'd been eyeballed at).
-    this._camFwd = this._camFwd || new THREE.Vector3();
-    this._headRel = this._headRel || new THREE.Vector3();
-    this._headNdcTmp = this._headNdcTmp || new THREE.Vector3();
-    if (headPositions && headPositions.length) camera.getWorldDirection(this._camFwd);
-    const halfH = this._h * 0.5;
-    const margin = u.uHeadRadiusMargin.value;
-    for (let i = 0; i < MAX_HEAD_SAMPLES; i++) {
-      const pos = headPositions && i < headPositions.length ? headPositions[i] : null;
-      if (pos) {
-        this._headRel.subVectors(pos, camera.position);
-        if (this._headRel.dot(this._camFwd) > 0) {
-          const dist = this._headRel.length();
-          this._headNdcTmp.copy(pos).project(camera);
-          u.uHeadNdc.value[i].set(this._headNdcTmp.x, this._headNdcTmp.y);
-          u.uHeadDist.value[i] = dist;
-          const pixelSize = headSizes && i < headSizes.length ? headSizes[i] : 0;
-          const radiusPx = (pixelSize / Math.max(dist, 1)) * 0.5 * margin;
-          u.uHeadRadiusNdc.value[i] = Math.min(radiusPx / halfH, 0.6);
-          continue;
-        }
-      }
-      u.uHeadDist.value[i] = -1;
-    }
     // Accumulated wind drift, shared with the ocean's cloud shadows.
     const t = u.uTime.value * u.uWindSpeed.value;
     u.uDrift.value.set(u.uWindDir.value.x * t, 0.06 * t, u.uWindDir.value.y * t);
