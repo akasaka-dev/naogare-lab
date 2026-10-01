@@ -72,6 +72,23 @@ export class Clouds {
         uMoonDir: { value: new THREE.Vector3(0, 1, 0) },
         uMoonColor: { value: new THREE.Color(0xdfe6f0) },
         uMoonWeight: { value: 0.0 },
+
+        // Head-particle clearance: the traveler's head point is additive/
+        // depthWrite:false (see HeadParticleTrail.js), so the scene depth
+        // texture never knows it's there and the cloud march happily runs
+        // straight through it, visibly dimming it under cloud cover (most
+        // noticeable from "Low Skim", where the head sits right in front of
+        // the cloud layer on screen). Rather than writing real depth for it
+        // (tried: a depthWrite:true point caused a blocky artifact once this
+        // low-res raymarch's depth sample was upsampled), its world position
+        // is projected to NDC on the CPU each frame and used here to punch a
+        // small, smoothly-falling-off hole in the march wherever it's the
+        // nearest thing on screen — an analytic, per-pixel effect, so it has
+        // no fixed-resolution edges to look blocky.
+        uHeadNdc: { value: new THREE.Vector2() },
+        uHeadDist: { value: -1 },     // <=0 = no head / behind camera this frame
+        uHeadRadius: { value: 0.1 },  // NDC-space falloff radius (aspect-corrected)
+        uAspect: { value: 1 },
       },
       vertexShader: /* glsl */ `
         varying vec2 vUv;
@@ -89,6 +106,8 @@ export class Clouds {
         uniform vec3 uMoonDir, uMoonColor;
         uniform float uMoonWeight;
         uniform vec2 uWindDir;
+        uniform vec2 uHeadNdc;
+        uniform float uHeadDist, uHeadRadius, uAspect;
         uniform float uTime, uFrame, uHalfXZ, uBase, uHeight, uHeightFalloff,
                       uDensity, uCoverage, uCoverageEdge, uNoiseScale, uDetail,
                       uDetailScale, uEdgeFade, uWindSpeed, uSteps, uMaxSpan,
@@ -203,6 +222,18 @@ export class Clouds {
           vec2 hit = intersectBox(ro, rd, bmin, bmax);
           float tN = max(hit.x, 0.0);
           float tF = min(min(hit.y, sceneDist), tN + uMaxSpan);
+
+          // Head-particle clearance (see uHeadNdc/uHeadDist declaration above):
+          // only clamp the march when the head is actually the nearest thing
+          // on screen here, and only within a small, soft screen-space radius
+          // around its projected position.
+          if (uHeadDist > 0.0 && uHeadDist < sceneDist) {
+            vec2 d = (vUv * 2.0 - 1.0) - uHeadNdc;
+            d.x *= uAspect;
+            float mask = smoothstep(uHeadRadius, 0.0, length(d));
+            if (mask > 0.0) tF = mix(tF, min(tF, uHeadDist), mask);
+          }
+
           if (tF <= tN) { gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
 
           float span = tF - tN;
@@ -371,7 +402,7 @@ export class Clouds {
     this.material.uniforms.uMoonDir.value.copy(moonDir);
   }
 
-  render(dt, camera, depthTexture) {
+  render(dt, camera, depthTexture, headPos = null) {
     const u = this.material.uniforms;
     u.uTime.value += dt;
     u.uFrame.value = this._frame;
@@ -379,6 +410,29 @@ export class Clouds {
     u.uInvProj.value.copy(camera.projectionMatrixInverse);
     u.uInvView.value.copy(camera.matrixWorld);
     u.uCameraPos.value.copy(camera.position);
+    u.uAspect.value = camera.aspect || 1;
+
+    // See the uHeadNdc/uHeadDist declaration up top: project the head's
+    // world position to NDC here (not in the shader, which only has the
+    // inverse matrices for reconstructing rays, not a forward projection)
+    // and disable the effect (uHeadDist <= 0) whenever there's no head or
+    // it's behind the camera this frame.
+    if (headPos) {
+      this._camFwd = this._camFwd || new THREE.Vector3();
+      this._headRel = this._headRel || new THREE.Vector3();
+      this._headNdcTmp = this._headNdcTmp || new THREE.Vector3();
+      camera.getWorldDirection(this._camFwd);
+      this._headRel.subVectors(headPos, camera.position);
+      if (this._headRel.dot(this._camFwd) > 0) {
+        this._headNdcTmp.copy(headPos).project(camera);
+        u.uHeadNdc.value.set(this._headNdcTmp.x, this._headNdcTmp.y);
+        u.uHeadDist.value = this._headRel.length();
+      } else {
+        u.uHeadDist.value = -1;
+      }
+    } else {
+      u.uHeadDist.value = -1;
+    }
     // Accumulated wind drift, shared with the ocean's cloud shadows.
     const t = u.uTime.value * u.uWindSpeed.value;
     u.uDrift.value.set(u.uWindDir.value.x * t, 0.06 * t, u.uWindDir.value.y * t);

@@ -1236,6 +1236,7 @@ fClouds.add(cu.uWindSpeed, 'value', 0.0, 0.15, 0.005).name('wind speed');
 fClouds.add(cu.uSunStrength, 'value', 0.5, 6.0, 0.1).name('sun strength');
 fClouds.add(cu.uAmbient, 'value', 0.0, 1.2, 0.02).name('ambient');
 fClouds.add(cloudShadowP, 'strength', 0.0, 1.0, 0.02).name('sea shadows');
+fClouds.add(cu.uHeadRadius, 'value', 0.0, 0.4, 0.01).name('head clearance');
 
 const fUnder = gui.addFolder('Underwater').close();
 fUnder.add(post.underwaterMat.uniforms.uShaftDensity, 'value', 0.0, 0.2, 0.005).name('god-ray density');
@@ -2436,7 +2437,12 @@ function animate() {
   renderer.render(scene, camera);
 
   // --- Volumetric clouds: raymarch a low-res HDR buffer from the scene depth ---
-  if (clouds.enabled) clouds.render(dt, camera, hdrRT.depthTexture);
+  if (clouds.enabled) {
+    const headPosForClouds = headParticleTrail
+      ? headParticleTrail.getHeadPosition(_headParticleHeadTmp)
+      : null;
+    clouds.render(dt, camera, hdrRT.depthTexture, headPosForClouds);
+  }
 
   // Rainbow V1 — only while rain is actually falling (not underwater, where
   // there's no rain to refract light through) AND the sun is low enough
