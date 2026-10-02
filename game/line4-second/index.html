@@ -2162,6 +2162,20 @@
   function fadeStoryTextIn(textEl) {
     requestAnimationFrame(() => requestAnimationFrame(() => textEl.classList.add('show')));
   }
+  // Each line gets a brand-new #storyText element instead of rewriting the
+  // old one's textContent. On some phones (GPU-composited opacity layer),
+  // reusing the element left stale pixels from the previous line behind
+  // wherever the new, shorter line didn't repaint over them — e.g. a stray
+  // "マ" and "。" at the edges of the next line. A fresh element means a
+  // fresh layer, so there's nothing stale to leave behind.
+  function freshStoryTextEl(text) {
+    const old = document.getElementById('storyText');
+    const el = old.cloneNode(false);
+    el.classList.remove('show');
+    el.textContent = text;
+    old.replaceWith(el);
+    return el;
+  }
   // Looks up STORY_BY_STAGE for the given ladder stage index — shows the
   // story and defers onDone until it's dismissed, or just calls onDone
   // immediately for a stage with no story of its own (LV2-5, for now).
@@ -2172,21 +2186,19 @@
   }
   function showStoryScreen({ lines, bg }, onDone) {
     const overlay = document.getElementById('storyOverlay');
-    const textEl = document.getElementById('storyText');
     storyLineIndex = 0;
     storyTransitioning = false;
-    textEl.textContent = lines[0];
-    textEl.classList.remove('show');
+    const firstEl = freshStoryTextEl(lines[0]);
     overlay.style.backgroundImage = bg
       ? `linear-gradient(rgba(0,0,0,0.55), rgba(0,0,0,0.55)), url('${bg}')`
       : '';
     overlay.classList.remove('hidden');
-    fadeStoryTextIn(textEl);
+    fadeStoryTextIn(firstEl);
     overlay.onclick = () => {
       if (storyTransitioning) return; // ignore clicks mid-fade
       SoundMgr.seClick();
       storyTransitioning = true;
-      textEl.classList.remove('show'); // fade out the current line
+      document.getElementById('storyText').classList.remove('show'); // fade out the current line
       setTimeout(() => {
         storyLineIndex++;
         if (storyLineIndex >= lines.length) {
@@ -2195,9 +2207,9 @@
           onDone();
           return;
         }
-        textEl.textContent = lines[storyLineIndex];
+        const nextEl = freshStoryTextEl(lines[storyLineIndex]);
         storyTransitioning = false;
-        fadeStoryTextIn(textEl); // fade in the next line
+        fadeStoryTextIn(nextEl); // fade in the next line
       }, STORY_FADE_MS);
     };
   }
