@@ -2839,7 +2839,7 @@
     // would silently redraw an empty board underneath our still-visible
     // result overlay instead of just sending us home too.
     if (online.postGameDeadline && !state.gameOver) {
-      leavePostGameRoom();
+      showRoomClosedAfterMatch(state);
       return;
     }
     online.rev = state.rev;
@@ -2891,6 +2891,26 @@
   }
 
   const ONLINE_REPLY_STEP_MS = 700;
+
+  // The winner left (room emptied) or chose to stay for the next challengers
+  // (room reset, only their seat kept) while we were still on the post-game
+  // screen. Instead of silently dropping us to the title mid-read, say what
+  // happened and let the player leave when they're ready.
+  function showRoomClosedAfterMatch(state) {
+    stopOnlinePolling();
+    online.postGameDeadline = null;
+    online.wonLastMatch = false; // nothing for the server to free — it already reset
+    const stayer = [1, 2, 3].find((p) => state[`hasP${p}`]);
+    const stayerName = stayer ? (online.names && online.names[stayer]) || '' : '';
+    const message = stayer
+      ? K(`${stayerName}さんは次の挑戦者を待つことにしました。\nこの部屋での対戦は終了です。`, `${stayerName}さんはつぎのちょうせんしゃをまつことにしました。\nこのへやでのたいせんはしゅうりょうです。`)
+      : K('勝者が退室したため、部屋は閉じられました。', 'しょうしゃがたいしゅつしたため、へやはとじられました。');
+    showResultOverlay({
+      title: K('対戦終了', 'たいせんしゅうりょう'),
+      message,
+      buttons: [{ label: K('退室する', 'たいしゅつする'), primary: true, onClick: leavePostGameRoom }],
+    });
+  }
 
   function finishOnlineUpdate(state) {
     if (state.gameOver) {
