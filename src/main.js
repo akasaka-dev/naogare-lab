@@ -29,11 +29,23 @@ import { getChoreography, baseTrailLyricsConfig, HOLD_TRAIL, HOLD_HERO } from '.
 //  unreadable (an exact-case match against the now-mangled key never
 //  succeeds) even though the URL "looks right" to the person who typed it.
 // ---------------------------------------------------------------------------
+// Promo/"Show Time" shortcut: ?play=1 alone turns on every flag listed here,
+// so a shareable link doesn't need to spell out each one
+// (headParticles/trailLyrics/lyricTimeline/autoDirector/time/audio). An
+// explicitly-set flag in the URL always wins over this bundle — queryFlag()
+// only falls back to it when the specific flag is absent.
+const PLAY_PRESET_FLAGS = new Set(['headparticles', 'traillyrics', 'lyrictimeline', 'autodirector', 'time', 'audio']);
+
 function queryFlag(name) {
   const params = new URLSearchParams(window.location.search);
   const target = name.toLowerCase();
   for (const [key, value] of params) {
     if (key.toLowerCase() === target) return value === '1';
+  }
+  if (PLAY_PRESET_FLAGS.has(target)) {
+    for (const [key, value] of params) {
+      if (key.toLowerCase() === 'play') return value === '1';
+    }
   }
   return false;
 }
