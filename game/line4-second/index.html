@@ -3389,6 +3389,11 @@
       return;
     }
 
+    // Stage cleared: fade the battle theme out here rather than letting it
+    // keep looping under the "撃破！" card and (for LV6) the story screen
+    // until the next match's own track takes over in startGame().
+    SoundMgr.stop();
+
     // Rolled once here (not re-rolled on click) so stage 3's random LV2 pick
     // stays consistent between this preview and the match that actually starts.
     const nextOpponents = STAGES[ladderIndex + 1]();
