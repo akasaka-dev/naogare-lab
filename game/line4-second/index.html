@@ -2784,8 +2784,26 @@
     boardWrap.classList.add('locked');
     online.rev = state.rev;
     online.emoteRev = state.emoteRev || 0;
-    decideStartingPlayer((starter) => {
-      currentPlayer = starter;
+    // The server may already have played moves before this client got here —
+    // e.g. a CPU seat that won the coin flip plays its opening move inside
+    // the same fill-cpu response, and a 3rd player joining gets the room's
+    // current state — so the board and whose turn it is come from `state`,
+    // not from the coin-toss result (which is just the announcement of who
+    // WAS first). Previously currentPlayer was set to the starter, so a CPU
+    // opening left the client thinking it was still the CPU's turn (no
+    // clicks accepted, and an invisible piece) until the server's turn
+    // timeout skipped someone 60s later.
+    decideStartingPlayer(() => {
+      currentPlayer = state.currentPlayer;
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          const p = grid[r][c];
+          if (p !== 0) {
+            cellEls[r][c].classList.add(p === 1 ? 'p1' : p === 2 ? 'p2' : 'p3', 'drop');
+            SoundMgr.seDrop();
+          }
+        }
+      }
       boardWrap.classList.remove('locked');
       updateStatus();
       startOnlinePolling();
@@ -2827,21 +2845,54 @@
     online.rev = state.rev;
     online.turnStartedAt = state.turnStartedAt;
 
-    // Find the single cell that changed since our local copy and animate it
-    // the same way a local drop does, then adopt the server grid as-is.
+    // Find the cells that changed since our local copy and animate them the
+    // same way a local drop does, then adopt the server grid as-is. There can
+    // be more than one: the server plays a CPU seat's reply inside the same
+    // response as the move that triggered it, so a single update can hold
+    // "your move, then the CPU's". Those are dropped one after another
+    // (ordered by turn order starting from whoever was up before this
+    // update) instead of all at once, so the CPU visibly takes its turn
+    // rather than appearing to move simultaneously with you.
+    const changes = [];
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
-        if (grid[r][c] === 0 && state.grid[r][c] !== 0) {
-          const player = state.grid[r][c];
-          cellEls[r][c].classList.add(player === 1 ? 'p1' : player === 2 ? 'p2' : 'p3', 'drop');
-          SoundMgr.seDrop();
-        }
+        if (grid[r][c] === 0 && state.grid[r][c] !== 0) changes.push({ r, c, player: state.grid[r][c] });
       }
+    }
+    const turnOffset = (p) => (p - currentPlayer + 3) % 3;
+    changes.sort((a, b) => turnOffset(a.player) - turnOffset(b.player));
+    const thisOnline = online;
+    const dropCell = ({ r, c, player }) => {
+      if (online !== thisOnline) return; // left/changed rooms in the meantime
+      cellEls[r][c].classList.add(player === 1 ? 'p1' : player === 2 ? 'p2' : 'p3', 'drop');
+      SoundMgr.seDrop();
+    };
+    changes.forEach((ch, i) => {
+      if (i === 0) dropCell(ch);
+      else setTimeout(() => dropCell(ch), i * ONLINE_REPLY_STEP_MS);
+    });
+    const finalizeDelay = Math.max(0, (changes.length - 1) * ONLINE_REPLY_STEP_MS);
+    if (finalizeDelay > 0) {
+      boardWrap.classList.add('locked');
+      updateStatus(`${escapeHtml(onlineNameFor(changes[1].player))}${K('が考え中...', 'がかんがえちゅう...')}`);
     }
     grid = state.grid;
     currentPlayer = state.currentPlayer;
     gameOver = state.gameOver;
 
+    // Everything from here (win highlight, result overlay, status, unlocking
+    // the board) waits for the last queued drop so it never runs ahead of
+    // what's actually on screen.
+    const finalize = () => {
+      if (online !== thisOnline) return;
+      finishOnlineUpdate(state);
+    };
+    if (finalizeDelay > 0) setTimeout(finalize, finalizeDelay); else finalize();
+  }
+
+  const ONLINE_REPLY_STEP_MS = 700;
+
+  function finishOnlineUpdate(state) {
     if (state.gameOver) {
       // Polling stays on through the post-game grace window (see
       // tickPostGameCountdown/leavePostGameRoom below) — opponent emotes
