@@ -558,6 +558,7 @@
     width: min(560px, 86vw);
     text-align: center;
     color: #f6f1e7;
+    font-family: "Hiragino Mincho ProN", "Yu Mincho", YuMincho, "MS PMincho", serif;
     font-size: clamp(0.95rem, 2.6vw, 1.1rem);
     line-height: 1.9;
     text-shadow: 0 2px 10px rgba(0,0,0,0.9), 0 0 4px rgba(0,0,0,0.9);
@@ -3216,9 +3217,9 @@
       endingCrawlFinished = true;
       document.getElementById('endingVista').classList.add('show');
     };
-    // Let the ending theme swell in a few seconds before the crawl finishes,
-    // rather than the moment the screen appears.
-    endingBgmTimer = setTimeout(() => SoundMgr.playTrack('ending', 'title'), Math.max(0, totalMs - 5000));
+    // The ending theme plays from the moment the screen appears (it used to
+    // be cued ~5s before the crawl's end).
+    SoundMgr.playTrack('ending', 'title');
   }
 
   // Drag up/down to scrub the crawl back and forth (a young player found the
@@ -3260,20 +3261,14 @@
       isDown = false;
       screen.classList.remove('dragging');
       if (dragged && endingCrawlAnim) {
-        if (endingBgmTimer) { clearTimeout(endingBgmTimer); endingBgmTimer = null; }
         if (endingCrawlAnim.currentTime >= endingCrawlTotalMs) {
           // .play() on an animation already at its end rewinds it to the
           // start instead of finishing it (per spec) — .finish() is what
           // actually fires onfinish here, so dragged-to-the-end doesn't
           // silently restart the whole crawl.
           endingCrawlAnim.finish();
-          SoundMgr.playTrack('ending', 'title');
         } else {
           endingCrawlAnim.play();
-          // Re-time the BGM cue relative to the scrubbed position, or it'd
-          // fire on the original schedule regardless of where the crawl is now.
-          const remaining = endingCrawlTotalMs - endingCrawlAnim.currentTime;
-          endingBgmTimer = setTimeout(() => SoundMgr.playTrack('ending', 'title'), Math.max(0, remaining - 5000));
         }
       }
     }
