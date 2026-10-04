@@ -1407,7 +1407,7 @@
   function applyKanaMode() {
     document.getElementById('titleSubtitle').textContent = K('遊び方を選んでください', 'あそびかたをえらんでください');
     document.getElementById('playerNameLabel').textContent = K('プレイヤー名', 'プレイヤーめい');
-    document.getElementById('pvpBtnLabel').textContent = K('対人戦（3人）', 'たいじんせん（3にん）');
+    document.getElementById('pvpBtnLabel').textContent = K('対人戦（2〜3人）', 'たいじんせん（2〜3にん）');
     document.getElementById('cpuBtnLabel').textContent = K('CPU戦', 'CPUせん');
     document.getElementById('cpuBtnSub').textContent = K('LV1〜6・2体同時対戦', 'LV1〜6・2たいどうじたいせん');
     document.getElementById('onlineBtnLabel').textContent = K('オンライン対戦', 'オンラインたいせん');
@@ -2080,6 +2080,20 @@
     if (player === 3) return stageOpponents[1];
     return null;
   }
+  // Local 対人戦 can optionally seat a CPU in the green (player 3) seat:
+  // { depth, wildness, label } while one is seated, null for 3 humans.
+  let pvpCpu = null;
+  const PVP_CPU_OPTIONS = [
+    { key: 'easy', depth: 1, wildness: 0.4, label: ['弱め', 'よわめ'] },
+    { key: 'normal', depth: 2, wildness: 0.2, label: ['ふつう', 'ふつう'] },
+    { key: 'hard', depth: 4, wildness: 0.05, label: ['強め', 'つよめ'] },
+  ];
+  // Whether `player`'s turns are played by the computer in the current mode.
+  function isCpuSeat(player) {
+    if (mode === 'cpu') return player !== 1;
+    if (mode === 'pvp') return !!pvpCpu && player === 3;
+    return false;
+  }
   let cpuThinking = false;
   let online = null; // { code, token, myPlayer, rev, timer, busy } while in an online match
   // Pending setTimeout that will call handleLadderOutcome() after a CPU
@@ -2093,7 +2107,24 @@
     return '★'.repeat(n) + '☆'.repeat(5 - n);
   }
 
-  pvpBtn.addEventListener('click', () => { SoundMgr.seClick(); startGame('pvp'); });
+  pvpBtn.addEventListener('click', () => { SoundMgr.seClick(); promptPvpCpu(); });
+
+  // 対人戦 asks whether to seat a CPU as the 3rd player (green) so two people
+  // can play together.
+  function promptPvpCpu() {
+    showResultOverlay({
+      title: K('3人目はどうしますか？', '3にんめはどうしますか？'),
+      message: K('2人で遊ぶ場合は、CPUを3人目（緑）として参加させられます。', '2にんであそぶばあいは、CPUを3にんめ（みどり）としてさんかさせられます。'),
+      buttons: [
+        { label: K('3人で対戦', '3にんでたいせん'), primary: true, onClick: () => { pvpCpu = null; startGame('pvp'); } },
+        ...PVP_CPU_OPTIONS.map((o) => ({
+          label: `CPU（${K(o.label[0], o.label[1])}）`,
+          onClick: () => { pvpCpu = { depth: o.depth, wildness: o.wildness, label: `CPU（${K(o.label[0], o.label[1])}）` }; startGame('pvp'); },
+        })),
+        { label: K('やめる', 'やめる'), onClick: () => {} },
+      ],
+    });
+  }
   cpuBtn.addEventListener('click', () => { SoundMgr.seClick(); startLadder(); });
 
   function startLadder() {
@@ -3430,7 +3461,7 @@
       currentPlayer = starter;
       boardWrap.classList.remove('locked');
       updateStatus();
-      if (mode === 'cpu' && currentPlayer !== 1 && !gameOver) {
+      if (isCpuSeat(currentPlayer) && !gameOver) {
         triggerCpuMove(1); // match just started — nothing to protect a read-time for yet
       }
     });
@@ -3516,6 +3547,7 @@
   function player3Label() {
     if (mode === 'cpu') { const ch = charForPlayer(3); return ch ? ch.name : K('プレイヤー3（緑）', 'プレイヤー3（みどり）'); }
     if (mode === 'online') return onlineNameFor(3);
+    if (mode === 'pvp' && pvpCpu) return pvpCpu.label;
     return K('プレイヤー3（緑）', 'プレイヤー3（みどり）');
   }
 
@@ -3535,7 +3567,7 @@
 
   function handleColumnClick(col) {
     if (gameOver || cpuThinking) return;
-    if (mode === 'cpu' && currentPlayer !== 1) return; // block manual clicks during either CPU's turn
+    if (isCpuSeat(currentPlayer)) return; // block manual clicks during a CPU's turn
     if (mode === 'online') { submitOnlineMove(col); return; }
     dropPiece(col, currentPlayer);
   }
@@ -3597,7 +3629,7 @@
       else speak(ch, 'normal');
     }
 
-    if (mode === 'cpu' && currentPlayer !== 1 && !gameOver) {
+    if (isCpuSeat(currentPlayer) && !gameOver) {
       triggerCpuMove(player); // who just moved — see triggerCpuMove's own comment on why this matters
     }
     return true;
@@ -3749,7 +3781,7 @@
   // see the comment on `delay` below for why.
   function triggerCpuMove(previousMover) {
     const player = currentPlayer; // 2 or 3
-    const ch = charForPlayer(player);
+    const ch = charForPlayer(player); // null for a 対人戦 CPU seat (no character art/lines)
     const colorVar = player === 2 ? '--p2' : '--p3';
     const label = player === 2 ? player2Label() : player3Label();
     cpuThinking = true;
@@ -3765,11 +3797,11 @@
     // gap between the two CPUs' moves is fine since the player has nothing
     // to do but watch anyway. With the toggle off, or right after the
     // player's own move, it's always just the brief 450ms "thinking" pause.
-    const delay = (dialogueWaitEnabled && previousMover !== 1)
+    const delay = (mode === 'cpu' && dialogueWaitEnabled && previousMover !== 1)
       ? Math.max(3000, bubbleReadyAt - Date.now())
       : 450;
     setTimeout(() => {
-      const col = getCpuMoveFor(player, ch);
+      const col = getCpuMoveFor(player, ch || (mode === 'pvp' ? pvpCpu : null));
       cpuThinking = false;
       boardWrap.classList.remove('locked');
       if (col !== null) dropPiece(col, player);
