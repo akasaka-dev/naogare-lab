@@ -739,6 +739,9 @@
   .turn-decide-text.show { opacity: 1; }
 
   /* ---- Game screen ---- */
+  /* On short phones the vertically-centered game column can ride up under the
+     fixed BGM/SE/かな buttons (top-left) — keep it clear of that strip. */
+  body:has(#gameScreen:not(.hidden)) { padding-top: 56px; }
   #gameScreen {
     display: flex;
     flex-direction: column;
@@ -3045,7 +3048,11 @@
     titleScreen.classList.add('hidden');
     gameScreen.classList.remove('hidden');
     resetBtn.classList.remove('hidden');
-    document.getElementById('score').classList.remove('hidden');
+    // The win tally is only meaningful for local 対人戦 — in the CPU ladder a
+    // match outcome drives stage progression instead, so it's just clutter
+    // (and eats vertical space that pushes the speech bubble up under the
+    // audio buttons).
+    document.getElementById('score').classList.toggle('hidden', selectedMode === 'cpu');
     const speechBubbleEl = document.getElementById('speechBubbleRow');
     if (mode === 'cpu' && stageOpponents[0] && stageOpponents[1]) {
       const stageNum = ladderIndex + 1;
