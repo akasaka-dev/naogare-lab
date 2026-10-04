@@ -71,6 +71,7 @@ const realTimeMinuteEl = document.getElementById('real-time-minute');
 const startOverlayEl = document.getElementById('startOverlay');
 const startMusicBtnEl = document.getElementById('start-music-btn');
 const karaokeCheckboxEl = document.getElementById('karaoke-checkbox');
+const withoutLyricsCheckboxEl = document.getElementById('without-lyrics-checkbox');
 const fullscreenBtnEl = document.getElementById('fullscreen-btn');
 const playPauseBtnEl = document.getElementById('playpause-btn');
 const repeatBtnEl = document.getElementById('repeat-btn');
@@ -929,6 +930,13 @@ const VOCAL_AUDIO_SRC = encodeURI('./audio/saikai-2026-02-22EngLast.mp3');
 const KARAOKE_AUDIO_SRC = encodeURI('./audio/saikai-2026-01-20m伴奏.mp3');
 const audioController = audioEnabled ? new AudioController(VOCAL_AUDIO_SRC) : null;
 let audioGuiState = null;
+// Without Lyrics V1 — read once from its start-overlay checkbox (see
+// index.html's own comment), same "decided before playback begins, never
+// live-switched" convention as Karaoke. Suppresses only the per-line lyric
+// display (TrailLyricsManager's update()/hold overlays, in animate()'s own
+// call site below) — titleCreditOverlay keeps showing the title and the
+// final credit regardless, since those aren't per-line lyrics.
+let withoutLyricsActive = false;
 
 // Lights — kept for any future MeshStandardMaterial/lit object (the ocean/
 // island/sky are raw ShaderMaterials and ignore scene lights); the
@@ -1957,6 +1965,14 @@ if (audioEnabled) {
     // comment on the checkbox). setSrc() swaps the element's source without
     // recreating it, so volume/rate settings survive untouched.
     if (karaokeCheckboxEl && karaokeCheckboxEl.checked) audioController.setSrc(KARAOKE_AUDIO_SRC);
+    // Without Lyrics V1 — see its own declaration's comment above. Also
+    // tells LyricTimeline itself to stop spawning phrases into the manager
+    // (its setTime()/update() otherwise do that directly, independently of
+    // the trailLyricsManager.update() gate below — see LyricTimeline.js's
+    // own spawningEnabled comment) while leaving lyricTimeline.time itself
+    // advancing normally for titleCreditOverlay.
+    withoutLyricsActive = !!(withoutLyricsCheckboxEl && withoutLyricsCheckboxEl.checked);
+    if (withoutLyricsActive && lyricTimeline) lyricTimeline.spawningEnabled = false;
     audioController.play();
     startOverlayEl.classList.add('dismissed');
     setTimeout(() => { startOverlayEl.hidden = true; }, 550);
@@ -2428,7 +2444,10 @@ function animate() {
   // matrixWorldInverse are already this frame's final values when a
   // brand-new instance's own formation reads them (TrailLyrics reads the
   // camera's live orientation to build/track its billboard plane).
-  if (trailLyricsManager) {
+  // Without Lyrics V1 — skips only the per-line display (this block); the
+  // Lyric Timeline block above still runs lyricTimeline/titleCreditOverlay
+  // normally, so the title and the final credit still show on schedule.
+  if (trailLyricsManager && !withoutLyricsActive) {
     // Reading-Order Layout + Particle Dissolve V2: the manager's dissolve
     // system needs the SAME absolute clock every phrase's own
     // triggerTime/endTime already live in (LyricTimeline's), not a
@@ -2550,6 +2569,7 @@ function animate() {
 
 // Small handle for debugging / automation (harmless in production).
 window.OCEAN = { camera, controls, diveTo, sunParams, applySun, applyPreset, PRESETS, ocean, floor, island, post, clouds, setCloudsEnabled };
+Object.defineProperty(window.OCEAN, 'withoutLyricsActive', { configurable: true, get: () => withoutLyricsActive });
 if (nightEnabled) {
   window.OCEAN.moonParams = moonParams;
   window.OCEAN.applyMoon = applyMoon;

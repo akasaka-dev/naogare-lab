@@ -97,6 +97,11 @@ export class LyricTimeline {
     this.paused = false;
     this.speed = 1.0;
     this.time = 0;
+    // Without Lyrics V1 — true suppresses ONLY the manager spawn/despawn
+    // reconciliation below (see setTime()'s own check), while `this.time`
+    // keeps advancing normally — main.js's titleCreditOverlay reads that
+    // same clock independently of per-line lyrics and still needs it live.
+    this.spawningEnabled = true;
 
     // onEventStart(event): optional hook for cross-module glue (e.g. main.js
     // nudging Auto Director toward a HERO event's preferred camera) — kept
@@ -502,6 +507,7 @@ export class LyricTimeline {
   //    scope, exactly as in every prior single-instance task).
   setTime(t) {
     this.time = Math.max(0, t);
+    if (!this.spawningEnabled) return;
     const shouldExist = this._phrasesActiveAt(this.time);
     const shouldExistIds = new Set(shouldExist.map((e) => e.id));
     for (const id of this.manager.getActiveIds()) {

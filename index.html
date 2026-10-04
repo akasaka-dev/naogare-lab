@@ -305,9 +305,11 @@
       #startOverlay button:hover, #startOverlay button:focus-visible {
         background: rgba(150, 220, 255, 0.18); border-color: rgba(150, 220, 255, 0.6);
       }
-      /* Karaoke V1 — a plain checkbox+label between the title and the
-         button; read once, at the moment Music Start is clicked, to decide
-         which audio source to play (see main.js's own click handler). */
+      /* Karaoke V1 / Without Lyrics V1 — plain checkbox+label rows between
+         the title and the button; both read once, at the moment Music Start
+         is clicked (see main.js's own click handler) — Karaoke decides which
+         audio source to play, Without Lyrics suppresses per-line lyric
+         display for the whole playback (title/credit overlay still shows). */
       #startOverlay .karaoke {
         display: flex; align-items: center; justify-content: center; gap: 8px;
         margin-bottom: 20px;
@@ -432,6 +434,7 @@
       <div class="box">
         <div class="title">ForeverMore</div>
         <label class="karaoke"><input type="checkbox" id="karaoke-checkbox"> Karaoke</label>
+        <label class="karaoke"><input type="checkbox" id="without-lyrics-checkbox"> Without Lyrics</label>
         <button id="start-music-btn" type="button">Music Start</button>
         <div class="controls-hint">
           Turn: A / D &nbsp;&middot;&nbsp; or flick left / right<br>
