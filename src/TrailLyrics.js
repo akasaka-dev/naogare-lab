@@ -380,13 +380,32 @@ const DEFAULT_TIMING = { travel: 3.0, assemble: 1.5, hold: 2.0, leave: 0.2, diss
 // effect the whole system exists for, and they are brief enough (a few
 // seconds each) that the same rare spike has far less to disrupt.
 const DOM_OVERLAY_CROSSFADE = 0.35;
-// Largest per-frame screen-space move (CSS percentage points) the DOM hold
-// overlay accepts before rejecting it as an outlier frame-hitch spike and
-// keeping its last position instead — see the jump-rejection block in
-// _recompute(). Generous relative to ordinary camera panning or a reading-
-// order layout reflow (both span many frames), tight relative to what a
-// large single-frame dt spike produces.
-const DOM_OVERLAY_MAX_JUMP_PERCENT = 5.0;
+// DOM Overlay Continuous Follow Fix V1/V2 — replaces an earlier "Two-Frame
+// Confirmation" gate that could still end up visibly lagging right at HOLD's
+// start/end, exactly where it's most noticeable: that's also exactly when
+// the DOM/3D crossfade happens, so for that ~0.35s window both are partially
+// visible, and ANY lag between them reads as "the overlay and the 3D glyph
+// are in different places" until it catches up — confirmed by report to
+// appear only during those crossfade windows and never once the overlay is
+// fully shown (steady-state _holdScreenPos always eventually agrees with
+// the live anchor; it just doesn't get there fast enough before the
+// crossfade using it has already started).
+//
+// V1 (damped follow, ~95% in ~0.1s) still wasn't fast enough: AutoDirector's
+// own camera-shot transitions default to transitionTime = 2.6 SECONDS of
+// eased motion, so a cut landing anywhere near a phrase's HOLD boundary
+// keeps the screen-locked anchor (_planeCenter, read live by the 3D glyph
+// every frame with NO smoothing of its own) moving for far longer than one
+// crossfade window — a 0.1s-lag follower chasing a target that keeps moving
+// for seconds stays visibly behind it, not just for one brief catch-up beat.
+// V2 raises DOM_OVERLAY_FOLLOW_RATE so far that the follow converges within
+// about a single frame — functionally matching the 3D glyph's own unsmoothed
+// live tracking — while keeping DOM_OVERLAY_HARD_CUT_PERCENT as a floor: an
+// actual hard CUT (explicitly allowed mid-HOLD — see Screen-Lock Hold V1
+// below) still snaps instantly rather than visibly sliding into place over
+// that one frame.
+const DOM_OVERLAY_FOLLOW_RATE = 30.0;   // ~95% converged within ~1 frame (~0.014s)
+const DOM_OVERLAY_HARD_CUT_PERCENT = 20.0;
 const PARTICLE_COUNT = 650;
 const WORLD_UP = new THREE.Vector3(0, 1, 0);
 
@@ -814,20 +833,13 @@ export class TrailLyrics {
     this._cyclePrepared = false;
     // DOM Hold Overlay V1 — see DOM_OVERLAY_CROSSFADE's own comment.
     // _holdScreenPos is recomputed every frame within [holdStart, holdEnd)
-    // (never just once — see the matching comment further down in
-    // _recompute(), by the DOM_OVERLAY_MAX_JUMP_PERCENT check, for why) and
-    // cleared to null outside that window, so it is always either "this
+    // (never just once — see DOM_OVERLAY_FOLLOW_RATE's own comment for why)
+    // and cleared to null outside that window, so it is always either "this
     // cycle's current hold position" or null, never a stale value from a
     // previous cycle. _domOverlayAlpha is likewise recomputed every frame
     // (a pure, cheap function of how far into/from HOLD's start/end lt
     // currently is) purely to drive the crossfade opacity.
     this._holdScreenPos = null;
-    // A single frame seen far from _holdScreenPos is held here, unconfirmed,
-    // rather than adopted immediately — see the matching comment at the
-    // DOM_OVERLAY_MAX_JUMP_PERCENT check in _recompute() for why a second
-    // consecutive frame near THIS (not near the old _holdScreenPos) is what
-    // actually confirms it.
-    this._pendingHoldScreenPos = null;
     this._domOverlayAlpha = 0;
     this._tmpProjected = new THREE.Vector3();
 
@@ -1477,7 +1489,6 @@ export class TrailLyrics {
       this._domOverlayAlpha = Math.min(fadeIn, fadeOut);
     } else {
       this._holdScreenPos = null;
-      this._pendingHoldScreenPos = null;
       this._domOverlayAlpha = 0;
     }
 
@@ -1600,50 +1611,28 @@ export class TrailLyrics {
     // which fixed the frame-hitch jump but broke tracking entirely once a
     // reflow moved the real anchor.
     //
-    // Two-Frame Confirmation Fix V1 — a single frame farther than
-    // DOM_OVERLAY_MAX_JUMP_PERCENT from _holdScreenPos is NOT adopted
-    // immediately; it's only remembered as _pendingHoldScreenPos. It is
-    // adopted once a SECOND consecutive frame lands close to that pending
-    // candidate (confirming a real, sustained relocation — a camera cut
-    // landing at the same moment as a reading-order reflow, say), and
-    // discarded if the very next frame instead falls back near the old
-    // _holdScreenPos (revealing the outlier as exactly the kind of one-frame
-    // hitch this filter exists to catch). The earlier version of this filter
-    // simply kept _holdScreenPos frozen forever on any frame past the
-    // threshold, with no way to ever re-sync: once the real anchor
-    // genuinely moved (not a hitch) the every-frame delta against that
-    // frozen value stayed permanently above the threshold, so the glyph
-    // mesh (unfiltered, always live) and the DOM overlay (stuck at the
-    // pre-move position) would visibly disagree for the rest of that
-    // phrase's HOLD — precisely the "new text is correct, old text is stuck
-    // somewhere else" symptom this version fixes.
+    // Continuous Follow Fix V1 (see DOM_OVERLAY_FOLLOW_RATE's own comment
+    // for the full history/why) — _holdScreenPos damps toward the live
+    // projection every frame instead of a binary snap-or-wait gate. Only a
+    // single-frame jump bigger than DOM_OVERLAY_HARD_CUT_PERCENT (a real
+    // camera cut, not ordinary motion) snaps immediately.
     if (inHoldWindow) {
       const projected = this._projectToScreen(camera);
       if (!this._holdScreenPos) {
         this._holdScreenPos = projected;
-        this._pendingHoldScreenPos = null;
       } else {
         const dx = projected.x - this._holdScreenPos.x;
         const dy = projected.y - this._holdScreenPos.y;
-        if (Math.hypot(dx, dy) <= DOM_OVERLAY_MAX_JUMP_PERCENT) {
+        if (Math.hypot(dx, dy) >= DOM_OVERLAY_HARD_CUT_PERCENT) {
           this._holdScreenPos = projected;
-          this._pendingHoldScreenPos = null;
-        } else if (this._pendingHoldScreenPos) {
-          const pdx = projected.x - this._pendingHoldScreenPos.x;
-          const pdy = projected.y - this._pendingHoldScreenPos.y;
-          if (Math.hypot(pdx, pdy) <= DOM_OVERLAY_MAX_JUMP_PERCENT) {
-            // Confirmed: two consecutive frames near the same new spot.
-            this._holdScreenPos = projected;
-            this._pendingHoldScreenPos = null;
-          } else {
-            // Yet another outlier, not near the last pending one either —
-            // restart the confirmation window from here.
-            this._pendingHoldScreenPos = projected;
-          }
         } else {
-          // First frame past the threshold — wait for confirmation before
-          // moving _holdScreenPos at all.
-          this._pendingHoldScreenPos = projected;
+          const followDamp = Math.min(1, 1 - Math.pow(0.0008, dt * DOM_OVERLAY_FOLLOW_RATE));
+          this._holdScreenPos = {
+            x: this._holdScreenPos.x + dx * followDamp,
+            y: this._holdScreenPos.y + dy * followDamp,
+            widthPercent: this._holdScreenPos.widthPercent + (projected.widthPercent - this._holdScreenPos.widthPercent) * followDamp,
+            heightPercent: this._holdScreenPos.heightPercent + (projected.heightPercent - this._holdScreenPos.heightPercent) * followDamp,
+          };
         }
       }
     }
