@@ -1506,9 +1506,12 @@
   const onlineBtn = document.getElementById('onlineBtn');
 
   // ---------- CPU character roster ----------
-  // 5-stage strength ladder. `depth` = minimax search depth, `wildness` = chance
-  // the character ignores the calculated best move in favor of a rough/random one
-  // (a winning move is always taken regardless, so weaker levels never look "broken").
+  // 5-stage strength ladder. `depth` >= 2 turns on a one-ply "don't hand an
+  // opponent a win" check (it is a flag, not a search depth — see
+  // getCpuMoveFor), `wildness` = chance the character plays a slightly worse
+  // move (2nd-4th best) instead of the best, and also sets how often it misses blocking an
+  // opponent's one-move win (cpuBlockRate). A winning move is always taken
+  // regardless, so weaker levels never look "broken".
   const CHARACTERS = [
     { level: 1, name: '荒くれストライカー', stars: 2, img: 'chara/LV1.webp', emoji: '👊',
       desc: '力任せで攻めてくるチンピラ系', depth: 1, wildness: 0.40,
@@ -3976,8 +3979,12 @@
 
   function scorePositionMulti(g, self) {
     let score = 0;
-    const centerCol = Math.floor(COLS / 2);
-    score += g.reduce((acc, row) => acc + (row[centerCol] === self ? 1 : 0), 0) * 3;
+    // 8 columns have two middle columns (3 and 4); rewarding only one made
+    // every CPU lean right of centre and open the same way each game.
+    const centerCols = COLS % 2 === 0 ? [COLS / 2 - 1, COLS / 2] : [Math.floor(COLS / 2)];
+    for (const centerCol of centerCols) {
+      score += g.reduce((acc, row) => acc + (row[centerCol] === self ? 1 : 0), 0) * 3;
+    }
 
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c <= COLS - 4; c++) {
@@ -4002,6 +4009,15 @@
     return score;
   }
 
+  // How reliably a CPU spots-and-blocks an opponent's one-move win, derived
+  // from its `wildness` so the ladder needs no extra per-character field:
+  // 0.5 -> 50% (LV1), 0.35 -> 77%, 0.25 -> 95%, <= 0.22 -> always. Missing
+  // blocks is what makes the early stages beatable by a plain "make three in
+  // a row" threat; taking its own win is never skipped (see getCpuMoveFor).
+  function cpuBlockRate(wildness) {
+    return Math.max(0.3, Math.min(1, 1.4 - 1.8 * wildness));
+  }
+
   // `player` is whichever CPU seat (2 or 3) is moving; `ch` is its character
   // (for depth/wildness — null falls back to a middling default).
   function getCpuMoveFor(player, ch) {
@@ -4013,25 +4029,20 @@
     const myWin = findImmediateWin(grid, player);
     if (myWin !== null) return myWin;
 
-    // Always block whichever OTHER player (human or the other CPU) has an
-    // immediate win on offer.
+    // Block whichever OTHER player (human or the other CPU) has an immediate
+    // win on offer — reliably at higher levels, only sometimes at LV1-3.
     const others = [1, 2, 3].filter(p => p !== player);
+    const wildness = ch ? ch.wildness : 0.2;
+    const blockRate = cpuBlockRate(wildness);
     for (const opp of others) {
       const blockCol = findImmediateWin(grid, opp);
-      if (blockCol !== null) return blockCol;
+      if (blockCol !== null && Math.random() < blockRate) return blockCol;
     }
 
-    const wildness = ch ? ch.wildness : 0.2;
-    if (wildness > 0 && Math.random() < wildness) {
-      return validCols[Math.floor(Math.random() * validCols.length)];
-    }
-
-    // Stronger characters (depth >= 2) also check one ply ahead: does this
-    // candidate move hand ANY opponent an immediate win next turn?
+    // Score every column. Stronger characters (depth >= 2) also check one ply
+    // ahead: does this candidate hand ANY opponent an immediate win next turn?
     const depth = ch ? ch.depth : 2;
-    let bestCol = validCols[0];
-    let bestScore = -Infinity;
-    for (const col of validCols) {
+    const scored = validCols.map((col) => {
       const row = getNextOpenRow(grid, col);
       const gCopy = cloneGrid(grid);
       gCopy[row][col] = player;
@@ -4039,9 +4050,26 @@
       if (depth >= 2 && others.some(opp => findImmediateWin(gCopy, opp) !== null)) {
         s -= 5000;
       }
-      if (s > bestScore) { bestScore = s; bestCol = col; }
+      return { col, s };
+    });
+    // Shuffle before the (stable) sort so equally-scored columns come out in
+    // random order — previously ties always went to the leftmost column.
+    for (let i = scored.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [scored[i], scored[j]] = [scored[j], scored[i]];
     }
-    return bestCol;
+    scored.sort((a, b) => b.s - a.s);
+
+    // A "wild" move is a real slip, but a plausible one rather than a
+    // coin-flip column: pick at random among the 2nd-4th best-scoring columns
+    // (never the best). Tuned offline against simulated players — choosing
+    // from the top 3 *including* the best made LV1-2 harder than the old
+    // uniform-random slips, and uniform random again was too erratic.
+    if (wildness > 0 && Math.random() < wildness) {
+      const pool = scored.length > 1 ? scored.slice(1, Math.min(4, scored.length)) : scored;
+      return pool[Math.floor(Math.random() * pool.length)].col;
+    }
+    return scored[0].col;
   }
 
   applyKanaMode(); // render the title/online screens in the persisted mode
