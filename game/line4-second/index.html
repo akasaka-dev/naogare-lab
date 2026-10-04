@@ -2150,6 +2150,19 @@
     '見覚えのあるキツネとネズミの人形が嬉しそうに盤面を銜えて現れた。',
     'まずはこいつらを倒してこの辛気臭い塔から出る。それだけだ。'
   ];
+  // Hiragana version, line-for-line parallel to STORY_LV1_LINES (see
+  // showStoryScreen, which picks it when kanaMode is on).
+  const STORY_LV1_LINES_KANA = [
+    '___',
+    'とうのいっしつ。',
+    'マスクをしたおとこがひとり、ゆかにすわっている。',
+    'あたまのなかにひびいていたこえがきえている。',
+    'おれは・・いったい・・',
+    'こんらんするあたまに、さきほどあらわれたきかいなフクロウのにんぎょうのことばがリフレインする。',
+    'このとうにしばられたじぶんは、そとにでるため、ゲームにしょうりしなければならない、と。',
+    'みおぼえのあるキツネとネズミのにんぎょうが、うれしそうにばんめんをくわえてあらわれた。',
+    'まずはこいつらをたおして、このしんきくさいとうからでる。それだけだ。'
+  ];
   // 塔の門番 (LV6) confrontation script — the protagonist's in-story name,
   // 狂犬マスク, appears here for the first time (the title-screen name field
   // is a separate, player-chosen display name; see DEFAULT_PLAYER_NAME).
@@ -2180,13 +2193,42 @@
     '影の門番 「それは私の台詞だ。」',
     'マスク 「……どっちでもいい。\n最後に立ってりゃ、それでいい。」',
   ];
+  // Hiragana version, line-for-line parallel to STORY_LV6_LINES. Speaker
+  // labels stay as-is, like character names elsewhere in kana mode.
+  const STORY_LV6_LINES_KANA = [
+    '獣の門番 「……きたか。」',
+    '影の門番 「ずいぶんとおそかったな。」',
+    'マスク 「みちをふさいでんのは、おまえらか。」',
+    '獣の門番 「おれがとめる。」',
+    '影の門番 「いや、わたしがとめる。」',
+    '獣の門番 「おまえにまかせれば、ひがくれる。」',
+    '影の門番 「おまえにまかせれば、ばんめんがこわれる。」',
+    'マスク 「……。」',
+    'マスク 「おまえら、なかわるいのか？」',
+    '獣の門番「べつに。」\n影の門番 「べつに。」',
+    'マスク 「……そうかよ。」',
+    '獣の門番 「ならば、どちらがやつをとめるかきめよう。」',
+    '影の門番 「どういする。」',
+    'マスク 「ゲームできめるってか。」',
+    '獣の門番 「それが、このとうのやりかただ。」',
+    '影の門番 「さんにんでたたかう。」',
+    'マスク 「さんにん……？」',
+    '獣の門番 「おれと、こいつと、おまえだ。」',
+    '影の門番 「かったものが、このさきへすすむ。」',
+    'マスク 「ふん。まとめてあいてしてやるよ。」',
+    '獣の門番 「いうようになったな。」',
+    '影の門番 「でははじめよう。」',
+    '獣の門番 「おれがかつ。」',
+    '影の門番 「それはわたしのせりふだ。」',
+    'マスク 「……どっちでもいい。\nさいごにたってりゃ、それでいい。」',
+  ];
   // Keyed by ladder stage index (0-5), not level number, to match STAGES/ladderIndex.
   // `bg` is optional — omitted (as for LV1) just keeps #storyOverlay's plain
   // black background; a dark scrim is layered under the text either way so
   // it stays readable over a busy image like LV6's gate scene.
   const STORY_BY_STAGE = {
-    0: { lines: STORY_LV1_LINES },
-    [STAGES.length - 1]: { lines: STORY_LV6_LINES, bg: 'story_lv6.webp' },
+    0: { lines: STORY_LV1_LINES, linesKana: STORY_LV1_LINES_KANA },
+    [STAGES.length - 1]: { lines: STORY_LV6_LINES, linesKana: STORY_LV6_LINES_KANA, bg: 'story_lv6.webp' },
   };
   let storyLineIndex = 0;
   let storyTransitioning = false;
@@ -2219,7 +2261,8 @@
     if (!story) { onDone(); return; }
     showStoryScreen(story, onDone);
   }
-  function showStoryScreen({ lines, bg }, onDone) {
+  function showStoryScreen({ lines: kanjiLines, linesKana, bg }, onDone) {
+    const lines = (kanaMode && linesKana) ? linesKana : kanjiLines;
     const overlay = document.getElementById('storyOverlay');
     storyLineIndex = 0;
     storyTransitioning = false;
