@@ -176,6 +176,9 @@ export class TrailLyricsManager {
     if (this._glyphOutlineWidth !== undefined) config.outlineWidth = this._glyphOutlineWidth;
     if (this._glyphOutlineColor !== undefined) config.outlineColor = this._glyphOutlineColor;
     if (this._glyphFontFamily !== undefined) config.fontFamily = this._glyphFontFamily;
+    if (this._glyphFontWeight !== undefined) config.fontWeight = this._glyphFontWeight;
+    // Font Size V1 — same future-spawns-only override as particleCount below.
+    if (this._glyphFontSizeScale !== undefined) config.fontSizeScale = this._glyphFontSizeScale;
     // Leave/Dissolve Duration V1 — how long a phrase lingers (moving away,
     // then scattering into particles) after its HOLD phase ends. Same
     // GUI-override pattern as the glyph style fields above.
@@ -238,14 +241,15 @@ export class TrailLyricsManager {
   // optional) matching TrailLyrics.setGlyphStyle()'s own shape — a caller
   // only sets the property that changed; every other property is left
   // untouched everywhere (both here and inside TrailLyrics.setGlyphStyle()).
-  setGlyphStyle({ textColor, shadowColor, shadowStrength, outlineWidth, outlineColor, fontFamily } = {}) {
+  setGlyphStyle({ textColor, shadowColor, shadowStrength, outlineWidth, outlineColor, fontFamily, fontWeight } = {}) {
     if (textColor !== undefined) this._glyphTextColor = textColor;
     if (shadowColor !== undefined) this._glyphShadowColor = shadowColor;
     if (shadowStrength !== undefined) this._glyphShadowStrength = shadowStrength;
     if (outlineWidth !== undefined) this._glyphOutlineWidth = outlineWidth;
     if (outlineColor !== undefined) this._glyphOutlineColor = outlineColor;
     if (fontFamily !== undefined) this._glyphFontFamily = fontFamily;
-    for (const entry of this._active) entry.instance.setGlyphStyle({ textColor, shadowColor, shadowStrength, outlineWidth, outlineColor, fontFamily });
+    if (fontWeight !== undefined) this._glyphFontWeight = fontWeight;
+    for (const entry of this._active) entry.instance.setGlyphStyle({ textColor, shadowColor, shadowStrength, outlineWidth, outlineColor, fontFamily, fontWeight });
   }
 
   // Leave/Dissolve Duration V1 — same live-plus-future-spawns pattern as
@@ -264,6 +268,15 @@ export class TrailLyricsManager {
   // worth doing live on an already-visible phrase just to tune this.
   setParticleCount(count) {
     this._particleCount = count;
+  }
+
+  // Font Size V1 (GUI "Font Size") — future spawns only, like
+  // setParticleCount() above: a screen-locked phrase's word-wrap is decided
+  // once at spawn() from its font size, and the layout stacks phrases by
+  // their wrapped block size, so resizing an already-visible phrase would
+  // leave its line breaks stale against its own new width.
+  setFontSizeScale(scale) {
+    this._glyphFontSizeScale = scale;
   }
 
   // Per-frame advance for every currently active instance, plus (Reading-

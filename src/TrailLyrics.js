@@ -70,7 +70,7 @@ function hexToRgb(hex) {
 //  subset this phrase actually needs (e.g. CJK ranges for Japanese lyrics)
 //  is what gets requested/awaited, not just the Latin default subset.
 // ---------------------------------------------------------------------------
-async function ensureFontReady(fontSpec, sampleText, timeoutMs = 3000) {
+export async function ensureFontReady(fontSpec, sampleText, timeoutMs = 3000) {
   if (typeof document === 'undefined' || !document.fonts) return; // no Font Loading API — draw with whatever the browser resolves synchronously
   const timeout = new Promise((resolve) => setTimeout(resolve, timeoutMs));
   try {
@@ -1082,15 +1082,20 @@ export class TrailLyrics {
   // setText() already performs exactly that full rebuild (geometry +
   // texture) from whatever this.fontFamily currently is, so it's reused
   // wholesale here rather than duplicating its particle-buffer logic.
-  setGlyphStyle({ shadowStrength, textColor, shadowColor, outlineWidth, outlineColor, fontFamily } = {}) {
+  setGlyphStyle({ shadowStrength, textColor, shadowColor, outlineWidth, outlineColor, fontFamily, fontWeight } = {}) {
     if (shadowStrength !== undefined) this.shadowStrength = shadowStrength;
     if (textColor !== undefined) this.textColor = textColor;
     if (shadowColor !== undefined) this.shadowColor = shadowColor;
     if (outlineWidth !== undefined) this.outlineWidth = outlineWidth;
     if (outlineColor !== undefined) this.outlineColor = outlineColor;
     if (this.currentText === null) return; // nothing drawn yet — setText() will pick up the new value(s) on its own
-    if (fontFamily !== undefined && fontFamily !== this.fontFamily) {
-      this.fontFamily = fontFamily;
+    // fontWeight changes letter shapes just like fontFamily (Font Preset
+    // V1: single-weight script fonts are drawn at 400, everything else 600).
+    const familyChanged = fontFamily !== undefined && fontFamily !== this.fontFamily;
+    const weightChanged = fontWeight !== undefined && fontWeight !== this.fontWeight;
+    if (familyChanged || weightChanged) {
+      if (familyChanged) this.fontFamily = fontFamily;
+      if (weightChanged) this.fontWeight = fontWeight;
       this.setText(this.currentText); // full rebuild — see this method's own comment on why
       return;
     }

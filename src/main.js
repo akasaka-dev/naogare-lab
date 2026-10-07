@@ -13,6 +13,7 @@ import { Clouds } from './Clouds.js';
 import { HeadParticleTrail } from './HeadParticleTrail.js';
 import { Fireworks, FIREWORK_PALETTE } from './Fireworks.js';
 import { TrailLyricsManager } from './TrailLyricsManager.js';
+import { ensureFontReady } from './TrailLyrics.js';
 import { AutoDirector } from './AutoDirector.js';
 import { LyricTimeline } from './LyricTimeline.js';
 import { TitleCreditOverlay } from './TitleCreditOverlay.js';
@@ -1796,8 +1797,8 @@ if (lyricTimelineEnabled) {
   //     darkness). Width 0 disables it entirely (the original,
   //     stroke-less, title-matched look).
   //   Font Family — a free-text CSS font-family string passed directly
-  //     into the Canvas 2D font declaration (default matches the existing
-  //     title-matched serif look: 'Georgia, "Times New Roman", serif').
+  //     into the Canvas 2D font declaration (default Crimson Pro — see the
+  //     Font preset dropdown below, which also sets this field).
   //     Unlike the other controls, changing this ALSO reflows the particle
   //     target positions (the glyph shapes themselves changed — see
   //     TrailLyrics.setGlyphStyle()'s own comment on why).
@@ -1809,7 +1810,7 @@ if (lyricTimelineEnabled) {
     shadowStrength: 2.0,
     outlineWidth: 0,
     outlineColor: '#000000',
-    fontFamily: 'Georgia, "Times New Roman", serif',
+    fontFamily: '"Crimson Pro", Georgia, serif',
     // Leave/Dissolve Duration V1 — how long a phrase lingers (moving away,
     // then scattering into dust) after HOLD ends; defaults match
     // TrailLyrics.js's own DEFAULT_TIMING (0.2s/1.2s). Exposed because it
@@ -1837,8 +1838,66 @@ if (lyricTimelineEnabled) {
     .onChange((v) => trailLyricsManager.setGlyphStyle({ outlineWidth: v }));
   fTrailLyricsStyle.addColor(trailLyricsStyleGuiState, 'outlineColor').name('Outline Color')
     .onChange((v) => trailLyricsManager.setGlyphStyle({ outlineColor: v }));
-  fTrailLyricsStyle.add(trailLyricsStyleGuiState, 'fontFamily').name('Font Family')
-    .onFinishChange((v) => trailLyricsManager.setGlyphStyle({ fontFamily: v }));
+  // Font Preset V1 — calm, cinematic serif/sans picks. Every webfont here is
+  // declared (weight 600 only, matching TrailLyrics' fontWeight) by the
+  // Google Fonts <link> in index.html; the browser fetches a family's file
+  // only once it is actually requested, so unused presets cost nothing.
+  // Selecting one awaits ensureFontReady() BEFORE rebuilding the glyphs —
+  // particle targets are sampled from the canvas raster, so drawing before
+  // the webfont arrives would lock in the fallback font's letter shapes.
+  // The free-text Font Family field stays below for anything not listed.
+  const TRAIL_LYRICS_FONT_PRESETS = {
+    'Georgia (system)': 'Georgia, "Times New Roman", serif',
+    'Cormorant Garamond': '"Cormorant Garamond", Georgia, serif',
+    'Cinzel': 'Cinzel, Georgia, serif',
+    'EB Garamond': '"EB Garamond", Georgia, serif',
+    'Playfair Display': '"Playfair Display", Georgia, serif',
+    'Bodoni Moda': '"Bodoni Moda", Georgia, serif',
+    'Spectral': 'Spectral, Georgia, serif',
+    'Crimson Pro': '"Crimson Pro", Georgia, serif',
+    'Josefin Sans': '"Josefin Sans", "Helvetica Neue", Arial, sans-serif',
+    'Jost': 'Jost, "Helvetica Neue", Arial, sans-serif',
+    'Raleway': 'Raleway, "Helvetica Neue", Arial, sans-serif',
+    'Dancing Script': '"Dancing Script", cursive',
+    'Caveat': 'Caveat, cursive',
+    'Great Vibes': '"Great Vibes", cursive',
+    'Parisienne': 'Parisienne, cursive',
+    'Sacramento': 'Sacramento, cursive',
+  };
+  // Script fonts Google Fonts ships in weight 400 only — drawing them at the
+  // default 600 makes the browser synthesize a smeared faux bold. Anything
+  // not listed here (including free-text families) draws at 600.
+  const TRAIL_LYRICS_FONT_WEIGHTS = {
+    '"Great Vibes", cursive': 400,
+    'Parisienne, cursive': 400,
+    'Sacramento, cursive': 400,
+  };
+  const fontWeightFor = (family) => TRAIL_LYRICS_FONT_WEIGHTS[family] ?? 600;
+  trailLyricsStyleGuiState.fontPreset = TRAIL_LYRICS_FONT_PRESETS['Crimson Pro'];
+  let fontFamilyController;
+  const applyTrailLyricsFont = async (family) => {
+    const fontWeight = fontWeightFor(family);
+    await ensureFontReady(`${fontWeight} 32px ${family}`, 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz');
+    // A newer pick may have landed while this one was loading — drop stale ones.
+    if (trailLyricsStyleGuiState.fontFamily !== family) return;
+    trailLyricsManager.setGlyphStyle({ fontFamily: family, fontWeight });
+  };
+  fTrailLyricsStyle.add(trailLyricsStyleGuiState, 'fontPreset', TRAIL_LYRICS_FONT_PRESETS).name('Font')
+    .onChange((v) => {
+      trailLyricsStyleGuiState.fontFamily = v;
+      fontFamilyController.updateDisplay();
+      applyTrailLyricsFont(v);
+    });
+  fontFamilyController = fTrailLyricsStyle.add(trailLyricsStyleGuiState, 'fontFamily').name('Font Family')
+    .onFinishChange((v) => applyTrailLyricsFont(v));
+  // Font Size V1 — TrailLyrics' fontSizeScale (raster px = 120 x scale; at
+  // the screen-locked layout's fixed world-per-pixel scale this is the
+  // on-screen size). Future phrases only — see
+  // TrailLyricsManager.setFontSizeScale(). Capped at 1.5: larger wraps into
+  // more lines and several simultaneous phrases stop fitting the safe area.
+  trailLyricsStyleGuiState.fontSizeScale = 0.9;
+  fTrailLyricsStyle.add(trailLyricsStyleGuiState, 'fontSizeScale', 0.6, 1.5, 0.05).name('Font Size')
+    .onChange((v) => trailLyricsManager.setFontSizeScale(v));
   fTrailLyricsStyle.add(trailLyricsStyleGuiState, 'leaveDuration', 0.0, 5.0, 0.1).name('Leave Duration')
     .onChange((v) => trailLyricsManager.setPhraseTiming({ leaveDuration: v }));
   fTrailLyricsStyle.add(trailLyricsStyleGuiState, 'dissolveDuration', 0.0, 5.0, 0.1).name('Dissolve Duration')
@@ -1857,6 +1916,10 @@ if (lyricTimelineEnabled) {
   trailLyricsManager.setGlyphStyle({ ...trailLyricsStyleGuiState });
   trailLyricsManager.setPhraseTiming({ leaveDuration: trailLyricsStyleGuiState.leaveDuration, dissolveDuration: trailLyricsStyleGuiState.dissolveDuration });
   trailLyricsManager.setParticleCount(trailLyricsStyleGuiState.particleCount);
+  trailLyricsManager.setFontSizeScale(trailLyricsStyleGuiState.fontSizeScale);
+  // The default font is a webfont — warm it now (the first lyric is well
+  // past the title card) and rebuild anything already drawn once it lands.
+  applyTrailLyricsFont(trailLyricsStyleGuiState.fontFamily);
 
   // DOM Hold Overlay V1 — a small persistent pool (id -> <div>) inside
   // #holdLyricOverlay, kept in sync with TrailLyricsManager.getHoldOverlays()
@@ -1900,6 +1963,7 @@ if (lyricTimelineEnabled) {
         : '0';
       el.style.textShadow = `0 2px 10px ${trailLyricsStyleGuiState.shadowColor}, 0 1px 3px ${trailLyricsStyleGuiState.shadowColor}`;
       el.style.fontFamily = trailLyricsStyleGuiState.fontFamily;
+      el.style.fontWeight = fontWeightFor(trailLyricsStyleGuiState.fontFamily);
       // Font size/line-height/box width all derived from the 3D glyph
       // plane's OWN projected on-screen size (o.widthPercent/heightPercent
       // — see TrailLyrics.js's _projectToScreen()), not a fixed guess: a
