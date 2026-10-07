@@ -63,7 +63,9 @@ Hero"）。実際にプレイする `/game/<name>/` のゲーム本体は日本�
    `<div class="entry-row">`（`<a class="entry">` + いいねボタンの `<button class="like-btn">`）
    を1つ追加し、番号は**既存の最大値+1**を新規に割り振る（既存エントリの番号は一切変更しない）
    （既存のいずれかのブロックをコピーして書き換えるのが早い。`data-game` 属性は
-   `/api/likes/<id>` で使うゲームIDと一致させること）
+   `/api/likes/<id>` で使うゲームIDと一致させること。さらに `src/likes.js` の
+   `VALID_GAME_IDS` にもそのIDを追加すること。追加し忘れるといいねボタンが
+   `invalid_game`（400）になる）
 4. 「準備中」カード（`.entry--soon`、一覧の一番下に固定）の番号を、追加したゲームの次の番号に更新する
 5. `.hero__stats` の「公開中の作品」数と、`.hero__lede` の本数表記も更新する
 6. `sitemap.xml` に `https://naogare-lab.naogare.workers.dev/game/<name>/` の `<url>` エントリを1つ追加する
