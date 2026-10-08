@@ -1839,11 +1839,34 @@
     img.classList.add('drop-in');
   }
 
+  // Per-LEVEL bear appearance (index = LEVEL - 1): a color multiplied over
+  // the model's own texture, plus the glowing eyes' color. LEVEL1 is the
+  // untouched original look. Applied at the start of each run (beginRun())
+  // and once more when the model finishes loading, in case a run was
+  // chosen before the (async) model arrived.
+  var BEAR_LOOKS = [
+    {tint:0xffffff, eye:COLOR_ACCENT},
+    {tint:0x6a5a52, eye:0xff8a1a},
+    {tint:0xc4604e, eye:0xff3b2a},
+    {tint:0x3a2e2e, eye:0xff1a4a}
+  ];
+  var bearLookIndex = 0;
+  function applyBearLook(index){
+    bearLookIndex = Math.max(0, Math.min(BEAR_LOOKS.length-1, index));
+    var look = BEAR_LOOKS[bearLookIndex];
+    eyeMat.color.setHex(look.eye);
+    if (!bearModel) return;
+    bearModel.traverse(function(o){
+      if (o.isMesh && o.material && o.material.color) o.material.color.setHex(look.tint);
+    });
+  }
+
   new THREE.GLTFLoader().load('bear-rigged.glb', function(gltf){
     bearModel = gltf.scene;
     bearModel.scale.setScalar(ENEMY_MODEL_SCALE);
     bearModel.rotation.y = MODEL_FRONT_Z > 0 ? 0 : Math.PI;
     bear.add(bearModel);
+    applyBearLook(bearLookIndex);
 
     headBone = bearModel.getObjectByName('head');
     handBone = bearModel.getObjectByName('hand_r');
@@ -2129,6 +2152,7 @@
     // title card, regardless of where the auto tempo-up (or a manual
     // slider drag) left it during the previous attempt.
     setBPM(startBPM);
+    applyBearLook(levelButtons.map(function(b){ return parseInt(b.dataset.bpm, 10); }).indexOf(startBPM));
     resetGame();
     state = 'playing';
     startLeadIn(true);
