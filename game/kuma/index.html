@@ -1084,6 +1084,7 @@
           reactionTimer = victoryDuration;
           if (playerModel) playerModel.scale.x = PLAYER_MODEL_SCALE;
           playerVictoryAction.reset().play();
+          playSfx('victory');
         } else {
           startLeadIn(true);
         }
@@ -1141,7 +1142,8 @@
     eating: 'sound/eating.wav',
     poisonEating: 'sound/poison-eating.wav',
     hit: 'sound/hit2.wav',
-    levelup: 'sound/levelup.wav'
+    levelup: 'sound/levelup.wav',
+    victory: 'sound/the-victors-entry.mp3'
   };
   var sfxBufferCache = {};
   function preloadSfx(key){
@@ -1306,7 +1308,7 @@
   // error path (see onModelError below): the game can't actually run
   // without it, so that failure holds the bar and shows an explicit message
   // instead of waving the player through into a broken run.
-  var PRELOAD_TOTAL = 18;
+  var PRELOAD_TOTAL = 19;
   var preloadedCount = 0;
   function updatePreloadUI(){
     var pct = Math.min(100, Math.round(preloadedCount/PRELOAD_TOTAL*100));
@@ -2487,7 +2489,7 @@
     // rigged model in the actual scene without needing to play through to a
     // real tier crossing every time.
     else if (k==='j'){ if(!e.repeat){
-      if (playerVictoryAction) playerVictoryAction.reset().play();
+      if (playerVictoryAction){ playerVictoryAction.reset().play(); playSfx('victory'); }
     } }
   }, {passive:false});
 
