@@ -682,7 +682,7 @@
   var MODEL_RAW_HEIGHT = 0.8948;
   var MODEL_EYE_Y = MODEL_RAW_HEIGHT * 0.90 * ENEMY_MODEL_SCALE;
   var MODEL_EYE_Z = 0.42 * ENEMY_MODEL_SCALE;
-  var FARMER_RAW_HEIGHT = 0.98; // farmer.glb's own bbox height, unscaled
+  var FARMER_RAW_HEIGHT = 1.0; // farmer14-model.glb's own bbox height, unscaled
   var PLAYER_MODEL_SCALE = (BEAR_MODEL_SCALE * MODEL_RAW_HEIGHT) / FARMER_RAW_HEIGHT; // matches the old bear-placeholder's on-screen height
 
   // Debug view: camera pulls back to third-person so the player placeholder (the
@@ -1906,7 +1906,7 @@
     playerAnimState = name;
   }
 
-  loadGltfTracked('farmer.glb', function(gltf){
+  loadGltfTracked('farmer14-model.glb', function(gltf){
     playerModel = gltf.scene;
     playerModel.scale.setScalar(PLAYER_MODEL_SCALE);
     playerModel.rotation.y = MODEL_FRONT_Z > 0 ? Math.PI : 0; // face the bear, opposite of the bear's own convention
