@@ -2005,9 +2005,13 @@
     var victoryClip = findClip(gltf.animations, 'Jumping_Jacks');
     if (victoryClip){
       playerVictoryAction = playerMixer.clipAction(victoryClip);
-      playerVictoryAction.setLoop(THREE.LoopOnce);
+      // One Jumping_Jacks cycle is only 1.25s, too brief to read as a
+      // celebration — repeated 3 times, with the hold (victoryDuration)
+      // sized to match so the lead-in doesn't cut in mid-jack.
+      var VICTORY_REPEATS = 3;
+      playerVictoryAction.setLoop(THREE.LoopRepeat, VICTORY_REPEATS);
       playerVictoryAction.clampWhenFinished = true;
-      victoryDuration = victoryClip.duration;
+      victoryDuration = victoryClip.duration * VICTORY_REPEATS;
     }
     mixers.push(playerMixer);
   }, undefined, onModelError);
