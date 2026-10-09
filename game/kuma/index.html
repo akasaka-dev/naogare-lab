@@ -482,6 +482,7 @@
         <button type="button" data-bpm="100">LEVEL2</button>
         <button type="button" data-bpm="120">LEVEL3</button>
         <button type="button" data-bpm="150">LEVEL4</button>
+        <button type="button" data-bpm="170">LEVEL5</button>
       </div>
       <button id="btnAudioAdjust" type="button">Audio Adjust</button>
       <div class="cta">Click or Tap to Start</div>
@@ -1299,7 +1300,7 @@
     s.cur += s.vel * dt;
   }
 
-  // Preload gate — 5 GLTF models + the sky texture + the HP icon + 5 BGM
+  // Preload gate — 6 GLTF models + the sky texture + the HP icon + 5 BGM
   // tracks + the gameover BGM + 5 SFX, each counted exactly once regardless
   // of whether it resolves, errors, or (for the audio ones) is skipped
   // outright because Web Audio isn't available — every one of those paths
@@ -1308,7 +1309,7 @@
   // error path (see onModelError below): the game can't actually run
   // without it, so that failure holds the bar and shows an explicit message
   // instead of waving the player through into a broken run.
-  var PRELOAD_TOTAL = 19;
+  var PRELOAD_TOTAL = 20;
   var preloadedCount = 0;
   function updatePreloadUI(){
     var pct = Math.min(100, Math.round(preloadedCount/PRELOAD_TOTAL*100));
@@ -1844,47 +1845,95 @@
   // untouched original look. Applied at the start of each run (beginRun())
   // and once more when the model finishes loading, in case a run was
   // chosen before the (async) model arrived.
+  //
+  // LEVEL5 uses its own model (LV5-kuma.glb: same skeleton and clip names,
+  // plus a headband, horn pads and shoulder pads), so `rig` picks which of
+  // the two loaded models is shown; the tint only applies to the standard
+  // one, since the LV5 model carries its own look.
   var BEAR_LOOKS = [
-    {tint:0xffffff, eye:COLOR_ACCENT},
-    {tint:0x6a5a52, eye:0xff8a1a},
-    {tint:0xc4604e, eye:0xff3b2a},
-    {tint:0x3a2e2e, eye:0xff1a4a}
+    {rig:'normal', tint:0xffffff, eye:COLOR_ACCENT},
+    {rig:'normal', tint:0x6a5a52, eye:0xff8a1a},
+    {rig:'normal', tint:0xc4604e, eye:0xff3b2a},
+    {rig:'normal', tint:0x3a2e2e, eye:0xff1a4a},
+    {rig:'lv5',    tint:0xffffff, eye:0xb44cff}
   ];
   var bearLookIndex = 0;
+  var bearRigs = {}, activeBearRig = null;
+  function useBearRig(key){
+    var rig = bearRigs[key];
+    if (!rig || rig === activeBearRig) return;
+    if (activeBearRig) activeBearRig.model.visible = false;
+    activeBearRig = rig;
+    rig.model.visible = true;
+    rig.model.scale.x = ENEMY_MODEL_SCALE;
+    bearModel = rig.model; headBone = rig.headBone; handBone = rig.handBone; rootBone = rig.rootBone;
+    mixer = rig.mixer; animActions = rig.actions;
+    animState = null;
+    setAnimState('idle');
+    if (headBone) scene.attach(eyeGroup); // reparent, keeping its current world position
+  }
   function applyBearLook(index){
     bearLookIndex = Math.max(0, Math.min(BEAR_LOOKS.length-1, index));
     var look = BEAR_LOOKS[bearLookIndex];
     eyeMat.color.setHex(look.eye);
-    if (!bearModel) return;
-    bearModel.traverse(function(o){
+    var key = (look.rig === 'lv5' && bearRigs.lv5) ? 'lv5' : 'normal';
+    useBearRig(key);
+    if (key !== 'normal' || !bearRigs.normal) return;
+    bearRigs.normal.model.traverse(function(o){
       if (o.isMesh && o.material && o.material.color) o.material.color.setHex(look.tint);
     });
   }
-
-  new THREE.GLTFLoader().load('bear-rigged.glb', function(gltf){
-    bearModel = gltf.scene;
-    bearModel.scale.setScalar(ENEMY_MODEL_SCALE);
-    bearModel.rotation.y = MODEL_FRONT_Z > 0 ? 0 : Math.PI;
-    bear.add(bearModel);
-    applyBearLook(bearLookIndex);
-
-    headBone = bearModel.getObjectByName('head');
-    handBone = bearModel.getObjectByName('hand_r');
-    rootBone = bearModel.getObjectByName('root');
-    if (headBone) scene.attach(eyeGroup); // reparent, keeping its current world position
-
-    mixer = new THREE.AnimationMixer(bearModel);
+  function buildBearRig(gltf){
+    var model = gltf.scene;
+    model.scale.setScalar(ENEMY_MODEL_SCALE);
+    model.rotation.y = MODEL_FRONT_Z > 0 ? 0 : Math.PI;
+    model.visible = false;
+    // A model exported with its armature object sitting off-origin in the
+    // Blender scene (LV5-kuma.glb's was at x=1) keeps that offset as the
+    // root node's own translation, which would put the bear beside its
+    // intended spot — only plain grouping nodes are touched here, never
+    // the meshes or bones.
+    model.children.forEach(function(c){
+      if (!c.isMesh && !c.isBone && (c.position.x || c.position.z)){ c.position.x = 0; c.position.z = 0; }
+    });
+    // A skinned mesh's frustum-culling sphere comes from its un-skinned
+    // geometry, which for LV5-kuma.glb sits 1 unit off to the side of
+    // where the skinning actually puts it. The small accessory meshes
+    // (headband, horn and shoulder pads) fall entirely outside the view
+    // by that measure and get culled even while on screen — so culling is
+    // turned off for skinned meshes rather than trusting that sphere.
+    model.traverse(function(o){ if (o.isSkinnedMesh) o.frustumCulled = false; });
+    bear.add(model);
+    var rig = {
+      model: model,
+      headBone: model.getObjectByName('head'),
+      handBone: model.getObjectByName('hand_r'),
+      rootBone: model.getObjectByName('root'),
+      mixer: new THREE.AnimationMixer(model),
+      actions: {}
+    };
     [['idle','Fighting_Idle'],['run','Walk'],['threat','Sword_Attack'],['sprint','Sprint'],['closing','Run_Anime']].forEach(function(pair){
       var clip = findClip(gltf.animations, pair[1]);
       if (clip){
-        var action = mixer.clipAction(clip);
+        var action = rig.mixer.clipAction(clip);
         action.setLoop(THREE.LoopRepeat);
-        animActions[pair[0]] = action;
+        rig.actions[pair[0]] = action;
       }
     });
-    setAnimState('idle');
+    return rig;
+  }
+
+  new THREE.GLTFLoader().load('bear-rigged.glb', function(gltf){
+    bearRigs.normal = buildBearRig(gltf);
+    applyBearLook(bearLookIndex);
     markPreloaded();
   }, undefined, onModelError);
+  // Not required to play — if it fails to load, LEVEL5 just keeps showing
+  // the standard bear (see applyBearLook()).
+  loadGltfTracked('LV5-kuma.glb', function(gltf){
+    bearRigs.lv5 = buildBearRig(gltf);
+    applyBearLook(bearLookIndex);
+  });
 
   // farmer.glb: a dedicated player character replacing the earlier debug
   // placeholder (the bear rig reused as a stand-in). Same Mixamo-style skeleton
