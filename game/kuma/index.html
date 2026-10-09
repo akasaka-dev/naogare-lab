@@ -127,6 +127,18 @@
     filter:drop-shadow(0 2px 5px rgba(0,0,0,0.8));
   }
   .hud-hp .pip-lost{ opacity:0.25; filter:grayscale(1) drop-shadow(0 2px 5px rgba(0,0,0,0.8)); }
+  .lightning{
+    position:absolute; inset:0; z-index:7;
+    background:#fff; opacity:0; pointer-events:none;
+  }
+  .lightning.flash{ animation:lightningFlash 1.1s linear; }
+  .lightning.soft{ animation:lightningSoft 1.2s ease-in-out; }
+  @keyframes lightningFlash{
+    0%{opacity:0;} 4%{opacity:1;} 14%{opacity:0.25;} 22%{opacity:0.95;} 34%{opacity:0.15;} 100%{opacity:0;}
+  }
+  @keyframes lightningSoft{
+    0%{opacity:0;} 30%{opacity:0.5;} 100%{opacity:0;}
+  }
   .hud-countdown{
     position:absolute; left:50%; top:50%;
     transform:translate(-50%,-50%);
@@ -455,6 +467,7 @@
 <div class="board">
   <div class="stage-wrap" id="stageWrap">
     <canvas id="glcanvas" aria-label="熊との遭遇シミュレーションゲーム(一人称視点)"></canvas>
+    <div class="lightning" id="lightning"></div>
     <div class="hud">
       <div class="hud-gap"><div class="hud-gap-fill" id="gapFill"></div><span class="hud-gap-label">distance</span></div>
       <div class="hud-hp" id="hpLabel"></div>
@@ -1086,6 +1099,12 @@
           if (playerModel) playerModel.scale.x = PLAYER_MODEL_SCALE;
           playerVictoryAction.reset().play();
           playSfx('victory');
+          // The bear changes to this tier's look behind a lightning flash.
+          // LEVEL5's bear is its own character, not a tier look, so it
+          // stays put.
+          if (BEAR_LOOKS[bearLookIndex].rig !== 'lv5' && BEAR_LOOK_FOR_TRACK[key] !== undefined){
+            lightningSwapBear(BEAR_LOOK_FOR_TRACK[key]);
+          }
         } else {
           startLeadIn(true);
         }
@@ -1885,6 +1904,49 @@
       if (o.isMesh && o.material && o.material.color) o.material.color.setHex(look.tint);
     });
   }
+  // Which bear look each BGM track (tempo tier) shows — the look the bear
+  // changes to when the tempo-up crosses into that tier mid-run.
+  var BEAR_LOOK_FOR_TRACK = {kuma:0, asobiba:1, oikakko:2, doro:3};
+  var lightningEl = document.getElementById('lightning');
+  var thunderBuf = null;
+  // Synthesized rather than a sound file: a burst of noise run through a
+  // low-pass filter that sweeps down while the volume decays reads as a
+  // distant roll of thunder.
+  function playThunder(delay){
+    if (!audioCtx || !sfxGain) return;
+    if (!thunderBuf){
+      var len = Math.floor(audioCtx.sampleRate * 2.2);
+      thunderBuf = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
+      var d = thunderBuf.getChannelData(0);
+      for (var i=0;i<len;i++) d[i] = Math.random()*2 - 1;
+    }
+    var src = audioCtx.createBufferSource();
+    src.buffer = thunderBuf;
+    var lp = audioCtx.createBiquadFilter();
+    lp.type = 'lowpass';
+    var g = audioCtx.createGain();
+    var t0 = audioCtx.currentTime + delay;
+    lp.frequency.setValueAtTime(1400, t0);
+    lp.frequency.exponentialRampToValueAtTime(90, t0 + 2.0);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(0.7, t0 + 0.04);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 2.1);
+    src.connect(lp); lp.connect(g); g.connect(sfxGain);
+    src.start(t0);
+  }
+  // A double flash that whites the whole screen out; the bear is swapped
+  // right as the first one peaks, when nothing is visible. With reduced
+  // motion on, it is a single slow glow instead of a strobe, and the
+  // camera shake is skipped.
+  function lightningSwapBear(lookIndex){
+    var soft = reducedMotion;
+    lightningEl.classList.remove('flash', 'soft');
+    void lightningEl.offsetWidth; // reflow so re-adding the class restarts the animation
+    lightningEl.classList.add(soft ? 'soft' : 'flash');
+    setTimeout(function(){ applyBearLook(lookIndex); }, soft ? 350 : 50);
+    playThunder(soft ? 0.35 : 0.1);
+    if (!soft){ sp.fovKick.vel += 30; sp.camBounce.vel -= 3; }
+  }
   function buildBearRig(gltf){
     var model = gltf.scene;
     model.scale.setScalar(ENEMY_MODEL_SCALE);
@@ -2551,7 +2613,10 @@
     // rigged model in the actual scene without needing to play through to a
     // real tier crossing every time.
     else if (k==='j'){ if(!e.repeat){
-      if (playerVictoryAction){ playerVictoryAction.reset().play(); playSfx('victory'); }
+      if (playerVictoryAction){
+        playerVictoryAction.reset().play(); playSfx('victory');
+        lightningSwapBear((bearLookIndex + 1) % 4); // cycles LEVEL1-4 looks for previewing the swap
+      }
     } }
   }, {passive:false});
 
