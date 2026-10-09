@@ -1878,13 +1878,18 @@
   // the others carry their own look.
   var BEAR_MODEL_FILES = {lv3:'LV3-kuma.glb', lv5:'LV5-kuma.glb'};
   var BEAR_LOOKS = [
-    {rig:'normal', tint:0xffffff, eye:COLOR_ACCENT},
-    {rig:'normal', tint:0x6a5a52, eye:0xff8a1a},
-    {rig:'lv3',    tint:0xffffff, eye:0xff3b2a},
-    {rig:'normal', tint:0x3a2e2e, eye:0xff1a4a},
-    {rig:'lv5',    tint:0xffffff, eye:0xb44cff}
+    {rig:'normal', tint:0xffffff, eye:COLOR_ACCENT, scale:1},
+    {rig:'normal', tint:0x6a5a52, eye:0xff8a1a, scale:1.1},
+    {rig:'lv3',    tint:0xffffff, eye:0xff3b2a, scale:1.25},
+    {rig:'normal', tint:0x3a2e2e, eye:0xff1a4a, scale:1.5},
+    {rig:'lv5',    tint:0xffffff, eye:0xb44cff, scale:2}
   ];
   var bearLookIndex = 0;
+  // The bear's current on-screen scale: the base size times its LEVEL's
+  // multiplier (BEAR_LOOKS' scale). Everything that re-sets the model's
+  // scale (mirroring on a lunge, resets between states) uses this, not
+  // ENEMY_MODEL_SCALE directly, so the multiplier survives them.
+  var enemyScale = ENEMY_MODEL_SCALE;
   var bearRigs = {}, activeBearRig = null;
   function useBearRig(key){
     var rig = bearRigs[key];
@@ -1892,7 +1897,7 @@
     if (activeBearRig) activeBearRig.model.visible = false;
     activeBearRig = rig;
     rig.model.visible = true;
-    rig.model.scale.x = ENEMY_MODEL_SCALE;
+    rig.model.scale.set(enemyScale, enemyScale, enemyScale);
     bearModel = rig.model; headBone = rig.headBone; handBone = rig.handBone; rootBone = rig.rootBone;
     mixer = rig.mixer; animActions = rig.actions;
     animState = null;
@@ -1903,8 +1908,14 @@
     bearLookIndex = Math.max(0, Math.min(BEAR_LOOKS.length-1, index));
     var look = BEAR_LOOKS[bearLookIndex];
     eyeMat.color.setHex(look.eye);
+    enemyScale = ENEMY_MODEL_SCALE * look.scale;
+    eyeGroup.scale.setScalar(look.scale);
     var key = bearRigs[look.rig] ? look.rig : 'normal';
     useBearRig(key);
+    if (bearModel){
+      var sx = bearModel.scale.x < 0 ? -1 : 1; // keep a lunge's mirroring
+      bearModel.scale.set(sx * enemyScale, enemyScale, enemyScale);
+    }
     if (key !== 'normal' || !bearRigs.normal) return;
     bearRigs.normal.model.traverse(function(o){
       if (o.isMesh && o.material && o.material.color) o.material.color.setHex(look.tint);
@@ -1955,7 +1966,7 @@
   }
   function buildBearRig(gltf){
     var model = gltf.scene;
-    model.scale.setScalar(ENEMY_MODEL_SCALE);
+    model.scale.setScalar(enemyScale);
     model.rotation.y = MODEL_FRONT_Z > 0 ? 0 : Math.PI;
     model.visible = false;
     bear.add(model);
@@ -2155,7 +2166,7 @@
     currentLane = 'L'; beatParity = false;
     lungeState = 'idle'; lungeTimer = 0; nextLungeAt = 1.2 + Math.random()*1.2;
     dodged = false; dodgeAttempted = false; dodgeTimer = 0;
-    if (bearModel) bearModel.scale.x = ENEMY_MODEL_SCALE;
+    if (bearModel) bearModel.scale.x = enemyScale;
     if (playerModel) playerModel.scale.x = PLAYER_MODEL_SCALE;
     dodgeEls.forEach(function(el){ el.classList.remove('beat-active'); });
     for (var k in sp){ sp[k].cur = 0; sp[k].vel = 0; sp[k].target = 0; }
@@ -3177,7 +3188,7 @@
         // right" anyway.
         attackSide = Math.random() < 0.5 ? 'L' : 'R';
         dodged = false; dodgeAttempted = false;
-        if (bearModel) bearModel.scale.x = (attackSide === 'R' ? -1 : 1) * ENEMY_MODEL_SCALE;
+        if (bearModel) bearModel.scale.x = (attackSide === 'R' ? -1 : 1) * enemyScale;
         // Measured empirically: the Sword_Attack clip's own swing brings the
         // hand closest to the player around the midpoint of the telegraph
         // phase, not during the lunge that follows (lunge plays a Sprint
@@ -3201,7 +3212,7 @@
           // parent), so no subtraction is needed to recover the pure
           // t-equivalent distance — same as the original bear-only formula.
           gap = Math.max(0, Math.min(GAP_MAX, ((bear.position.z - Z_NEAR)/(Z_FAR-Z_NEAR)) * GAP_MAX));
-          if (bearModel) bearModel.scale.x = ENEMY_MODEL_SCALE;
+          if (bearModel) bearModel.scale.x = enemyScale;
         }
       }
       var dodgeWindowOpen = (lungeState==='telegraph' || lungeState==='lunge') && Math.abs(elapsed - lungeImpactAt) <= DODGE_GOOD_WINDOW/2;
@@ -3272,7 +3283,7 @@
           // no real chance to recover. Abort it here and hand the bear a fresh
           // cooldown instead, same shape as the natural post-swing one.
           lungeState = 'idle'; nextLungeAt = elapsed + 1.2 + Math.random()*1.2;
-          if (bearModel) bearModel.scale.x = ENEMY_MODEL_SCALE;
+          if (bearModel) bearModel.scale.x = enemyScale;
           // A walk step can leave the player model mirrored (scale.x<0) —
           // Hit_Knockback_RM isn't a side-specific clip, so it should always
           // play un-mirrored.
