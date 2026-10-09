@@ -1006,8 +1006,14 @@
   // lead-in before the beat; the beat itself starts at the 1.0s mark,
   // stated tempo 125. (Supersedes the earlier autocorrelation-measured
   // 124.225/0.08s, which applied only to the previous export of this file.)
+  // Both this and まってよくまさん.mp3 (the replacement for the old
+  // まってよ_くまさん.mp3, now under the new name) were replaced again later;
+  // checked against the new files: the beat still starts at 1.00s in both
+  // (the new まってよくまさん.mp3's first sound is exactly at 1.00s), and a
+  // beat-grid tempo scan lands on the same ~71 and ~125 BPM that the old
+  // files measured, so nativeBpm/offset are unchanged.
   var BGM_TRACKS = {
-    kuma: { file: 'まってよ_くまさん.mp3', nativeBpm: 71, offset: 1.0 },
+    kuma: { file: 'まってよくまさん.mp3', nativeBpm: 71, offset: 1.0 },
     asobiba: { file: 'サイコーのあそびば.mp3', nativeBpm: 105, offset: 1.0 },
     oikakko: { file: 'くまさんと鬼ごっこ.mp3', nativeBpm: 125, offset: 1.0 },
     doro: { file: '泥を蹴散らせ.mp3', nativeBpm: 150, offset: 1.0 },
