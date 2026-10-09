@@ -3259,7 +3259,11 @@
       if (handBone && playerHitBone && !dodged){
         handBone.getWorldPosition(handWorldPos);
         playerHitBone.getWorldPosition(playerWorldPos);
-        if (handWorldPos.distanceTo(playerWorldPos) < HIT_RADIUS){
+        // The hand's distance from the player at its closest scales with
+        // the bear's own size (measured: LEVEL5's 2x bear never came closer
+        // than ~3.2, against ~1.75 at 1x — a fixed radius meant its swings
+        // could never connect), so the radius scales with it too.
+        if (handWorldPos.distanceTo(playerWorldPos) < HIT_RADIUS * (enemyScale / ENEMY_MODEL_SCALE)){
           hp = Math.max(0, hp - 1); updateHpDisplay();
           setBPM(Math.max(BPM_PENALTY_FLOOR, BPM - 10));
           playSfx('hit');
