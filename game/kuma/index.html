@@ -1978,8 +1978,12 @@
       mixer: new THREE.AnimationMixer(model),
       actions: {}
     };
-    [['idle','Fighting_Idle'],['run','Walk'],['threat','Sword_Attack'],['sprint','Sprint'],['closing','Run_Anime']].forEach(function(pair){
-      var clip = findClip(gltf.animations, pair[1]);
+    // Each state may list alternative clip names: the LV5 model's attack
+    // clip is exported as Sword_Attack_RM (root-motion variant) — the root
+    // bone is re-zeroed every frame anyway, so it plays the same here.
+    [['idle',['Fighting_Idle']],['run',['Walk']],['threat',['Sword_Attack','Sword_Attack_RM']],['sprint',['Sprint']],['closing',['Run_Anime']]].forEach(function(pair){
+      var clip = null;
+      for (var i=0;i<pair[1].length && !clip;i++) clip = findClip(gltf.animations, pair[1][i]);
       if (clip){
         var action = rig.mixer.clipAction(clip);
         action.setLoop(THREE.LoopRepeat);
