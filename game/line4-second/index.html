@@ -475,6 +475,22 @@
     transition: opacity 0.4s ease;
   }
   #storyText.show { opacity: 1; }
+  /* Top-right so it never meets the BGM/SE/かな buttons (top-left) — lets
+     someone who has already read the story jump straight to the match. */
+  #storySkipBtn {
+    position: absolute;
+    top: max(12px, env(safe-area-inset-top));
+    right: max(12px, env(safe-area-inset-right));
+    background: rgba(15, 23, 42, 0.72);
+    border: 1.5px solid rgba(148, 163, 184, 0.5);
+    color: rgba(255, 255, 255, 0.85);
+    border-radius: 999px;
+    padding: 7px 16px;
+    font-size: 0.85rem;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  #storySkipBtn:hover { background: rgba(30, 41, 59, 0.9); color: #fff; }
   #storyHint {
     position: absolute;
     bottom: max(20px, env(safe-area-inset-bottom));
@@ -1106,6 +1122,7 @@
   <div id="storyOverlay" class="hidden">
     <div id="storyText"></div>
     <div id="storyHint">クリックして進む</div>
+    <button id="storySkipBtn" type="button">スキップ ≫</button>
   </div>
 
   <!-- Opponent's emote pops up here briefly when it arrives via polling -->
@@ -1410,6 +1427,8 @@
   function applyKanaMode() {
     document.getElementById('titleSubtitle').textContent = K('遊び方を選んでください', 'あそびかたをえらんでください');
     document.getElementById('playerNameLabel').textContent = K('プレイヤー名', 'プレイヤーめい');
+    document.getElementById('storyHint').textContent = K('クリックして進む', 'クリックですすむ');
+    document.getElementById('storySkipBtn').textContent = K('スキップ ≫', 'スキップ ≫');
     document.getElementById('pvpBtnLabel').textContent = K('対人戦（2〜3人）', 'たいじんせん（2〜3にん）');
     document.getElementById('cpuBtnLabel').textContent = K('CPU戦', 'CPUせん');
     document.getElementById('cpuBtnSub').textContent = K('LV1〜6・2体同時対戦', 'LV1〜6・2たいどうじたいせん');
@@ -2275,17 +2294,33 @@
       : '';
     overlay.classList.remove('hidden');
     fadeStoryTextIn(firstEl);
+    // One-shot exit shared by "last line dismissed" and the skip button, so
+    // onDone can never fire twice (e.g. skip pressed while a line is fading).
+    let finished = false;
+    const skipBtn = document.getElementById('storySkipBtn');
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      overlay.classList.add('hidden');
+      overlay.onclick = null;
+      skipBtn.onclick = null;
+      onDone();
+    };
+    skipBtn.onclick = (e) => {
+      e.stopPropagation(); // don't also count as a "next line" click on the overlay
+      SoundMgr.seClick();
+      finish();
+    };
     overlay.onclick = () => {
       if (storyTransitioning) return; // ignore clicks mid-fade
       SoundMgr.seClick();
       storyTransitioning = true;
       document.getElementById('storyText').classList.remove('show'); // fade out the current line
       setTimeout(() => {
+        if (finished) return; // skipped while this line was fading out
         storyLineIndex++;
         if (storyLineIndex >= lines.length) {
-          overlay.classList.add('hidden');
-          overlay.onclick = null;
-          onDone();
+          finish();
           return;
         }
         const nextEl = freshStoryTextEl(lines[storyLineIndex]);
