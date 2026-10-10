@@ -520,7 +520,6 @@
         <button type="button" data-bpm="100">LEVEL2</button>
         <button type="button" data-bpm="120">LEVEL3</button>
         <button type="button" data-bpm="150">LEVEL4</button>
-        <button type="button" data-bpm="170">LEVEL5</button>
       </div>
       <button id="btnAudioAdjust" type="button">Audio Adjust</button>
       <div class="cta">Click or Tap to Start</div>
@@ -1124,17 +1123,11 @@
           // this finishes) for why a clean restart, not a resync, is right
           // here: this *is* the fresh start, just held for a couple of
           // beats' worth of celebration first.
-          stopBgm();
-          state = 'trackswitch';
-          reactionTimer = victoryDuration;
-          if (playerModel) playerModel.scale.x = PLAYER_MODEL_SCALE;
-          playerVictoryAction.reset().play();
-          playSfx('victory');
           // The bear changes to this tier's look in a cut-in that follows
-          // the pose (see startBearCutin()). LEVEL5's bear is its own
-          // character, not a tier look, so it stays put.
-          pendingBearLook = (BEAR_LOOKS[bearLookIndex].rig !== 'lv5' && BEAR_LOOK_FOR_TRACK[key] !== undefined)
-            ? BEAR_LOOK_FOR_TRACK[key] : null;
+          // the pose (see startBearCutin()) — unless it's already wearing
+          // that look (e.g. a penalty dropped the track and it climbed back).
+          startTempoUpSequence((BEAR_LOOK_FOR_TRACK[key] !== undefined && BEAR_LOOK_FOR_TRACK[key] !== bearLookIndex)
+            ? BEAR_LOOK_FOR_TRACK[key] : null);
         } else {
           startLeadIn(true);
         }
@@ -1889,21 +1882,22 @@
     img.classList.add('drop-in');
   }
 
-  // Per-LEVEL bear appearance (index = LEVEL - 1): a color multiplied over
-  // the model's own texture, plus the glowing eyes' color. LEVEL1 is the
-  // untouched original look. Applied at the start of each run (beginRun())
-  // and once more when the model finishes loading, in case a run was
-  // chosen before the (async) model arrived.
+  // The bear's look for each of the four stages, one per BGM track (index =
+  // the stage's LEVEL - 1; the LEVEL buttons start a run at the matching
+  // stage, and each tempo-up that changes track moves to the next one):
+  // a color multiplied over the model's own texture, the glowing eyes'
+  // color, and a size multiplier. Applied at the start of each run
+  // (beginRun()) and once more when the model finishes loading, in case a
+  // run was chosen before the (async) model arrived.
   //
-  // LEVEL3 and LEVEL5 each have their own model (same skeleton and clip
-  // names as the standard bear; LV3 adds scars, LV5 a headband, horn pads
-  // and shoulder pads), so `rig` picks which loaded model is shown (see
-  // BEAR_MODEL_FILES). The tint only applies to the standard model, since
-  // the others carry their own look.
+  // Two stages have their own model (same skeleton and clip names as the
+  // standard bear; LV3 adds scars, LV5 a headband, horn pads and shoulder
+  // pads and is the final stage's boss), so `rig` picks which loaded model
+  // is shown (see BEAR_MODEL_FILES). The tint only applies to the standard
+  // model, since the others carry their own look.
   var BEAR_MODEL_FILES = {lv3:'LV3-kuma.glb', lv5:'LV5-kuma.glb'};
   var BEAR_LOOKS = [
     {rig:'normal', tint:0xffffff, eye:COLOR_ACCENT, scale:1},
-    {rig:'normal', tint:0x6a5a52, eye:0xff8a1a, scale:1.1},
     {rig:'lv3',    tint:0xffffff, eye:0xff3b2a, scale:1.25},
     {rig:'normal', tint:0x3a2e2e, eye:0xff1a4a, scale:1.5},
     {rig:'lv5',    tint:0xffffff, eye:0xb44cff, scale:2}
@@ -1952,6 +1946,19 @@
   // (to the new look's index) when the tempo-up crosses a tier, played by
   // startBearCutin() once the pose finishes.
   var pendingBearLook = null;
+  // The tempo-up celebration: the old track stops, the player does the
+  // Jumping Jacks with the fanfare, then (when `lookIndex` isn't null) the
+  // bear cut-in plays, then a fresh lead-in restarts the BGM. Used by a
+  // tempo-up that changes track and by the bear-only tier-up below.
+  function startTempoUpSequence(lookIndex){
+    stopBgm();
+    state = 'trackswitch';
+    reactionTimer = victoryDuration;
+    if (playerModel) playerModel.scale.x = PLAYER_MODEL_SCALE;
+    playerVictoryAction.reset().play();
+    playSfx('victory');
+    pendingBearLook = lookIndex;
+  }
   var CUTIN_DURATION = 2.4, CUTIN_FOV = 38;
   var cutinT = null, cutinCamActive = false;
   var cutinBarTop = document.getElementById('cutinBarTop');
@@ -2691,7 +2698,7 @@
     else if (k==='v'){ if(!e.repeat){ e.preventDefault(); handleRecover(); } }
     else if (k==='d'){ if(!e.repeat){ debugMapOn = !debugMapOn; debugMapCanvas.hidden = !debugMapOn; } }
     // Debug-only: plays the tempo-up sequence (pose, fanfare, then the bear
-    // cut-in cycling to the next LEVEL1-4 look) without needing to play
+    // cut-in cycling to the next stage look) without needing to play
     // through to a real tier crossing. While running it takes over like the
     // real thing does: the BGM stops and a fresh lead-in follows.
     else if (k==='j'){ if(!e.repeat && playerVictoryAction && state === 'playing'){
@@ -2701,7 +2708,7 @@
       if (playerModel) playerModel.scale.x = PLAYER_MODEL_SCALE;
       playerVictoryAction.reset().play();
       playSfx('victory');
-      pendingBearLook = (bearLookIndex + 1) % 4;
+      pendingBearLook = (bearLookIndex + 1) % BEAR_LOOKS.length;
     } }
   }, {passive:false});
 
@@ -3328,7 +3335,7 @@
         handBone.getWorldPosition(handWorldPos);
         playerHitBone.getWorldPosition(playerWorldPos);
         // The hand's distance from the player at its closest scales with
-        // the bear's own size (measured: LEVEL5's 2x bear never came closer
+        // the bear's own size (measured: the 2x LV5 bear never came closer
         // than ~3.2, against ~1.75 at 1x — a fixed radius meant its swings
         // could never connect), so the radius scales with it too.
         if (handWorldPos.distanceTo(playerWorldPos) < HIT_RADIUS * (enemyScale / ENEMY_MODEL_SCALE)){
