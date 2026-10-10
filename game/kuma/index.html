@@ -127,6 +127,28 @@
     filter:drop-shadow(0 2px 5px rgba(0,0,0,0.8));
   }
   .hud-hp .pip-lost{ opacity:0.25; filter:grayscale(1) drop-shadow(0 2px 5px rgba(0,0,0,0.8)); }
+  .cutin-bar{
+    position:absolute; left:0; right:0; height:0; z-index:6;
+    background:#000; pointer-events:none;
+    transition:height 0.25s ease;
+  }
+  .cutin-top{ top:0; }
+  .cutin-bottom{ bottom:0; }
+  .cutin-bar.on{ height:12%; }
+  .stage-wrap.cutin .hud, .stage-wrap.cutin .hud-controls{ visibility:hidden; }
+  .cutin-level{
+    position:absolute; left:0; right:0; bottom:15%; z-index:6;
+    text-align:center; pointer-events:none;
+    font-family:var(--font-display);
+    font-size:clamp(34px,10vw,64px);
+    color:var(--accent); letter-spacing:0.08em;
+    text-shadow:0 4px 14px rgba(0,0,0,0.9);
+    opacity:0; transform:scale(1.6);
+  }
+  .cutin-level.show{
+    opacity:1; transform:scale(1);
+    transition:opacity 0.2s, transform 0.3s cubic-bezier(.2,1.4,.4,1);
+  }
   .lightning{
     position:absolute; inset:0; z-index:7;
     background:#fff; opacity:0; pointer-events:none;
@@ -467,6 +489,9 @@
 <div class="board">
   <div class="stage-wrap" id="stageWrap">
     <canvas id="glcanvas" aria-label="熊との遭遇シミュレーションゲーム(一人称視点)"></canvas>
+    <div class="cutin-bar cutin-top" id="cutinBarTop"></div>
+    <div class="cutin-bar cutin-bottom" id="cutinBarBottom"></div>
+    <div class="cutin-level" id="cutinLevel"></div>
     <div class="lightning" id="lightning"></div>
     <div class="hud">
       <div class="hud-gap"><div class="hud-gap-fill" id="gapFill"></div><span class="hud-gap-label">distance</span></div>
@@ -1105,12 +1130,11 @@
           if (playerModel) playerModel.scale.x = PLAYER_MODEL_SCALE;
           playerVictoryAction.reset().play();
           playSfx('victory');
-          // The bear changes to this tier's look behind a lightning flash.
-          // LEVEL5's bear is its own character, not a tier look, so it
-          // stays put.
-          if (BEAR_LOOKS[bearLookIndex].rig !== 'lv5' && BEAR_LOOK_FOR_TRACK[key] !== undefined){
-            lightningSwapBear(BEAR_LOOK_FOR_TRACK[key]);
-          }
+          // The bear changes to this tier's look in a cut-in that follows
+          // the pose (see startBearCutin()). LEVEL5's bear is its own
+          // character, not a tier look, so it stays put.
+          pendingBearLook = (BEAR_LOOKS[bearLookIndex].rig !== 'lv5' && BEAR_LOOK_FOR_TRACK[key] !== undefined)
+            ? BEAR_LOOK_FOR_TRACK[key] : null;
         } else {
           startLeadIn(true);
         }
@@ -1924,6 +1948,42 @@
   // Which bear look each BGM track (tempo tier) shows — the look the bear
   // changes to when the tempo-up crosses into that tier mid-run.
   var BEAR_LOOK_FOR_TRACK = {kuma:0, asobiba:1, oikakko:2, doro:3};
+  // Cut-in shown after the celebration pose when the bear changes: set
+  // (to the new look's index) when the tempo-up crosses a tier, played by
+  // startBearCutin() once the pose finishes.
+  var pendingBearLook = null;
+  var CUTIN_DURATION = 2.4, CUTIN_FOV = 38;
+  var cutinT = null, cutinCamActive = false;
+  var cutinBarTop = document.getElementById('cutinBarTop');
+  var cutinBarBottom = document.getElementById('cutinBarBottom');
+  var cutinLevelEl = document.getElementById('cutinLevel');
+  var cutinHead = new THREE.Vector3(), cutinTarget = new THREE.Vector3();
+  var cutinFwd = new THREE.Vector3(), cutinRight = new THREE.Vector3(), cutinPos = new THREE.Vector3();
+  function clearBearCutin(){
+    cutinT = null; cutinCamActive = false; pendingBearLook = null;
+    cutinBarTop.classList.remove('on'); cutinBarBottom.classList.remove('on');
+    cutinLevelEl.classList.remove('show');
+    stageWrap.classList.remove('cutin');
+  }
+  // Letterbox bars slide in, a lightning flash swaps in the new bear, the
+  // camera cuts to a close-up of it roaring, and "LEVEL n" lands over it.
+  // frame()'s 'cutin' state runs the timeline and ends it.
+  function startBearCutin(){
+    state = 'cutin';
+    cutinT = 0; cutinCamActive = false;
+    cutinLevelEl.textContent = 'LEVEL ' + (pendingBearLook + 1);
+    cutinBarTop.classList.add('on'); cutinBarBottom.classList.add('on');
+    stageWrap.classList.add('cutin');
+    lightningSwapBear(pendingBearLook, function(){
+      cutinCamActive = true;
+      setAnimState('threat');
+    });
+  }
+  function endBearCutin(){
+    clearBearCutin();
+    state = 'playing';
+    startLeadIn(true);
+  }
   var lightningEl = document.getElementById('lightning');
   var thunderBuf = null;
   // Synthesized rather than a sound file: a burst of noise run through a
@@ -1955,12 +2015,12 @@
   // right as the first one peaks, when nothing is visible. With reduced
   // motion on, it is a single slow glow instead of a strobe, and the
   // camera shake is skipped.
-  function lightningSwapBear(lookIndex){
+  function lightningSwapBear(lookIndex, onPeak){
     var soft = reducedMotion;
     lightningEl.classList.remove('flash', 'soft');
     void lightningEl.offsetWidth; // reflow so re-adding the class restarts the animation
     lightningEl.classList.add(soft ? 'soft' : 'flash');
-    setTimeout(function(){ applyBearLook(lookIndex); }, soft ? 350 : 50);
+    setTimeout(function(){ applyBearLook(lookIndex); if (onPeak) onPeak(); }, soft ? 350 : 50);
     playThunder(soft ? 0.35 : 0.1);
     if (!soft){ sp.fovKick.vel += 30; sp.camBounce.vel -= 3; }
   }
@@ -2188,6 +2248,7 @@
     if (playerBonusAction) playerBonusAction.stop();
     if (playerRecoverAction) playerRecoverAction.stop();
     if (playerVictoryAction) playerVictoryAction.stop();
+    clearBearCutin();
     walkStepTimer = 0;
     playerAnimState = null;
     setPlayerAnim('idle');
@@ -2629,15 +2690,18 @@
     else if (k==='c'){ if(!e.repeat){ e.preventDefault(); handleDodge(); } }
     else if (k==='v'){ if(!e.repeat){ e.preventDefault(); handleRecover(); } }
     else if (k==='d'){ if(!e.repeat){ debugMapOn = !debugMapOn; debugMapCanvas.hidden = !debugMapOn; } }
-    // Debug-only: replays the player's track-switch pose in place, with no
-    // state/BGM/BPM side effects at all — for checking a clip on the actual
-    // rigged model in the actual scene without needing to play through to a
-    // real tier crossing every time.
-    else if (k==='j'){ if(!e.repeat){
-      if (playerVictoryAction){
-        playerVictoryAction.reset().play(); playSfx('victory');
-        lightningSwapBear((bearLookIndex + 1) % 4); // cycles LEVEL1-4 looks for previewing the swap
-      }
+    // Debug-only: plays the tempo-up sequence (pose, fanfare, then the bear
+    // cut-in cycling to the next LEVEL1-4 look) without needing to play
+    // through to a real tier crossing. While running it takes over like the
+    // real thing does: the BGM stops and a fresh lead-in follows.
+    else if (k==='j'){ if(!e.repeat && playerVictoryAction && state === 'playing'){
+      stopBgm();
+      state = 'trackswitch';
+      reactionTimer = victoryDuration;
+      if (playerModel) playerModel.scale.x = PLAYER_MODEL_SCALE;
+      playerVictoryAction.reset().play();
+      playSfx('victory');
+      pendingBearLook = (bearLookIndex + 1) % 4;
     } }
   }, {passive:false});
 
@@ -3381,9 +3445,25 @@
       if (rootBone) rootBone.position.set(0,0,0);
       if (reactionTimer <= 0){
         if (playerVictoryAction) playerVictoryAction.stop();
-        state = 'playing';
-        startLeadIn(true);
+        if (pendingBearLook !== null){
+          startBearCutin();
+        } else {
+          state = 'playing';
+          startLeadIn(true);
+        }
       }
+    } else if (state === 'cutin'){
+      // The bear is frozen until the camera has cut to it (cutinCamActive,
+      // set at the flash's peak), then plays its threat clip while the
+      // camera holds on it.
+      cutinT += dt;
+      if (mixer) mixer.update(cutinCamActive ? dt : 0);
+      if (rootBone) rootBone.position.set(0,0,0);
+      if (cutinT >= 0.4) cutinLevelEl.classList.add('show');
+      if (cutinT >= CUTIN_DURATION - 0.3){
+        cutinBarTop.classList.remove('on'); cutinBarBottom.classList.remove('on');
+      }
+      if (cutinT >= CUTIN_DURATION) endBearCutin();
     } else {
       bear.position.x = Math.sin(time*0.25)*0.45;
       bear.position.z = Z_NEAR + t*(Z_FAR-Z_NEAR); // local to `player` — keeps bear-to-player distance identical to the old bear-only formula
@@ -3540,7 +3620,24 @@
     // camera sits relative to them, structurally, every frame.
     camera.position.set(sp.camSway.cur, EYE_HEIGHT + THIRD_PERSON_UP + sp.camBounce.cur*0.05 + idleSway, THIRD_PERSON_BACK);
     camera.rotation.set(pitchCur, yawCur, sp.camRoll.cur);
-    camera.fov = BASE_FOV + sp.fovKick.cur;
+    if (cutinCamActive && headBone){
+      // Cut-in: the camera sits in front of the new bear's face (the bear
+      // faces its own local +Z, which is the player's local +Z too — it is
+      // a child of `player`), a little off to one side and at head height,
+      // and looks at the head. Distances scale with the bear's size.
+      var cs = enemyScale / ENEMY_MODEL_SCALE;
+      player.updateMatrixWorld(true);
+      headBone.getWorldPosition(cutinHead);
+      cutinFwd.set(0, 0, 1).transformDirection(player.matrixWorld);
+      cutinRight.set(1, 0, 0).transformDirection(player.matrixWorld);
+      cutinPos.copy(cutinHead).addScaledVector(cutinFwd, 6.0*cs).addScaledVector(cutinRight, 1.2*cs);
+      cutinPos.y -= 0.4*cs;
+      camera.position.copy(player.worldToLocal(cutinPos.clone()));
+      camera.updateMatrixWorld(true);
+      cutinTarget.copy(cutinHead); cutinTarget.y -= 0.7*cs;
+      camera.lookAt(cutinTarget);
+    }
+    camera.fov = cutinCamActive ? CUTIN_FOV : BASE_FOV + sp.fovKick.cur;
     camera.updateProjectionMatrix();
 
     if (bearModel){
