@@ -82,6 +82,16 @@ async function handleScoreSubmit(request, env) {
   ).bind(token, GAME_ID, level, cutoff).first();
   if (!session) return errorResponse('invalid_session', 403);
 
+  // Only a top-RANKING_LIMIT score is stored (the client checks this too before
+  // offering to register) so the table never grows past RANKING_LIMIT rows per
+  // level. Ties lose to the earlier entry, matching the ranking's sort order.
+  const board = await env.DB.prepare(
+    'SELECT score FROM kuma_scores WHERE level = ?1 ORDER BY score DESC, created_at ASC LIMIT ?2'
+  ).bind(level, RANKING_LIMIT).all();
+  if (board.results.length >= RANKING_LIMIT && score <= board.results[RANKING_LIMIT - 1].score) {
+    return errorResponse('not_qualified', 400);
+  }
+
   const elapsedSec = (Date.now() - session.created_at) / 1000;
   if (score > SCORE_GRACE + elapsedSec * MAX_POINTS_PER_SECOND) return errorResponse('implausible_score', 400);
 
@@ -93,6 +103,9 @@ async function handleScoreSubmit(request, env) {
   await env.DB.prepare(
     'INSERT INTO kuma_scores (name, score, level, created_at) VALUES (?1, ?2, ?3, ?4)'
   ).bind(name, score, level, new Date().toISOString()).run();
+  await env.DB.prepare(
+    'DELETE FROM kuma_scores WHERE level = ?1 AND id NOT IN (SELECT id FROM kuma_scores WHERE level = ?1 ORDER BY score DESC, created_at ASC LIMIT ?2)'
+  ).bind(level, RANKING_LIMIT).run();
   return jsonResponse({ ok: true });
 }
 

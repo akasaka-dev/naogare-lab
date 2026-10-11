@@ -2092,6 +2092,7 @@
   // score; the offer only appears if that token arrived (so offline / local
   // static hosting silently skips it). The nickname is required.
   var RANK_API = '/api/kuma';
+  var RANK_LIMIT = 10; // the server's top-N size
   var RANK_NAME_KEY = 'kuma-niramekko-nickname';
   var rankModal = document.getElementById('rankModal');
   var rankBody = document.getElementById('rankBody');
@@ -2117,10 +2118,19 @@
   function rankOpen(){ rankModal.hidden = false; }
   function rankClose(){ rankModal.hidden = true; rankBody.textContent = ''; }
   function rankOfferAfterGameover(){
-    setTimeout(function(){
-      if (state !== 'gameover' || !rankToken || rankSubmitted || Math.round(score) < 1) return;
-      rankShowAsk();
-    }, 700);
+    var finalScore = Math.round(score);
+    if (finalScore < 1) return;
+    // Only offered when the score would actually make the top 10 of its
+    // level's board (the server enforces the same rule).
+    rankFetch('/ranking?level=' + rankLevel).then(function(d){
+      if (!d || !d.ok) return;
+      var tenth = d.results.length >= RANK_LIMIT ? d.results[RANK_LIMIT - 1].score : -1;
+      if (finalScore <= tenth) return;
+      setTimeout(function(){
+        if (state !== 'gameover' || !rankToken || rankSubmitted) return;
+        rankShowAsk();
+      }, 700);
+    });
   }
   function rankShowAsk(){
     rankBody.textContent = '';
