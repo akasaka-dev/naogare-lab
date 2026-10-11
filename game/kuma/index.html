@@ -136,18 +136,39 @@
   .cutin-bottom{ bottom:0; }
   .cutin-bar.on{ height:12%; }
   .stage-wrap.cutin .hud, .stage-wrap.cutin .hud-controls{ visibility:hidden; }
-  .cutin-level{
-    position:absolute; left:0; right:0; bottom:15%; z-index:6;
-    text-align:center; pointer-events:none;
-    font-family:var(--font-display);
-    font-size:clamp(34px,10vw,64px);
-    color:var(--accent); letter-spacing:0.08em;
-    text-shadow:0 4px 14px rgba(0,0,0,0.9);
-    opacity:0; transform:scale(1.6);
+  /* LEVEL logo shown over the Jumping Jacks: boings in, then bobs once per
+     jack (1.25s, the clip's own length), then pops out before the cut-in. */
+  .level-logo{
+    position:absolute; left:50%; top:11%; z-index:6;
+    width:min(54%,290px); height:auto;
+    transform:translateX(-50%) scale(0); opacity:0; pointer-events:none;
+    filter:drop-shadow(0 6px 10px rgba(0,0,0,0.55));
   }
-  .cutin-level.show{
-    opacity:1; transform:scale(1);
-    transition:opacity 0.2s, transform 0.3s cubic-bezier(.2,1.4,.4,1);
+  .level-logo.pop{ animation:logoBoing 0.95s both; }
+  .level-logo.beat{ opacity:1; transform:translateX(-50%) scale(1); animation:logoBeat 1.25s ease-in-out infinite; }
+  .level-logo.out{ animation:logoOut 0.3s ease-in both; }
+  @keyframes logoBoing{
+    0%{ opacity:0; transform:translateX(-50%) scale(0) rotate(-10deg); }
+    35%{ opacity:1; transform:translateX(-50%) scale(1.35) rotate(5deg); }
+    52%{ transform:translateX(-50%) scale(0.82) rotate(-3deg); }
+    68%{ transform:translateX(-50%) scale(1.12) rotate(2deg); }
+    84%{ transform:translateX(-50%) scale(0.96) rotate(-1deg); }
+    100%{ opacity:1; transform:translateX(-50%) scale(1) rotate(0); }
+  }
+  @keyframes logoBeat{
+    0%,100%{ transform:translateX(-50%) scale(1); }
+    50%{ transform:translateX(-50%) scale(1.08) rotate(-1.5deg); }
+  }
+  @keyframes logoOut{
+    0%{ opacity:1; transform:translateX(-50%) scale(1); }
+    30%{ transform:translateX(-50%) scale(1.18); }
+    100%{ opacity:0; transform:translateX(-50%) scale(0); }
+  }
+  @keyframes logoFade{ 0%{ opacity:0; } 100%{ opacity:1; } }
+  @media (prefers-reduced-motion: reduce){
+    .level-logo.pop{ animation:logoFade 0.4s both; transform:translateX(-50%) scale(1); }
+    .level-logo.beat{ animation:none; }
+    .level-logo.out{ animation:logoFade 0.3s reverse both; transform:translateX(-50%) scale(1); }
   }
   .lightning{
     position:absolute; inset:0; z-index:7;
@@ -491,7 +512,7 @@
     <canvas id="glcanvas" aria-label="熊との遭遇シミュレーションゲーム(一人称視点)"></canvas>
     <div class="cutin-bar cutin-top" id="cutinBarTop"></div>
     <div class="cutin-bar cutin-bottom" id="cutinBarBottom"></div>
-    <div class="cutin-level" id="cutinLevel"></div>
+    <img class="level-logo" id="levelLogo" alt="">
     <div class="lightning" id="lightning"></div>
     <div class="hud">
       <div class="hud-gap"><div class="hud-gap-fill" id="gapFill"></div><span class="hud-gap-label">distance</span></div>
@@ -1351,7 +1372,7 @@
   // error path (see onModelError below): the game can't actually run
   // without it, so that failure holds the bar and shows an explicit message
   // instead of waving the player through into a broken run.
-  var PRELOAD_TOTAL = 21;
+  var PRELOAD_TOTAL = 25;
   var preloadedCount = 0;
   function updatePreloadUI(){
     var pct = Math.min(100, Math.round(preloadedCount/PRELOAD_TOTAL*100));
@@ -1519,6 +1540,14 @@
     hpIconPreload.onerror = markPreloaded;
     hpIconPreload.src = 'ojisanicon.png';
   })();
+  // The four LEVEL logos shown over the tempo-up celebration (see
+  // showLevelLogo()) — preloaded so the first one doesn't pop in late.
+  [1,2,3,4].forEach(function(n){
+    var img = new Image();
+    img.onload = markPreloaded;
+    img.onerror = markPreloaded;
+    img.src = 'levellogo/LV' + n + '.webp';
+  });
   skyTexture.encoding = THREE.sRGBEncoding;
   skyTexture.wrapS = THREE.ClampToEdgeWrapping;
   skyTexture.wrapT = THREE.ClampToEdgeWrapping;
@@ -1946,10 +1975,30 @@
   // (to the new look's index) when the tempo-up crosses a tier, played by
   // startBearCutin() once the pose finishes.
   var pendingBearLook = null;
+  // The LEVEL logo for the stage being entered: boings in as the Jumping
+  // Jacks start, bobs with each jack, and pops out as the cut-in begins.
+  var levelLogoEl = document.getElementById('levelLogo');
+  levelLogoEl.addEventListener('animationend', function(e){
+    if ((e.animationName === 'logoBoing' || e.animationName === 'logoFade') && levelLogoEl.classList.contains('pop')){
+      levelLogoEl.classList.remove('pop'); levelLogoEl.classList.add('beat');
+    }
+  });
+  function showLevelLogo(n){
+    levelLogoEl.classList.remove('pop', 'beat', 'out');
+    levelLogoEl.src = 'levellogo/LV' + n + '.webp';
+    void levelLogoEl.offsetWidth; // reflow so the animation restarts
+    levelLogoEl.classList.add('pop');
+  }
+  function hideLevelLogo(){
+    if (!levelLogoEl.classList.contains('pop') && !levelLogoEl.classList.contains('beat')) return;
+    levelLogoEl.classList.remove('pop', 'beat');
+    levelLogoEl.classList.add('out');
+  }
   // The tempo-up celebration: the old track stops, the player does the
-  // Jumping Jacks with the fanfare, then (when `lookIndex` isn't null) the
-  // bear cut-in plays, then a fresh lead-in restarts the BGM. Used by a
-  // tempo-up that changes track and by the bear-only tier-up below.
+  // Jumping Jacks with the fanfare (the LEVEL logo boings in over them),
+  // then (when `lookIndex` isn't null) the bear cut-in plays, then a fresh
+  // lead-in restarts the BGM. Used by a tempo-up that changes track and by
+  // the J debug key.
   function startTempoUpSequence(lookIndex){
     stopBgm();
     state = 'trackswitch';
@@ -1958,27 +2007,28 @@
     playerVictoryAction.reset().play();
     playSfx('victory');
     pendingBearLook = lookIndex;
+    if (lookIndex !== null) showLevelLogo(lookIndex + 1);
   }
   var CUTIN_DURATION = 2.4, CUTIN_FOV = 38;
   var cutinT = null, cutinCamActive = false;
   var cutinBarTop = document.getElementById('cutinBarTop');
   var cutinBarBottom = document.getElementById('cutinBarBottom');
-  var cutinLevelEl = document.getElementById('cutinLevel');
   var cutinHead = new THREE.Vector3(), cutinTarget = new THREE.Vector3();
   var cutinFwd = new THREE.Vector3(), cutinRight = new THREE.Vector3(), cutinPos = new THREE.Vector3();
   function clearBearCutin(){
     cutinT = null; cutinCamActive = false; pendingBearLook = null;
     cutinBarTop.classList.remove('on'); cutinBarBottom.classList.remove('on');
-    cutinLevelEl.classList.remove('show');
+    levelLogoEl.classList.remove('pop', 'beat', 'out');
     stageWrap.classList.remove('cutin');
   }
   // Letterbox bars slide in, a lightning flash swaps in the new bear, the
-  // camera cuts to a close-up of it roaring, and "LEVEL n" lands over it.
-  // frame()'s 'cutin' state runs the timeline and ends it.
+  // camera cuts to a close-up of it roaring. The LEVEL logo that bobbed over
+  // the Jumping Jacks pops out as this starts. frame()'s 'cutin' state runs
+  // the timeline and ends it.
   function startBearCutin(){
     state = 'cutin';
     cutinT = 0; cutinCamActive = false;
-    cutinLevelEl.textContent = 'LEVEL ' + (pendingBearLook + 1);
+    hideLevelLogo();
     cutinBarTop.classList.add('on'); cutinBarBottom.classList.add('on');
     stageWrap.classList.add('cutin');
     lightningSwapBear(pendingBearLook, function(){
@@ -2702,13 +2752,7 @@
     // through to a real tier crossing. While running it takes over like the
     // real thing does: the BGM stops and a fresh lead-in follows.
     else if (k==='j'){ if(!e.repeat && playerVictoryAction && state === 'playing'){
-      stopBgm();
-      state = 'trackswitch';
-      reactionTimer = victoryDuration;
-      if (playerModel) playerModel.scale.x = PLAYER_MODEL_SCALE;
-      playerVictoryAction.reset().play();
-      playSfx('victory');
-      pendingBearLook = (bearLookIndex + 1) % BEAR_LOOKS.length;
+      startTempoUpSequence((bearLookIndex + 1) % BEAR_LOOKS.length);
     } }
   }, {passive:false});
 
@@ -3466,7 +3510,6 @@
       cutinT += dt;
       if (mixer) mixer.update(cutinCamActive ? dt : 0);
       if (rootBone) rootBone.position.set(0,0,0);
-      if (cutinT >= 0.4) cutinLevelEl.classList.add('show');
       if (cutinT >= CUTIN_DURATION - 0.3){
         cutinBarTop.classList.remove('on'); cutinBarBottom.classList.remove('on');
       }
