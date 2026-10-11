@@ -1722,16 +1722,21 @@
   // rather than risk a gap at their (organically shaped, non-rectangular) edges.
   var GRASS_CENTER = {x:-3.19, z:-3.28};
   var GRASS_TILE_SIZE = 12.6;
-  var GRASS_TILES_X = 9, GRASS_TILES_Z = 8;
-  // Same recycling as the trees (see TREE_WRAP_DEPTH above): the 8 rows of
-  // tiles span this much depth, and frame() slides each wrapper to whichever
-  // copy of its baseZ is nearest the player every frame, via wrapZ().
-  var GRASS_WRAP_DEPTH = GRASS_TILES_Z * GRASS_TILE_SIZE;
+  // The tiles form a plain axis-aligned grid fixed in *world* space, recycled
+  // around the player (frame() keeps every tile in the copy of its own grid
+  // slot nearest the player) — not placed along the track like the trees
+  // are. Following the track's curve with axis-aligned square tiles left
+  // square holes between them wherever the track's heading was diagonal
+  // (measured: ~12% of the visible ground uncovered at 45 and 135 degrees
+  // through each curve, ~0% on the straights); a world-aligned grid has no
+  // such holes at any heading, since neighboring tiles always overlap.
+  var GRASS_GRID_N = 11; // tiles per side; GRASS_GRID_N * GRASS_TILE_SIZE = 138.6 units across
+  var GRASS_SPAN = GRASS_GRID_N * GRASS_TILE_SIZE;
   var grassWrappers = [];
   loadGltfTracked('grass-mud.glb', function(gltf){
     var first = true;
-    for (var tz=0; tz<GRASS_TILES_Z; tz++){
-      for (var tx=0; tx<GRASS_TILES_X; tx++){
+    for (var tz=0; tz<GRASS_GRID_N; tz++){
+      for (var tx=0; tx<GRASS_GRID_N; tx++){
         var patch = first ? gltf.scene : gltf.scene.clone();
         first = false;
         patch.position.set(GRASS_CENTER.x, 0, GRASS_CENTER.z);
@@ -1739,10 +1744,8 @@
         wrapper.add(patch);
         wrapper.rotation.y = ((tx*7 + tz*13) % 4) * Math.PI/2;
         wrapper.position.y = 0.001;
-        var baseD = 4 - tz*GRASS_TILE_SIZE;
-        var lateralX = (tx - (GRASS_TILES_X-1)/2) * GRASS_TILE_SIZE;
         scene.add(wrapper);
-        grassWrappers.push({ obj: wrapper, baseD: baseD, lateralX: lateralX });
+        grassWrappers.push({ obj: wrapper, baseX: tx*GRASS_TILE_SIZE, baseZ: tz*GRASS_TILE_SIZE });
       }
     }
   }, undefined, function(err){ if (window.console) console.error(err); });
@@ -2814,7 +2817,6 @@
       ctx.restore();
     }
     drawWindowRect(-70, 70, TREE_WRAP_DEPTH, 'rgba(120,200,120,0.55)', [3, 3]);
-    drawWindowRect(-56.7, 56.7, GRASS_WRAP_DEPTH, 'rgba(255,220,90,0.85)', []);
 
     // Every tree's actual current world position (not just the recycling
     // window it's drawn from) — only worth the extra per-tree draw calls
@@ -3569,7 +3571,12 @@
     sky.rotation.y = player.rotation.y;
     ground.position.x = player.position.x;
     ground.position.z = player.position.z;
-    grassWrappers.forEach(function(g){ placeOnTrack(g.obj, g.baseD, g.lateralX, displayD, GRASS_WRAP_DEPTH, WRAP_BEHIND_MARGIN); });
+    grassWrappers.forEach(function(g){
+      // The copy of this tile's own grid slot inside the GRASS_SPAN-wide
+      // square centered on the player, in both axes.
+      g.obj.position.x = g.baseX - GRASS_SPAN * Math.floor((g.baseX - (player.position.x - GRASS_SPAN/2)) / GRASS_SPAN);
+      g.obj.position.z = g.baseZ - GRASS_SPAN * Math.floor((g.baseZ - (player.position.z - GRASS_SPAN/2)) / GRASS_SPAN);
+    });
     treeInstances.forEach(function(tr){ placeOnTrack(tr.obj, tr.baseD, tr.lateralX, displayD, TREE_WRAP_DEPTH, WRAP_BEHIND_MARGIN); });
 
     // kinokoSpawnD is null right after a pickup (handleRecover()) or a
