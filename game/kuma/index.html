@@ -930,13 +930,15 @@
   // The slider's own floor — not used by the miss/poison tempo penalty
   // below, see BPM_PENALTY_FLOOR for why.
   var BPM_MIN = parseInt(bpmRange.min, 10) || 50;
-  // A slower tempo is the *easier* one to play (wider hit window per beat),
-  // so a bear hit / poison mushroom dropping BPM by 10 is deliberately a
-  // mercy, not a punishment. It is floored at LEVEL1's own starting tempo
-  // (80) so the relief never takes a run below the easiest level.
-  // BPM_MIN itself is left alone (still the slider's own floor) for a
-  // future Hard mode, which is expected to deliberately start below this
-  // floor.
+  // Difficulty vs tempo is U-shaped, with the easiest point around 80:
+  // above it the hit window tightens and the pace climbs; below it the
+  // gaps between beats get long enough that the player has to hold the
+  // rhythm on their own through the empty time (the "SuperHard" zone).
+  // So a bear hit / poison mushroom dropping BPM by 10 is deliberately a
+  // mercy, and it is floored at 80 so the relief stops at the easiest
+  // point instead of sliding into SuperHard territory. BPM_MIN itself is
+  // left alone (still the slider's own floor) for the future SuperHard
+  // mode, which is expected to deliberately start below this floor.
   var BPM_PENALTY_FLOOR = 80;
   // The one place BPM is allowed to change, full stop — the slider and the
   // green-streak tempo-up reward (frame()'s 'playing' block) both go
