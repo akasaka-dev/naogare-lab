@@ -2132,22 +2132,22 @@
   }
   function rankShowAsk(){
     rankBody.textContent = '';
-    rankBody.appendChild(rankEl('h3', 'You made the Top 10!'));
-    rankBody.appendChild(rankEl('p', 'Your score: ' + Math.round(score) + '. Save it to the online ranking so everyone can see it?'));
+    rankBody.appendChild(rankEl('h3', 'TOP 10!'));
+    rankBody.appendChild(rankEl('p', 'Score ' + Math.round(score) + '. Save?'));
     var row = rankEl('div', null, 'rank-actions');
-    row.appendChild(rankButton('Save My Score', rankShowName));
-    row.appendChild(rankButton('No Thanks', rankClose));
+    row.appendChild(rankButton('Save', rankShowName));
+    row.appendChild(rankButton('Skip', rankClose));
     rankBody.appendChild(row);
     rankOpen();
   }
   function rankShowName(){
     rankBody.textContent = '';
-    rankBody.appendChild(rankEl('h3', 'Enter Your Nickname'));
+    rankBody.appendChild(rankEl('h3', 'Name'));
     var input = rankEl('input', null, 'rank-input');
-    input.type = 'text'; input.maxLength = 12; input.placeholder = 'Nickname (up to 12 characters)';
+    input.type = 'text'; input.maxLength = 12; input.placeholder = 'Name';
     try{ input.value = localStorage.getItem(RANK_NAME_KEY) || ''; }catch(e){}
     var msg = rankEl('p', '', 'rank-msg');
-    var submit = rankButton('Save', function(){
+    var submit = rankButton('OK', function(){
       var name = input.value.trim();
       if (!name || !rankToken) return;
       submit.disabled = true; msg.textContent = '';
@@ -2155,7 +2155,7 @@
       rankFetch('/score', {method:'POST', headers:{'Content-Type':'application/json'},
         body:JSON.stringify({name:name, score:Math.round(score), level:rankLevel, token:rankToken})}).then(function(d){
         if (d && d.ok){ rankSubmitted = true; rankToken = null; rankShowList(name, Math.round(score), rankLevel); }
-        else { msg.textContent = 'Sorry, your score could not be saved. Please try again.'; submit.disabled = !input.value.trim(); }
+        else { msg.textContent = 'Failed. Try again.'; submit.disabled = !input.value.trim(); }
       });
     });
     submit.disabled = !input.value.trim();
@@ -2181,8 +2181,8 @@
     rankFetch('/ranking').then(function(d){
       if (rankModal.hidden || !list.isConnected) return;
       list.textContent = '';
-      if (!d || !d.ok){ list.appendChild(rankEl('li', 'Sorry, the ranking could not be loaded.')); return; }
-      if (!d.results.length){ list.appendChild(rankEl('li', 'No records yet.')); return; }
+      if (!d || !d.ok){ list.appendChild(rankEl('li', 'Failed to load.')); return; }
+      if (!d.results.length){ list.appendChild(rankEl('li', 'No records')); return; }
       d.results.forEach(function(r, i){
         var li = rankEl('li', null, (r.name === meName && r.score === meScore && r.level === meLevel) ? 'me' : '');
         li.appendChild(rankEl('span', String(i + 1), 'rank-pos'));
