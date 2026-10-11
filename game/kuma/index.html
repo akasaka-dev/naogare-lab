@@ -930,14 +930,13 @@
   // The slider's own floor — not used by the miss/poison tempo penalty
   // below, see BPM_PENALTY_FLOOR for why.
   var BPM_MIN = parseInt(bpmRange.min, 10) || 50;
-  // Counterintuitively, a *slower* tempo plays harder, not easier — so
-  // letting a miss streak ratchet LEVEL1 all the way down to BPM_MIN
-  // turned "doing badly" into "doing even worse", the opposite of what a
-  // penalty on the easiest level should do. Floored at LEVEL1's own
-  // starting tempo instead, so a bad run bottoms out exactly where it
-  // started rather than compounding. BPM_MIN itself is left alone (still
-  // the slider's own floor) for a future Hard mode, which is expected to
-  // deliberately start below this floor.
+  // A slower tempo is the *easier* one to play (wider hit window per beat),
+  // so a bear hit / poison mushroom dropping BPM by 10 is deliberately a
+  // mercy, not a punishment. It is floored at LEVEL1's own starting tempo
+  // (80) so the relief never takes a run below the easiest level.
+  // BPM_MIN itself is left alone (still the slider's own floor) for a
+  // future Hard mode, which is expected to deliberately start below this
+  // floor.
   var BPM_PENALTY_FLOOR = 80;
   // The one place BPM is allowed to change, full stop — the slider and the
   // green-streak tempo-up reward (frame()'s 'playing' block) both go
