@@ -98,6 +98,23 @@
     display:block;
     font-size:20px;
   }
+  .hud-combo{
+    position:absolute; right:10px; top:98px;
+    font-family:var(--font-mono); font-weight:700;
+    font-size:22px; line-height:1;
+    color:var(--ink);
+    text-shadow:0 2px 5px rgba(0,0,0,0.8);
+    text-align:right;
+    opacity:0; transition:opacity 0.2s;
+    transform-origin:100% 50%;
+  }
+  .hud-combo.active{ opacity:1; }
+  .hud-combo .combo-mult{ color:var(--accent); font-size:30px; margin-left:6px; }
+  .hud-combo.tier-up{ animation:comboTierUp 0.35s ease-out; }
+  @keyframes comboTierUp{
+    0%{ transform:scale(1.6); }
+    100%{ transform:scale(1); }
+  }
   .score-popup-anchor{
     position:absolute; left:78%; top:60%;
     width:0; height:0;
@@ -518,6 +535,7 @@
       <div class="hud-gap"><div class="hud-gap-fill" id="gapFill"></div><span class="hud-gap-label">distance</span></div>
       <div class="hud-hp" id="hpLabel"></div>
       <div class="hud-timer" id="scoreLabel"><span class="score-label">Score:</span> <span id="scoreValue">0</span></div>
+      <div class="hud-combo" id="comboLabel"><span id="comboCount">0</span> COMBO<span class="combo-mult" id="comboMult">x1.0</span></div>
       <div class="score-popup-anchor" id="scorePopupAnchor"></div>
       <div class="hud-countdown" id="countdownLabel"></div>
     </div>
@@ -657,6 +675,9 @@
   var hpLabel = document.getElementById('hpLabel');
   var scoreLabel = document.getElementById('scoreLabel');
   var scoreValue = document.getElementById('scoreValue');
+  var comboLabel = document.getElementById('comboLabel');
+  var comboCountEl = document.getElementById('comboCount');
+  var comboMultEl = document.getElementById('comboMult');
   var scorePopupAnchor = document.getElementById('scorePopupAnchor');
   var countdownLabel = document.getElementById('countdownLabel');
   var debugMapCanvas = document.getElementById('debugMap');
@@ -804,6 +825,16 @@
   // at higher tempo is a genuine risk/reward trade, not a free multiplier.
   var SCORE_BASE_BPM = 92;
   var SCORE_HIT_BASE = 50, SCORE_PASS_BONUS = 300;
+  // Score multiplier from the unbroken run of on-beat hits (hitStreak): +0.5
+  // for every COMBO_TIER_HITS hits, capped at COMBO_SCORE_MAX. Distinct from
+  // `combo` above, which only scales distance gain. Any miss, a bear hit or a
+  // pause resets it, so a clean run is what pays — and a single slip costs.
+  var COMBO_TIER_HITS = 5, COMBO_TIER_STEP = 0.5, COMBO_SCORE_MAX = 4;
+  var hitStreak = 0;
+  function comboMultiplier(){
+    return Math.min(COMBO_SCORE_MAX, 1 + Math.floor(hitStreak/COMBO_TIER_HITS)*COMBO_TIER_STEP);
+  }
+  function resetHitStreak(){ hitStreak = 0; }
   var SCORE_HIGH_KEY = 'kuma-niramekko-highscore-score';
   var highScoreScore = 0;
   try{ highScoreScore = parseFloat(localStorage.getItem(SCORE_HIGH_KEY)) || 0; }catch(e){}
@@ -2312,7 +2343,7 @@
   function resetGame(){
     gap = GAP_START; elapsed = 0; score = 0; reactionTimer = 0;
     hp = maxHP; updateHpDisplay();
-    combo = 1; missReactionTimer = 0; greenStreak = 0; worldScroll = 0;
+    combo = 1; missReactionTimer = 0; greenStreak = 0; worldScroll = 0; resetHitStreak();
     beatDur = 60/BPM; nextBeatTime = beatDur; beatOpen = false; beatHit = false;
     currentLane = 'L'; beatParity = false;
     lungeState = 'idle'; lungeTimer = 0; nextLungeAt = 1.2 + Math.random()*1.2;
@@ -2454,6 +2485,22 @@
     }, 600);
   }
 
+  // Only shown once a streak exists (2+ hits); touches the DOM only when the
+  // displayed numbers actually change, since it's called every frame.
+  var shownHitStreak = -1;
+  function updateComboHud(){
+    if (hitStreak === shownHitStreak) return;
+    shownHitStreak = hitStreak;
+    comboCountEl.textContent = hitStreak;
+    comboMultEl.textContent = 'x' + comboMultiplier().toFixed(1);
+    comboLabel.classList.toggle('active', hitStreak >= 2);
+  }
+  function pulseComboTier(){
+    comboLabel.classList.remove('tier-up');
+    void comboLabel.offsetWidth;
+    comboLabel.classList.add('tier-up');
+  }
+
   function flashLane(lane, kind){
     var cls = kind === 'hit' ? 'beat-good' : 'beat-bad';
     laneEls[lane].forEach(function(el){
@@ -2584,7 +2631,7 @@
   // is what makes blind button-mashing (and simply not playing) actively
   // counterproductive rather than merely neutral.
   function applyMissPenalty(lane){
-    combo = 1; greenStreak = 0;
+    combo = 1; greenStreak = 0; resetHitStreak();
     var missPenalty = MISS_PENALTY_BASE + MISS_PENALTY_SCALE * (gap/GAP_MAX);
     gap = Math.max(0, gap - missPenalty);
     missReactionTimer = 0.55; // brief Run_Anime surge so the sudden jump forward reads as a lunge, not a teleport
@@ -2633,9 +2680,13 @@
       playerD += hitGainAmt * (PLAYER_RETREAT_RANGE/GAP_MAX);
       combo = Math.min(COMBO_MAX, combo + COMBO_STEP);
       flashLane(lane, 'hit');
-      var hitScoreGain = Math.round(SCORE_HIT_BASE * (BPM/SCORE_BASE_BPM));
+      var prevMult = comboMultiplier();
+      hitStreak += 1;
+      var scoreMult = comboMultiplier();
+      var hitScoreGain = Math.round(SCORE_HIT_BASE * (BPM/SCORE_BASE_BPM) * scoreMult);
       score += hitScoreGain;
       showScorePopup(hitScoreGain);
+      if (scoreMult > prevMult) pulseComboTier();
       // Counts toward a pass only if this hit landed while the meter is
       // actually showing green — use gap fresh off the update above rather
       // than the frame-start `t`, so a hit that itself pushes into green
@@ -2672,7 +2723,7 @@
           // perceptible payoff (the bear reappearing that far back already
           // reads as a clean "left behind", not a jarring warp).
           gap = Math.min(PASS_GAP_MAX, gap + WORLD_SCROLL_PER_PASS * (GAP_MAX/PLAYER_RETREAT_RANGE));
-          var passScoreGain = Math.round(SCORE_PASS_BONUS * (BPM/SCORE_BASE_BPM));
+          var passScoreGain = Math.round(SCORE_PASS_BONUS * (BPM/SCORE_BASE_BPM) * scoreMult);
           score += passScoreGain;
           showScorePopup(passScoreGain, 'PASS ');
         }
@@ -2745,7 +2796,7 @@
     playDropIn(pausedLogo);
   }
   function resumeGame(){
-    combo = 1; greenStreak = 0;
+    combo = 1; greenStreak = 0; resetHitStreak();
     cardPaused.classList.remove('visible');
     state = 'playing';
     startLeadIn(true);
@@ -3319,6 +3370,7 @@
       gapFill.style.width = (t*100).toFixed(1)+'%';
       gapFill.style.backgroundColor = t<0.25 ? 'var(--danger)' : (t>0.75 ? 'var(--safe)' : 'var(--accent)');
       scoreValue.textContent = Math.round(score);
+      updateComboHud();
 
       // Bear AI, hit-detection and gap decay are frozen through the "3,2,1"
       // lead-in — the same breather the old separate 'countdown' state gave,
@@ -3419,7 +3471,7 @@
         // than ~3.2, against ~1.75 at 1x — a fixed radius meant its swings
         // could never connect), so the radius scales with it too.
         if (handWorldPos.distanceTo(playerWorldPos) < HIT_RADIUS * (enemyScale / ENEMY_MODEL_SCALE)){
-          hp = Math.max(0, hp - 1); updateHpDisplay();
+          hp = Math.max(0, hp - 1); updateHpDisplay(); resetHitStreak();
           setBPM(Math.max(BPM_PENALTY_FLOOR, BPM - 10));
           playSfx('hit');
           state = 'knockback'; reactionTimer = knockbackDuration; lastReason = 'You lost...';
