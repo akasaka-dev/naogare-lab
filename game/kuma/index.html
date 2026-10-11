@@ -1184,17 +1184,22 @@
   // one, loadBgmTrack() always hits its synchronous cached branch instead
   // of racing a fetch against restartBgm(). A no-op once already cached (or
   // already the live buffer for that key).
-  function preloadBgmTrack(key){
+  // `background` loads don't count toward the title screen's preload gate
+  // (see startBackgroundLoads()), and `onDone` runs once the track is cached.
+  function preloadBgmTrack(key, background, onDone){
     var t = BGM_TRACKS[key];
-    if (!t || !audioCtx || bgmBufferCache[key]){ markPreloaded(); return; }
+    function done(){ if (!background) markPreloaded(); if (onDone) onDone(); }
+    if (!t || !audioCtx || bgmBufferCache[key]){ done(); return; }
     fetch(t.file)
       .then(function(r){ return r.arrayBuffer(); })
       .then(function(buf){ return audioCtx.decodeAudioData(buf); })
-      .then(function(decoded){ bgmBufferCache[key] = decoded; markPreloaded(); })
-      .catch(function(e){ if (window.console) console.error(e); markPreloaded(); });
+      .then(function(decoded){ bgmBufferCache[key] = decoded; done(); })
+      .catch(function(e){ if (window.console) console.error(e); if (!background) markPreloaded(); else if (onDone) onDone(); });
   }
   loadBgmTrack(autoTrackForBpm(BPM));
-  Object.keys(BGM_TRACKS).forEach(function(key){ preloadBgmTrack(key); });
+  // tempo120 is only the Audio Adjust click track — it loads in the
+  // background after the title appears (and on demand if needed sooner).
+  Object.keys(BGM_TRACKS).forEach(function(key){ if (key !== 'tempo120') preloadBgmTrack(key); });
 
   // One-shot sound effects — same fetch+decodeAudioData+cache approach as
   // the BGM tracks above, but played fire-and-forget through a fresh
@@ -1235,17 +1240,25 @@
   // beat clock/gameplay is already over, so there's no BPM for it to match.
   var GAMEOVER_BGM_FILE = '大きな手、優しい夜.mp3';
   var gameoverBgmBuffer = null, gameoverBgmSource = null;
+  // Not part of the title screen's preload gate: it's only needed once a run
+  // has ended, so it loads in the background after the title appears (see
+  // startBackgroundLoads()). If a run ends before it has arrived,
+  // gameoverBgmWanted makes it start playing the moment it does.
+  var gameoverBgmWanted = false;
   function preloadGameoverBgm(){
-    if (!audioCtx || gameoverBgmBuffer){ markPreloaded(); return; }
+    if (!audioCtx || gameoverBgmBuffer) return;
     fetch(GAMEOVER_BGM_FILE)
       .then(function(r){ return r.arrayBuffer(); })
       .then(function(buf){ return audioCtx.decodeAudioData(buf); })
-      .then(function(decoded){ gameoverBgmBuffer = decoded; markPreloaded(); })
-      .catch(function(e){ if (window.console) console.error(e); markPreloaded(); });
+      .then(function(decoded){
+        gameoverBgmBuffer = decoded;
+        if (gameoverBgmWanted && state === 'gameover') playGameoverBgm();
+      })
+      .catch(function(e){ if (window.console) console.error(e); });
   }
-  preloadGameoverBgm();
   function playGameoverBgm(){
-    if (!audioCtx || !bgmGain || !gameoverBgmBuffer) return;
+    if (!audioCtx || !bgmGain) return;
+    if (!gameoverBgmBuffer){ gameoverBgmWanted = true; return; }
     stopGameoverBgm();
     gameoverBgmSource = audioCtx.createBufferSource();
     gameoverBgmSource.buffer = gameoverBgmBuffer;
@@ -1254,6 +1267,7 @@
     gameoverBgmSource.start();
   }
   function stopGameoverBgm(){
+    gameoverBgmWanted = false;
     if (gameoverBgmSource){ try{ gameoverBgmSource.stop(); }catch(e){} gameoverBgmSource = null; }
   }
   // Called only for a genuinely fresh run (startLeadIn(true), from
@@ -1363,8 +1377,8 @@
     s.cur += s.vel * dt;
   }
 
-  // Preload gate — 7 GLTF models + the sky texture + the HP icon + 5 BGM
-  // tracks + the gameover BGM + 5 SFX, each counted exactly once regardless
+  // Preload gate — 7 GLTF models + the sky texture + the HP icon + the 4
+  // LEVEL logos + 4 BGM tracks + 6 SFX, each counted exactly once regardless
   // of whether it resolves, errors, or (for the audio ones) is skipped
   // outright because Web Audio isn't available — every one of those paths
   // calls markPreloaded() so a real failure can never leave the bar stuck
@@ -1372,8 +1386,20 @@
   // error path (see onModelError below): the game can't actually run
   // without it, so that failure holds the bar and shows an explicit message
   // instead of waving the player through into a broken run.
-  var PRELOAD_TOTAL = 25;
+  var PRELOAD_TOTAL = 23;
   var preloadedCount = 0;
+  // Loads that nothing needs before the first run can end: kicked off once
+  // the title screen is up. (Deliberately only things that are certain not
+  // to be needed early — the gameover BGM and the Audio Adjust click track.
+  // The other tracks and bears are required by whichever LEVEL gets picked,
+  // so they stay in the gate.)
+  var backgroundLoadsStarted = false;
+  function startBackgroundLoads(){
+    if (backgroundLoadsStarted) return;
+    backgroundLoadsStarted = true;
+    preloadGameoverBgm();
+    preloadBgmTrack('tempo120', true);
+  }
   function updatePreloadUI(){
     var pct = Math.min(100, Math.round(preloadedCount/PRELOAD_TOTAL*100));
     preloadBarFill.style.width = pct + '%';
@@ -1386,6 +1412,7 @@
       cardPreload.classList.remove('visible');
       cardTitle.classList.add('visible');
       playDropIn(titleLogo);
+      startBackgroundLoads();
     }
   }
   function loadGltfTracked(url, onLoad, onProgress, onError){
@@ -3031,8 +3058,15 @@
     audioAdjustDeltaR.textContent = '';
   }
   function startTestClick(){
+    if (!audioCtx) return;
     var buf = bgmBufferCache.tempo120;
-    if (!audioCtx || !buf) return;
+    if (!buf){
+      // Normally already there (it loads in the background once the title
+      // appears); if not yet, load it now and start as soon as it lands.
+      audioAdjustPlay.textContent = 'Loading...';
+      preloadBgmTrack('tempo120', true, function(){ if (bgmBufferCache.tempo120) startTestClick(); else audioAdjustPlay.textContent = 'Play Click'; });
+      return;
+    }
     resumeAudioCtx();
     stopTestClick();
     testClickSource = audioCtx.createBufferSource();
