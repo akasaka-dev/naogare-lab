@@ -2,9 +2,10 @@
 // kuma (Boy meets Kuma) score ranking — isolated in this file, same pattern
 // as fuwao-ranking.js (one-time session token + rate limiting via the shared
 // `game_sessions` / `rate_limits` tables), but with its own `kuma_scores`
-// table and one board per start LEVEL (1-4; stored in game_sessions.stage and
-// kuma_scores.level), since each level starts at a different BPM and scores
-// scale with BPM. The nickname is required — no default name.
+// table and ONE total board across all start LEVELs. The start level (1-4;
+// stored in game_sessions.stage and kuma_scores.level) is recorded with each
+// entry and shown next to it, so the board doubles as a balance check on how
+// the levels score against each other. The nickname is required.
 // ---------------------------------------------------------------------------
 
 import { checkRateLimit } from './rate-limit.js';
@@ -41,12 +42,10 @@ async function readBody(request) {
   }
 }
 
-async function handleRanking(env, url) {
-  const level = parseInt(url.searchParams.get('level'), 10);
-  if (!LEVELS.includes(level)) return errorResponse('invalid_level', 400);
+async function handleRanking(env) {
   const { results } = await env.DB.prepare(
-    'SELECT name, score, created_at FROM kuma_scores WHERE level = ?1 ORDER BY score DESC, created_at ASC LIMIT ?2'
-  ).bind(level, RANKING_LIMIT).all();
+    'SELECT name, score, level, created_at FROM kuma_scores ORDER BY score DESC, created_at ASC LIMIT ?1'
+  ).bind(RANKING_LIMIT).all();
   return jsonResponse({ ok: true, results });
 }
 
@@ -83,11 +82,11 @@ async function handleScoreSubmit(request, env) {
   if (!session) return errorResponse('invalid_session', 403);
 
   // Only a top-RANKING_LIMIT score is stored (the client checks this too before
-  // offering to register) so the table never grows past RANKING_LIMIT rows per
-  // level. Ties lose to the earlier entry, matching the ranking's sort order.
+  // offering to register) so the table never grows past RANKING_LIMIT rows.
+  // Ties lose to the earlier entry, matching the ranking's sort order.
   const board = await env.DB.prepare(
-    'SELECT score FROM kuma_scores WHERE level = ?1 ORDER BY score DESC, created_at ASC LIMIT ?2'
-  ).bind(level, RANKING_LIMIT).all();
+    'SELECT score FROM kuma_scores ORDER BY score DESC, created_at ASC LIMIT ?1'
+  ).bind(RANKING_LIMIT).all();
   if (board.results.length >= RANKING_LIMIT && score <= board.results[RANKING_LIMIT - 1].score) {
     return errorResponse('not_qualified', 400);
   }
@@ -104,17 +103,16 @@ async function handleScoreSubmit(request, env) {
     'INSERT INTO kuma_scores (name, score, level, created_at) VALUES (?1, ?2, ?3, ?4)'
   ).bind(name, score, level, new Date().toISOString()).run();
   await env.DB.prepare(
-    'DELETE FROM kuma_scores WHERE level = ?1 AND id NOT IN (SELECT id FROM kuma_scores WHERE level = ?1 ORDER BY score DESC, created_at ASC LIMIT ?2)'
-  ).bind(level, RANKING_LIMIT).run();
+    'DELETE FROM kuma_scores WHERE id NOT IN (SELECT id FROM kuma_scores ORDER BY score DESC, created_at ASC LIMIT ?1)'
+  ).bind(RANKING_LIMIT).run();
   return jsonResponse({ ok: true });
 }
 
 export async function routeKuma(request, env, path) {
-  const url = new URL(request.url);
   try {
     if (path === '/api/kuma/ranking') {
       if (request.method !== 'GET') return errorResponse('method_not_allowed', 405);
-      return await handleRanking(env, url);
+      return await handleRanking(env);
     }
     if (path === '/api/kuma/session') {
       if (request.method !== 'POST') return errorResponse('method_not_allowed', 405);

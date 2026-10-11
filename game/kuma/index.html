@@ -99,14 +99,12 @@
     font-size:20px;
   }
   .title-buttons{ display:flex; gap:8px; justify-content:center; flex-wrap:wrap; }
-  .rank-tabs{ display:flex; gap:6px; justify-content:center; margin-bottom:10px; }
-  .modal-card .rank-tabs button{ padding:6px 10px; font-size:12px; }
-  .modal-card .rank-tabs button.selected{ background:var(--accent); color:#1b1503; }
   .rank-list{ list-style:none; margin:0 0 14px; padding:0; text-align:left; font-size:14px; }
   .rank-list li{ display:flex; gap:8px; padding:4px 6px; border-bottom:1px solid var(--line); }
   .rank-list li.me{ background:rgba(255,200,60,0.18); }
   .rank-list .rank-pos{ width:2em; color:var(--ink-dim); }
   .rank-list .rank-name{ flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .rank-list .rank-level{ color:var(--ink-dim); font-size:12px; align-self:center; }
   .rank-list .rank-score{ font-family:var(--font-mono); font-weight:700; color:var(--accent); }
   .rank-actions{ display:flex; gap:8px; justify-content:center; }
   .rank-input{
@@ -2087,7 +2085,7 @@
   // then (when `lookIndex` isn't null) the bear cut-in plays, then a fresh
   // lead-in restarts the BGM. Used by a tempo-up that changes track and by
   // the J debug key.
-  // ---- Online ranking (/api/kuma/*, one board per start LEVEL) ----
+  // ---- Online ranking (/api/kuma/*, one total board; each entry shows its start LEVEL) ----
   // A one-time session token is issued at run start and must accompany the
   // score; the offer only appears if that token arrived (so offline / local
   // static hosting silently skips it). The nickname is required.
@@ -2120,9 +2118,9 @@
   function rankOfferAfterGameover(){
     var finalScore = Math.round(score);
     if (finalScore < 1) return;
-    // Only offered when the score would actually make the top 10 of its
-    // level's board (the server enforces the same rule).
-    rankFetch('/ranking?level=' + rankLevel).then(function(d){
+    // Only offered when the score would actually make the top 10 (the
+    // server enforces the same rule).
+    rankFetch('/ranking').then(function(d){
       if (!d || !d.ok) return;
       var tenth = d.results.length >= RANK_LIMIT ? d.results[RANK_LIMIT - 1].score : -1;
       if (finalScore <= tenth) return;
@@ -2156,7 +2154,7 @@
       try{ localStorage.setItem(RANK_NAME_KEY, name); }catch(e){}
       rankFetch('/score', {method:'POST', headers:{'Content-Type':'application/json'},
         body:JSON.stringify({name:name, score:Math.round(score), level:rankLevel, token:rankToken})}).then(function(d){
-        if (d && d.ok){ rankSubmitted = true; rankToken = null; rankShowList(rankLevel, name, Math.round(score)); }
+        if (d && d.ok){ rankSubmitted = true; rankToken = null; rankShowList(name, Math.round(score), rankLevel); }
         else { msg.textContent = 'Could not register. Please try again.'; submit.disabled = !input.value.trim(); }
       });
     });
@@ -2172,30 +2170,24 @@
     rankOpen();
     input.focus();
   }
-  function rankShowList(level, meName, meScore){
+  function rankShowList(meName, meScore, meLevel){
     rankBody.textContent = '';
     rankBody.appendChild(rankEl('h3', 'Ranking'));
-    var tabs = rankEl('div', null, 'rank-tabs');
-    [1,2,3,4].forEach(function(n){
-      var b = rankButton('LEVEL' + n, function(){ rankShowList(n, meName, meScore); });
-      if (n === level) b.className = 'selected';
-      tabs.appendChild(b);
-    });
-    rankBody.appendChild(tabs);
     var list = rankEl('ol', null, 'rank-list');
     list.appendChild(rankEl('li', 'Loading...'));
     rankBody.appendChild(list);
     rankBody.appendChild(rankButton('Close', rankClose));
     rankOpen();
-    rankFetch('/ranking?level=' + level).then(function(d){
+    rankFetch('/ranking').then(function(d){
       if (rankModal.hidden || !list.isConnected) return;
       list.textContent = '';
       if (!d || !d.ok){ list.appendChild(rankEl('li', 'Could not load the ranking.')); return; }
       if (!d.results.length){ list.appendChild(rankEl('li', 'No records yet.')); return; }
       d.results.forEach(function(r, i){
-        var li = rankEl('li', null, (level === rankLevel && r.name === meName && r.score === meScore) ? 'me' : '');
+        var li = rankEl('li', null, (r.name === meName && r.score === meScore && r.level === meLevel) ? 'me' : '');
         li.appendChild(rankEl('span', String(i + 1), 'rank-pos'));
         li.appendChild(rankEl('span', r.name, 'rank-name'));
+        li.appendChild(rankEl('span', 'LV' + r.level, 'rank-level'));
         li.appendChild(rankEl('span', String(r.score), 'rank-score'));
         list.appendChild(li);
       });
@@ -2203,7 +2195,7 @@
   }
   document.getElementById('btnRanking').addEventListener('click', function(e){
     e.stopPropagation();
-    rankShowList(rankLevel);
+    rankShowList();
   });
 
   function startTempoUpSequence(lookIndex){
