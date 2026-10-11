@@ -2,6 +2,7 @@ import { routeLine4 } from './line4-online.js';
 import { routeLine4Second } from './line4-second-online.js';
 import { routeFuwao } from './fuwao-ranking.js';
 import { routeSnake } from './snake-ranking.js';
+import { routeKuma } from './kuma-ranking.js';
 import { routeLikes } from './likes.js';
 import { checkRateLimit } from './rate-limit.js';
 
@@ -243,6 +244,14 @@ export default {
       } catch (e) {
         return jsonResponse({ ok: false, error: 'server_error' }, 500);
       }
+    }
+
+    // kuma (Boy meets Kuma) score ranking — isolated in kuma-ranking.js, own D1
+    // table (kuma_scores, one board per start level), shares game_sessions/
+    // rate_limits with the other games.
+    if (path.startsWith('/api/kuma/')) {
+      const res = await routeKuma(request, env, path);
+      if (res) return res;
     }
 
     // top-page catalog like counters — isolated in likes.js, own D1 table

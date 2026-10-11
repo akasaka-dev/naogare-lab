@@ -98,6 +98,24 @@
     display:block;
     font-size:20px;
   }
+  .title-buttons{ display:flex; gap:8px; justify-content:center; flex-wrap:wrap; }
+  .rank-tabs{ display:flex; gap:6px; justify-content:center; margin-bottom:10px; }
+  .modal-card .rank-tabs button{ padding:6px 10px; font-size:12px; }
+  .modal-card .rank-tabs button.selected{ background:var(--accent); color:#1b1503; }
+  .rank-list{ list-style:none; margin:0 0 14px; padding:0; text-align:left; font-size:14px; }
+  .rank-list li{ display:flex; gap:8px; padding:4px 6px; border-bottom:1px solid var(--line); }
+  .rank-list li.me{ background:rgba(255,200,60,0.18); }
+  .rank-list .rank-pos{ width:2em; color:var(--ink-dim); }
+  .rank-list .rank-name{ flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .rank-list .rank-score{ font-family:var(--font-mono); font-weight:700; color:var(--accent); }
+  .rank-actions{ display:flex; gap:8px; justify-content:center; }
+  .rank-input{
+    width:100%; box-sizing:border-box; margin-bottom:10px; padding:9px 10px;
+    font-size:16px; text-align:center; color:var(--ink);
+    background:var(--bg-panel-2); border:1px solid var(--line); border-radius:5px;
+  }
+  .rank-msg{ min-height:1.2em; color:var(--danger); }
+  .modal-card button:disabled{ opacity:0.4; cursor:default; }
   .hud-combo{
     position:absolute; right:10px; top:98px;
     font-family:var(--font-mono); font-weight:700;
@@ -281,7 +299,7 @@
     background:var(--accent); color:#1b1503;
     box-shadow:0 0 0 2px var(--accent-dim);
   }
-  #btnAudioAdjust, #btnPauseToTitle{
+  #btnAudioAdjust, #btnPauseToTitle, #btnRanking{
     font-family:var(--font-body);
     font-weight:700;
     font-size:12.5px;
@@ -560,7 +578,10 @@
         <button type="button" data-bpm="120">LEVEL3</button>
         <button type="button" data-bpm="150">LEVEL4</button>
       </div>
-      <button id="btnAudioAdjust" type="button">Audio Adjust</button>
+      <div class="title-buttons">
+        <button id="btnRanking" type="button">Ranking</button>
+        <button id="btnAudioAdjust" type="button">Audio Adjust</button>
+      </div>
       <div class="cta">Click or Tap to Start</div>
     </div>
     <div class="overlay-card" id="cardOver">
@@ -625,6 +646,10 @@
       <button id="btnBgmMute" class="icon-btn" type="button" aria-label="BGM"></button>
     </div>
   </div>
+</div>
+
+<div class="modal-overlay" id="rankModal" hidden>
+  <div class="modal-card" id="rankBody"></div>
 </div>
 
 <div class="modal-overlay" id="audioAdjustModal" hidden>
@@ -1966,6 +1991,7 @@
     overScore.textContent = 'Score '+Math.round(score)+'   Best Score '+Math.round(Math.max(highScoreScore,score));
     cardOver.classList.add('visible');
     playDropIn(overReason);
+    rankOfferAfterGameover();
   }
   function playDropIn(img){
     img.classList.remove('drop-in');
@@ -2061,6 +2087,115 @@
   // then (when `lookIndex` isn't null) the bear cut-in plays, then a fresh
   // lead-in restarts the BGM. Used by a tempo-up that changes track and by
   // the J debug key.
+  // ---- Online ranking (/api/kuma/*, one board per start LEVEL) ----
+  // A one-time session token is issued at run start and must accompany the
+  // score; the offer only appears if that token arrived (so offline / local
+  // static hosting silently skips it). The nickname is required.
+  var RANK_API = '/api/kuma';
+  var RANK_NAME_KEY = 'kuma-niramekko-nickname';
+  var rankModal = document.getElementById('rankModal');
+  var rankBody = document.getElementById('rankBody');
+  var rankToken = null, rankLevel = 1, rankSubmitted = false, rankRunId = 0;
+  function rankFetch(path, opts){
+    return fetch(RANK_API + path, opts).then(function(r){ return r.json(); }).catch(function(){ return null; });
+  }
+  function rankBeginSession(level){
+    var id = ++rankRunId;
+    rankToken = null; rankSubmitted = false; rankLevel = level;
+    rankFetch('/session', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({level:level})})
+      .then(function(d){ if (d && d.ok && id === rankRunId) rankToken = d.token; });
+  }
+  function rankEl(tag, text, cls){
+    var e = document.createElement(tag);
+    if (text != null) e.textContent = text;
+    if (cls) e.className = cls;
+    return e;
+  }
+  function rankButton(text, onClick){
+    var b = rankEl('button', text); b.type = 'button'; b.addEventListener('click', onClick); return b;
+  }
+  function rankOpen(){ rankModal.hidden = false; }
+  function rankClose(){ rankModal.hidden = true; rankBody.textContent = ''; }
+  function rankOfferAfterGameover(){
+    setTimeout(function(){
+      if (state !== 'gameover' || !rankToken || rankSubmitted || Math.round(score) < 1) return;
+      rankShowAsk();
+    }, 700);
+  }
+  function rankShowAsk(){
+    rankBody.textContent = '';
+    rankBody.appendChild(rankEl('h3', 'Online Ranking'));
+    rankBody.appendChild(rankEl('p', 'Register your score ' + Math.round(score) + ' (LEVEL' + rankLevel + ') to the online ranking?'));
+    var row = rankEl('div', null, 'rank-actions');
+    row.appendChild(rankButton('Yes', rankShowName));
+    row.appendChild(rankButton('No', rankClose));
+    rankBody.appendChild(row);
+    rankOpen();
+  }
+  function rankShowName(){
+    rankBody.textContent = '';
+    rankBody.appendChild(rankEl('h3', 'Nickname'));
+    var input = rankEl('input', null, 'rank-input');
+    input.type = 'text'; input.maxLength = 12; input.placeholder = 'Nickname (max 12)';
+    try{ input.value = localStorage.getItem(RANK_NAME_KEY) || ''; }catch(e){}
+    var msg = rankEl('p', '', 'rank-msg');
+    var submit = rankButton('Submit', function(){
+      var name = input.value.trim();
+      if (!name || !rankToken) return;
+      submit.disabled = true; msg.textContent = '';
+      try{ localStorage.setItem(RANK_NAME_KEY, name); }catch(e){}
+      rankFetch('/score', {method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({name:name, score:Math.round(score), level:rankLevel, token:rankToken})}).then(function(d){
+        if (d && d.ok){ rankSubmitted = true; rankToken = null; rankShowList(rankLevel, name, Math.round(score)); }
+        else { msg.textContent = 'Could not register. Please try again.'; submit.disabled = !input.value.trim(); }
+      });
+    });
+    submit.disabled = !input.value.trim();
+    input.addEventListener('input', function(){ submit.disabled = !input.value.trim(); });
+    input.addEventListener('keydown', function(e){ if (e.key === 'Enter' && !submit.disabled) submit.click(); });
+    rankBody.appendChild(input);
+    rankBody.appendChild(msg);
+    var row = rankEl('div', null, 'rank-actions');
+    row.appendChild(submit);
+    row.appendChild(rankButton('Cancel', rankClose));
+    rankBody.appendChild(row);
+    rankOpen();
+    input.focus();
+  }
+  function rankShowList(level, meName, meScore){
+    rankBody.textContent = '';
+    rankBody.appendChild(rankEl('h3', 'Ranking'));
+    var tabs = rankEl('div', null, 'rank-tabs');
+    [1,2,3,4].forEach(function(n){
+      var b = rankButton('LEVEL' + n, function(){ rankShowList(n, meName, meScore); });
+      if (n === level) b.className = 'selected';
+      tabs.appendChild(b);
+    });
+    rankBody.appendChild(tabs);
+    var list = rankEl('ol', null, 'rank-list');
+    list.appendChild(rankEl('li', 'Loading...'));
+    rankBody.appendChild(list);
+    rankBody.appendChild(rankButton('Close', rankClose));
+    rankOpen();
+    rankFetch('/ranking?level=' + level).then(function(d){
+      if (rankModal.hidden || !list.isConnected) return;
+      list.textContent = '';
+      if (!d || !d.ok){ list.appendChild(rankEl('li', 'Could not load the ranking.')); return; }
+      if (!d.results.length){ list.appendChild(rankEl('li', 'No records yet.')); return; }
+      d.results.forEach(function(r, i){
+        var li = rankEl('li', null, (level === rankLevel && r.name === meName && r.score === meScore) ? 'me' : '');
+        li.appendChild(rankEl('span', String(i + 1), 'rank-pos'));
+        li.appendChild(rankEl('span', r.name, 'rank-name'));
+        li.appendChild(rankEl('span', String(r.score), 'rank-score'));
+        list.appendChild(li);
+      });
+    });
+  }
+  document.getElementById('btnRanking').addEventListener('click', function(e){
+    e.stopPropagation();
+    rankShowList(rankLevel);
+  });
+
   function startTempoUpSequence(lookIndex){
     stopBgm();
     state = 'trackswitch';
@@ -2445,6 +2580,7 @@
   }
   function beginRun(){
     resumeAudioCtx();
+    rankBeginSession(levelButtons.map(function(b){ return parseInt(b.dataset.bpm, 10); }).indexOf(startBPM) + 1);
     if (iosAudioUnlock){ iosAudioUnlock.currentTime = 0; iosAudioUnlock.play().catch(function(){}); }
     playSfx('start');
     stopGameoverBgm();
@@ -2823,6 +2959,7 @@
   });
 
   window.addEventListener('keydown', function(e){
+    if (!rankModal.hidden) return; // typing a nickname must not drive the game
     var k = e.key.toLowerCase();
     if (k==='z' || k==='arrowleft'){ if(!e.repeat){ e.preventDefault(); handleLane('L'); } }
     else if (k==='x' || k==='arrowright'){ if(!e.repeat){ e.preventDefault(); handleLane('R'); } }
