@@ -98,6 +98,16 @@
     display:block;
     font-size:20px;
   }
+  .preset-list{ display:flex; flex-direction:column; gap:6px; margin:0 0 12px; }
+  .preset-row{ display:flex; gap:6px; align-items:center; }
+  .modal-card .preset-row button{ padding:7px 10px; font-size:13px; }
+  .modal-card .preset-row button.current{ background:var(--accent); color:#1b1503; }
+  .preset-name{
+    flex:1; min-width:0; box-sizing:border-box; padding:7px 8px;
+    font-size:14px; color:var(--ink);
+    background:var(--bg-panel-2); border:1px solid var(--line); border-radius:5px;
+  }
+  .preset-ms{ width:5.2em; text-align:right; font-family:var(--font-mono); font-size:12.5px; color:var(--ink-dim); }
   .title-buttons{ display:flex; gap:8px; justify-content:center; flex-wrap:wrap; }
   .rank-list{ list-style:none; margin:0 0 14px; padding:0; text-align:left; font-size:14px; }
   .rank-list li{ display:flex; gap:8px; padding:4px 6px; border-bottom:1px solid var(--line); }
@@ -684,6 +694,7 @@
       <button id="audioAdjustReset" type="button">Reset</button>
       <button id="audioAdjustPlus1" type="button">+1ms</button>
     </div>
+    <div class="preset-list" id="audioPresetList"></div>
     <button id="audioAdjustClose" class="modal-close" type="button">Close</button>
   </div>
 </div>
@@ -2962,6 +2973,7 @@
 
   window.addEventListener('keydown', function(e){
     if (!rankModal.hidden) return; // typing a nickname must not drive the game
+    if (e.target && e.target.tagName === 'INPUT' && e.target.type === 'text') return;
     var k = e.key.toLowerCase();
     if (k==='z' || k==='arrowleft'){ if(!e.repeat){ e.preventDefault(); handleLane('L'); } }
     else if (k==='x' || k==='arrowright'){ if(!e.repeat){ e.preventDefault(); handleLane('R'); } }
@@ -3226,6 +3238,7 @@
   function updateAudioAdjustLabel(){
     audioAdjustValue.textContent = (AUDIO_OFFSET>=0?'+':'') + Math.round(AUDIO_OFFSET*1000) + 'ms';
     audioAdjustSlider.value = Math.round(AUDIO_OFFSET*1000);
+    if (typeof renderAudioPresets === 'function' && !(document.activeElement && document.activeElement.className === 'preset-name')) renderAudioPresets();
   }
   function setAudioOffset(v){
     AUDIO_OFFSET = Math.max(AUDIO_ADJUST_MIN, Math.min(AUDIO_ADJUST_MAX, v));
@@ -3235,6 +3248,42 @@
   audioAdjustSlider.addEventListener('input', function(){
     setAudioOffset(parseInt(audioAdjustSlider.value, 10) / 1000);
   });
+  // Three named slots (e.g. "Speaker", "Bluetooth") so the offset for each
+  // output device can be swapped in one tap. Stored as [{name, ms}|null x3].
+  var AUDIO_PRESETS_KEY = 'kuma-niramekko-audio-presets';
+  var AUDIO_PRESET_SLOTS = 3;
+  var audioPresets = [];
+  try{ audioPresets = JSON.parse(localStorage.getItem(AUDIO_PRESETS_KEY)) || []; }catch(e){}
+  if (!Array.isArray(audioPresets)) audioPresets = [];
+  audioPresets = audioPresets.slice(0, AUDIO_PRESET_SLOTS);
+  while (audioPresets.length < AUDIO_PRESET_SLOTS) audioPresets.push(null);
+  function renderAudioPresets(){
+    var list = document.getElementById('audioPresetList');
+    var focusedSlot = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.slot : null;
+    list.textContent = '';
+    var cur = Math.round(AUDIO_OFFSET*1000);
+    audioPresets.forEach(function(p, i){
+      var row = document.createElement('div'); row.className = 'preset-row';
+      var name = document.createElement('input');
+      name.type = 'text'; name.className = 'preset-name'; name.maxLength = 12;
+      name.placeholder = 'Name ' + (i + 1); name.value = p ? p.name : '';
+      name.dataset.slot = i;
+      var ms = document.createElement('span'); ms.className = 'preset-ms';
+      ms.textContent = p ? ((p.ms >= 0 ? '+' : '') + p.ms + 'ms') : '';
+      var save = document.createElement('button'); save.type = 'button'; save.textContent = 'Save';
+      save.addEventListener('click', function(){
+        audioPresets[i] = { name: name.value.trim() || ('Preset ' + (i + 1)), ms: Math.round(AUDIO_OFFSET*1000) };
+        try{ localStorage.setItem(AUDIO_PRESETS_KEY, JSON.stringify(audioPresets)); }catch(e){}
+        renderAudioPresets();
+      });
+      var load = document.createElement('button'); load.type = 'button'; load.textContent = 'Load';
+      load.disabled = !p;
+      if (p && p.ms === cur) load.className = 'current';
+      load.addEventListener('click', function(){ setAudioOffset(p.ms / 1000); });
+      row.appendChild(name); row.appendChild(ms); row.appendChild(save); row.appendChild(load);
+      list.appendChild(row);
+    });
+  }
   audioAdjustMinus1.addEventListener('click', function(){ setAudioOffset(AUDIO_OFFSET - 0.001); });
   audioAdjustPlus1.addEventListener('click', function(){ setAudioOffset(AUDIO_OFFSET + 0.001); });
   function stopTestClick(){
