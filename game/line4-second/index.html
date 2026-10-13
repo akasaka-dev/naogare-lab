@@ -499,6 +499,93 @@
     font-size: 0.8rem;
   }
 
+  /* ---- おまけ: post-clear slideshow (see openOmake()) ---- */
+  #omakeBtn.hidden { display: none; }
+  #omakeScreen {
+    position: fixed;
+    inset: 0;
+    z-index: 14;
+    background: #000;
+    overflow: hidden;
+    user-select: none;
+    touch-action: pan-y;
+  }
+  #omakeScreen.hidden { display: none; }
+  #omakeStage { position: absolute; inset: 0; }
+  .omake-slide {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    opacity: 0;
+    transition: opacity 1.2s ease;
+    pointer-events: none;
+  }
+  .omake-slide.show { opacity: 1; animation: omakeDrift 9s linear forwards; }
+  @keyframes omakeDrift { from { transform: scale(1); } to { transform: scale(1.05); } }
+  #omakeCaption {
+    position: absolute;
+    left: 0; right: 0;
+    bottom: calc(max(16px, env(safe-area-inset-bottom)) + 62px);
+    text-align: center;
+    color: #f6f1e7;
+    font-family: "Hiragino Mincho ProN", "Yu Mincho", YuMincho, "MS PMincho", serif;
+    font-size: 1.05rem;
+    letter-spacing: 0.08em;
+    text-shadow: 0 2px 10px rgba(0,0,0,0.95), 0 0 4px rgba(0,0,0,0.95);
+    pointer-events: none;
+  }
+  #omakeBackBtn {
+    position: absolute;
+    top: max(12px, env(safe-area-inset-top));
+    right: max(12px, env(safe-area-inset-right));
+    background: rgba(15, 23, 42, 0.72);
+    border: 1.5px solid rgba(148, 163, 184, 0.5);
+    color: rgba(255, 255, 255, 0.85);
+    border-radius: 999px;
+    padding: 7px 16px;
+    font-size: 0.85rem;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  #omakeControls {
+    position: absolute;
+    left: 50%;
+    bottom: max(16px, env(safe-area-inset-bottom));
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: rgba(15, 23, 42, 0.72);
+    border: 1.5px solid rgba(148, 163, 184, 0.4);
+    border-radius: 999px;
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 0.85rem;
+    max-width: calc(100vw - 24px);
+  }
+  #omakeControls button {
+    background: transparent;
+    border: 1.5px solid rgba(148, 163, 184, 0.5);
+    color: inherit;
+    border-radius: 50%;
+    width: 34px; height: 34px;
+    font-size: 0.95rem;
+    cursor: pointer;
+    padding: 0;
+  }
+  #omakeControls select {
+    background: #0f172a;
+    color: inherit;
+    border: 1.5px solid rgba(148, 163, 184, 0.5);
+    border-radius: 8px;
+    padding: 6px 8px;
+    font-size: 0.85rem;
+    font-family: inherit;
+    min-width: 0;
+  }
+
   /* ---- All-clear ending ---- */
   #endingScreen {
     position: fixed;
@@ -1002,6 +1089,7 @@
       <button class="mode-btn" id="pvpBtn"><span class="emoji">🧑‍🤝‍🧑</span><span id="pvpBtnLabel"></span></button>
       <button class="mode-btn" id="cpuBtn"><span class="emoji">🤖</span><span id="cpuBtnLabel"></span><br><span class="mode-btn-sub" id="cpuBtnSub"></span></button>
       <button class="mode-btn" id="onlineBtn"><span class="emoji">🌐</span><span id="onlineBtnLabel"></span><br><span class="mode-btn-sub" id="onlineBtnSub"></span></button>
+      <button class="mode-btn hidden" id="omakeBtn"><span class="emoji">🎁</span><span id="omakeBtnLabel"></span><br><span class="mode-btn-sub" id="omakeBtnSub"></span></button>
     </div>
     <button class="back-to-splash-btn" id="backToSplashBtn"></button>
     <p class="credit">
@@ -1117,6 +1205,21 @@
     </div>
   </div>
 
+  <!-- おまけ: unlocked by reaching the ending (in memory only - a reload locks
+       it again, by design). Slideshow of character art, the in-game story
+       image and the ending art, with a BGM picker. See openOmake(). -->
+  <div id="omakeScreen" class="hidden">
+    <div id="omakeStage"></div>
+    <div id="omakeCaption"></div>
+    <button id="omakeBackBtn" type="button"></button>
+    <div id="omakeControls">
+      <button id="omakePrevBtn" type="button" aria-label="前へ">◀</button>
+      <button id="omakePlayBtn" type="button" aria-label="一時停止/再生">⏸</button>
+      <button id="omakeNextBtn" type="button" aria-label="次へ">▶</button>
+      <select id="omakeBgmSelect" aria-label="BGM"></select>
+    </div>
+  </div>
+
   <!-- CPU ladder intro story (LV1 and LV6): click anywhere to advance line by
        line, then that stage's match begins. See maybeShowStory(). -->
   <div id="storyOverlay" class="hidden">
@@ -1200,6 +1303,7 @@
     const BGM_VOLUME = 0.35;
     const trackMissing = {};
     let currentTrackKey = null;
+    let endingLoop = false; // おまけ asks for the ending theme on repeat
 
     const bgmEl = document.getElementById('bgmAudio');
     bgmEl.volume = BGM_VOLUME;
@@ -1243,7 +1347,7 @@
           }
         };
         bgmEl.src = urlForKey(key);
-        bgmEl.loop = key !== 'ending'; // the ending theme plays once, not on repeat
+        bgmEl.loop = key !== 'ending' || endingLoop; // the ending theme plays once, except in おまけ
         if (bgmOn && unlocked) {
           bgmEl.volume = 0;
           bgmEl.play().then(() => fadeVolume(BGM_VOLUME, 500)).catch(() => {});
@@ -1292,6 +1396,10 @@
       },
       playTrack,
       playLevelTrack,
+      setEndingLoop(v) {
+        endingLoop = !!v;
+        if (currentTrackKey === 'ending') bgmEl.loop = endingLoop;
+      },
       stop() {
         fadeVolume(0, 250);
         setTimeout(() => bgmEl.pause(), 260);
@@ -1430,6 +1538,10 @@
     document.getElementById('storyHint').textContent = K('クリックして進む', 'クリックですすむ');
     document.getElementById('storySkipBtn').textContent = K('スキップ ≫', 'スキップ ≫');
     document.getElementById('pvpBtnLabel').textContent = K('対人戦（2〜3人）', 'たいじんせん（2〜3にん）');
+    document.getElementById('omakeBtnLabel').textContent = K('おまけ', 'おまけ');
+    document.getElementById('omakeBtnSub').textContent = K('クリア特典・スライドショー', 'クリアとくてん・スライドショー');
+    document.getElementById('omakeBackBtn').textContent = K('タイトルへ', 'タイトルへ');
+    renderOmakeBgmOptions();
     document.getElementById('cpuBtnLabel').textContent = K('CPU戦', 'CPUせん');
     document.getElementById('cpuBtnSub').textContent = K('LV1〜6・2体同時対戦', 'LV1〜6・2たいどうじたいせん');
     document.getElementById('onlineBtnLabel').textContent = K('オンライン対戦', 'オンラインたいせん');
@@ -3115,6 +3227,15 @@
       showEndingScreen();
     });
     actions.appendChild(endingBtn);
+    const omakeDebugBtn = document.createElement('button');
+    omakeDebugBtn.textContent = 'おまけ解放';
+    omakeDebugBtn.classList.add('secondary');
+    omakeDebugBtn.addEventListener('click', () => {
+      SoundMgr.seClick();
+      overlay.classList.add('hidden');
+      unlockOmake();
+    });
+    actions.appendChild(omakeDebugBtn);
 
     const cancelBtn = document.createElement('button');
     cancelBtn.textContent = 'キャンセル';
@@ -3209,6 +3330,155 @@
     hideBubble();
   }
 
+  // ---------- おまけ: post-clear slideshow ----------
+  // Unlocked by reaching the ending. The flag lives only in memory on purpose:
+  // reloading or closing the browser locks it again, so it's a per-session
+  // reward rather than saved progress.
+  let omakeUnlocked = false;
+  function unlockOmake() {
+    omakeUnlocked = true;
+    document.getElementById('omakeBtn').classList.remove('hidden');
+  }
+
+  const OMAKE_SLIDE_MS = 7000;
+  // [track key, label]; keys match SoundMgr.playTrack(). LV2/LV3 have no theme
+  // of their own (they use the shared battle track), so they aren't listed.
+  const OMAKE_BGMS = [
+    ['ending', () => K('エンディング', 'エンディング')],
+    ['title', () => K('タイトル', 'タイトル')],
+    ['game', () => K('通常戦闘', 'つうじょうせんとう')],
+    ['level:1', () => 'LV1'],
+    ['level:4', () => 'LV4'],
+    ['level:5', () => 'LV5'],
+    ['level:6', () => 'LV6'],
+    ['off', () => K('BGMなし', 'BGMなし')],
+  ];
+  let omake = null; // { slides, i, timer, playing } while the screen is open
+
+  function renderOmakeBgmOptions() {
+    const sel = document.getElementById('omakeBgmSelect');
+    const current = sel.value;
+    sel.innerHTML = '';
+    OMAKE_BGMS.forEach(([key, label]) => {
+      const o = document.createElement('option');
+      o.value = key;
+      o.textContent = `🎵 ${label()}`;
+      sel.appendChild(o);
+    });
+    if (current) sel.value = current;
+  }
+
+  // Title art, every character, the LV6 gate scene, then the ending art.
+  // ending.webp / ending2.webp are older ending artwork that no longer fits
+  // this story (see showEndingScreen), so they're deliberately left out.
+  function omakeSlides() {
+    const chars = [
+      STRIKER, DEALER, CHARACTERS.find(c => c.level === 3), IDOL, CHARACTERS.find(c => c.level === 5),
+      MARIONETTE_LV1_A, MARIONETTE_LV1_B, MARIONETTE_LV2_POOL[0], MARIONETTE_LV2_POOL[1],
+      GATEKEEPER_A, GATEKEEPER_B,
+    ].filter(Boolean);
+    return [
+      { src: 'title.webp', cap: () => K('黄昏のフォー・イン・ア・ロウ 地平の行方', 'たそがれのフォー・イン・ア・ロウ ちへいのゆくえ') },
+      ...chars.map(c => ({ src: c.img, cap: () => c.name })),
+      { src: 'story_lv6.webp', cap: () => K('塔の門', 'とうのもん') },
+      { src: 'ending_vista.webp', cap: () => K('エンディング', 'エンディング') },
+    ];
+  }
+
+  function omakeShow(index) {
+    if (!omake) return;
+    const n = omake.slides.length;
+    omake.i = ((index % n) + n) % n;
+    const slide = omake.slides[omake.i];
+    clearTimeout(omake.timer);
+    const stage = document.getElementById('omakeStage');
+    // A brand-new <img> per slide (not swapping .src on one element): same
+    // stale-pixel precaution as the story screen's freshStoryTextEl().
+    const img = document.createElement('img');
+    img.className = 'omake-slide';
+    img.alt = '';
+    img.draggable = false;
+    const myOmake = omake;
+    const reveal = () => {
+      if (omake !== myOmake) return;
+      stage.querySelectorAll('.omake-slide.show').forEach((old) => {
+        old.classList.remove('show');
+        setTimeout(() => old.remove(), 1400);
+      });
+      requestAnimationFrame(() => requestAnimationFrame(() => img.classList.add('show')));
+      document.getElementById('omakeCaption').textContent = slide.cap();
+      if (omake.playing) omake.timer = setTimeout(() => omakeShow(omake.i + 1), OMAKE_SLIDE_MS);
+      new Image().src = omake.slides[(omake.i + 1) % n].src; // warm the next one
+    };
+    img.onload = reveal;
+    img.onerror = () => { img.remove(); if (omake === myOmake) omake.timer = setTimeout(() => omakeShow(omake.i + 1), 300); };
+    img.src = slide.src;
+    stage.appendChild(img);
+  }
+
+  function omakeSetPlaying(v) {
+    if (!omake) return;
+    omake.playing = v;
+    document.getElementById('omakePlayBtn').textContent = v ? '⏸' : '▶';
+    clearTimeout(omake.timer);
+    if (v) omake.timer = setTimeout(() => omakeShow(omake.i + 1), OMAKE_SLIDE_MS);
+  }
+
+  function omakeApplyBgm(key) {
+    if (key === 'off') SoundMgr.stop();
+    else SoundMgr.playTrack(key, 'game');
+  }
+
+  function openOmake() {
+    if (omake) return;
+    omake = { slides: omakeSlides(), i: 0, timer: null, playing: true };
+    document.getElementById('omakeStage').innerHTML = '';
+    document.getElementById('omakePlayBtn').textContent = '⏸';
+    renderOmakeBgmOptions();
+    document.getElementById('omakeBgmSelect').value = 'ending';
+    SoundMgr.setEndingLoop(true);
+    omakeApplyBgm('ending');
+    document.getElementById('omakeScreen').classList.remove('hidden');
+    omakeShow(0);
+  }
+
+  function closeOmake() {
+    if (!omake) return;
+    clearTimeout(omake.timer);
+    omake = null;
+    document.getElementById('omakeScreen').classList.add('hidden');
+    document.getElementById('omakeStage').innerHTML = '';
+    SoundMgr.setEndingLoop(false);
+    SoundMgr.playTrack('title');
+  }
+
+  (function setupOmake() {
+    document.getElementById('omakeBtn').addEventListener('click', () => { SoundMgr.seClick(); openOmake(); });
+    document.getElementById('omakeBackBtn').addEventListener('click', () => { SoundMgr.seClick(); closeOmake(); });
+    document.getElementById('omakePrevBtn').addEventListener('click', () => { if (omake) omakeShow(omake.i - 1); });
+    document.getElementById('omakeNextBtn').addEventListener('click', () => { if (omake) omakeShow(omake.i + 1); });
+    document.getElementById('omakePlayBtn').addEventListener('click', () => { if (omake) omakeSetPlaying(!omake.playing); });
+    document.getElementById('omakeBgmSelect').addEventListener('change', (e) => omakeApplyBgm(e.target.value));
+    document.addEventListener('keydown', (e) => {
+      if (!omake || e.target.tagName === 'SELECT') return;
+      if (e.key === 'ArrowRight') omakeShow(omake.i + 1);
+      else if (e.key === 'ArrowLeft') omakeShow(omake.i - 1);
+      else if (e.key === ' ') { e.preventDefault(); omakeSetPlaying(!omake.playing); }
+      else if (e.key === 'Escape') closeOmake();
+    });
+    // Swipe left/right on the picture to step through slides.
+    const screenEl = document.getElementById('omakeScreen');
+    let downX = null;
+    screenEl.addEventListener('pointerdown', (e) => { if (e.target.closest('#omakeControls, #omakeBackBtn')) return; downX = e.clientX; });
+    screenEl.addEventListener('pointerup', (e) => {
+      if (downX === null || !omake) { downX = null; return; }
+      const dx = e.clientX - downX;
+      downX = null;
+      if (Math.abs(dx) > 50) omakeShow(omake.i + (dx < 0 ? 1 : -1));
+    });
+    screenEl.addEventListener('pointercancel', () => { downX = null; });
+  })();
+
   // ---------- All-clear ending: narration crawl over ending2.webp ----------
   // Kanji/kana pairs, one entry per crawl paragraph — '\n' is an intentional
   // line break *within* a paragraph (rendered via CSS white-space:pre-line),
@@ -3291,6 +3561,7 @@
   }
 
   function showEndingScreen() {
+    unlockOmake(); // clearing the game (or the debug menu's ending) unlocks おまけ
     SoundMgr.stop(); // the previous track (e.g. LV5's battle theme) would
                       // otherwise just keep looping until ending.mp3 kicks in
     const el = document.getElementById('endingScreen');
