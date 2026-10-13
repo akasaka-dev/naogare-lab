@@ -3603,7 +3603,12 @@
       // Hit_Knockback_RM can actually play out; the run only actually ends
       // (state='gameover') once HP runs out — see the 'knockback' branch
       // below for where that's decided, once the reaction finishes.
-      if (handBone && playerHitBone && !dodged){
+      // Only a live swing (telegraph/lunge) can connect. Distance alone is not
+      // enough: the bear's idle/run pose already keeps the hand within the
+      // (size-scaled) hit radius at point-blank — measured on the 2x LV5 bear:
+      // idle hand 3.32-3.38 vs radius 3.4 — which landed hits with no attack
+      // motion at all.
+      if (attacking && handBone && playerHitBone && !dodged){
         handBone.getWorldPosition(handWorldPos);
         playerHitBone.getWorldPosition(playerWorldPos);
         // The hand's distance from the player at its closest scales with
