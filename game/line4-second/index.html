@@ -3368,7 +3368,8 @@
     if (current) sel.value = current;
   }
 
-  // Title art, every character, the LV6 gate scene, then the ending art.
+  // Title art, every character, the LV6 gate scene, the ending art, then the
+  // omake-only illustrations.
   // ending.webp / ending2.webp are older ending artwork that no longer fits
   // this story (see showEndingScreen), so they're deliberately left out.
   function omakeSlides() {
@@ -3382,6 +3383,10 @@
       ...chars.map(c => ({ src: c.img, cap: () => c.name })),
       { src: 'story_lv6.webp', cap: () => K('塔の門', 'とうのもん') },
       { src: 'ending_vista.webp', cap: () => K('エンディング', 'エンディング') },
+      // Art made just for おまけ (omake/ folder) — saved for the end as the finale.
+      { src: 'omake/castle.webp', cap: () => K('黄昏の城塞', 'たそがれのじょうさい') },
+      { src: 'omake/ruined_tower_friends.webp', cap: () => K('黄昏の廃塔と眠れる仲間たち', 'たそがれのはいとうとねむれるなかまたち') },
+      { src: 'omake/ruined_tower_friends2.webp', cap: () => K('黄昏の廃塔と眠れる仲間たち', 'たそがれのはいとうとねむれるなかまたち') },
     ];
   }
 
@@ -3399,10 +3404,17 @@
     img.alt = '';
     img.draggable = false;
     const myOmake = omake;
+    // Only the most recently requested slide may ever be revealed: with quick
+    // next/prev presses a slower-loading earlier image could otherwise finish
+    // after a newer one and pop up with the wrong picture/caption, and
+    // abandoned never-shown <img>s would pile up in the DOM.
+    stage.querySelectorAll('.omake-slide:not(.show):not(.leaving)').forEach((el) => el.remove());
+    omake.cur = img;
     const reveal = () => {
-      if (omake !== myOmake) return;
+      if (omake !== myOmake || omake.cur !== img) { img.remove(); return; }
       stage.querySelectorAll('.omake-slide.show').forEach((old) => {
         old.classList.remove('show');
+        old.classList.add('leaving'); // fading out; removed below once the fade is done
         setTimeout(() => old.remove(), 1400);
       });
       requestAnimationFrame(() => requestAnimationFrame(() => img.classList.add('show')));
@@ -3411,7 +3423,10 @@
       new Image().src = omake.slides[(omake.i + 1) % n].src; // warm the next one
     };
     img.onload = reveal;
-    img.onerror = () => { img.remove(); if (omake === myOmake) omake.timer = setTimeout(() => omakeShow(omake.i + 1), 300); };
+    img.onerror = () => {
+      img.remove();
+      if (omake === myOmake && omake.cur === img) omake.timer = setTimeout(() => omakeShow(omake.i + 1), 300);
+    };
     img.src = slide.src;
     stage.appendChild(img);
   }
