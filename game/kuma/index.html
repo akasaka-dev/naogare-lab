@@ -866,6 +866,12 @@
   // window tighter (see hitWindow's own BPM-scaled clamp), so scoring more
   // at higher tempo is a genuine risk/reward trade, not a free multiplier.
   var SCORE_BASE_BPM = 92;
+  // Points scale with BPM (harder = faster) — except in the sage phase, where
+  // slower is harder: it continues from the trigger tempo's factor and grows
+  // as the BPM falls, so the final stage never pays less than the one before.
+  function scoreBpmFactor(){
+    return sagePhase ? (SAGE_TRIGGER_BPM/SCORE_BASE_BPM) * (SAGE_START_BPM/BPM) : BPM/SCORE_BASE_BPM;
+  }
   var SCORE_HIT_BASE = 50, SCORE_PASS_BONUS = 300;
   // Score multiplier from the unbroken run of on-beat hits (hitStreak): +0.5
   // for every COMBO_TIER_HITS hits, capped at COMBO_SCORE_MAX. Distinct from
@@ -982,6 +988,16 @@
   // left alone (still the slider's own floor) for the future SuperHard
   // mode, which is expected to deliberately start below this floor.
   var BPM_PENALTY_FLOOR = 80;
+  // The sage phase (SuperHard): reached by starting at LEVEL1 and climbing to
+  // SAGE_TRIGGER_BPM. The sage's slow track then takes over at SAGE_START_BPM
+  // and every PASS makes the tempo *slower* (harder — see the U-shape note
+  // above) instead of faster; a bear hit's relief pushes it back up toward
+  // SAGE_START_BPM instead of down toward 80.
+  var SAGE_TRIGGER_BPM = 200, SAGE_START_BPM = 76;
+  var sagePhase = false;
+  function tempoRelief(){
+    return sagePhase ? Math.min(SAGE_START_BPM, BPM + 10) : Math.max(BPM_PENALTY_FLOOR, BPM - 10);
+  }
   // The one place BPM is allowed to change, full stop — the slider and the
   // green-streak tempo-up reward (frame()'s 'playing' block) both go
   // through this now. Splitting "change the BPM variable" from "update the
@@ -1136,6 +1152,10 @@
     asobiba: { file: 'サイコーのあそびば.mp3', nativeBpm: 105, offset: 1.0 },
     oikakko: { file: 'くまさんと鬼ごっこ.mp3', nativeBpm: 125, offset: 1.0 },
     doro: { file: '泥を蹴散らせ.mp3', nativeBpm: 150, offset: 1.0 },
+    // 雪舞う峠の誓い.mp3 — the sage's slow track (SuperHard). First sound at
+    // exactly 1.00s like the others. Stated tempo 76 (an automatic tempo scan
+    // of this ballad was inconclusive: weak percussion, ~75 BPM candidates).
+    sage: { file: '雪舞う峠の誓い.mp3', nativeBpm: 76, offset: 1.0 },
     tempo120: { file: 'tempo120.mp3', nativeBpm: 120, offset: 0 }
   };
   // Each tier's BPM threshold is the track's own native tempo, so
@@ -1149,6 +1169,7 @@
     { minBpm: 100, key: 'asobiba' }
   ];
   function autoTrackForBpm(bpm){
+    if (sagePhase) return 'sage'; // the sage's track plays regardless of BPM once it has arrived
     for (var i=0;i<BGM_AUTO_TIERS.length;i++){
       if (bpm >= BGM_AUTO_TIERS[i].minBpm) return BGM_AUTO_TIERS[i].key;
     }
@@ -1206,7 +1227,7 @@
       // still 'playing' too (the 'knockback' assignment right after it is
       // what would otherwise race this), and a Victory pose playing while
       // getting hit would be exactly backwards.
-      var isUpgrade = t.nativeBpm > BGM_NATIVE_BPM;
+      var isUpgrade = t.nativeBpm > BGM_NATIVE_BPM || key === 'sage'; // the sage's entrance gets the full tempo-up sequence
       bgmBuffer = decoded;
       BGM_NATIVE_BPM = t.nativeBpm;
       BGM_BEAT_OFFSET = t.offset;
@@ -1273,7 +1294,7 @@
   loadBgmTrack(autoTrackForBpm(BPM));
   // tempo120 is only the Audio Adjust click track — it loads in the
   // background after the title appears (and on demand if needed sooner).
-  Object.keys(BGM_TRACKS).forEach(function(key){ if (key !== 'tempo120') preloadBgmTrack(key); });
+  Object.keys(BGM_TRACKS).forEach(function(key){ if (key !== 'tempo120' && key !== 'sage') preloadBgmTrack(key); });
 
   // One-shot sound effects — same fetch+decodeAudioData+cache approach as
   // the BGM tracks above, but played fire-and-forget through a fresh
@@ -2034,8 +2055,21 @@
     {rig:'normal', tint:0xffffff, eye:COLOR_ACCENT, scale:1},
     {rig:'lv3',    tint:0xffffff, eye:0xff3b2a, scale:1.25},
     {rig:'normal', tint:0x3a2e2e, eye:0xff1a4a, scale:1.5},
-    {rig:'lv5',    tint:0xffffff, eye:0xb44cff, scale:2}
+    {rig:'lv5',    tint:0xffffff, eye:0xb44cff, scale:2},
+    // The sage (planned LEVEL5 / SuperHard boss). Loaded on demand (K key for
+    // now) from SAGE_FILE rather than at startup. Short limbs: its attack is a
+    // flying charge (SAGE_* below), not a swing judged by the hand bone.
+    {rig:'sage',  tint:0xffffff, eye:0x7fd0ff, scale:0.5}
   ];
+  var SAGE_FILE = 'sage-kuma.glb', SAGE_LOOK = 4;
+  var SAGE_RUNUP = 4;        // backs away this far during the telegraph
+  var SAGE_END_Z = 9;        // charge ends past the camera (camera is at z=+4.6)
+  var SAGE_HIT_Z = -1.0;     // bear reaching this z (local to player) while charging connects
+  var SAGE_CROSS_T = 0.46;   // seconds into the charge when it reaches SAGE_HIT_Z (dodge target)
+  var SAGE_BACKFLIP_DIST = 6, SAGE_HOP = 4;
+  var SAGE_DROP_Y = 9, SAGE_DROP_T = 0.45, SAGE_RETURN_DUR = 1.4;
+  var sageReturnT = 0, sageStartZ = 0;
+  function isSageRig(){ return !!(activeBearRig && activeBearRig.sage); }
   var bearLookIndex = 0;
   // The bear's current on-screen scale: the base size times its LEVEL's
   // multiplier (BEAR_LOOKS' scale). Everything that re-sets the model's
@@ -2055,6 +2089,7 @@
     animState = null;
     setAnimState('idle');
     if (headBone) scene.attach(eyeGroup); // reparent, keeping its current world position
+    eyeGroup.visible = !rig.sage; // the eye spheres are fitted to the standard bear's head
   }
   function applyBearLook(index){
     bearLookIndex = Math.max(0, Math.min(BEAR_LOOKS.length-1, index));
@@ -2075,7 +2110,17 @@
   }
   // Which bear look each BGM track (tempo tier) shows — the look the bear
   // changes to when the tempo-up crosses into that tier mid-run.
-  var BEAR_LOOK_FOR_TRACK = {kuma:0, asobiba:1, oikakko:2, doro:3};
+  var BEAR_LOOK_FOR_TRACK = {kuma:0, asobiba:1, oikakko:2, doro:3, sage:4};
+  function startedAtLevel1(){ return startBPM === parseInt(levelButtons[0].dataset.bpm, 10); }
+  // 200 BPM reached from a LEVEL1 start: the tempo-up sequence plays (via the
+  // track change to the sage's slow track, see loadBgmTrack's apply()), the
+  // sage drops in and blasts the warrior away (startSageEntrance), and the
+  // run continues at SAGE_START_BPM.
+  function enterSagePhase(){
+    sagePhase = true;
+    setBPM(SAGE_START_BPM); // auto mode: autoTrackForBpm now answers 'sage'
+    if (currentTrackKey !== 'sage') loadBgmTrack('sage'); // a forced track doesn't follow BPM
+  }
   // Cut-in shown after the celebration pose when the bear changes: set
   // (to the new look's index) when the tempo-up crosses a tier, played by
   // startBearCutin() once the pose finishes.
@@ -2090,7 +2135,7 @@
   });
   function showLevelLogo(n){
     levelLogoEl.classList.remove('pop', 'beat', 'out');
-    levelLogoEl.src = 'levellogo/LV' + n + '.webp';
+    levelLogoEl.src = n === 5 ? 'levellogo/SuperHard.webp' : 'levellogo/LV' + n + '.webp';
     void levelLogoEl.offsetWidth; // reflow so the animation restarts
     levelLogoEl.classList.add('pop');
   }
@@ -2228,12 +2273,15 @@
     if (lookIndex !== null) showLevelLogo(lookIndex + 1);
   }
   var CUTIN_DURATION = 2.4, CUTIN_FOV = 38;
+  var cutinDur = CUTIN_DURATION;
+  var SAGE_ENTRY_DUR = 3.8, SAGE_BLAST_VIEW_T = 0.9;
   var cutinT = null, cutinCamActive = false;
   var cutinBarTop = document.getElementById('cutinBarTop');
   var cutinBarBottom = document.getElementById('cutinBarBottom');
   var cutinHead = new THREE.Vector3(), cutinTarget = new THREE.Vector3();
   var cutinFwd = new THREE.Vector3(), cutinRight = new THREE.Vector3(), cutinPos = new THREE.Vector3();
   function clearBearCutin(){
+    finishSageEntrance();
     cutinT = null; cutinCamActive = false; pendingBearLook = null;
     cutinBarTop.classList.remove('on'); cutinBarBottom.classList.remove('on');
     levelLogoEl.classList.remove('pop', 'beat', 'out');
@@ -2249,6 +2297,12 @@
     hideLevelLogo();
     cutinBarTop.classList.add('on'); cutinBarBottom.classList.add('on');
     stageWrap.classList.add('cutin');
+    cutinDur = CUTIN_DURATION;
+    if (pendingBearLook === SAGE_LOOK && bearRigs.sage && activeBearRig !== bearRigs.sage){
+      cutinDur = SAGE_ENTRY_DUR;
+      startSageEntrance(); // the landing (updateSageEntrance) switches the bear and the camera
+      return;
+    }
     lightningSwapBear(pendingBearLook, function(){
       cutinCamActive = true;
       setAnimState('threat');
@@ -2299,7 +2353,71 @@
     playThunder(soft ? 0.35 : 0.1);
     if (!soft){ sp.fovKick.vel += 30; sp.camBounce.vel -= 3; }
   }
-  function buildBearRig(gltf){
+  // The sage falls onto the current bear (the warrior) from above with
+  // Land_Three_Point; the impact whites the screen out and blasts the warrior
+  // away (it tumbles off backwards), then the camera cuts to the sage.
+  var sageEntr = null;
+  function startSageEntrance(){
+    var sg = bearRigs.sage, wr = activeBearRig;
+    sg.model.visible = true;
+    sg.model.scale.setScalar(ENEMY_MODEL_SCALE * BEAR_LOOKS[SAGE_LOOK].scale);
+    sg.model.position.set(0, SAGE_DROP_Y, 0);
+    if (sg.actions.sprint) sg.actions.sprint.reset().play(); // Flying_Forward reads as falling
+    sageEntr = {t:0, landed:false, landT:0, sg:sg, wr:wr, vy:0, vz:0, wrRot:wr.model.rotation.clone()};
+  }
+  function updateSageEntrance(dt){
+    var e = sageEntr;
+    e.t += dt;
+    if (!e.landed){
+      e.sg.mixer.update(dt);
+      var p = Math.min(1, e.t/SAGE_DROP_T);
+      e.sg.model.position.y = SAGE_DROP_Y * (1 - p*p);
+      if (e.t >= SAGE_DROP_T){
+        e.landed = true; e.landT = e.t;
+        e.sg.model.position.y = 0;
+        if (e.sg.actions.sprint) e.sg.actions.sprint.stop();
+        applyBearLook(SAGE_LOOK); // the sage becomes the active bear
+        e.wr.model.visible = true; // ...but the warrior stays on screen while it is blasted away
+        setAnimState('land');
+        e.camT = e.t + SAGE_BLAST_VIEW_T; // a wide view of the blast first, then the camera cuts to the sage
+        lightningEl.classList.remove('flash', 'soft');
+        void lightningEl.offsetWidth;
+        lightningEl.classList.add(reducedMotion ? 'soft' : 'flash');
+        playThunder(0.02);
+        if (!reducedMotion){ sp.fovKick.vel += 30; sp.camBounce.vel -= 3; }
+        e.vx = (Math.random() < 0.5 ? -1 : 1) * 9; e.vy = 18; e.vz = -26;
+      }
+    } else {
+      var wm = e.wr.model;
+      if (!cutinCamActive && e.t >= e.camT){
+        cutinCamActive = true;
+        if (!reducedMotion) sp.fovKick.vel += 20;
+      }
+      e.vy -= 30 * dt;
+      wm.position.x += e.vx * dt;
+      wm.position.y += e.vy * dt;
+      wm.position.z += e.vz * dt;
+      wm.rotation.x -= 10 * dt;
+      wm.rotation.z += e.vx * 0.5 * dt;
+      if (e.t - e.landT > 1.4) finishSageEntrance();
+    }
+  }
+  function finishSageEntrance(){
+    var e = sageEntr;
+    if (!e) return;
+    sageEntr = null;
+    if (e.landed){
+      e.wr.model.visible = false;
+      e.wr.model.position.set(0, 0, 0);
+      e.wr.model.rotation.copy(e.wrRot);
+      e.sg.model.position.set(0, 0, 0);
+    }
+  }
+  var STD_CLIPS = [['idle',['Fighting_Idle']],['run',['Walk']],['threat',['Sword_Attack','Sword_Attack_RM']],['sprint',['Sprint']],['closing',['Run_Anime']]];
+  // Sage: folded arms while it backs off, Flying_Forward for the charge,
+  // Backflip when it connects, Land_Three_Point when it re-enters after a miss.
+  var SAGE_CLIPS = [['idle',['Fighting_Idle']],['run',['Walk']],['threat',['Idle_FoldArms']],['sprint',['Flying_Forward']],['closing',['Run_Anime']],['bounce',['Backflip']],['land',['Land_Three_Point']]];
+  function buildBearRig(gltf, clipMap){
     var model = gltf.scene;
     model.scale.setScalar(enemyScale);
     model.rotation.y = MODEL_FRONT_Z > 0 ? 0 : Math.PI;
@@ -2311,17 +2429,21 @@
       handBone: model.getObjectByName('hand_r'),
       rootBone: model.getObjectByName('root'),
       mixer: new THREE.AnimationMixer(model),
-      actions: {}
+      actions: {},
+      sage: !!clipMap
     };
     // Each state may list alternative clip names: the LV5 model's attack
     // clip is exported as Sword_Attack_RM (root-motion variant) — the root
     // bone is re-zeroed every frame anyway, so it plays the same here.
-    [['idle',['Fighting_Idle']],['run',['Walk']],['threat',['Sword_Attack','Sword_Attack_RM']],['sprint',['Sprint']],['closing',['Run_Anime']]].forEach(function(pair){
+    (clipMap || STD_CLIPS).forEach(function(pair){
       var clip = null;
       for (var i=0;i<pair[1].length && !clip;i++) clip = findClip(gltf.animations, pair[1][i]);
       if (clip){
         var action = rig.mixer.clipAction(clip);
-        action.setLoop(THREE.LoopRepeat);
+        if (pair[0] === 'bounce' || pair[0] === 'land'){
+          action.setLoop(THREE.LoopOnce); action.clampWhenFinished = true;
+          if (pair[0] === 'bounce') action.timeScale = 1.6; // 2.5s clip fits the knockback + get-up
+        } else action.setLoop(THREE.LoopRepeat);
         rig.actions[pair[0]] = action;
       }
     });
@@ -2333,6 +2455,21 @@
     applyBearLook(bearLookIndex);
     markPreloaded();
   }, undefined, onModelError);
+  var sageLoading = false;
+  function loadSage(onReady){
+    if (bearRigs.sage){ onReady(); return; }
+    if (sageLoading) return;
+    sageLoading = true;
+    new THREE.GLTFLoader().load(SAGE_FILE, function(gltf){
+      bearRigs.sage = buildBearRig(gltf, SAGE_CLIPS);
+      onReady();
+    }, undefined, function(e){ sageLoading = false; if (window.console) console.error(e); });
+  }
+  function toggleSage(){
+    if (state !== 'title' && state !== 'playing') return;
+    if (isSageRig()){ applyBearLook(0); return; }
+    loadSage(function(){ applyBearLook(SAGE_LOOK); });
+  }
   // Not required to play — if one fails to load, that LEVEL just keeps
   // showing the standard bear (see applyBearLook()).
   Object.keys(BEAR_MODEL_FILES).forEach(function(key){
@@ -2504,6 +2641,7 @@
     beatDur = 60/BPM; nextBeatTime = beatDur; beatOpen = false; beatHit = false;
     currentLane = 'L'; beatParity = false;
     lungeState = 'idle'; lungeTimer = 0; nextLungeAt = 1.2 + Math.random()*1.2;
+    sageReturnT = 0; bear.position.y = 0; sagePhase = false;
     dodged = false; dodgeAttempted = false; dodgeTimer = 0;
     if (bearModel) bearModel.scale.x = enemyScale;
     if (playerModel) playerModel.scale.x = PLAYER_MODEL_SCALE;
@@ -2609,6 +2747,14 @@
     // so BPM always starts at whichever LEVEL button was last picked on the
     // title card, regardless of where the auto tempo-up (or a manual
     // slider drag) left it during the previous attempt.
+    sagePhase = false;
+    // Only a LEVEL1 start can reach the sage: warm its model/track/logo up in
+    // the background now so the entrance is ready minutes later.
+    if (startedAtLevel1()){
+      loadSage(function(){});
+      preloadBgmTrack('sage', true);
+      new Image().src = 'levellogo/SuperHard.webp';
+    }
     setBPM(startBPM);
     applyBearLook(levelButtons.map(function(b){ return parseInt(b.dataset.bpm, 10); }).indexOf(startBPM));
     resetGame();
@@ -2737,7 +2883,7 @@
       // having actually happened, not the crouch animation playing over a
       // mushroom that just sits there unchanged.
       poisonKinokoSpawnD = null;
-      setBPM(Math.max(BPM_PENALTY_FLOOR, BPM - 10));
+      setBPM(tempoRelief());
       flashRecover('warn');
       playSfx('poisonEating');
     } else if (inRange){
@@ -2841,7 +2987,7 @@
       var prevMult = comboMultiplier();
       hitStreak += 1;
       var scoreMult = comboMultiplier();
-      var hitScoreGain = Math.round(SCORE_HIT_BASE * (BPM/SCORE_BASE_BPM) * scoreMult);
+      var hitScoreGain = Math.round(SCORE_HIT_BASE * scoreBpmFactor() * scoreMult);
       score += hitScoreGain;
       showScorePopup(hitScoreGain);
       if (scoreMult > prevMult) pulseComboTier();
@@ -2855,7 +3001,9 @@
         if (greenStreak >= GREEN_STREAK_TARGET){
           greenStreak = 0;
           passLanded = true;
-          setBPM(Math.min(BPM_MAX, BPM + 2));
+          if (sagePhase) setBPM(Math.max(BPM_MIN, BPM - 2));
+          else if (startedAtLevel1() && Math.min(BPM_MAX, BPM + 2) >= SAGE_TRIGGER_BPM) enterSagePhase();
+          else setBPM(Math.min(BPM_MAX, BPM + 2));
           playSfx('levelup');
           // A bonus chunk of real distance on top of the steady per-hit
           // trickle above, rewarding a clean streak instead of being the
@@ -2881,7 +3029,7 @@
           // perceptible payoff (the bear reappearing that far back already
           // reads as a clean "left behind", not a jarring warp).
           gap = Math.min(PASS_GAP_MAX, gap + WORLD_SCROLL_PER_PASS * (GAP_MAX/PLAYER_RETREAT_RANGE));
-          var passScoreGain = Math.round(SCORE_PASS_BONUS * (BPM/SCORE_BASE_BPM) * scoreMult);
+          var passScoreGain = Math.round(SCORE_PASS_BONUS * scoreBpmFactor() * scoreMult);
           score += passScoreGain;
           showScorePopup(passScoreGain, 'PASS ');
         }
@@ -2987,6 +3135,7 @@
     else if (k==='x' || k==='arrowright'){ if(!e.repeat){ e.preventDefault(); handleLane('R'); } }
     else if (k==='c'){ if(!e.repeat){ e.preventDefault(); handleDodge(); } }
     else if (k==='v'){ if(!e.repeat){ e.preventDefault(); handleRecover(); } }
+    else if (k==='k'){ if(!e.repeat) toggleSage(); }
     else if (k==='d'){ if(!e.repeat){ debugMapOn = !debugMapOn; debugMapCanvas.hidden = !debugMapOn; } }
     // Debug-only: plays the tempo-up sequence (pose, fanfare, then the bear
     // cut-in cycling to the next stage look) without needing to play
@@ -3627,12 +3776,13 @@
         // right" anyway.
         attackSide = Math.random() < 0.5 ? 'L' : 'R';
         dodged = false; dodgeAttempted = false;
-        if (bearModel) bearModel.scale.x = (attackSide === 'R' ? -1 : 1) * enemyScale;
+        if (bearModel) bearModel.scale.x = (isSageRig() ? 1 : (attackSide === 'R' ? -1 : 1)) * enemyScale;
+        sageStartZ = bear.position.z;
         // Measured empirically: the Sword_Attack clip's own swing brings the
         // hand closest to the player around the midpoint of the telegraph
         // phase, not during the lunge that follows (lunge plays a Sprint
         // clip, not another swing) — so that's what the dodge window targets.
-        lungeImpactAt = elapsed + TELEGRAPH_DUR/2;
+        lungeImpactAt = elapsed + (isSageRig() ? TELEGRAPH_DUR + SAGE_CROSS_T : TELEGRAPH_DUR/2);
       } else if (lungeState==='telegraph'){
         lungeTimer -= dt;
         if (lungeTimer<=0){ lungeState='lunge'; lungeTimer=0.9; }
@@ -3652,6 +3802,14 @@
           // t-equivalent distance — same as the original bear-only formula.
           gap = Math.max(0, Math.min(GAP_MAX, ((bear.position.z - Z_NEAR)/(Z_FAR-Z_NEAR)) * GAP_MAX));
           if (bearModel) bearModel.scale.x = enemyScale;
+          if (isSageRig()){
+            // The charge ended without connecting: it re-enters from above at
+            // point-blank with Land_Three_Point (see sageReturnT below).
+            bear.position.set(0, SAGE_DROP_Y, Z_NEAR);
+            gap = 0;
+            sageReturnT = SAGE_RETURN_DUR;
+            nextLungeAt = elapsed + SAGE_RETURN_DUR + 0.6;
+          }
         }
       }
       var dodgeWindowOpen = (lungeState==='telegraph' || lungeState==='lunge') && Math.abs(elapsed - lungeImpactAt) <= DODGE_GOOD_WINDOW/2;
@@ -3663,7 +3821,20 @@
         // keeping your distance beforehand does. No dash: the proximity gate
         // above only lets an attack start when the bear is already close
         // (t<0.05), so it just squares up and swings from where it's standing.
-        bear.position.x += (0 - bear.position.x) * (1 - Math.pow(0.0005, dt));
+        if (isSageRig()){
+          if (lungeState === 'telegraph'){
+            var su = 1 - lungeTimer/TELEGRAPH_DUR;
+            bear.position.z = sageStartZ - SAGE_RUNUP * (1 - Math.pow(1 - su, 2)); // backs off to take a run-up
+            bear.position.x += (0 - bear.position.x) * (1 - Math.pow(0.0005, dt));
+          } else {
+            var cu = Math.max(0, 1 - lungeTimer/0.9);
+            var runZ = sageStartZ - SAGE_RUNUP;
+            bear.position.z = runZ + (SAGE_END_Z - runZ) * Math.pow(cu, 1.6);
+            // A dodged charge flies past on the side the player stepped away from.
+            var sageX = dodged ? (attackSide === 'L' ? 3.5 : -3.5) : 0;
+            bear.position.x += (sageX - bear.position.x) * (1 - Math.pow(0.002, dt));
+          }
+        } else bear.position.x += (0 - bear.position.x) * (1 - Math.pow(0.0005, dt));
       } else {
         gap = Math.max(0, gap - WALK_SPEED*dt);
         bear.position.x += (0 - bear.position.x) * (1 - Math.pow(0.002, dt));
@@ -3684,8 +3855,13 @@
         // Between chained point-blank swings there's nowhere left to close,
         // so standing there mid-"run" read as pointless jogging in place —
         // idle (still facing/ready) instead, until the next telegraph fires.
+        if (sageReturnT > 0){
+          sageReturnT -= dt;
+          var rp = Math.min(1, (SAGE_RETURN_DUR - sageReturnT)/SAGE_DROP_T);
+          bear.position.y = SAGE_DROP_Y * (1 - rp*rp);
+        } else if (bear.position.y !== 0) bear.position.y = 0;
         var wantAnim = attacking ? (lungeState==='telegraph' ? 'threat' : 'sprint')
-          : (t < CLOSE_RANGE_T ? 'idle' : (missReactionTimer > 0 ? 'closing' : 'run'));
+          : (sageReturnT > 0 ? 'land' : (t < CLOSE_RANGE_T ? 'idle' : (missReactionTimer > 0 ? 'closing' : 'run')));
         setAnimState(wantAnim);
         mixer.update(dt);
         if (rootBone) rootBone.position.set(0,0,0);
@@ -3700,20 +3876,27 @@
       // (size-scaled) hit radius at point-blank — measured on the 2x LV5 bear:
       // idle hand 3.32-3.38 vs radius 3.4 — which landed hits with no attack
       // motion at all.
-      if (attacking && handBone && playerHitBone && !dodged){
-        handBone.getWorldPosition(handWorldPos);
-        playerHitBone.getWorldPosition(playerWorldPos);
+      var sageCharge = isSageRig();
+      if (attacking && !dodged && (sageCharge || (handBone && playerHitBone))){
+        if (!sageCharge){
+          handBone.getWorldPosition(handWorldPos);
+          playerHitBone.getWorldPosition(playerWorldPos);
+        }
         // The hand's distance from the player at its closest scales with
         // the bear's own size (measured: the 2x LV5 bear never came closer
         // than ~3.2, against ~1.75 at 1x — a fixed radius meant its swings
         // could never connect), so the radius scales with it too.
-        if (handWorldPos.distanceTo(playerWorldPos) < HIT_RADIUS * (enemyScale / ENEMY_MODEL_SCALE)){
+        // The sage connects when its charge reaches the player (it has no
+        // reach to measure from a hand); everything else uses the hand bone.
+        if (sageCharge ? (lungeState === 'lunge' && bear.position.z >= SAGE_HIT_Z)
+                       : (handWorldPos.distanceTo(playerWorldPos) < HIT_RADIUS * (enemyScale / ENEMY_MODEL_SCALE))){
           hp = Math.max(0, hp - 1); updateHpDisplay(); resetHitStreak();
-          setBPM(Math.max(BPM_PENALTY_FLOOR, BPM - 10));
+          setBPM(tempoRelief());
           playSfx('hit');
           state = 'knockback'; reactionTimer = knockbackDuration; lastReason = 'You lost...';
           dyingStartD = playerD;
           dyingStartBearLocalZ = bear.position.z;
+          if (sageCharge) setAnimState('bounce');
           // A hit only ever lands while the bear is already at point-blank
           // (t < CLOSE_RANGE_T) — left alone, gap is still pinned there
           // through the whole knockback/gettingup/lead-in (all three freeze
@@ -3776,7 +3959,11 @@
       var knockPush = KNOCKBACK_DISTANCE * (1 - Math.pow(1-knockT, 3));
       playerD = dyingStartD + knockPush;
       bear.position.z = dyingStartBearLocalZ - knockPush;
-      if (mixer) mixer.update(0);
+      if (isSageRig()){
+        bear.position.z -= SAGE_BACKFLIP_DIST * (1 - Math.pow(1 - knockT, 2));
+        bear.position.y = SAGE_HOP * Math.sin(Math.PI * knockT);
+      }
+      if (mixer) mixer.update(isSageRig() ? dt : 0);
       if (rootBone) rootBone.position.set(0,0,0);
       if (reactionTimer <= 0){
         if (hp <= 0){
@@ -3804,7 +3991,7 @@
       // Bear stays frozen through the get-up too — same breather as the
       // knockback itself, continuing into the "3,2,1" lead-in that follows
       // (handled inside 'playing' now — see leadInBeats there).
-      if (mixer) mixer.update(0);
+      if (mixer) mixer.update(isSageRig() ? dt : 0);
       if (rootBone) rootBone.position.set(0,0,0);
       if (reactionTimer <= 0){
         if (playerGetUpAction) playerGetUpAction.stop();
@@ -3833,12 +4020,13 @@
       // set at the flash's peak), then plays its threat clip while the
       // camera holds on it.
       cutinT += dt;
-      if (mixer) mixer.update(cutinCamActive ? dt : 0);
+      if (sageEntr) updateSageEntrance(dt);
+      if (mixer) mixer.update((cutinCamActive || (sageEntr && sageEntr.landed)) ? dt : 0);
       if (rootBone) rootBone.position.set(0,0,0);
-      if (cutinT >= CUTIN_DURATION - 0.3){
+      if (cutinT >= cutinDur - 0.3){
         cutinBarTop.classList.remove('on'); cutinBarBottom.classList.remove('on');
       }
-      if (cutinT >= CUTIN_DURATION) endBearCutin();
+      if (cutinT >= cutinDur) endBearCutin();
     } else {
       bear.position.x = Math.sin(time*0.25)*0.45;
       bear.position.z = Z_NEAR + t*(Z_FAR-Z_NEAR); // local to `player` — keeps bear-to-player distance identical to the old bear-only formula
