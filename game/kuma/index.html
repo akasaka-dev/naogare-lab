@@ -3136,6 +3136,11 @@
     else if (k==='c'){ if(!e.repeat){ e.preventDefault(); handleDodge(); } }
     else if (k==='v'){ if(!e.repeat){ e.preventDefault(); handleRecover(); } }
     else if (k==='k'){ if(!e.repeat) toggleSage(); }
+    // Debug-only: enters the real sage phase (tempo-up sequence, sage entrance,
+    // slow track at SAGE_START_BPM) without climbing to SAGE_TRIGGER_BPM.
+    else if (k==='l'){ if(!e.repeat && state === 'playing' && !sagePhase && playerVictoryAction){
+      loadSage(function(){ if (state === 'playing' && !sagePhase) enterSagePhase(); });
+    } }
     else if (k==='d'){ if(!e.repeat){ debugMapOn = !debugMapOn; debugMapCanvas.hidden = !debugMapOn; } }
     // Debug-only: plays the tempo-up sequence (pose, fanfare, then the bear
     // cut-in cycling to the next stage look) without needing to play
