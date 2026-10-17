@@ -993,7 +993,7 @@
   // and every PASS makes the tempo *slower* (harder — see the U-shape note
   // above) instead of faster; a bear hit's relief pushes it back up toward
   // SAGE_START_BPM instead of down toward 80.
-  var SAGE_TRIGGER_BPM = 200, SAGE_START_BPM = 76;
+  var SAGE_TRIGGER_BPM = 200, SAGE_START_BPM = 75;
   var sagePhase = false;
   function tempoRelief(){
     return sagePhase ? Math.min(SAGE_START_BPM, BPM + 10) : Math.max(BPM_PENALTY_FLOOR, BPM - 10);
@@ -1153,9 +1153,10 @@
     oikakko: { file: 'くまさんと鬼ごっこ.mp3', nativeBpm: 125, offset: 1.0 },
     doro: { file: '泥を蹴散らせ.mp3', nativeBpm: 150, offset: 1.0 },
     // 雪舞う峠の誓い.mp3 — the sage's slow track (SuperHard). First sound at
-    // exactly 1.00s like the others. Stated tempo 76 (an automatic tempo scan
-    // of this ballad was inconclusive: weak percussion, ~75 BPM candidates).
-    sage: { file: '雪舞う峠の誓い.mp3', nativeBpm: 76, offset: 1.0 },
+    // exactly 1.00s like the others. Tempo 75 (confirmed by the author; it was
+    // first stated as 76, and an automatic scan of this ballad, with its weak
+    // percussion, pointed at ~75).
+    sage: { file: '雪舞う峠の誓い.mp3', nativeBpm: 75, offset: 1.0 },
     tempo120: { file: 'tempo120.mp3', nativeBpm: 120, offset: 0 }
   };
   // Each tier's BPM threshold is the track's own native tempo, so
