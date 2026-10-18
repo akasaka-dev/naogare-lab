@@ -169,6 +169,21 @@
     15%{ transform:translate(-50%,-50%) scale(1); }
     100%{ opacity:0; transform:translate(-50%,-75%) scale(1); }
   }
+  .hud-hint{
+    position:absolute; left:0; right:0; top:26%;
+    text-align:center; pointer-events:none;
+    font-family:var(--font-display); font-size:38px; letter-spacing:0.04em;
+    color:var(--accent); text-shadow:0 3px 8px rgba(0,0,0,0.85);
+    opacity:0;
+  }
+  .hud-hint.show{ animation:hintShow 4.8s ease-out forwards; }
+  @keyframes hintShow{
+    0%{ opacity:0; transform:scale(0.7); }
+    8%{ opacity:1; transform:scale(1.12); }
+    14%{ transform:scale(1); }
+    80%{ opacity:1; }
+    100%{ opacity:0; }
+  }
   .hud-hp{
     position:absolute; left:10px; top:40px;
     display:flex; gap:6px;
@@ -575,6 +590,7 @@
       <div class="hud-combo" id="comboLabel"><span id="comboCount">0</span> COMBO<span class="combo-mult" id="comboMult">x1.0</span></div>
       <div class="score-popup-anchor" id="scorePopupAnchor"></div>
       <div class="hud-countdown" id="countdownLabel"></div>
+      <div class="hud-hint" id="sageHint">🎧 Listen!</div>
     </div>
     <canvas id="debugMap" width="220" height="320" hidden></canvas>
     <!-- Silent, plays once per run start (see beginRun()) purely so a real
@@ -726,6 +742,7 @@
   var comboMultEl = document.getElementById('comboMult');
   var scorePopupAnchor = document.getElementById('scorePopupAnchor');
   var countdownLabel = document.getElementById('countdownLabel');
+  var sageHintEl = document.getElementById('sageHint');
   var debugMapCanvas = document.getElementById('debugMap');
   var debugMapCtx = debugMapCanvas.getContext('2d');
   var debugMapOn = false;
@@ -2067,6 +2084,9 @@
   var SAGE_BACKFLIP_DIST = 6, SAGE_HOP = 4;
   var SAGE_DROP_Y = 9, SAGE_DROP_T = 0.45, SAGE_RETURN_DUR = 1.4;
   var sageReturnT = 0, sageStartZ = 0;
+  // After a miss, when there is still distance to cover, the sage sometimes
+  // closes it with a double-speed Sword_Dash_RM instead of the usual run.
+  var sageDashT = 0, SAGE_DASH_DUR = 0.9, SAGE_DASH_CHANCE = 0.45, SAGE_DASH_MIN_T = 0.25, SAGE_DASH_SPEED = 2.2;
   function isSageRig(){ return !!(activeBearRig && activeBearRig.sage); }
   var bearLookIndex = 0;
   // The bear's current on-screen scale: the base size times its LEVEL's
@@ -2308,6 +2328,11 @@
   }
   function endBearCutin(){
     clearBearCutin();
+    if (sagePhase){
+      // The sage stage has no yellow guide lights on the lane buttons — say so
+      // up front so it doesn't read as a bug.
+      sageHintEl.classList.remove('show'); void sageHintEl.offsetWidth; sageHintEl.classList.add('show');
+    }
     state = 'playing';
     startLeadIn(true);
   }
@@ -2414,7 +2439,7 @@
   var STD_CLIPS = [['idle',['Fighting_Idle']],['run',['Walk']],['threat',['Sword_Attack','Sword_Attack_RM']],['sprint',['Sprint']],['closing',['Run_Anime']]];
   // Sage: folded arms while it backs off, Flying_Forward for the charge,
   // Backflip when it connects, Land_Three_Point when it re-enters after a miss.
-  var SAGE_CLIPS = [['idle',['Fighting_Idle']],['run',['Walk']],['threat',['Idle_FoldArms']],['sprint',['Flying_Forward']],['closing',['Run_Anime']],['bounce',['Backflip']],['land',['Land_Three_Point']]];
+  var SAGE_CLIPS = [['idle',['Fighting_Idle']],['run',['Walk']],['threat',['Idle_FoldArms']],['sprint',['Flying_Forward']],['closing',['Run_Anime']],['bounce',['Backflip']],['land',['Land_Three_Point']],['sdash',['Sword_Dash_RM']]];
   function buildBearRig(gltf, clipMap){
     var model = gltf.scene;
     model.scale.setScalar(enemyScale);
@@ -2441,7 +2466,10 @@
         if (pair[0] === 'bounce' || pair[0] === 'land'){
           action.setLoop(THREE.LoopOnce); action.clampWhenFinished = true;
           if (pair[0] === 'bounce') action.timeScale = 1.6; // 2.5s clip fits the knockback + get-up
-        } else action.setLoop(THREE.LoopRepeat);
+        } else {
+          action.setLoop(THREE.LoopRepeat);
+          if (pair[0] === 'sdash') action.timeScale = 2; // 1.58s clip -> ~0.8s dash
+        }
         rig.actions[pair[0]] = action;
       }
     });
@@ -2639,7 +2667,8 @@
     beatDur = 60/BPM; nextBeatTime = beatDur; beatOpen = false; beatHit = false;
     currentLane = 'L'; beatParity = false;
     lungeState = 'idle'; lungeTimer = 0; nextLungeAt = 1.2 + Math.random()*1.2;
-    sageReturnT = 0; bear.position.y = 0; sagePhase = false;
+    sageReturnT = 0; bear.position.y = 0; sagePhase = false; sageDashT = 0;
+    sageHintEl.classList.remove('show');
     dodged = false; dodgeAttempted = false; dodgeTimer = 0;
     if (bearModel) bearModel.scale.x = enemyScale;
     if (playerModel) playerModel.scale.x = PLAYER_MODEL_SCALE;
@@ -2936,6 +2965,7 @@
     combo = 1; greenStreak = 0; resetHitStreak();
     var missPenalty = MISS_PENALTY_BASE + MISS_PENALTY_SCALE * (gap/GAP_MAX);
     gap = Math.max(0, gap - missPenalty);
+    if (isSageRig() && lungeState === 'idle' && gap/GAP_MAX > SAGE_DASH_MIN_T && Math.random() < SAGE_DASH_CHANCE) sageDashT = SAGE_DASH_DUR;
     missReactionTimer = 0.55; // brief Run_Anime surge so the sudden jump forward reads as a lunge, not a teleport
     sp.fovKick.vel += 34;
     ['camSway','camRoll','camBounce'].forEach(function(k){ sp[k].vel += (Math.random()*2-1)*3.2; });
@@ -3746,10 +3776,10 @@
         }
       }
       var laneActive = leadInBeats <= 0;
-      btnL.classList.toggle('beat-active', laneActive && beatOpen && currentLane==='L');
-      btnR.classList.toggle('beat-active', laneActive && beatOpen && currentLane==='R');
-      laneEls.L.forEach(function(el){ if (el!==btnL) el.classList.toggle('beat-active', laneActive && beatOpen && currentLane==='L'); });
-      laneEls.R.forEach(function(el){ if (el!==btnR) el.classList.toggle('beat-active', laneActive && beatOpen && currentLane==='R'); });
+      btnL.classList.toggle('beat-active', laneActive && !sagePhase && beatOpen && currentLane==='L');
+      btnR.classList.toggle('beat-active', laneActive && !sagePhase && beatOpen && currentLane==='R');
+      laneEls.L.forEach(function(el){ if (el!==btnL) el.classList.toggle('beat-active', laneActive && !sagePhase && beatOpen && currentLane==='L'); });
+      laneEls.R.forEach(function(el){ if (el!==btnR) el.classList.toggle('beat-active', laneActive && !sagePhase && beatOpen && currentLane==='R'); });
 
       gapFill.style.width = (t*100).toFixed(1)+'%';
       gapFill.style.backgroundColor = t<0.25 ? 'var(--danger)' : (t>0.75 ? 'var(--safe)' : 'var(--accent)');
@@ -3851,20 +3881,21 @@
         // player.add(bear) near player's own declaration): this alone is
         // "the bear-to-player distance", not a second world-space formula.
         var bearTargetZ = Z_NEAR + t*(Z_FAR-Z_NEAR);
-        bear.position.z += (bearTargetZ - bear.position.z) * (1 - Math.pow(0.0006, dt));
+        bear.position.z += (bearTargetZ - bear.position.z) * (1 - Math.pow(0.0006, dt * (sageDashT > 0 ? SAGE_DASH_SPEED : 1)));
       }
 
       if (mixer){
         // Between chained point-blank swings there's nowhere left to close,
         // so standing there mid-"run" read as pointless jogging in place —
         // idle (still facing/ready) instead, until the next telegraph fires.
+        if (sageDashT > 0){ sageDashT -= dt; if (t < CLOSE_RANGE_T) sageDashT = 0; }
         if (sageReturnT > 0){
           sageReturnT -= dt;
           var rp = Math.min(1, (SAGE_RETURN_DUR - sageReturnT)/SAGE_DROP_T);
           bear.position.y = SAGE_DROP_Y * (1 - rp*rp);
         } else if (bear.position.y !== 0) bear.position.y = 0;
         var wantAnim = attacking ? (lungeState==='telegraph' ? 'threat' : 'sprint')
-          : (sageReturnT > 0 ? 'land' : (t < CLOSE_RANGE_T ? 'idle' : (missReactionTimer > 0 ? 'closing' : 'run')));
+          : (sageReturnT > 0 ? 'land' : (t < CLOSE_RANGE_T ? 'idle' : (sageDashT > 0 ? 'sdash' : (missReactionTimer > 0 ? 'closing' : 'run'))));
         setAnimState(wantAnim);
         mixer.update(dt);
         if (rootBone) rootBone.position.set(0,0,0);
