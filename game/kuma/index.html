@@ -1362,6 +1362,16 @@
     src.start();
   }
   Object.keys(SFX_FILES).forEach(preloadSfx);
+  // Sounds that only the sage phase needs: loaded in the background (see
+  // loadSage), not counted by the title screen's preload gate.
+  function loadSfxLater(key, file){
+    if (sfxBufferCache[key] || !audioCtx) return;
+    fetch(file)
+      .then(function(r){ return r.arrayBuffer(); })
+      .then(function(buf){ return audioCtx.decodeAudioData(buf); })
+      .then(function(decoded){ sfxBufferCache[key] = decoded; })
+      .catch(function(e){ if (window.console) console.error(e); });
+  }
 
   // Gameover ambient BGM — plain looped playback through the same bgmGain
   // (so the BGM mute toggle still covers it), with no tempo sync of any
@@ -2508,6 +2518,7 @@
   }, undefined, onModelError);
   var sageLoading = false;
   function loadSage(onReady){
+    loadSfxLater('jet', 'sound/jet.mp3'); // the charge's whoosh
     if (bearRigs.sage){ onReady(); return; }
     if (sageLoading) return;
     sageLoading = true;
@@ -3838,6 +3849,7 @@
         dodged = false; dodgeAttempted = false;
         if (bearModel) bearModel.scale.x = (isSageRig() ? 1 : (attackSide === 'R' ? -1 : 1)) * enemyScale;
         sageStartZ = bear.position.z;
+        if (isSageRig()) playSfx('jet'); // peak lands as the charge reaches the player
         // Measured empirically: the Sword_Attack clip's own swing brings the
         // hand closest to the player around the midpoint of the telegraph
         // phase, not during the lunge that follows (lunge plays a Sprint
