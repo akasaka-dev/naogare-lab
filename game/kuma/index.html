@@ -295,7 +295,8 @@
     color:#a1620a; letter-spacing:0.08em;
   }
 
-  .level-select{display:flex; gap:8px; justify-content:center; flex-wrap:wrap;}
+  .level-select{display:flex; flex-direction:column; align-items:center; gap:10px;}
+  .level-row{display:flex; gap:8px; justify-content:center; flex-wrap:wrap;}
   .level-select button{
     font-family:var(--font-body);
     font-weight:700;
@@ -311,7 +312,9 @@
     -webkit-user-select:none;
     transition:background .08s,box-shadow .08s,color .08s;
   }
-  .level-select button.selected{
+  .level-select button:active{ background:var(--accent); color:#1b1503; }
+  .level-select button.level-start{
+    font-size:20px; letter-spacing:0.08em; padding:12px 56px;
     background:var(--accent); color:#1b1503;
     box-shadow:0 0 0 2px var(--accent-dim);
   }
@@ -589,16 +592,17 @@
     <div class="overlay-card" id="cardTitle">
       <img class="title-logo" id="titleLogo" src="title.webp" alt="Boy meets Kuma">
       <div class="level-select" id="levelSelect">
-        <button type="button" data-bpm="80">LEVEL1</button>
-        <button type="button" data-bpm="100">LEVEL2</button>
-        <button type="button" data-bpm="120">LEVEL3</button>
-        <button type="button" data-bpm="150">LEVEL4</button>
+        <button type="button" class="level-start" data-bpm="80">Start</button>
+        <div class="level-row">
+          <button type="button" data-bpm="100">LEVEL2</button>
+          <button type="button" data-bpm="120">LEVEL3</button>
+          <button type="button" data-bpm="150">LEVEL4</button>
+        </div>
       </div>
       <div class="title-buttons">
         <button id="btnRanking" type="button">Ranking</button>
         <button id="btnAudioAdjust" type="button">Audio Adjust</button>
       </div>
-      <div class="cta">Click or Tap to Start</div>
     </div>
     <div class="overlay-card" id="cardOver">
       <img class="title-logo" id="overReason" src="gameover.webp" alt="You lost...">
@@ -1044,24 +1048,17 @@
   // a "start over at LEVEL2" pick should actually mean that, every time.
   var levelButtons = Array.prototype.slice.call(document.querySelectorAll('#levelSelect button'));
   var startBPM = parseInt(levelButtons[0].dataset.bpm, 10);
-  function updateLevelSelectUI(){
-    levelButtons.forEach(function(btn){
-      btn.classList.toggle('selected', parseInt(btn.dataset.bpm, 10) === startBPM);
-    });
-  }
   levelButtons.forEach(function(btn){
-    // stopPropagation: #levelSelect lives inside #cardTitle, itself inside
-    // #stageWrap — which has its own click listener (stageActivate) that
-    // begins the run on any click at all. Without this, picking a level
-    // would immediately start the game on whatever BPM the *previous*
-    // selection left behind, one click before the player meant to start.
+    // The title's only way to start: Start is LEVEL1, the others are
+    // LEVEL2-4. stopPropagation keeps the click from also reaching
+    // #stageWrap's stageActivate.
     btn.addEventListener('click', function(e){
       e.stopPropagation();
+      if (state !== 'title') return;
       startBPM = parseInt(btn.dataset.bpm, 10);
-      updateLevelSelectUI();
+      beginRun(); cardTitle.classList.remove('visible'); cardOver.classList.remove('visible');
     });
   });
-  updateLevelSelectUI();
   var HIT_WINDOW = 0.15; // seconds of tolerance either side of the beat, clamped tighter at high BPM below
   // A metronome click used to fire here too (one per beat, via Web Audio
   // for low/consistent start latency) as an audible timing cue. Removed —
@@ -2945,7 +2942,7 @@
     flashLane(lane, 'miss');
   }
   function handleLane(lane){
-    if (state === 'title'){ beginRun(); cardTitle.classList.remove('visible'); cardOver.classList.remove('visible'); return; }
+    if (state === 'title') return; // the title starts only from its level buttons
     if (state === 'gameover'){
       if (performance.now() - gameoverEnteredAt < GAMEOVER_INPUT_DELAY) return;
       state='title'; resetGame(); stopGameoverBgm(); cardOver.classList.remove('visible'); cardTitle.classList.add('visible'); playDropIn(titleLogo); return;
@@ -3080,7 +3077,7 @@
   }
 
   function stageActivate(){
-    if (state === 'title'){ beginRun(); cardTitle.classList.remove('visible'); cardOver.classList.remove('visible'); }
+    if (state === 'title'){ /* the title starts only from its level buttons */ }
     else if (state === 'gameover'){
       if (performance.now() - gameoverEnteredAt < GAMEOVER_INPUT_DELAY) return;
       state='title'; resetGame(); stopGameoverBgm(); cardOver.classList.remove('visible'); cardTitle.classList.add('visible'); playDropIn(titleLogo);
