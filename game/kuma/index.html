@@ -561,6 +561,7 @@
     letter-spacing:0.04em;
   }
   .bpm-control input[type="range"]{width:90px;accent-color:var(--accent);}
+  .bpm-control input:disabled, .bpm-control select:disabled{ opacity:0.4; cursor:not-allowed; }
   .bpm-control #bpmValue{color:var(--ink);font-weight:700;min-width:2.2em;display:inline-block;}
   .bpm-control select{
     font-family:var(--font-body);
@@ -675,11 +676,12 @@
       <label for="bgmTrackSelect">BGM</label>
       <select id="bgmTrackSelect">
         <option value="auto">自動(BPM追従)</option>
-        <option value="kuma">くまさん</option>
-        <option value="asobiba">サイコーのあそびば</option>
-        <option value="oikakko">鬼ごっこ</option>
-        <option value="doro">泥を蹴散らせ</option>
-        <option value="tempo120">tempo120(debug)</option>
+        <option value="kuma">まってよくまさん (71)</option>
+        <option value="asobiba">サイコーのあそびば (105)</option>
+        <option value="oikakko">くまさんと鬼ごっこ (125)</option>
+        <option value="doro">泥を蹴散らせ (150)</option>
+        <option value="sage">雪舞う峠の誓い (75)</option>
+        <option value="tempo120">tempo120 (click track)</option>
       </select>
     </div>
     <div class="touch-buttons">
@@ -750,6 +752,17 @@
   var debugMapCanvas = document.getElementById('debugMap');
   var debugMapCtx = debugMapCanvas.getContext('2d');
   var debugMapOn = false;
+  // Debug mode (D key): shows the top-down debug map and unlocks the BPM
+  // slider and the BGM track select, which are locked during normal play
+  // (the tempo is driven by the LEVEL / PASS system, and the BGM follows it).
+  var debugMode = false;
+  function setDebugMode(on){
+    debugMode = on;
+    debugMapOn = on;
+    debugMapCanvas.hidden = !on;
+    bpmRange.disabled = !on;
+    bgmTrackSelect.disabled = !on;
+  }
   var cardPreload = document.getElementById('cardPreload');
   var preloadBarFill = document.getElementById('preloadBarFill');
   var preloadPercent = document.getElementById('preloadPercent');
@@ -1053,6 +1066,7 @@
     setBPM(parseInt(bpmRange.value, 10) || 92);
   });
   var bgmTrackSelect = document.getElementById('bgmTrackSelect');
+  setDebugMode(false); // locked until D is pressed
   bgmTrackSelect.addEventListener('change', function(){
     var v = bgmTrackSelect.value;
     if (v === 'auto'){
@@ -1246,7 +1260,7 @@
       // still 'playing' too (the 'knockback' assignment right after it is
       // what would otherwise race this), and a Victory pose playing while
       // getting hit would be exactly backwards.
-      var isUpgrade = t.nativeBpm > BGM_NATIVE_BPM || key === 'sage'; // the sage's entrance gets the full tempo-up sequence
+      var isUpgrade = t.nativeBpm > BGM_NATIVE_BPM || (key === 'sage' && sagePhase); // the sage's entrance (only) gets the full tempo-up sequence
       bgmBuffer = decoded;
       BGM_NATIVE_BPM = t.nativeBpm;
       BGM_BEAT_OFFSET = t.offset;
@@ -3179,7 +3193,7 @@
     else if (k==='l'){ if(!e.repeat && state === 'playing' && !sagePhase && playerVictoryAction){
       loadSage(function(){ if (state === 'playing' && !sagePhase) enterSagePhase(); });
     } }
-    else if (k==='d'){ if(!e.repeat){ debugMapOn = !debugMapOn; debugMapCanvas.hidden = !debugMapOn; } }
+    else if (k==='d'){ if(!e.repeat) setDebugMode(!debugMode); }
     // Debug-only: plays the tempo-up sequence (pose, fanfare, then the bear
     // cut-in cycling to the next stage look) without needing to play
     // through to a real tier crossing. While running it takes over like the
