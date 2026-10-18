@@ -169,20 +169,26 @@
     15%{ transform:translate(-50%,-50%) scale(1); }
     100%{ opacity:0; transform:translate(-50%,-75%) scale(1); }
   }
-  .hud-hint{
-    position:absolute; left:0; right:0; top:26%;
-    text-align:center; pointer-events:none;
-    font-family:var(--font-display); font-size:38px; letter-spacing:0.04em;
-    color:var(--accent); text-shadow:0 3px 8px rgba(0,0,0,0.85);
-    opacity:0;
+  /* The sage stage has no yellow guide lights: right after its entrance, the
+     yellow on the Left/Right buttons drains away downwards. */
+  .drain-out{
+    position:relative; overflow:hidden; isolation:isolate;
+    animation:drainBtn 1.7s ease-in 0.7s both;
   }
-  .hud-hint.show{ animation:hintShow 4.8s ease-out forwards; }
-  @keyframes hintShow{
-    0%{ opacity:0; transform:scale(0.7); }
-    8%{ opacity:1; transform:scale(1.12); }
-    14%{ transform:scale(1); }
-    80%{ opacity:1; }
-    100%{ opacity:0; }
+  .drain-out::before{
+    content:''; position:absolute; left:0; right:0; top:0; height:100%; z-index:-1;
+    background:var(--accent);
+    border-radius:0 0 50% 50% / 0 0 45% 45%;
+    animation:drainFill 1.7s cubic-bezier(.55,0,.85,.5) 0.7s both;
+  }
+  @keyframes drainFill{
+    0%{ transform:translateY(0); }
+    100%{ transform:translateY(112%); }
+  }
+  @keyframes drainBtn{
+    0%{ color:#1b1503; box-shadow:0 0 0 2px var(--accent-dim), 0 0 12px 2px rgba(242,183,5,0.7); }
+    55%{ color:#1b1503; }
+    100%{ color:var(--ink); box-shadow:0 0 0 0 rgba(242,183,5,0); }
   }
   .hud-hp{
     position:absolute; left:10px; top:40px;
@@ -590,7 +596,6 @@
       <div class="hud-combo" id="comboLabel"><span id="comboCount">0</span> COMBO<span class="combo-mult" id="comboMult">x1.0</span></div>
       <div class="score-popup-anchor" id="scorePopupAnchor"></div>
       <div class="hud-countdown" id="countdownLabel"></div>
-      <div class="hud-hint" id="sageHint">🎧 Listen!</div>
     </div>
     <canvas id="debugMap" width="220" height="320" hidden></canvas>
     <!-- Silent, plays once per run start (see beginRun()) purely so a real
@@ -742,7 +747,6 @@
   var comboMultEl = document.getElementById('comboMult');
   var scorePopupAnchor = document.getElementById('scorePopupAnchor');
   var countdownLabel = document.getElementById('countdownLabel');
-  var sageHintEl = document.getElementById('sageHint');
   var debugMapCanvas = document.getElementById('debugMap');
   var debugMapCtx = debugMapCanvas.getContext('2d');
   var debugMapOn = false;
@@ -2326,13 +2330,19 @@
       setAnimState('threat');
     });
   }
+  var guideDrainTimer = null;
+  function clearGuideDrain(){
+    clearTimeout(guideDrainTimer);
+    laneEls.L.concat(laneEls.R).forEach(function(el){ el.classList.remove('drain-out'); });
+  }
+  function drainGuideLights(){
+    clearGuideDrain();
+    laneEls.L.concat(laneEls.R).forEach(function(el){ void el.offsetWidth; el.classList.add('drain-out'); });
+    guideDrainTimer = setTimeout(clearGuideDrain, 3600);
+  }
   function endBearCutin(){
     clearBearCutin();
-    if (sagePhase){
-      // The sage stage has no yellow guide lights on the lane buttons — say so
-      // up front so it doesn't read as a bug.
-      sageHintEl.classList.remove('show'); void sageHintEl.offsetWidth; sageHintEl.classList.add('show');
-    }
+    if (sagePhase) drainGuideLights(); // the sage stage has no guide lights — show them going
     state = 'playing';
     startLeadIn(true);
   }
@@ -2668,7 +2678,7 @@
     currentLane = 'L'; beatParity = false;
     lungeState = 'idle'; lungeTimer = 0; nextLungeAt = 1.2 + Math.random()*1.2;
     sageReturnT = 0; bear.position.y = 0; sagePhase = false; sageDashT = 0;
-    sageHintEl.classList.remove('show');
+    clearGuideDrain();
     dodged = false; dodgeAttempted = false; dodgeTimer = 0;
     if (bearModel) bearModel.scale.x = enemyScale;
     if (playerModel) playerModel.scale.x = PLAYER_MODEL_SCALE;
