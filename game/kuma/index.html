@@ -316,6 +316,24 @@
     color:#a1620a; letter-spacing:0.08em;
   }
 
+  /* Tutorial shown after a LEVEL button is pressed: fades in over the title,
+     a click/tap (or Enter/Space/Z/X) fades it out and starts the run. */
+  .tutorial-card{
+    position:absolute; inset:0; z-index:8;
+    display:flex; align-items:center; justify-content:center;
+    background:#161d12; cursor:pointer;
+    opacity:0; pointer-events:none;
+    transition:opacity 0.7s ease;
+  }
+  .tutorial-card.visible{ opacity:1; pointer-events:auto; }
+  .tutorial-card img{ width:100%; height:100%; object-fit:contain; display:block; }
+  .tutorial-card .tutorial-cta{
+    position:absolute; left:0; right:0; bottom:10px; text-align:center;
+    font-size:12.5px; font-weight:700; letter-spacing:0.08em;
+    color:#fff; text-shadow:0 1px 4px rgba(0,0,0,0.9);
+    animation:tutorialBlink 1.4s ease-in-out infinite;
+  }
+  @keyframes tutorialBlink{ 0%,100%{ opacity:0.35; } 50%{ opacity:1; } }
   .level-select{display:flex; flex-direction:column; align-items:center; gap:10px;}
   .level-row{display:flex; gap:8px; justify-content:center; flex-wrap:wrap;}
   .level-select button{
@@ -626,6 +644,10 @@
         <button id="btnAudioAdjust" type="button">Audio Adjust</button>
       </div>
     </div>
+    <div class="tutorial-card" id="cardTutorial">
+      <img id="tutorialImg" src="tutorial.webp" alt="Tutorial" draggable="false">
+      <div class="tutorial-cta">Click or Tap</div>
+    </div>
     <div class="overlay-card" id="cardOver">
       <img class="title-logo" id="overReason" src="gameover.webp" alt="You lost...">
       <p id="overStats">Survival Time 0.0s</p>
@@ -773,6 +795,7 @@
   var overReason = document.getElementById('overReason');
   var titleLogo = document.getElementById('titleLogo');
   var cardPaused = document.getElementById('cardPaused');
+  var cardTutorial = document.getElementById('cardTutorial');
   var iosAudioUnlock = document.getElementById('iosAudioUnlock');
   var pausedLogo = document.getElementById('pausedLogo');
   var btnPauseToTitle = document.getElementById('btnPauseToTitle');
@@ -1090,11 +1113,28 @@
     // #stageWrap's stageActivate.
     btn.addEventListener('click', function(e){
       e.stopPropagation();
-      if (state !== 'title') return;
+      if (state !== 'title' || tutorialOpen) return;
       startBPM = parseInt(btn.dataset.bpm, 10);
-      beginRun(); cardTitle.classList.remove('visible'); cardOver.classList.remove('visible');
+      resumeAudioCtx(); // this click is the user gesture that unlocks audio
+      openTutorial();
     });
   });
+  // The tutorial image fades in over the title; a click/tap (or a key) fades
+  // it out and starts the run at the chosen LEVEL. Ignored for a moment after
+  // it opens so the opening click can't dismiss it.
+  var tutorialOpen = false, tutorialOpenedAt = 0;
+  function openTutorial(){
+    tutorialOpen = true;
+    tutorialOpenedAt = performance.now();
+    cardTutorial.classList.add('visible');
+  }
+  function closeTutorial(){
+    if (!tutorialOpen || performance.now() - tutorialOpenedAt < 400) return;
+    tutorialOpen = false;
+    cardTutorial.classList.remove('visible');
+    beginRun(); cardTitle.classList.remove('visible'); cardOver.classList.remove('visible');
+  }
+  cardTutorial.addEventListener('click', function(e){ e.stopPropagation(); closeTutorial(); });
   var HIT_WINDOW = 0.15; // seconds of tolerance either side of the beat, clamped tighter at high BPM below
   // A metronome click used to fire here too (one per beat, via Web Audio
   // for low/consistent start latency) as an audible timing cue. Removed —
@@ -3193,6 +3233,11 @@
 
   window.addEventListener('keydown', function(e){
     if (!rankModal.hidden) return; // typing a nickname must not drive the game
+    if (tutorialOpen){
+      var tk = e.key.toLowerCase();
+      if (tk === 'enter' || tk === ' ' || tk === 'z' || tk === 'x'){ e.preventDefault(); closeTutorial(); }
+      return;
+    }
     if (e.target && e.target.tagName === 'INPUT' && e.target.type === 'text') return;
     var k = e.key.toLowerCase();
     if (k==='z' || k==='arrowleft'){ if(!e.repeat){ e.preventDefault(); handleLane('L'); } }
