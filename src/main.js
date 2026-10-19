@@ -745,6 +745,26 @@ function fireFireworkSalvo(camera) {
   });
 }
 
+// Hidden manual salvo — triple-press F (within FIREWORK_TRIPLE_WINDOW_MS)
+// fires one salvo outside the real-clock window, without exposing a plain
+// one-press key. Same gate as the scheduled show: only with ?time=1 (or
+// ?play=1, which bundles it).
+const FIREWORK_TRIPLE_WINDOW_MS = 600;
+let fireworkKeyPresses = [];
+window.addEventListener('keydown', (event) => {
+  if (!fireworks || event.code !== 'KeyF' || event.repeat) return;
+  const t = event.target;
+  const tag = t && t.tagName;
+  if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || (t && t.isContentEditable)) return;
+  const now = performance.now();
+  fireworkKeyPresses = fireworkKeyPresses.filter((ts) => now - ts < FIREWORK_TRIPLE_WINDOW_MS);
+  fireworkKeyPresses.push(now);
+  if (fireworkKeyPresses.length >= 3) {
+    fireworkKeyPresses = [];
+    fireFireworkSalvo(camera);
+  }
+});
+
 // ---------------------------------------------------------------------------
 //  Head Particle Trail V1 — opt-in via ?headParticles=1. The accepted
 //  traveler effect: the head is the ONLY emitter, particles own their own
