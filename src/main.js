@@ -796,8 +796,14 @@ const trailLyricsEnabled = headParticlesEnabled && queryFlag('trailLyrics');
 //  six-preset / seeded-scheduler design.
 // ---------------------------------------------------------------------------
 const autoDirectorEnabled = headParticlesEnabled && queryFlag('autoDirector');
-const autoDirector = autoDirectorEnabled ? new AutoDirector({ seed: 1234 }) : null;
+// Fresh seed every page load so each viewing gets a different shot
+// sequence (1..99999, the GUI Seed slider's range; 0 would fall back to
+// AutoDirector's own default). Logged so a run worth keeping can be
+// replayed via the GUI Seed slider or OCEAN.setDirectorSeed().
+const autoDirectorSeed = 1 + Math.floor(Math.random() * 99999);
+const autoDirector = autoDirectorEnabled ? new AutoDirector({ seed: autoDirectorSeed }) : null;
 if (autoDirector) {
+  console.log(`[AutoDirector] seed ${autoDirectorSeed}`);
   autoDirector.enabled = true; // the URL opt-in itself activates the camera takeover, matching every other ?flag=1 module in this file
   autoDirector.restart();
 }
