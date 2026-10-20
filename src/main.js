@@ -261,8 +261,11 @@ const TRAVELER_ALTITUDE_SPEED = 7.0;
 const MIN_TRAVELER_ALTITUDE_OFFSET = -8.0;
 const MAX_TRAVELER_ALTITUDE_OFFSET = 80.0;
 // Default raised from 0 to 4.5 — at 0 the trail/lyrics sat low enough to be
-// hidden behind wave crests in some conditions.
-let travelerAltitudeOffset = 4.5;
+// hidden behind wave crests in some conditions — then to 7 so the head
+// starts ~10 units above the water (HeadParticleTrail adds its own +3 hover):
+// every Auto Director preset is head-relative, so this lifts the whole
+// opening clear of the waves without changing any preset's framing.
+let travelerAltitudeOffset = 7.0;
 let travelerAltitudeDirection = 1; // +1 UP, -1 DOWN — next hold's direction
 let travelerAltitudeSpaceHeld = false;
 
