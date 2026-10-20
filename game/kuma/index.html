@@ -577,6 +577,18 @@
   /* Beginner help (LEVEL1's first stage only): a "Push!" bubble over the lane
      button while it is lit. */
   .touch-buttons button.push-hint{ position:relative; }
+  /* Beginner help (same LEVEL1 first stage as Push!): a ring that shrinks onto
+     the lane button; it closes exactly on the beat. It lives inside the button,
+     under the Push! bubble (a pseudo-element, painted after children), and
+     stays within ~30% of the button when the bubble is up, so it never covers
+     it. */
+  .touch-buttons button{ position:relative; }
+  .beat-ring{
+    position:absolute; inset:-2px; border:3px solid rgba(255,255,255,0.95);
+    border-radius:8px; pointer-events:none; opacity:0;
+    box-shadow:0 0 8px 1px rgba(255,255,255,0.55);
+    will-change:transform, opacity;
+  }
   .push-hint::after{
     content:'Push!';
     position:absolute; left:50%; bottom:calc(100% + 8px);
@@ -693,8 +705,8 @@
     <div class="hud-controls">
       <div class="hud-btn-group">
         <div class="touch-buttons">
-          <button id="btnL" type="button">Left</button>
-          <button id="btnR" type="button">Right</button>
+          <button id="btnL" type="button">Left<span class="beat-ring" aria-hidden="true"></span></button>
+          <button id="btnR" type="button">Right<span class="beat-ring" aria-hidden="true"></span></button>
         </div>
         <div class="key-hints">
           <kbd data-lane="L">Z</kbd><span class="key-sep">/</span><kbd data-lane="R">X</kbd>
@@ -1566,6 +1578,14 @@
   }
   var beatDur = 60/BPM, nextBeatTime = beatDur, beatOpen = false, beatHit = false;
   var currentLane = 'L', beatParity = false;
+  var beatRingL = btnL.querySelector('.beat-ring'), beatRingR = btnR.querySelector('.beat-ring');
+  var RING_START = 1.9;
+  function setBeatRing(el, on, p){
+    if (!el) return;
+    if (!on){ if (el.style.opacity !== '0') el.style.opacity = '0'; return; }
+    el.style.opacity = String(0.35 + 0.65 * (1 - p));
+    el.style.transform = 'scale(' + (1 + (RING_START - 1) * p).toFixed(3) + ')';
+  }
   var laneEls = {
     L: [btnL].concat(Array.prototype.slice.call(document.querySelectorAll('kbd[data-lane="L"]'))),
     R: [btnR].concat(Array.prototype.slice.call(document.querySelectorAll('kbd[data-lane="R"]')))
@@ -3897,6 +3917,15 @@
       var pushHintOn = startedAtLevel1() && bearLookIndex === 0 && !sagePhase && BPM < BGM_AUTO_TIERS[BGM_AUTO_TIERS.length - 1].minBpm;
       btnL.classList.toggle('push-hint', pushHintOn && laneActive && beatOpen && currentLane==='L');
       btnR.classList.toggle('push-hint', pushHintOn && laneActive && beatOpen && currentLane==='R');
+      // The ring for the upcoming beat (currentLane already points at the next
+      // lane once a window closes): starts RING_START x the button, shrinks to
+      // 1x exactly at the beat, then is gone. Drawn only while Push! is on.
+      var ringLead = Math.min(0.6, beatDur * 0.8);
+      var ringDt = nextBeatTime - beatNow; // seconds until the beat
+      var ringOn = pushHintOn && laneActive && ringDt <= ringLead && ringDt >= -0.03;
+      var ringP = Math.max(0, Math.min(1, ringDt / ringLead)); // 1 = far, 0 = on the beat
+      setBeatRing(beatRingL, ringOn && currentLane === 'L', ringP);
+      setBeatRing(beatRingR, ringOn && currentLane === 'R', ringP);
       laneEls.L.forEach(function(el){ if (el!==btnL) el.classList.toggle('beat-active', laneActive && !sagePhase && beatOpen && currentLane==='L'); });
       laneEls.R.forEach(function(el){ if (el!==btnR) el.classList.toggle('beat-active', laneActive && !sagePhase && beatOpen && currentLane==='R'); });
 
