@@ -122,7 +122,7 @@
   .rank-list li.me{ background:rgba(255,200,60,0.18); }
   .rank-list .rank-pos{ width:2em; color:var(--ink-dim); }
   .rank-list .rank-name{ flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .rank-list .rank-level{ color:var(--ink-dim); font-size:12px; align-self:center; }
+  .rank-list .rank-level{ color:var(--ink-dim); font-size:12px; align-self:center; white-space:nowrap; }
   .rank-list .rank-score{ font-family:var(--font-mono); font-weight:700; color:var(--accent); }
   .rank-actions{ display:flex; gap:8px; justify-content:center; }
   .rank-input{
@@ -1103,6 +1103,11 @@
   // SAGE_START_BPM instead of down toward 80.
   var SAGE_TRIGGER_BPM = 200, SAGE_START_BPM = 75;
   var sagePhase = false;
+  // Highest LEVEL reached this run, for the ranking: the tempo tier (80 -> 1,
+  // 100 -> 2, 120 -> 3, 150 -> 4) at the highest BPM seen, 5 once the sage
+  // phase starts. Never goes down (the sage phase's slow tempo can't lower it).
+  var reachedLevel = 1;
+  function tierOfBpm(b){ return b >= 150 ? 4 : (b >= 120 ? 3 : (b >= 100 ? 2 : 1)); }
   function tempoRelief(){
     return sagePhase ? Math.min(SAGE_START_BPM, BPM + 10) : Math.max(BPM_PENALTY_FLOOR, BPM - 10);
   }
@@ -1118,6 +1123,7 @@
   // slider themselves.
   function setBPM(newBpm){
     BPM = newBpm;
+    if (!sagePhase) reachedLevel = Math.max(reachedLevel, tierOfBpm(BPM));
     bpmRange.value = BPM;
     bpmValue.textContent = BPM;
     // In auto mode (the default — see bgmAutoMode/autoTrackForBpm's own
@@ -2259,6 +2265,7 @@
   // run continues at SAGE_START_BPM.
   function enterSagePhase(){
     sagePhase = true;
+    reachedLevel = 5;
     setBPM(SAGE_START_BPM); // auto mode: autoTrackForBpm now answers 'sage'
     if (currentTrackKey !== 'sage') loadBgmTrack('sage'); // a forced track doesn't follow BPM
   }
@@ -2358,7 +2365,7 @@
       submit.disabled = true; msg.textContent = '';
       try{ localStorage.setItem(RANK_NAME_KEY, name); }catch(e){}
       rankFetch('/score', {method:'POST', headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({name:name, score:Math.round(score), level:rankLevel, token:rankToken})}).then(function(d){
+        body:JSON.stringify({name:name, score:Math.round(score), level:rankLevel, reached:reachedLevel, token:rankToken})}).then(function(d){
         if (d && d.ok){ rankSubmitted = true; rankToken = null; rankShowList(name, Math.round(score), rankLevel); }
         else { msg.textContent = 'Failed. Try again.'; submit.disabled = !input.value.trim(); }
       });
@@ -2374,6 +2381,11 @@
     rankBody.appendChild(row);
     rankOpen();
     input.focus();
+  }
+  // "LV1→3": the start level, then the highest LEVEL reached (SH = SuperHard).
+  function rankLevelText(start, reached){
+    var r = reached >= start ? reached : start;
+    return 'LV' + start + '\u2192' + (r >= 5 ? 'SH' : r);
   }
   function rankShowList(meName, meScore, meLevel){
     rankBody.textContent = '';
@@ -2392,7 +2404,7 @@
         var li = rankEl('li', null, (r.name === meName && r.score === meScore && r.level === meLevel) ? 'me' : '');
         li.appendChild(rankEl('span', String(i + 1), 'rank-pos'));
         li.appendChild(rankEl('span', r.name, 'rank-name'));
-        li.appendChild(rankEl('span', 'LV' + r.level, 'rank-level'));
+        li.appendChild(rankEl('span', rankLevelText(r.level, r.reached), 'rank-level'));
         li.appendChild(rankEl('span', String(r.score), 'rank-score'));
         list.appendChild(li);
       });
@@ -2905,6 +2917,7 @@
     // title card, regardless of where the auto tempo-up (or a manual
     // slider drag) left it during the previous attempt.
     sagePhase = false;
+    reachedLevel = 1; // setBPM(startBPM) just below raises it to the start level
     // Only a LEVEL1 start can reach the sage: warm its model/track/logo up in
     // the background now so the entrance is ready minutes later.
     if (startedAtLevel1()){

@@ -12,6 +12,7 @@ import { checkRateLimit } from './rate-limit.js';
 
 const GAME_ID = 'kuma';
 const LEVELS = [1, 2, 3, 4];
+const MAX_REACHED = 5; // 5 = the sage / SuperHard phase
 const MAX_SCORE = 5000000;
 const MAX_NAME_LENGTH = 12;
 const RANKING_LIMIT = 10;
@@ -44,8 +45,10 @@ async function readBody(request) {
 
 async function handleRanking(env) {
   const { results } = await env.DB.prepare(
-    'SELECT name, score, level, created_at FROM kuma_scores ORDER BY score DESC, created_at ASC LIMIT ?1'
+    'SELECT name, score, level, reached, created_at FROM kuma_scores ORDER BY score DESC, created_at ASC LIMIT ?1'
   ).bind(RANKING_LIMIT).all();
+  // rows written before the reached column existed hold 0: show the start level
+  results.forEach((r) => { if (!(r.reached >= r.level)) r.reached = r.level; });
   return jsonResponse({ ok: true, results });
 }
 
@@ -68,6 +71,10 @@ async function handleScoreSubmit(request, env) {
   const body = await readBody(request);
   if (!body) return errorResponse('invalid_body', 400);
   const { score, token, level } = body;
+  // The reached LEVEL is optional (older clients omit it); it can never be
+  // below the start level.
+  let reached = Number.isInteger(body.reached) ? body.reached : level;
+  if (!(reached >= level && reached <= MAX_REACHED)) reached = level;
   const name = typeof body.name === 'string' ? body.name.trim().slice(0, MAX_NAME_LENGTH) : '';
 
   if (!name) return errorResponse('invalid_name', 400);
@@ -100,8 +107,8 @@ async function handleScoreSubmit(request, env) {
   if (!consumed.meta || consumed.meta.changes === 0) return errorResponse('invalid_session', 403);
 
   await env.DB.prepare(
-    'INSERT INTO kuma_scores (name, score, level, created_at) VALUES (?1, ?2, ?3, ?4)'
-  ).bind(name, score, level, new Date().toISOString()).run();
+    'INSERT INTO kuma_scores (name, score, level, reached, created_at) VALUES (?1, ?2, ?3, ?4, ?5)'
+  ).bind(name, score, level, reached, new Date().toISOString()).run();
   await env.DB.prepare(
     'DELETE FROM kuma_scores WHERE id NOT IN (SELECT id FROM kuma_scores ORDER BY score DESC, created_at ASC LIMIT ?1)'
   ).bind(RANKING_LIMIT).run();
