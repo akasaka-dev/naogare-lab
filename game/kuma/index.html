@@ -2215,7 +2215,11 @@
   var sageReturnT = 0, sageStartZ = 0;
   // After a miss, when there is still distance to cover, the sage sometimes
   // closes it with a double-speed Sword_Dash_RM instead of the usual run.
-  var sageDashT = 0, SAGE_DASH_DUR = 0.9, SAGE_DASH_CHANCE = 0.45, SAGE_DASH_MIN_T = 0.25, SAGE_DASH_SPEED = 2.2;
+  var sageDashT = 0, SAGE_DASH_DUR = 0.9, SAGE_DASH_CHANCE = 0.7, SAGE_DASH_MIN_T = 0.25, SAGE_DASH_SPEED = 2.2;
+  // A dash also closes SAGE_DASH_GAP_CUT of the distance that is left, and
+  // SAGE_DASH_STREAK misses in a row always trigger one: after a slip the sage
+  // is suddenly right on top of you.
+  var SAGE_DASH_GAP_CUT = 0.35, SAGE_DASH_STREAK = 2, sageMissStreak = 0;
   function isSageRig(){ return !!(activeBearRig && activeBearRig.sage); }
   var bearLookIndex = 0;
   // The bear's current on-screen scale: the base size times its LEVEL's
@@ -2809,7 +2813,7 @@
     beatDur = 60/BPM; nextBeatTime = beatDur; beatOpen = false; beatHit = false;
     currentLane = 'L'; beatParity = false;
     lungeState = 'idle'; lungeTimer = 0; nextLungeAt = 1.2 + Math.random()*1.2;
-    sageReturnT = 0; bear.position.y = 0; sagePhase = false; sageDashT = 0;
+    sageReturnT = 0; bear.position.y = 0; sagePhase = false; sageDashT = 0; sageMissStreak = 0;
     clearGuideDrain();
     dodged = false; dodgeAttempted = false; dodgeTimer = 0;
     if (bearModel) bearModel.scale.x = enemyScale;
@@ -3108,7 +3112,11 @@
     combo = 1; greenStreak = 0; resetHitStreak();
     var missPenalty = MISS_PENALTY_BASE + MISS_PENALTY_SCALE * (gap/GAP_MAX);
     gap = Math.max(0, gap - missPenalty);
-    if (isSageRig() && lungeState === 'idle' && gap/GAP_MAX > SAGE_DASH_MIN_T && Math.random() < SAGE_DASH_CHANCE) sageDashT = SAGE_DASH_DUR;
+    sageMissStreak += 1;
+    if (isSageRig() && lungeState === 'idle' && gap/GAP_MAX > SAGE_DASH_MIN_T && (sageMissStreak >= SAGE_DASH_STREAK || Math.random() < SAGE_DASH_CHANCE)){
+      sageDashT = SAGE_DASH_DUR;
+      gap = gap * (1 - SAGE_DASH_GAP_CUT); // the dash also covers a big part of what is left
+    }
     missReactionTimer = 0.55; // brief Run_Anime surge so the sudden jump forward reads as a lunge, not a teleport
     sp.fovKick.vel += 34;
     ['camSway','camRoll','camBounce'].forEach(function(k){ sp[k].vel += (Math.random()*2-1)*3.2; });
@@ -3157,6 +3165,7 @@
       flashLane(lane, 'hit');
       var prevMult = comboMultiplier();
       hitStreak += 1;
+      sageMissStreak = 0;
       var scoreMult = comboMultiplier();
       var hitScoreGain = Math.round(SCORE_HIT_BASE * scoreBpmFactor() * scoreMult);
       score += hitScoreGain;
