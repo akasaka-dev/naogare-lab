@@ -564,6 +564,7 @@
     padding:10px; width:40px; height:40px;
   }
   .touch-buttons button.icon-btn svg{display:block;}
+  .touch-buttons button#btnPause:disabled{ opacity:0.35; cursor:default; }
   .touch-buttons button:focus-visible,
   kbd:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
 
@@ -751,6 +752,7 @@
     <div class="touch-buttons">
       <button id="btnSfxMute" class="icon-btn" type="button" aria-label="効果音"></button>
       <button id="btnBgmMute" class="icon-btn" type="button" aria-label="BGM"></button>
+      <button id="btnPause" class="icon-btn" type="button" aria-label="Pause" disabled></button>
     </div>
   </div>
 </div>
@@ -850,6 +852,7 @@
   var btnRecover = document.getElementById('btnRecover');
   var btnSfxMute = document.getElementById('btnSfxMute');
   var btnBgmMute = document.getElementById('btnBgmMute');
+  var btnPause = document.getElementById('btnPause');
 
   var reducedMotion = false;
   try{ reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){}
@@ -3239,12 +3242,11 @@
       if (performance.now() - gameoverEnteredAt < GAMEOVER_INPUT_DELAY) return;
       state='title'; resetGame(); stopGameoverBgm(); cardOver.classList.remove('visible'); cardTitle.classList.add('visible'); playDropIn(titleLogo);
     }
-    else if (state === 'playing'){ pauseGame(); }
+    // Not pausing here any more: a stray tap on the stage used to pause the run.
+    // Only the Pause button (btnPause, beside the BGM button) pauses.
     else if (state === 'paused'){ resumeGame(); }
   }
-  // Tapping the empty stage — not any of the lane/dodge/recover buttons,
-  // which stop this same click from bubbling here (see their own listeners
-  // below) — pauses mid-run and resumes on the next tap. No mid-air state to
+  // The Pause button pauses mid-run; tapping the paused screen resumes. No mid-air state to
   // preserve: gap/HP/BPM are simply left exactly where they were (frame()'s
   // per-frame updates are gated on state==='playing'/'knockback'/'gettingup',
   // same freeze every other non-playing state already gets for free), only
@@ -3486,6 +3488,9 @@
   var ICON_MUSIC_OFF = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18a3 3 0 1 1 0-6 3 3 0 0 1 0 6z" fill="currentColor" stroke="none"/><path d="M12 15V4l7 3v8"/><path d="M4 4l16 16"/></svg>';
   var ICON_MUSHROOM = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none"><path d="M4 11a8 8 0 0 1 16 0c0 1.1-.9 2-2 2H6c-1.1 0-2-.9-2-2z" fill="currentColor"/><rect x="9.5" y="13" width="5" height="7" rx="2.5" fill="currentColor" opacity="0.55"/></svg>';
   btnRecover.innerHTML = ICON_MUSHROOM;
+  var ICON_PAUSE = '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><rect x="6" y="5" width="4.5" height="14" rx="1.2"/><rect x="13.5" y="5" width="4.5" height="14" rx="1.2"/></svg>';
+  btnPause.innerHTML = ICON_PAUSE;
+  btnPause.addEventListener('click', function(){ if (state === 'playing') pauseGame(); });
   // Independent of game state (state !== 'playing' doesn't gate these,
   // unlike every other button above) — muting is something you want to be
   // able to flip from the title screen or mid-run alike, and toggling gain
@@ -3817,6 +3822,8 @@
   var lastT = performance.now();
 
   function frame(now){
+    var pauseLocked = state !== 'playing';
+    if (btnPause.disabled !== pauseLocked) btnPause.disabled = pauseLocked;
     var bgmLocked = !(debugMode || state === 'title' || state === 'gameover');
     if (bgmTrackSelect.disabled !== bgmLocked) bgmTrackSelect.disabled = bgmLocked;
     var dt = Math.max(0, Math.min(0.05, (now-lastT)/1000));
