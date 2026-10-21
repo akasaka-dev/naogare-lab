@@ -324,6 +324,11 @@
         font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase;
         color: rgba(200, 225, 240, 0.65);
       }
+      #startOverlay .countdown .local {
+        margin-top: 4px; font-size: 12px; letter-spacing: 0.06em;
+        color: rgba(200, 225, 240, 0.55);
+      }
+      #startOverlay .countdown .local[hidden] { display: none; }
       #startOverlay .countdown .time {
         margin-top: 6px; font-size: clamp(22px, 3.4vw, 30px); letter-spacing: 0.06em;
         color: #9be7ff; font-variant-numeric: tabular-nums;
@@ -442,7 +447,7 @@
       .lil-gui .children::-webkit-scrollbar-thumb { background: rgba(120,220,255,0.22); border-radius: 8px; }
       @media (max-width: 640px) { .lil-gui.root { width: 240px; } }
     </style>
-    <script type="module" crossorigin src="./assets/index-DaQmn8On.js"></script>
+    <script type="module" crossorigin src="./assets/index-D8uLeXzz.js"></script>
   </head>
   <body>
     <div id="app"></div>
@@ -461,6 +466,7 @@
         <label class="karaoke"><input type="checkbox" id="without-lyrics-checkbox"> Without Lyrics</label>
         <div class="countdown" id="launch-countdown" hidden>
           <div class="label">Premieres 2026.10.28 20:00 JST</div>
+          <div class="local" id="launch-countdown-local" hidden></div>
           <div class="time" id="launch-countdown-time"></div>
         </div>
         <button id="start-music-btn" type="button">Music Start</button>
