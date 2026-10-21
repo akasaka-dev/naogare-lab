@@ -6,6 +6,7 @@ import { Sky } from './Sky.js';
 import { Ocean, OCEAN_CONFIG } from './Ocean.js';
 import { Floor } from './Floor.js';
 import { Island } from './Island.js';
+import { Continent } from './Continent.js';
 import { Particles } from './Particles.js';
 import { Rain } from './Rain.js';
 import { Post } from './Post.js';
@@ -462,6 +463,11 @@ scene.add(floor.mesh);
 
 const island = new Island(sunDir, FLOOR_DEPTH, ocean.uniforms);
 scene.add(island.mesh);
+
+// Distant Continent V1 — far-off mountain coastline on the horizon (see
+// Continent.js). Shares the sky's uniforms so its haze matches the horizon.
+const continent = new Continent(sky.uniforms);
+scene.add(continent.mesh);
 
 const particles = new Particles(5000, 160);
 scene.add(particles.points);
@@ -1270,6 +1276,32 @@ fFoam.add(ocean.uniforms.uCrestFoamStart, 'value', 0.3, 3.0, 0.05).name('whiteca
 fFoam.add(ocean.uniforms.uFoamThreshold, 'value', 0.0, 1.0, 0.02).name('breaking foam');
 fFoam.add(ocean.uniforms.uShoreFoamWidth, 'value', 0.0, 8.0, 0.1).name('shore foam width');
 fFoam.add(ocean.uniforms.uContactFoam, 'value', 0.0, 2.0, 0.05).name('object foam / wakes');
+
+// Distant Continent V1 — shape sliders rebuild the strip on release
+// (onFinishChange), not per drag tick; haze is a live uniform.
+// Random mode (default on): every page load rolls a fresh Height (20-245),
+// Width (0-300 deg; 0 = no continent this visit) and Shape Seed, so each
+// viewing gets a different coastline. Re-checking it rolls again;
+// unchecking keeps whatever is currently showing.
+const continentGuiState = { enabled: continent.enabled, random: true, ...continent.params, haze: continent.uniforms.uHaze.value };
+const fContinent = gui.addFolder('Continent').close();
+const rebuildContinent = (key) => (v) => continent.setParams({ [key]: v });
+const randomizeContinent = () => {
+  const randInt = (lo, hi) => lo + Math.floor(Math.random() * (hi - lo + 1));
+  Object.assign(continentGuiState, { height: randInt(20, 245), arcDeg: randInt(0, 300), seed: randInt(1, 999) });
+  continent.setParams({ height: continentGuiState.height, arcDeg: continentGuiState.arcDeg, seed: continentGuiState.seed });
+  fContinent.controllersRecursive().forEach((c) => c.updateDisplay());
+};
+fContinent.add(continentGuiState, 'enabled').name('Enabled').onChange((v) => { continent.enabled = v; });
+fContinent.add(continentGuiState, 'random').name('Random').onChange((v) => { if (v) randomizeContinent(); });
+fContinent.add(continentGuiState, 'distance', 800, 2900, 50).name('Distance').onFinishChange(rebuildContinent('distance'));
+fContinent.add(continentGuiState, 'height', 20, 600, 5).name('Height').onFinishChange(rebuildContinent('height'));
+fContinent.add(continentGuiState, 'depth', 100, 1500, 50).name('Depth').onFinishChange(rebuildContinent('depth'));
+fContinent.add(continentGuiState, 'azimuthDeg', -180, 180, 1).name('Direction (deg)').onFinishChange(rebuildContinent('azimuthDeg'));
+fContinent.add(continentGuiState, 'arcDeg', 0, 300, 5).name('Width (deg)').onFinishChange(rebuildContinent('arcDeg'));
+fContinent.add(continentGuiState, 'seed', 1, 999, 1).name('Shape Seed').onFinishChange(rebuildContinent('seed'));
+fContinent.add(continentGuiState, 'haze', 0.0, 0.001, 0.00001).name('Haze').onChange((v) => { continent.uniforms.uHaze.value = v; });
+if (continentGuiState.random) randomizeContinent();
 
 const fClouds = gui.addFolder('Volumetric clouds').close();
 const cu = clouds.uniforms;
@@ -2324,6 +2356,7 @@ function animate() {
   island.update(time);
   particles.update(time, camera);
   sky.update(camera, time);
+  continent.update(camera, underwater);
   if (headParticleTrail) {
     // Traveler Altitude V1: accumulate while Space is held, clamp, then push
     // into HeadParticleTrail BEFORE update() so this frame's live head
