@@ -2110,6 +2110,21 @@ if (audioEnabled) {
       const hms = `${pad(Math.floor(s / 3600) % 24)}:${pad(Math.floor(s / 60) % 60)}:${pad(s % 60)}`;
       launchCountdownTimeEl.textContent = days > 0 ? `${days}d ${hms}` : hms;
     };
+    // Same instant in the viewer's own time zone, for visitors outside
+    // Japan — skipped when they're already on JST (it would just repeat it).
+    const localEl = document.getElementById('launch-countdown-local');
+    try {
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const sameAsJst = new Date(LAUNCH_AT).getTimezoneOffset() === -540;
+      if (!sameAsJst) {
+        const local = new Intl.DateTimeFormat(undefined, {
+          year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
+        }).format(LAUNCH_AT);
+        localEl.textContent = `Your time: ${local}`;
+        localEl.title = tz || '';
+        localEl.hidden = false;
+      }
+    } catch { /* no Intl — the JST line alone still stands */ }
     startMusicBtnEl.disabled = true;
     startMusicBtnEl.textContent = 'Coming Soon';
     launchCountdownEl.hidden = false;
