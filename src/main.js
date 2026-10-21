@@ -2084,7 +2084,41 @@ if (audioEnabled) {
   // now and would otherwise leave mobile visitors with no way to ever
   // start audio at all.
   startOverlayEl.hidden = false;
+
+  // Launch Countdown V1 — Music Start stays disabled (with a live countdown
+  // above it) until the premiere. Client clock only: a purely cosmetic
+  // gate, not access control. Skipped on the Vite dev server so local
+  // testing isn't blocked; ?countdown=1 there forces it on for previewing.
+  const LAUNCH_AT = Date.parse('2026-10-28T20:00:00+09:00');
+  const launchCountdownEl = document.getElementById('launch-countdown');
+  const launchCountdownTimeEl = document.getElementById('launch-countdown-time');
+  const launchGateActive = !import.meta.env.DEV || queryFlag('countdown');
+  if (launchGateActive && Date.now() < LAUNCH_AT) {
+    const startLabel = startMusicBtnEl.textContent;
+    const pad = (n) => String(n).padStart(2, '0');
+    const tick = () => {
+      const remaining = LAUNCH_AT - Date.now();
+      if (remaining <= 0) {
+        clearInterval(timer);
+        launchCountdownEl.hidden = true;
+        startMusicBtnEl.disabled = false;
+        startMusicBtnEl.textContent = startLabel;
+        return;
+      }
+      const s = Math.floor(remaining / 1000);
+      const days = Math.floor(s / 86400);
+      const hms = `${pad(Math.floor(s / 3600) % 24)}:${pad(Math.floor(s / 60) % 60)}:${pad(s % 60)}`;
+      launchCountdownTimeEl.textContent = days > 0 ? `${days}d ${hms}` : hms;
+    };
+    startMusicBtnEl.disabled = true;
+    startMusicBtnEl.textContent = 'Coming Soon';
+    launchCountdownEl.hidden = false;
+    const timer = setInterval(tick, 1000);
+    tick();
+  }
+
   startMusicBtnEl.addEventListener('click', () => {
+    if (startMusicBtnEl.disabled) return;
     // Karaoke V1 — read once, right here, at the moment playback is about
     // to start (not live-switchable afterward — see index.html's own
     // comment on the checkbox). setSrc() swaps the element's source without
