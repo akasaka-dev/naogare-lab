@@ -311,6 +311,23 @@
       #startOverlay button:hover, #startOverlay button:focus-visible {
         background: rgba(150, 220, 255, 0.18); border-color: rgba(150, 220, 255, 0.6);
       }
+      /* Launch Countdown V1 — Music Start stays disabled until the premiere
+         (see main.js LAUNCH_AT); the countdown sits just above it. */
+      #startOverlay button:disabled,
+      #startOverlay button:disabled:hover {
+        cursor: not-allowed; opacity: 0.5;
+        background: rgba(150, 220, 255, 0.08); border-color: rgba(150, 220, 255, 0.35);
+      }
+      #startOverlay .countdown { margin-bottom: 18px; font-family: Georgia, "Times New Roman", serif; }
+      #startOverlay .countdown[hidden] { display: none; }
+      #startOverlay .countdown .label {
+        font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase;
+        color: rgba(200, 225, 240, 0.65);
+      }
+      #startOverlay .countdown .time {
+        margin-top: 6px; font-size: clamp(22px, 3.4vw, 30px); letter-spacing: 0.06em;
+        color: #9be7ff; font-variant-numeric: tabular-nums;
+      }
       /* Karaoke V1 / Without Lyrics V1 — plain checkbox+label rows between
          the title and the button; both read once, at the moment Music Start
          is clicked (see main.js's own click handler) — Karaoke decides which
@@ -425,7 +442,7 @@
       .lil-gui .children::-webkit-scrollbar-thumb { background: rgba(120,220,255,0.22); border-radius: 8px; }
       @media (max-width: 640px) { .lil-gui.root { width: 240px; } }
     </style>
-    <script type="module" crossorigin src="./assets/index-DZkF58Gp.js"></script>
+    <script type="module" crossorigin src="./assets/index-DaQmn8On.js"></script>
   </head>
   <body>
     <div id="app"></div>
@@ -442,6 +459,10 @@
         <div class="title">ForeverMore</div>
         <label class="karaoke"><input type="checkbox" id="karaoke-checkbox"> Karaoke</label>
         <label class="karaoke"><input type="checkbox" id="without-lyrics-checkbox"> Without Lyrics</label>
+        <div class="countdown" id="launch-countdown" hidden>
+          <div class="label">Premieres 2026.10.28 20:00 JST</div>
+          <div class="time" id="launch-countdown-time"></div>
+        </div>
         <button id="start-music-btn" type="button">Music Start</button>
         <div class="controls-hint">
           Turn: A / D &nbsp;&middot;&nbsp; or flick left / right<br>
