@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Forevermore (English version)</title>
+    <!-- Share Link V1 — a query-free alias for ../?play=1. Some share paths
+         (X/Twitter's link handling, in-app browsers) drop the query string,
+         which silently lands viewers on the plain GUI ("Ocean") view.
+         /saikai/play/ has nothing to strip, and forwards here with the
+         flag attached (plus any extra params the link did carry). -->
+    <script>
+      var params = new URLSearchParams(location.search);
+      if (!params.has('play')) params.set('play', '1');
+      location.replace('../?' + params.toString() + location.hash);
+    </script>
+    <noscript><meta http-equiv="refresh" content="0; url=../?play=1" /></noscript>
+  </head>
+  <body style="background:#000"></body>
+</html>
