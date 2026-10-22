@@ -36,6 +36,10 @@ import { getChoreography, baseTrailLyricsConfig, HOLD_TRAIL, HOLD_HERO } from '.
 // (headParticles/trailLyrics/lyricTimeline/autoDirector/time/audio). An
 // explicitly-set flag in the URL always wins over this bundle — queryFlag()
 // only falls back to it when the specific flag is absent.
+// Production builds treat a bare URL (no ?play at all) as ?play=1, since
+// the public site's plain /saikai/ link — and share paths that strip the
+// query string — should land on the show, not the tuning GUI. ?play=0
+// still opts out there; `npm run dev` keeps the bare-URL GUI view.
 const PLAY_PRESET_FLAGS = new Set(['headparticles', 'traillyrics', 'lyrictimeline', 'autodirector', 'time', 'audio']);
 
 function queryFlag(name) {
@@ -48,6 +52,7 @@ function queryFlag(name) {
     for (const [key, value] of params) {
       if (key.toLowerCase() === 'play') return value === '1';
     }
+    return !import.meta.env.DEV;
   }
   return false;
 }
