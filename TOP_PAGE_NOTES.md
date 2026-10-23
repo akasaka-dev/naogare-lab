@@ -67,7 +67,7 @@ Hero"）。実際にプレイする `/game/<name>/` のゲーム本体は日本�
    `VALID_GAME_IDS` にもそのIDを追加すること。追加し忘れるといいねボタンが
    `invalid_game`（400）になる）
 4. 「準備中」カード（`.entry--soon`、一覧の一番下に固定）の番号を、追加したゲームの次の番号に更新する
-5. `.hero__stats` の「公開中の作品」数と、`.hero__lede` の本数表記も更新する
+5. `.hero__stats` の「公開中の作品」数を更新する（`.hero__lede` には本数を書いていないので変更不要）
 6. `sitemap.xml` に `https://naogare-lab.naogare.workers.dev/game/<name>/` の `<url>` エントリを1つ追加する
    （`robots.txt` は変更不要）
 7. ローカルで `python -m http.server` などを使って表示・リンク先を確認してから commit
