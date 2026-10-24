@@ -2337,7 +2337,7 @@
   var DECO_PERFORM = ['Dance_Simple', 'Dance_Charleston', 'Head_Nod', 'Bow', 'Idle_ShakeOff'];
   var decoGroup = new THREE.Group();
   decoGroup.visible = false; // added to `player` next to player.add(bear)
-  var decoCubs = [], decoLoading = false, decoAnchorZ = null;
+  var decoCubs = [], decoLoading = false, decoAnchorZ = null, decoRunning = false;
   function decoRand(a, b){ return a + Math.random() * (b - a); }
   function decoFade(d, name){
     var next = d.acts[name];
@@ -2373,7 +2373,7 @@
         decoGroup.add(holder);
         var d = {holder: holder, model: model, mixer: new THREE.AnimationMixer(model), acts: {}, cur: null,
                  root: model.getObjectByName('root'), mode: 'wander', tx: 0, tz: 0, until: 0};
-        ['Walk', 'Fighting_Idle'].concat(DECO_PERFORM).forEach(function(n){
+        ['Walk', 'Run_Anime', 'Fighting_Idle'].concat(DECO_PERFORM).forEach(function(n){
           var clip = findClip(gltf.animations, n);
           if (clip) d.acts[n] = d.mixer.clipAction(clip);
         });
@@ -2386,6 +2386,7 @@
     decoGroup.visible = on;
     if (on){
       loadDecoCubs();
+      decoRunning = false;
       decoAnchorZ = null; // snap to the attacker's line on the next update
     }
   }
@@ -2396,10 +2397,23 @@
     // follow the attacker's chase line, but not its charge (use where the charge started)
     var anchor = (lungeState === 'telegraph' || lungeState === 'lunge') ? sageStartZ : bear.position.z;
     if (decoAnchorZ === null) decoAnchorZ = anchor;
+    var prevZ = decoAnchorZ;
     decoAnchorZ += (anchor - decoAnchorZ) * (1 - Math.pow(0.001, step));
     decoGroup.position.set(bear.position.x, 0, decoAnchorZ);
+    // While the attacker closes in or backs off, the cubs run along with it (no sliding in a pose).
+    var vz = step > 0 ? (decoAnchorZ - prevZ) / step : 0;
+    if (decoRunning ? Math.abs(vz) < 0.4 : Math.abs(vz) > 1.0){
+      decoRunning = !decoRunning;
+      if (!decoRunning) decoCubs.forEach(decoWander);
+    }
     decoCubs.forEach(function(d){
-      if (d.mode === 'wander'){
+      if (decoRunning){
+        decoFade(d, 'Run_Anime');
+        d.mode = 'run';
+        var rw = vz > 0 ? 0 : Math.PI, rd = rw - d.holder.rotation.y;
+        rd = Math.atan2(Math.sin(rd), Math.cos(rd));
+        d.holder.rotation.y += rd * Math.min(1, 8 * step);
+      } else if (d.mode === 'wander'){
         var dx = d.tx - d.holder.position.x, dz = d.tz - d.holder.position.z, dist = Math.hypot(dx, dz);
         if (dist < 0.4){ decoPerform(d); }
         else {
