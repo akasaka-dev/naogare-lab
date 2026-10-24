@@ -382,6 +382,7 @@
     transition:background .08s,box-shadow .08s,color .08s;
   }
   .level-select button:active{ background:var(--accent); color:#1b1503; }
+  .level-select button.level-extra{ letter-spacing:0.12em; padding:8px 28px; border-color:var(--accent-dim); color:var(--accent); }
   .level-select button.level-start{
     font-size:20px; letter-spacing:0.08em; padding:12px 56px;
     background:var(--accent); color:#1b1503;
@@ -718,6 +719,7 @@
           <button type="button" data-bpm="150">LEVEL4</button>
         </div>
       </div>
+      <div class="level-select"><button type="button" id="btnExtra" class="level-extra" hidden data-i18n="extra">Extra</button></div>
       <label class="timing-check"><input type="checkbox" id="timingCheck"><span data-i18n="timingCheck">Timing Check</span></label>
       <div class="title-buttons">
         <button id="btnRanking" type="button" data-i18n="ranking">Ranking</button>
@@ -876,7 +878,7 @@
   var I18N = {
     en: {
       distance:'distance', scoreColon:'Score:', combo:'COMBO', loading:'Loading...', start:'Start',
-      timingCheck:'Timing Check', ranking:'Ranking', audioAdjust:'Audio Adjust', langBtn:'日本語',
+      extra:'EXTRA', timingCheck:'Timing Check', ranking:'Ranking', audioAdjust:'Audio Adjust', langBtn:'日本語',
       clickTap:'Click<br>or Tap', tapNext:'Click or Tap', respawn:'Click or Tap to Respawn', resume:'Tap to Resume', titleBtn:'Title',
       left:'Left', right:'Right', sway:'Sway', bgmAuto:'Auto (follows BPM)', modelFail:'Could not load the bear',
       survival:'Survival Time', bestSurvival:'Best Survival', sec:'s', scoreWord:'Score', bestScore:'Best Score', maxCombo:'Max Combo',
@@ -888,7 +890,7 @@
     },
     ja: {
       distance:'距離', scoreColon:'スコア:', combo:'コンボ', loading:'読み込み中...', start:'スタート',
-      timingCheck:'タイミングチェック', ranking:'ランキング', audioAdjust:'音のズレ調整', langBtn:'English',
+      extra:'EXTRA', timingCheck:'タイミングチェック', ranking:'ランキング', audioAdjust:'音のズレ調整', langBtn:'English',
       clickTap:'クリック<br>かタップ', tapNext:'クリックかタップ', respawn:'クリックかタップでもう一度', resume:'タップで再開', titleBtn:'タイトル',
       left:'左', right:'右', sway:'よける', bgmAuto:'自動(BPMに合わせる)', modelFail:'クマを読み込めませんでした',
       survival:'生き延びた時間', bestSurvival:'ベスト', sec:'秒', scoreWord:'スコア', bestScore:'ベストスコア', maxCombo:'最大コンボ',
@@ -1221,6 +1223,12 @@
   // left alone (still the slider's own floor) for the future SuperHard
   // mode, which is expected to deliberately start below this floor.
   var BPM_PENALTY_FLOOR = 80;
+  // EXTRA stage (unlocked by reaching the ending, see startEnding): one stage with the fat bear, a fixed tempo,
+  // its own track, no ranking; its best score/time are kept apart from the normal ones.
+  var EXTRA_BPM = 125;
+  var EXTRA_UNLOCK_KEY = 'kuma-extra-unlocked', EXTRA_TIME_KEY = 'kuma-extra-best-time', EXTRA_SCORE_KEY = 'kuma-extra-best-score';
+  var extraMode = false, extraBestTime = 0, extraBestScore = 0;
+  try{ extraBestTime = parseFloat(localStorage.getItem(EXTRA_TIME_KEY)) || 0; extraBestScore = parseFloat(localStorage.getItem(EXTRA_SCORE_KEY)) || 0; }catch(e){}
   // The sage phase (SuperHard): reached by starting at LEVEL1 and climbing to
   // SAGE_TRIGGER_BPM. The sage's slow track then takes over at SAGE_START_BPM
   // and every PASS makes the tempo *slower* (harder — see the U-shape note
@@ -1234,6 +1242,7 @@
   var reachedLevel = 1;
   function tierOfBpm(b){ return b >= 150 ? 4 : (b >= 120 ? 3 : (b >= 100 ? 2 : 1)); }
   function tempoRelief(){
+    if (extraMode) return BPM; // fixed tempo
     return sagePhase ? Math.min(SAGE_START_BPM, BPM + 10) : Math.max(BPM_PENALTY_FLOOR, BPM - 10);
   }
   // The one place BPM is allowed to change, full stop — the slider and the
@@ -1305,6 +1314,7 @@
       e.stopPropagation();
       if (state !== 'title' || tutorialOpen) return;
       startBPM = parseInt(btn.dataset.bpm, 10);
+      extraMode = false;
       resumeAudioCtx(); // this click is the user gesture that unlocks audio
       openTutorial();
     });
@@ -1312,6 +1322,18 @@
   // The tutorial image fades in over the title; a click/tap (or a key) fades
   // it out and starts the run at the chosen LEVEL. Ignored for a moment after
   // it opens so the opening click can't dismiss it.
+  var btnExtra = document.getElementById('btnExtra');
+  function extraUnlocked(){ try{ return localStorage.getItem(EXTRA_UNLOCK_KEY) === '1'; }catch(e){ return false; } }
+  function updateExtraButton(){ btnExtra.hidden = !extraUnlocked(); }
+  updateExtraButton();
+  btnExtra.addEventListener('click', function(e){
+    e.stopPropagation();
+    if (state !== 'title' || tutorialOpen) return;
+    extraMode = true; startBPM = EXTRA_BPM;
+    resumeAudioCtx();
+    loadFat(function(){}); preloadBgmTrack('extra', true); // fetched while the tutorial is read
+    openTutorial();
+  });
   var tutorialOpen = false, tutorialOpenedAt = 0;
   function openTutorial(){
     tutorialOpen = true;
@@ -1420,7 +1442,12 @@
     // first stated as 76, and an automatic scan of this ballad, with its weak
     // percussion, pointed at ~75).
     sage: { file: '雪舞う峠の誓い.mp3', nativeBpm: 75, offset: 1.0 },
-    tempo120: { file: 'tempo120.mp3', nativeBpm: 120, offset: 0 }
+    tempo120: { file: 'tempo120.mp3', nativeBpm: 120, offset: 0 },
+    // The EXTRA stage's track — PLACEHOLDER (the 鬼ごっこ file again) until the real one exists. The game
+    // counts one "beat" per press, so for a song played in eighth notes nativeBpm is the EIGHTH-NOTE rate,
+    // i.e. twice the song's own tempo (a 90 BPM song pressed on every eighth note: nativeBpm 180). The stage
+    // plays at EXTRA_BPM = that native rate (no tempo changes), so keep the two in step.
+    extra: { file: 'くまさんと鬼ごっこ.mp3', nativeBpm: 125, offset: 1.0 }
   };
   // Each tier's BPM threshold is the track's own native tempo, so
   // playbackRate is pushed toward 1.0 (least pitch distortion) right as
@@ -1558,7 +1585,7 @@
   loadBgmTrack(autoTrackForBpm(BPM));
   // tempo120 is only the Audio Adjust click track — it loads in the
   // background after the title appears (and on demand if needed sooner).
-  Object.keys(BGM_TRACKS).forEach(function(key){ if (key !== 'tempo120' && key !== 'sage') preloadBgmTrack(key); });
+  Object.keys(BGM_TRACKS).forEach(function(key){ if (key !== 'tempo120' && key !== 'sage' && key !== 'extra') preloadBgmTrack(key); });
 
   // One-shot sound effects — same fetch+decodeAudioData+cache approach as
   // the BGM tracks above, but played fire-and-forget through a fresh
@@ -2307,10 +2334,16 @@
     animState = name;
   }
   function finishGame(){
-    if (elapsed>highScore){ highScore=elapsed; try{ localStorage.setItem(HIGH_KEY, String(highScore)); }catch(e){} }
-    if (score>highScoreScore){ highScoreScore=score; try{ localStorage.setItem(SCORE_HIGH_KEY, String(highScoreScore)); }catch(e){} }
-    overStats.textContent = t('survival')+' '+elapsed.toFixed(1)+t('sec')+'   '+t('bestSurvival')+' '+Math.max(highScore,elapsed).toFixed(1)+t('sec');
-    overScore.textContent = t('scoreWord')+' '+Math.round(score)+'   '+t('bestScore')+' '+Math.round(Math.max(highScoreScore,score));
+    if (extraMode){
+      if (elapsed>extraBestTime){ extraBestTime=elapsed; try{ localStorage.setItem(EXTRA_TIME_KEY, String(extraBestTime)); }catch(e){} }
+      if (score>extraBestScore){ extraBestScore=score; try{ localStorage.setItem(EXTRA_SCORE_KEY, String(extraBestScore)); }catch(e){} }
+    } else {
+      if (elapsed>highScore){ highScore=elapsed; try{ localStorage.setItem(HIGH_KEY, String(highScore)); }catch(e){} }
+      if (score>highScoreScore){ highScoreScore=score; try{ localStorage.setItem(SCORE_HIGH_KEY, String(highScoreScore)); }catch(e){} }
+    }
+    var bestTime = extraMode ? extraBestTime : highScore, bestScore = extraMode ? extraBestScore : highScoreScore;
+    overStats.textContent = t('survival')+' '+elapsed.toFixed(1)+t('sec')+'   '+t('bestSurvival')+' '+Math.max(bestTime,elapsed).toFixed(1)+t('sec');
+    overScore.textContent = t('scoreWord')+' '+Math.round(score)+'   '+t('bestScore')+' '+Math.round(Math.max(bestScore,score));
     overCombo.textContent = t('maxCombo')+' ' + maxCombo;
     cardOver.classList.add('visible');
     playDropIn(overReason);
@@ -2648,7 +2681,7 @@
   }
   function rankOfferAfterGameover(){
     var finalScore = Math.round(score);
-    if (finalScore < 1) return;
+    if (finalScore < 1 || extraMode) return; // EXTRA has no ranking
     // Only offered when the score would actually make the top 10 (the
     // server enforces the same rule).
     rankFetch('/ranking').then(function(d){
@@ -2782,6 +2815,7 @@
     state = 'ending';
     endingEnteredAt = performance.now();
     stopBgm();
+    try{ localStorage.setItem(EXTRA_UNLOCK_KEY, '1'); }catch(e){} // reaching the ending unlocks EXTRA on this device
     if (elapsed > highScore){ highScore = elapsed; try{ localStorage.setItem(HIGH_KEY, String(highScore)); }catch(e){} }
     if (score > highScoreScore){ highScoreScore = score; try{ localStorage.setItem(SCORE_HIGH_KEY, String(highScoreScore)); }catch(e){} }
     preloadEnding();
@@ -2790,6 +2824,7 @@
   }
   function endingToTitle(){
     state = 'title'; resetGame(); stopBgm();
+    updateExtraButton();
     cardTitle.classList.add('visible');
     playDropIn(titleLogo);
   }
@@ -3034,15 +3069,17 @@
       onReady();
     }, undefined, function(e){ sageLoading = false; if (window.console) console.error(e); });
   }
-  var fatLoading = false;
+  var fatLoading = false, fatWaiters = [];
   function loadFat(onReady){
     if (bearRigs.fat){ onReady(); return; }
+    fatWaiters.push(onReady);
     if (fatLoading) return;
     fatLoading = true;
     new THREE.GLTFLoader().load(FAT_FILE, function(gltf){
       bearRigs.fat = buildBearRig(gltf, FAT_CLIPS, {charge:FAT_CHARGE, groundShift:0.135});
-      onReady();
-    }, undefined, function(e){ fatLoading = false; if (window.console) console.error(e); });
+      var ws = fatWaiters; fatWaiters = [];
+      ws.forEach(function(f){ f(); });
+    }, undefined, function(e){ fatLoading = false; fatWaiters = []; if (window.console) console.error(e); });
   }
   function toggleFat(){
     if (state !== 'title' && state !== 'playing') return;
@@ -3326,8 +3363,17 @@
     // branch for why the camera never moves backward like that.
   }
   function beginRun(){
+    if (extraMode && (!bearRigs.fat || !bgmBufferCache.extra)){
+      // EXTRA's fat bear and track are loaded on demand: wait for them behind the loading card
+      cardPreload.classList.add('visible');
+      loadFat(function(){}); preloadBgmTrack('extra', true);
+      setTimeout(beginRun, 250);
+      return;
+    }
+    cardPreload.classList.remove('visible');
     resumeAudioCtx();
-    rankBeginSession(levelButtons.map(function(b){ return parseInt(b.dataset.bpm, 10); }).indexOf(startBPM) + 1);
+    if (extraMode){ rankToken = null; rankSubmitted = false; rankRunId++; } // no ranking for EXTRA
+    else rankBeginSession(levelButtons.map(function(b){ return parseInt(b.dataset.bpm, 10); }).indexOf(startBPM) + 1);
     if (iosAudioUnlock){ iosAudioUnlock.currentTime = 0; iosAudioUnlock.play().catch(function(){}); }
     playSfx('start');
     stopGameoverBgm();
@@ -3345,8 +3391,15 @@
       preloadBgmTrack('sage', true);
       new Image().src = 'levellogo/SuperHard.webp';
     }
+    if (extraMode){
+      bgmAutoMode = false; // the fixed track, whatever the BPM
+      loadBgmTrack('extra');
+    } else {
+      bgmAutoMode = bgmTrackSelect.value === 'auto';
+      if (currentTrackKey === 'extra') loadBgmTrack(bgmAutoMode ? autoTrackForBpm(startBPM) : bgmTrackSelect.value);
+    }
     setBPM(startBPM);
-    applyBearLook(levelButtons.map(function(b){ return parseInt(b.dataset.bpm, 10); }).indexOf(startBPM));
+    applyBearLook(extraMode ? FAT_LOOK : levelButtons.map(function(b){ return parseInt(b.dataset.bpm, 10); }).indexOf(startBPM));
     resetGame();
     state = 'playing';
     startLeadIn(true);
@@ -3651,7 +3704,7 @@
             else setBPM(Math.max(BPM_MIN, BPM - 2));
           }
           else if (bgmAutoMode && startedAtLevel1() && Math.min(BPM_MAX, BPM + 2) >= SAGE_TRIGGER_BPM) enterSagePhase();
-          else setBPM(Math.min(BPM_MAX, BPM + 2));
+          else if (!extraMode) setBPM(Math.min(BPM_MAX, BPM + 2));
           playSfx('levelup');
           // A bonus chunk of real distance on top of the steady per-hit
           // trickle above, rewarding a clean streak instead of being the
