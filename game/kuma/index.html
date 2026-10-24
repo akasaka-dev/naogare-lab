@@ -2333,7 +2333,9 @@
   // DECO_GAP behind it; if the attacker backs into one, that cub hurries out of the way), and they never leave
   // the camera's view (sideways limit from the camera's field of view at their depth). In between they walk
   // to random spots and perform (dance, bow, nod, shake, jump, roll...). Nothing in the run (the beat, the
-  // player's hits, the attacker's moves) drives their animation. Positions are local to `player`, like the bear's.
+  // player's hits, the attacker's moves) drives their animation, with one exception: when the attacker charges
+  // (the dash after a miss), every cub does the same dash in its own spot, moving the same distance as the
+  // attacker (so the gap to it is kept). Positions are local to `player`, like the bear's.
   var DECO_SCALE = 0.4, DECO_SPEED = 2.2, DECO_RUSH_SPEED = 4.5, DECO_GAP = 2.0, DECO_DEPTH = 8, DECO_SIDE = 0.85;
   var DECO_VARIANTS = [{tint:0xf2c9a0}, {tint:0xd2a276}];
   var DECO_PERFORM = ['Dance_Simple', 'Dance_Charleston', 'Head_Nod', 'Bow', 'Idle_ShakeOff', 'Victory', 'Jump_2_RM', 'Roll'];
@@ -2388,9 +2390,11 @@
         decoGroup.add(holder);
         var d = {holder: holder, model: model, mixer: new THREE.AnimationMixer(model), acts: {}, cur: null,
                  root: model.getObjectByName('root'), mode: 'wander', tx: 0, tz: 0, until: 0};
-        ['Walk', 'Run_Anime', 'Fighting_Idle'].concat(DECO_PERFORM).forEach(function(n){
+        ['Walk', 'Run_Anime', 'Fighting_Idle', 'Sword_Dash_RM'].concat(DECO_PERFORM).forEach(function(n){
           var clip = findClip(gltf.animations, n);
-          if (clip) d.acts[n] = d.mixer.clipAction(clip);
+          if (!clip) return;
+          d.acts[n] = d.mixer.clipAction(clip);
+          if (n === 'Sword_Dash_RM'){ d.acts[n].setLoop(THREE.LoopOnce); d.acts[n].clampWhenFinished = true; }
         });
         decoScatter(d);
         decoCubs.push(d);
@@ -2415,9 +2419,20 @@
     if (!decoGroup.visible) return;
     var step = state === 'paused' ? 0 : dt;
     var lim = decoLimitZ();
+    var attacking = lungeState === 'telegraph' || lungeState === 'lunge';
     decoCubs.forEach(function(d){
       var crowded = d.holder.position.z > lim + 0.2; // the attacker has backed into this cub's spot
-      if (crowded && d.mode === 'perform'){
+      if (attacking){
+        // the attacker's charge: back off, wind up and dash exactly when it does, covering the same distance
+        if (d.mode !== 'attack'){ d.mode = 'attack'; d.atkZ = d.holder.position.z; }
+        var cc = chargeCfg();
+        var dashing = lungeState === 'lunge' || !!(cc && cc.windupT && lungeTimer <= cc.windupT);
+        decoFade(d, dashing ? 'Sword_Dash_RM' : 'Fighting_Idle');
+        decoFace(d, 0, 8, step);
+        d.holder.position.z = d.atkZ + (bear.position.z - sageStartZ);
+      } else if (d.mode === 'attack'){
+        decoWander(d);
+      } else if (crowded && d.mode === 'perform'){
         decoWander(d); // leave the performance and get out of the way
       } else if (d.mode === 'wander'){
         if (d.tz > lim - 0.3) decoPickTarget(d);
