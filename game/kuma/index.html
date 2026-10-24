@@ -121,7 +121,9 @@
   .rank-list li{ display:flex; gap:8px; padding:4px 6px; border-bottom:1px solid var(--line); }
   .rank-list li.me{ background:rgba(255,200,60,0.18); }
   .rank-list .rank-pos{ width:2em; color:var(--ink-dim); }
-  .rank-list .rank-name{ flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .rank-list .rank-name{ flex:1; min-width:0; display:flex; flex-direction:column; justify-content:center; }
+  .rank-list .rank-name-text{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .rank-list .rank-combo{ font-size:10.5px; letter-spacing:0.04em; color:var(--ink-dim); line-height:1.2; }
   .rank-list .rank-level{ color:var(--ink-dim); font-size:12px; align-self:center; white-space:nowrap; }
   .rank-list .rank-score{ font-family:var(--font-mono); font-weight:700; color:var(--accent); }
   .rank-actions{ display:flex; gap:8px; justify-content:center; }
@@ -696,6 +698,7 @@
       <img class="title-logo" id="overReason" src="gameover.webp" alt="You lost...">
       <p id="overStats">Survival Time 0.0s</p>
       <p id="overScore">Score 0</p>
+      <p id="overCombo">Max Combo 0</p>
       <div class="cta">Click or Tap to Respawn</div>
     </div>
     <div class="overlay-card" id="cardPaused">
@@ -846,6 +849,7 @@
   var btnPauseToTitle = document.getElementById('btnPauseToTitle');
   var overStats = document.getElementById('overStats');
   var overScore = document.getElementById('overScore');
+  var overCombo = document.getElementById('overCombo');
   var btnL = document.getElementById('btnL');
   var btnR = document.getElementById('btnR');
   var btnDodge = document.getElementById('btnDodge');
@@ -987,6 +991,8 @@
   // pause resets it, so a clean run is what pays — and a single slip costs.
   var COMBO_TIER_HITS = 5, COMBO_TIER_STEP = 0.5, COMBO_SCORE_MAX = 4;
   var hitStreak = 0;
+  // Longest unbroken run of on-beat hits in this run (shown on the game-over screen and in the ranking).
+  var maxCombo = 0;
   function comboMultiplier(){
     return Math.min(COMBO_SCORE_MAX, 1 + Math.floor(hitStreak/COMBO_TIER_HITS)*COMBO_TIER_STEP);
   }
@@ -2195,6 +2201,7 @@
     if (score>highScoreScore){ highScoreScore=score; try{ localStorage.setItem(SCORE_HIGH_KEY, String(highScoreScore)); }catch(e){} }
     overStats.textContent = 'Survival Time '+elapsed.toFixed(1)+'s   Best Survival '+Math.max(highScore,elapsed).toFixed(1)+'s';
     overScore.textContent = 'Score '+Math.round(score)+'   Best Score '+Math.round(Math.max(highScoreScore,score));
+    overCombo.textContent = 'Max Combo ' + maxCombo;
     cardOver.classList.add('visible');
     playDropIn(overReason);
     rankOfferAfterGameover();
@@ -2417,7 +2424,7 @@
       submit.disabled = true; msg.textContent = '';
       try{ localStorage.setItem(RANK_NAME_KEY, name); }catch(e){}
       rankFetch('/score', {method:'POST', headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({name:name, score:Math.round(score), level:rankLevel, reached:reachedLevel, token:rankToken})}).then(function(d){
+        body:JSON.stringify({name:name, score:Math.round(score), level:rankLevel, reached:reachedLevel, maxCombo:maxCombo, token:rankToken})}).then(function(d){
         if (d && d.ok){ rankSubmitted = true; rankToken = null; rankShowList(name, Math.round(score), rankLevel); }
         else { msg.textContent = 'Failed. Try again.'; submit.disabled = !input.value.trim(); }
       });
@@ -2455,7 +2462,10 @@
       d.results.forEach(function(r, i){
         var li = rankEl('li', null, (r.name === meName && r.score === meScore && r.level === meLevel) ? 'me' : '');
         li.appendChild(rankEl('span', String(i + 1), 'rank-pos'));
-        li.appendChild(rankEl('span', r.name, 'rank-name'));
+        var nameBox = rankEl('span', null, 'rank-name');
+        nameBox.appendChild(rankEl('span', r.name, 'rank-name-text'));
+        if (r.max_combo > 0) nameBox.appendChild(rankEl('span', 'MAX COMBO ' + r.max_combo, 'rank-combo'));
+        li.appendChild(nameBox);
         li.appendChild(rankEl('span', rankLevelText(r.level, r.reached), 'rank-level'));
         li.appendChild(rankEl('span', String(r.score), 'rank-score'));
         list.appendChild(li);
@@ -2978,6 +2988,7 @@
     // slider drag) left it during the previous attempt.
     sagePhase = false;
     reachedLevel = 1; // setBPM(startBPM) just below raises it to the start level
+    maxCombo = 0;
     // Only a LEVEL1 start can reach the sage: warm its model/track/logo up in
     // the background now so the entrance is ready minutes later.
     if (startedAtLevel1()){
@@ -3248,6 +3259,7 @@
       flashLane(lane, 'hit');
       var prevMult = comboMultiplier();
       hitStreak += 1;
+      if (hitStreak > maxCombo) maxCombo = hitStreak;
       sageMissStreak = 0;
       var scoreMult = comboMultiplier();
       var hitScoreGain = Math.round(SCORE_HIT_BASE * scoreBpmFactor() * scoreMult);

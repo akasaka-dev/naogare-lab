@@ -45,7 +45,7 @@ async function readBody(request) {
 
 async function handleRanking(env) {
   const { results } = await env.DB.prepare(
-    'SELECT name, score, level, reached, created_at FROM kuma_scores ORDER BY score DESC, created_at ASC LIMIT ?1'
+    'SELECT name, score, level, reached, max_combo, created_at FROM kuma_scores ORDER BY score DESC, created_at ASC LIMIT ?1'
   ).bind(RANKING_LIMIT).all();
   // rows written before the reached column existed hold 0: show the start level
   results.forEach((r) => { if (!(r.reached >= r.level)) r.reached = r.level; });
@@ -99,6 +99,10 @@ async function handleScoreSubmit(request, env) {
   }
 
   const elapsedSec = (Date.now() - session.created_at) / 1000;
+  // Max combo (optional; older clients omit it): at most one hit per beat at the
+  // game's fastest tempo (210 BPM) over the time since the session started.
+  const comboCap = Math.floor(elapsedSec * 210 / 60) + 5;
+  const maxCombo = Number.isInteger(body.maxCombo) && body.maxCombo > 0 ? Math.min(body.maxCombo, comboCap) : 0;
   if (score > SCORE_GRACE + elapsedSec * MAX_POINTS_PER_SECOND) return errorResponse('implausible_score', 400);
 
   const consumed = await env.DB.prepare(
@@ -107,8 +111,8 @@ async function handleScoreSubmit(request, env) {
   if (!consumed.meta || consumed.meta.changes === 0) return errorResponse('invalid_session', 403);
 
   await env.DB.prepare(
-    'INSERT INTO kuma_scores (name, score, level, reached, created_at) VALUES (?1, ?2, ?3, ?4, ?5)'
-  ).bind(name, score, level, reached, new Date().toISOString()).run();
+    'INSERT INTO kuma_scores (name, score, level, reached, max_combo, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)'
+  ).bind(name, score, level, reached, maxCombo, new Date().toISOString()).run();
   await env.DB.prepare(
     'DELETE FROM kuma_scores WHERE id NOT IN (SELECT id FROM kuma_scores ORDER BY score DESC, created_at ASC LIMIT ?1)'
   ).bind(RANKING_LIMIT).run();
