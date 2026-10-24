@@ -1667,6 +1667,7 @@
     backgroundLoadsStarted = true;
     preloadGameoverBgm();
     preloadBgmTrack('tempo120', true);
+    loadDecoCubs(); // LEVEL3's wandering cubs, in the background (not part of the title's preload gate)
   }
   function updatePreloadUI(){
     var pct = Math.min(100, Math.round(preloadedCount/PRELOAD_TOTAL*100));
@@ -2225,18 +2226,23 @@
   // pads and is the final stage's boss), so `rig` picks which loaded model
   // is shown (see BEAR_MODEL_FILES). The tint only applies to the standard
   // model, since the others carry their own look.
-  var BEAR_MODEL_FILES = {lv3:'LV3-kuma.glb', fat:'fatbear-kuma.glb', lv5:'LV5-kuma.glb'};
+  var BEAR_MODEL_FILES = {lv3:'LV3-kuma.glb', cub:'bear-rigged.glb', lv5:'LV5-kuma.glb'};
   var BEAR_LOOKS = [
     {rig:'normal', tint:0xffffff, eye:COLOR_ACCENT, scale:1},
     {rig:'lv3',    tint:0xffffff, eye:0xff3b2a, scale:1.25},
-    {rig:'fat',    tint:0x3a2e2e, eye:0xff1a4a, scale:1.5}, // LEVEL3: a fat bear (short limbs: attacks by charging, see FAT_CHARGE); tint only applies to the fallback standard bear
+    // LEVEL3: a cub. This one is the attacker (it charges with Sword_Dash_RM, see CUB_CHARGE: at this size
+    // a hand swing could never reach); two more cubs wander behind it for fun (see the DECO CUBS section).
+    {rig:'cub',    tint:0xffe0bc, eye:0xff1a4a, scale:0.75, cubs:true},
     {rig:'lv5',    tint:0xffffff, eye:0xb44cff, scale:2},
     // The sage (planned LEVEL5 / SuperHard boss). Loaded on demand (K key for
     // now) from SAGE_FILE rather than at startup. Short limbs: its attack is a
     // flying charge (SAGE_* below), not a swing judged by the hand bone.
-    {rig:'sage',  tint:0xffffff, eye:0x7fd0ff, scale:0.5}
+    {rig:'sage',  tint:0xffffff, eye:0x7fd0ff, scale:0.5},
+    // Hidden character (no natural trigger yet; F key / J cycle): the fat bear, loaded on demand.
+    {rig:'fat',   tint:0x3a2e2e, eye:0xff1a4a, scale:1.5}
   ];
   var SAGE_FILE = 'sage-kuma.glb', SAGE_LOOK = 4;
+  var FAT_FILE = 'fatbear-kuma.glb', FAT_LOOK = 5;
   var SAGE_RUNUP = 4;        // backs away this far during the telegraph
   var SAGE_END_Z = 9;        // charge ends past the camera (camera is at z=+4.6)
   var SAGE_HIT_Z = -1.0;     // bear reaching this z (local to player) while charging connects
@@ -2259,6 +2265,10 @@
     // centred dodgeLead s before the bear arrives so there is time to step aside after a normal press.
     playerSideScale:0.55, dodgeLead:0.25};
   var swayX = 0, SWAY_CAMERA_FOLLOW = 0.7; // the player model's sidestep offset (see frame())
+  // The cub attacker: the standard bear model, charging like the fat bear (Sword_Dash_RM) because a
+  // hand swing at this size can never reach the player.
+  var CUB_CHARGE = {path:'dash', runup:2.2, endZ:0.3, hitZ:-1.0, crossT:0.23, dashDur:0.5, lungeDur:1.45, windupAnim:'dash', windupT:0.17, lungeAnim:'dash',
+    playerSideScale:0.6, dodgeLead:0.25};
   function chargeCfg(){ return (activeBearRig && activeBearRig.charge) || null; }
   var SAGE_BACKFLIP_DIST = 6, SAGE_HOP = 4;
   var SAGE_DROP_Y = 9, SAGE_DROP_T = 0.45, SAGE_RETURN_DUR = 1.4;
@@ -2298,6 +2308,7 @@
     // standard bear at the sage's 0.5x scale (a harmless little cub), so keep the
     // current bear instead until the sage is actually there.
     if (BEAR_LOOKS[wantIdx].rig === 'sage' && !bearRigs.sage) return;
+    if (BEAR_LOOKS[wantIdx].rig === 'fat' && !bearRigs.fat) return; // loaded on demand, no stand-in either
     bearLookIndex = wantIdx;
     var look = BEAR_LOOKS[bearLookIndex];
     eyeMat.color.setHex(look.eye);
@@ -2309,9 +2320,107 @@
       var sx = bearModel.scale.x < 0 ? -1 : 1; // keep a lunge's mirroring
       bearModel.scale.set(sx * enemyScale, enemyScale, enemyScale);
     }
-    if (key !== 'normal' || !bearRigs.normal) return;
-    bearRigs.normal.model.traverse(function(o){
+    decoShow(!!look.cubs);
+    if ((key !== 'normal' && key !== 'cub') || !bearRigs[key]) return;
+    bearRigs[key].model.traverse(function(o){
       if (o.isMesh && o.material && o.material.color) o.material.color.setHex(look.tint);
+    });
+  }
+
+  // ---- DECO CUBS ----------------------------------------------------------------------------------------
+  // LEVEL3's extra cubs: pure decoration. They never attack and are not part of the bear's logic; they walk
+  // to random spots and perform (dance, bow, nod, shake) in a patch BEHIND the attacker (always farther from
+  // the player than DECO_MIN_Z), so they never get in the way. Their group follows the attacker's chase
+  // distance but not its charge (the attacker's own rush is not copied).
+  var DECO_SCALE = 0.6, DECO_SPEED = 2.2, DECO_MIN_Z = -3.5, DECO_MAX_Z = -9, DECO_HALF_X = 5.5;
+  var DECO_VARIANTS = [{tint:0xf2c9a0}, {tint:0xd2a276}];
+  var DECO_PERFORM = ['Dance_Simple', 'Dance_Charleston', 'Head_Nod', 'Bow', 'Idle_ShakeOff'];
+  var decoGroup = new THREE.Group();
+  decoGroup.visible = false; // added to `player` next to player.add(bear)
+  var decoCubs = [], decoLoading = false, decoAnchorZ = null;
+  function decoRand(a, b){ return a + Math.random() * (b - a); }
+  function decoFade(d, name){
+    var next = d.acts[name];
+    if (!next || d.cur === next) return;
+    next.reset().fadeIn(0.25).play();
+    if (d.cur) d.cur.fadeOut(0.25);
+    d.cur = next;
+  }
+  function decoWander(d){
+    d.mode = 'wander';
+    d.tx = decoRand(-DECO_HALF_X, DECO_HALF_X);
+    d.tz = decoRand(DECO_MAX_Z, DECO_MIN_Z);
+    decoFade(d, 'Walk');
+  }
+  function decoPerform(d){
+    d.mode = 'perform';
+    d.until = decoRand(2.2, 4.5);
+    var names = DECO_PERFORM.filter(function(n){ return d.acts[n]; });
+    decoFade(d, names.length ? names[Math.floor(Math.random() * names.length)] : 'Fighting_Idle');
+  }
+  function loadDecoCubs(){
+    if (decoLoading) return;
+    decoLoading = true;
+    DECO_VARIANTS.forEach(function(v){
+      new THREE.GLTFLoader().load('bear-rigged.glb', function(gltf){
+        var model = gltf.scene;
+        model.scale.setScalar(ENEMY_MODEL_SCALE * DECO_SCALE);
+        model.rotation.y = MODEL_FRONT_Z > 0 ? 0 : Math.PI;
+        model.traverse(function(o){ if (o.isMesh && o.material && o.material.color) o.material.color.setHex(v.tint); });
+        var holder = new THREE.Group();
+        holder.add(model);
+        holder.position.set(decoRand(-DECO_HALF_X, DECO_HALF_X), 0, decoRand(DECO_MAX_Z, DECO_MIN_Z));
+        decoGroup.add(holder);
+        var d = {holder: holder, model: model, mixer: new THREE.AnimationMixer(model), acts: {}, cur: null,
+                 root: model.getObjectByName('root'), mode: 'wander', tx: 0, tz: 0, until: 0};
+        ['Walk', 'Fighting_Idle'].concat(DECO_PERFORM).forEach(function(n){
+          var clip = findClip(gltf.animations, n);
+          if (clip) d.acts[n] = d.mixer.clipAction(clip);
+        });
+        decoWander(d);
+        decoCubs.push(d);
+      }, undefined, function(e){ decoLoading = false; if (window.console) console.error(e); });
+    });
+  }
+  function decoShow(on){
+    decoGroup.visible = on;
+    if (on){
+      loadDecoCubs();
+      decoAnchorZ = null; // snap to the attacker's line on the next update
+    }
+  }
+  // Called every frame while visible (frame()).
+  function decoUpdate(dt){
+    if (!decoGroup.visible) return;
+    var step = state === 'paused' ? 0 : dt;
+    // follow the attacker's chase line, but not its charge (use where the charge started)
+    var anchor = (lungeState === 'telegraph' || lungeState === 'lunge') ? sageStartZ : bear.position.z;
+    if (decoAnchorZ === null) decoAnchorZ = anchor;
+    decoAnchorZ += (anchor - decoAnchorZ) * (1 - Math.pow(0.001, step));
+    decoGroup.position.set(bear.position.x, 0, decoAnchorZ);
+    decoCubs.forEach(function(d){
+      if (d.mode === 'wander'){
+        var dx = d.tx - d.holder.position.x, dz = d.tz - d.holder.position.z, dist = Math.hypot(dx, dz);
+        if (dist < 0.4){ decoPerform(d); }
+        else {
+          var mv = Math.min(dist, DECO_SPEED * step);
+          d.holder.position.x += dx / dist * mv;
+          d.holder.position.z += dz / dist * mv;
+          var want = Math.atan2(dx, dz), diff = want - d.holder.rotation.y;
+          diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+          d.holder.rotation.y += diff * Math.min(1, 6 * step);
+        }
+      } else {
+        d.until -= step;
+        var face = 0 - d.holder.rotation.y; // face the player (+z) while performing
+        face = Math.atan2(Math.sin(face), Math.cos(face));
+        d.holder.rotation.y += face * Math.min(1, 4 * step);
+        if (d.until <= 0) decoWander(d);
+      }
+      // keep them behind the attacker whatever happens
+      d.holder.position.z = Math.max(DECO_MAX_Z - 2, Math.min(DECO_MIN_Z, d.holder.position.z));
+      d.mixer.update(step);
+      if (d.root) d.root.position.set(0, 0, 0); // clips with root motion (Jump, Roll) stay in place
     });
   }
   // Which bear look each BGM track (tempo tier) shows — the look the bear
@@ -2644,6 +2753,7 @@
   // Sage: folded arms while it backs off, Flying_Forward for the charge,
   // Backflip when it connects, Land_Three_Point when it re-enters after a miss.
   // Fat bear: Fighting_Idle while it backs off, Sword_Dash_RM is the whole attack.
+  var CUB_CLIPS = [['idle',['Fighting_Idle']],['run',['Walk']],['threat',['Fighting_Idle']],['dash',['Sword_Dash_RM']],['closing',['Run_Anime']]];
   var FAT_CLIPS = [['idle',['Fighting_Idle']],['run',['Walk']],['threat',['Fighting_Idle']],['dash',['Sword_Dash_RM']],['closing',['Run_Anime']]];
   var SAGE_CLIPS = [['idle',['Fighting_Idle']],['run',['Walk']],['threat',['Idle_FoldArms']],['sprint',['Flying_Forward']],['closing',['Run_Anime']],['bounce',['Backflip']],['land',['Land_Three_Point']],['sdash',['Sword_Dash_RM']]];
   function buildBearRig(gltf, clipMap, opts){
@@ -2702,6 +2812,21 @@
       onReady();
     }, undefined, function(e){ sageLoading = false; if (window.console) console.error(e); });
   }
+  var fatLoading = false;
+  function loadFat(onReady){
+    if (bearRigs.fat){ onReady(); return; }
+    if (fatLoading) return;
+    fatLoading = true;
+    new THREE.GLTFLoader().load(FAT_FILE, function(gltf){
+      bearRigs.fat = buildBearRig(gltf, FAT_CLIPS, {charge:FAT_CHARGE, groundShift:0.135});
+      onReady();
+    }, undefined, function(e){ fatLoading = false; if (window.console) console.error(e); });
+  }
+  function toggleFat(){
+    if (state !== 'title' && state !== 'playing') return;
+    if (activeBearRig && activeBearRig === bearRigs.fat){ applyBearLook(0); return; }
+    loadFat(function(){ applyBearLook(FAT_LOOK); });
+  }
   function toggleSage(){
     if (state !== 'title' && state !== 'playing') return;
     if (isSageRig()){ applyBearLook(0); return; }
@@ -2711,7 +2836,7 @@
   // showing the standard bear (see applyBearLook()).
   Object.keys(BEAR_MODEL_FILES).forEach(function(key){
     loadGltfTracked(BEAR_MODEL_FILES[key], function(gltf){
-      bearRigs[key] = key === 'fat' ? buildBearRig(gltf, FAT_CLIPS, {charge:FAT_CHARGE, groundShift:0.135}) : buildBearRig(gltf);
+      bearRigs[key] = key === 'cub' ? buildBearRig(gltf, CUB_CLIPS, {charge:CUB_CHARGE}) : buildBearRig(gltf);
       applyBearLook(bearLookIndex);
     });
   });
@@ -2743,6 +2868,7 @@
   // player's own position/rotation traces out.
   player.add(camera);
   player.add(bear);
+  player.add(decoGroup);
   var playerModel = null, playerHitBone = null, playerRootBone = null;
   var playerMixer = null, playerWalkAction = null, playerIdleAction = null, playerKnockbackAction = null, knockbackDuration = 1.0;
   var playerGetUpAction = null, getUpDuration = 1.0;
@@ -3419,6 +3545,7 @@
     else if (k==='c'){ if(!e.repeat){ e.preventDefault(); handleDodge(); } }
     else if (k==='v'){ if(!e.repeat){ e.preventDefault(); handleRecover(); } }
     else if (k==='k'){ if(!e.repeat) toggleSage(); }
+    else if (k==='f'){ if(!e.repeat) toggleFat(); }
     // Debug-only: enters the real sage phase (tempo-up sequence, sage entrance,
     // slow track at SAGE_START_BPM) without climbing to SAGE_TRIGGER_BPM.
     else if (k==='l'){ if(!e.repeat && state === 'playing' && !sagePhase && playerVictoryAction){
@@ -3433,6 +3560,8 @@
       var nextLook = (bearLookIndex + 1) % BEAR_LOOKS.length;
       if (nextLook === SAGE_LOOK && !bearRigs.sage){
         loadSage(function(){ if (state === 'playing' && playerVictoryAction) startTempoUpSequence(SAGE_LOOK); });
+      } else if (nextLook === FAT_LOOK && !bearRigs.fat){
+        loadFat(function(){ if (state === 'playing' && playerVictoryAction) startTempoUpSequence(FAT_LOOK); });
       } else startTempoUpSequence(nextLook);
     } }
   }, {passive:false});
@@ -4575,6 +4704,7 @@
     if (bearModel){
       bearModel.position.y = (reducedMotion ? 0 : Math.sin(time*2.1)*0.02) - (activeBearRig ? activeBearRig.groundShift : 0) * enemyScale;
     }
+    decoUpdate(dt);
 
     // Gated to 'playing' so a held key during the 'knockback'/'gettingup'
     // states can't fight the Hit_Knockback_RM/LayToIdle pose those states
