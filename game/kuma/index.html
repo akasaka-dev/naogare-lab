@@ -1057,6 +1057,7 @@
   // it — reset fresh at the start of every telegraph, see the lungeState FSM
   // in frame() below.
   var attackSide = 'L', dodged = false, dodgeAttempted = false;
+  var dodgeLockUntil = 0, DODGE_RETRY_LOCK_MS = 300; // brief lockout after a failed Sway press
   var dodgeTimer = 0; // >0 while a Dodge_left/right_RM clip is playing, so the idle/walk gate below leaves it alone
   var walkStepTimer = 0, walkStepDuration = 1.0; // >0 while a single Walk_Backwards step (triggered per successful hit) is playing
   // The bear only has one dodge button (C) — there's no "which side" for the
@@ -3024,7 +3025,13 @@
   function handleDodge(){
     if (state !== 'playing') return;
     if (lungeState !== 'telegraph' && lungeState !== 'lunge') return;
-    if (dodgeAttempted) return;
+    // A swing can be retried: only an already-successful dodge, or the short
+    // lockout after a failed press, ignores a press. A failure costs the combo
+    // and a little score (one plain hit's worth) and nothing else — the bear is
+    // already close when Sway is needed, so a distance penalty would only make
+    // recovery harder. Mashing therefore never builds a combo or a score.
+    if (dodged) return;
+    if (performance.now() < dodgeLockUntil) return;
     dodgeAttempted = true;
     var onTime = Math.abs(elapsed - lungeImpactAt) <= DODGE_GOOD_WINDOW/2;
     // Dodge_left/right_RM are already the correct clip for each side — if a
@@ -3039,6 +3046,10 @@
       flashDodge('hit');
     } else {
       flashDodge('miss');
+      combo = 1; resetHitStreak();
+      var swayLoss = Math.min(Math.round(score), Math.round(SCORE_HIT_BASE * scoreBpmFactor()));
+      if (swayLoss > 0){ score -= swayLoss; showScorePopup(-swayLoss); }
+      dodgeLockUntil = performance.now() + DODGE_RETRY_LOCK_MS;
     }
   }
 
