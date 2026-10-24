@@ -3632,6 +3632,13 @@
 
   window.addEventListener('keydown', function(e){
     if (!rankModal.hidden) return; // typing a nickname must not drive the game
+    if (!audioAdjustModal.hidden){
+      // Audio Adjust: Z/X (or the arrows) press Left/Right there, like the on-screen buttons; no other key acts.
+      var ak = e.key.toLowerCase();
+      if (!e.repeat && (ak === 'z' || ak === 'arrowleft')){ e.preventDefault(); handleAudioAdjustPress('L'); }
+      else if (!e.repeat && (ak === 'x' || ak === 'arrowright')){ e.preventDefault(); handleAudioAdjustPress('R'); }
+      return;
+    }
     if (tutorialOpen){
       var tk = e.key.toLowerCase();
       if (tk === 'enter' || tk === ' ' || tk === 'z' || tk === 'x'){ e.preventDefault(); closeTutorial(); }
