@@ -3022,9 +3022,31 @@
   // clip as a "flinched the wrong way" flourish, but blended so badly with
   // the hit reaction that followed it read as a glitch rather than a story —
   // it's a plain miss now: no animation of its own, the hit just lands.
+  // Plays the sidestep clip fresh on every Sway press (setPlayerAnim would
+  // ignore a repeat of the same state), so the button always visibly does
+  // something — successful or not, in a swing or not.
+  var swayPracticeSide = 'R';
+  function playSwayAnim(side){
+    if (playerModel) playerModel.scale.x = PLAYER_MODEL_SCALE; // the clips are already side-specific
+    var act = side === 'L' ? playerDodgeLeftAction : playerDodgeRightAction;
+    if (!act) return;
+    [playerWalkAction, playerIdleAction, playerDodgeLeftAction, playerDodgeRightAction, playerBonusAction, playerRecoverAction].forEach(function(a){
+      if (a && a !== act) a.stop();
+    });
+    act.reset().play();
+    playerAnimState = side === 'L' ? 'dodgeL' : 'dodgeR';
+    dodgeTimer = side === 'L' ? dodgeLeftDuration : dodgeRightDuration;
+  }
   function handleDodge(){
     if (state !== 'playing') return;
-    if (lungeState !== 'telegraph' && lungeState !== 'lunge') return;
+    if (lungeState !== 'telegraph' && lungeState !== 'lunge'){
+      // Not in a swing: nothing to dodge, but the press still shows what the
+      // button does (a free sidestep, alternating sides, no effect or cost).
+      if (dodgeTimer > 0) return;
+      swayPracticeSide = swayPracticeSide === 'L' ? 'R' : 'L';
+      playSwayAnim(swayPracticeSide);
+      return;
+    }
     // A swing can be retried: only an already-successful dodge, or the short
     // lockout after a failed press, ignores a press. A failure costs the combo
     // and a little score (one plain hit's worth) and nothing else — the bear is
@@ -3034,15 +3056,10 @@
     if (performance.now() < dodgeLockUntil) return;
     dodgeAttempted = true;
     var onTime = Math.abs(elapsed - lungeImpactAt) <= DODGE_GOOD_WINDOW/2;
-    // Dodge_left/right_RM are already the correct clip for each side — if a
-    // walk step happened to leave the model mirrored (scale.x<0), a dodge
-    // firing mid-mirror would render backwards on top of that. Un-mirror
-    // before it plays, regardless of which side wins below.
-    if (playerModel) playerModel.scale.x = PLAYER_MODEL_SCALE;
+    var side = attackSide === 'L' ? 'L' : 'R';
+    playSwayAnim(side); // the player sways either way; only an on-time one avoids the hit
     if (onTime){
       dodged = true;
-      setPlayerAnim(attackSide === 'L' ? 'dodgeL' : 'dodgeR');
-      dodgeTimer = attackSide === 'L' ? dodgeLeftDuration : dodgeRightDuration;
       flashDodge('hit');
     } else {
       flashDodge('miss');
@@ -3250,7 +3267,11 @@
       // sell that particular hit's extra distance. Jog isn't a side-specific
       // clip like Walk_Backwards, so it always plays un-mirrored regardless
       // of which lane happened to complete the pass.
-      if (passLanded && playerBonusAction){
+      // While a Sway sidestep is playing (dodgeTimer > 0) the step/Jog clips are
+      // not started: they used to cut the sidestep after a split second (and
+      // blend with it), so the dodge barely showed. Distance/score effects of the
+      // hit are unaffected; only the step animation is skipped.
+      if (passLanded && playerBonusAction && dodgeTimer <= 0){
         if (playerModel) playerModel.scale.x = PLAYER_MODEL_SCALE;
         if (playerIdleAction) playerIdleAction.stop();
         if (playerWalkAction) playerWalkAction.stop();
@@ -3258,7 +3279,7 @@
         playerBonusAction.reset().play();
         walkStepTimer = bonusDuration;
         playerAnimState = 'bonus';
-      } else if (playerWalkAction){
+      } else if (playerWalkAction && dodgeTimer <= 0){
         if (playerModel) playerModel.scale.x = (lane === 'L' ? 1 : -1) * PLAYER_MODEL_SCALE;
         if (playerIdleAction) playerIdleAction.stop();
         // A bonus Jog (or a kinoko pickup's Fixing_Kneeling — see
