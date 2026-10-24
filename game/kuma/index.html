@@ -2245,10 +2245,12 @@
   //   return to Z_NEAR over the rest of the clip.
   var SAGE_CHARGE = {path:'sage', runup:SAGE_RUNUP, endZ:SAGE_END_Z, hitZ:SAGE_HIT_Z, crossT:SAGE_CROSS_T, lungeDur:0.9, lungeAnim:'sprint'};
   var FAT_CHARGE = {path:'dash', runup:3, endZ:0.5, hitZ:-1.0, crossT:0.23, dashDur:0.5, lungeDur:1.45, windupAnim:'dash', windupT:0.17, lungeAnim:'dash',
-    // A dodged rush must clear the player's body: sideScale x the bear's scale is how far it veers
-    // (the fat body is ~2 units wide on each side), it veers quickly, and the dodge window is centred
-    // dodgeLead s before the bear arrives so there is time to veer after a normal press.
-    sideScale:0.65, fastVeer:true, dodgeLead:0.25};
+    // A dodged rush must clear the player's body, so on a successful Sway the PLAYER steps aside
+    // (playerSideScale x the bear's scale; the fat body is ~2 units wide on each side) and comes back once
+    // the bear has retreated behind it; the bear itself keeps charging straight. The dodge window is
+    // centred dodgeLead s before the bear arrives so there is time to step aside after a normal press.
+    playerSideScale:0.55, dodgeLead:0.25};
+  var swayX = 0, SWAY_CAMERA_FOLLOW = 0.7; // the player model's sidestep offset (see frame())
   function chargeCfg(){ return (activeBearRig && activeBearRig.charge) || null; }
   var SAGE_BACKFLIP_DIST = 6, SAGE_HOP = 4;
   var SAGE_DROP_Y = 9, SAGE_DROP_T = 0.45, SAGE_RETURN_DUR = 1.4;
@@ -2860,6 +2862,7 @@
     currentLane = 'L'; beatParity = false;
     lungeState = 'idle'; lungeTimer = 0; nextLungeAt = 1.2 + Math.random()*1.2;
     sageReturnT = 0; bear.position.y = 0; sagePhase = false; sageDashT = 0; sageMissStreak = 0;
+    swayX = 0; if (playerModel) playerModel.position.x = 0;
     clearGuideDrain();
     dodged = false; dodgeAttempted = false; dodgeTimer = 0;
     if (bearModel) bearModel.scale.x = enemyScale;
@@ -4120,7 +4123,7 @@
             var runZ = sageStartZ - chargeC.runup;
             // A dodged charge flies past on the side the player stepped away from.
             var chargeSide = chargeC.sideScale ? chargeC.sideScale * enemyScale : 3.5;
-            var chargeX = dodged ? (attackSide === 'L' ? chargeSide : -chargeSide) : 0;
+            var chargeX = (dodged && !chargeC.playerSideScale) ? (attackSide === 'L' ? chargeSide : -chargeSide) : 0;
             if (chargeC.path === 'dash'){
               if (cu <= chargeC.dashDur){
                 var dv = cu / chargeC.dashDur;
@@ -4495,7 +4498,19 @@
     // near player's own declaration) — no "+player.position.z" needed here at
     // all, that's the whole point: wherever the player is, this is where the
     // camera sits relative to them, structurally, every frame.
-    camera.position.set(sp.camSway.cur, EYE_HEIGHT + THIRD_PERSON_UP + sp.camBounce.cur*0.05 + idleSway, THIRD_PERSON_BACK);
+    // Sway sidestep against a charging bear (FAT_CHARGE.playerSideScale): the player model steps aside
+    // while dodged, holds until the bear has come back behind it, then returns. The camera follows part of
+    // the way so the player stays on screen on a narrow (portrait) stage.
+    var swayC = chargeCfg(), swayTgt = 0;
+    if (swayC && swayC.playerSideScale && dodged && (lungeState === 'telegraph' || lungeState === 'lunge')){
+      var swayHold = swayC.dashDur + 0.65 * (swayC.lungeDur - swayC.dashDur);
+      var swaySec = lungeState === 'lunge' ? swayC.lungeDur - lungeTimer : 0;
+      if (swaySec < swayHold) swayTgt = (attackSide === 'L' ? -1 : 1) * swayC.playerSideScale * enemyScale;
+    }
+    swayX += (swayTgt - swayX) * (1 - Math.pow(swayTgt !== 0 ? 0.00002 : 0.001, dt));
+    if (Math.abs(swayX) < 0.001) swayX = 0;
+    if (playerModel) playerModel.position.x = swayX;
+    camera.position.set(sp.camSway.cur + swayX * SWAY_CAMERA_FOLLOW, EYE_HEIGHT + THIRD_PERSON_UP + sp.camBounce.cur*0.05 + idleSway, THIRD_PERSON_BACK);
     camera.rotation.set(pitchCur, yawCur, sp.camRoll.cur);
     if (cutinCamActive && headBone){
       // Cut-in: the camera sits in front of the new bear's face (the bear
