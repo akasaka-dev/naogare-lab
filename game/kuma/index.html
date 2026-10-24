@@ -364,6 +364,13 @@
     text-shadow:0 1px 4px rgba(0,0,0,0.8);
     animation:tutorialBlink 1.4s ease-in-out infinite;
   }
+  /* EXTRA: the sticking pattern being played, and the next one near the end of a block */
+  .hud-stick{
+    position:absolute; left:0; right:0; bottom:84px; z-index:4; text-align:center; pointer-events:none;
+    font-weight:900; font-size:14px; letter-spacing:0.08em; color:#fff;
+    text-shadow:0 1px 4px rgba(0,0,0,0.9), 0 0 8px rgba(0,0,0,0.6);
+  }
+  .hud-stick .stick-seq{ font-family:var(--font-mono); letter-spacing:0.18em; color:var(--accent); }
   .level-select{display:flex; flex-direction:column; align-items:center; gap:10px;}
   .level-row{display:flex; gap:8px; justify-content:center; flex-wrap:wrap;}
   .level-select button{
@@ -695,6 +702,7 @@
       <div class="hud-combo" id="comboLabel"><span id="comboCount">0</span> <span data-i18n="combo">COMBO</span><span class="combo-mult" id="comboMult">x1.0</span></div>
       <div class="score-popup-anchor" id="scorePopupAnchor"></div>
       <div class="hud-countdown" id="countdownLabel"></div>
+      <div class="hud-stick" id="stickLabel" hidden></div>
     </div>
     <canvas id="debugMap" width="220" height="320" hidden></canvas>
     <!-- Silent, plays once per run start (see beginRun()) purely so a real
@@ -878,7 +886,7 @@
   var I18N = {
     en: {
       distance:'distance', scoreColon:'Score:', combo:'COMBO', loading:'Loading...', start:'Start',
-      extra:'EXTRA', timingCheck:'Timing Check', ranking:'Ranking', audioAdjust:'Audio Adjust', langBtn:'日本語',
+      extra:'EXTRA', stickSingle:'Single', stickDouble:'Double', stickPara:'Paradiddle', timingCheck:'Timing Check', ranking:'Ranking', audioAdjust:'Audio Adjust', langBtn:'日本語',
       clickTap:'Click<br>or Tap', tapNext:'Click or Tap', respawn:'Click or Tap to Respawn', resume:'Tap to Resume', titleBtn:'Title',
       left:'Left', right:'Right', sway:'Sway', bgmAuto:'Auto (follows BPM)', modelFail:'Could not load the bear',
       survival:'Survival Time', bestSurvival:'Best Survival', sec:'s', scoreWord:'Score', bestScore:'Best Score', maxCombo:'Max Combo',
@@ -890,7 +898,7 @@
     },
     ja: {
       distance:'距離', scoreColon:'スコア:', combo:'コンボ', loading:'読み込み中...', start:'スタート',
-      extra:'EXTRA', timingCheck:'タイミングチェック', ranking:'ランキング', audioAdjust:'音のズレ調整', langBtn:'English',
+      extra:'EXTRA', stickSingle:'シングル', stickDouble:'ダブル', stickPara:'パラディドル', timingCheck:'タイミングチェック', ranking:'ランキング', audioAdjust:'音のズレ調整', langBtn:'English',
       clickTap:'クリック<br>かタップ', tapNext:'クリックかタップ', respawn:'クリックかタップでもう一度', resume:'タップで再開', titleBtn:'タイトル',
       left:'左', right:'右', sway:'よける', bgmAuto:'自動(BPMに合わせる)', modelFail:'クマを読み込めませんでした',
       survival:'生き延びた時間', bestSurvival:'ベスト', sec:'秒', scoreWord:'スコア', bestScore:'ベストスコア', maxCombo:'最大コンボ',
@@ -1228,6 +1236,32 @@
   var EXTRA_BPM = 125;
   var EXTRA_UNLOCK_KEY = 'kuma-extra-unlocked', EXTRA_TIME_KEY = 'kuma-extra-best-time', EXTRA_SCORE_KEY = 'kuma-extra-best-score';
   var extraMode = false, extraBestTime = 0, extraBestScore = 0;
+  // EXTRA's lane order is a drum "sticking" (L = left hand, R = right hand), one note per press, switched every
+  // EXTRA_BLOCK presses (= 4 bars of eight notes). Every pattern's length divides EXTRA_BLOCK, so each block
+  // starts at the top of its pattern. stickBeat counts the presses since control was handed to the player.
+  var EXTRA_BLOCK = 32;
+  var EXTRA_STICKS = [
+    {key:'stickSingle', seq:'LR'},        // singles: L R L R
+    {key:'stickDouble', seq:'LLRR'},      // doubles: L L R R
+    {key:'stickPara',   seq:'LRLLRLRR'}   // paradiddle: L R L L  R L R R
+  ];
+  var stickBeat = 0;
+  function extraStick(n){ return EXTRA_STICKS[Math.floor(n / EXTRA_BLOCK) % EXTRA_STICKS.length]; }
+  function extraLane(n){ var q = extraStick(n).seq; return q.charAt(n % q.length); }
+  var stickLabelEl = document.getElementById('stickLabel'), stickLabelShown = null;
+  // Shown above the buttons while EXTRA is being played; the next pattern is announced for the last bar of a block.
+  function updateStickLabel(on){
+    var html = '';
+    if (extraMode && on){
+      var cur = extraStick(stickBeat), pos = stickBeat % EXTRA_BLOCK;
+      html = t(cur.key) + ' <span class="stick-seq">' + cur.seq + '</span>';
+      if (pos >= EXTRA_BLOCK - 8){ var nx = extraStick(stickBeat + EXTRA_BLOCK - pos); html += ' → ' + t(nx.key) + ' <span class="stick-seq">' + nx.seq + '</span>'; }
+    }
+    if (html === stickLabelShown) return;
+    stickLabelShown = html;
+    stickLabelEl.innerHTML = html;
+    stickLabelEl.hidden = !html;
+  }
   try{ extraBestTime = parseFloat(localStorage.getItem(EXTRA_TIME_KEY)) || 0; extraBestScore = parseFloat(localStorage.getItem(EXTRA_SCORE_KEY)) || 0; }catch(e){}
   // The sage phase (SuperHard): reached by starting at LEVEL1 and climbing to
   // SAGE_TRIGGER_BPM. The sage's slow track then takes over at SAGE_START_BPM
@@ -3261,7 +3295,7 @@
     hp = maxHP; updateHpDisplay();
     combo = 1; missReactionTimer = 0; greenStreak = 0; worldScroll = 0; resetHitStreak();
     beatDur = 60/BPM; nextBeatTime = beatDur; beatOpen = false; beatHit = false; missGraceUntil = 0;
-    currentLane = 'L'; beatParity = false;
+    beatParity = false; stickBeat = 0; currentLane = extraMode ? extraLane(0) : 'L';
     lungeState = 'idle'; lungeTimer = 0; nextLungeAt = 1.2 + Math.random()*1.2;
     sageReturnT = 0; bear.position.y = 0; sagePhase = false; sageDashT = 0; sageMissStreak = 0;
     swayX = 0; if (playerModel) playerModel.position.x = 0;
@@ -4456,7 +4490,8 @@
         if (!beatHit && leadInBeats <= 0) applyMissPenalty(currentLane);
         nextBeatTime += beatDur;
         beatParity = !beatParity;
-        currentLane = beatParity ? 'R' : 'L';
+        stickBeat += 1;
+        currentLane = extraMode ? extraLane(stickBeat) : (beatParity ? 'R' : 'L');
         if (leadInBeats > 0){
           leadInBeats -= 1;
           if (leadInBeats <= 0){
@@ -4470,8 +4505,8 @@
             // 'L' here, once, right as real control is handed back, so the
             // first real beat is always the left foot regardless of how
             // many toggles the lead-in itself happened to use.
-            beatParity = false;
-            currentLane = 'L';
+            beatParity = false; stickBeat = 0;
+            currentLane = extraMode ? extraLane(0) : 'L';
             // Real control is only handed back now — give a fresh cooldown
             // measured from THIS moment. The knockback hit-detection below
             // already sets one when a swing lands, but elapsed keeps
@@ -4485,6 +4520,7 @@
         }
       }
       var laneActive = leadInBeats <= 0;
+      updateStickLabel(laneActive);
       btnL.classList.toggle('beat-active', laneActive && !sagePhase && beatOpen && currentLane==='L');
       btnR.classList.toggle('beat-active', laneActive && !sagePhase && beatOpen && currentLane==='R');
       // Beginner help: only on a LEVEL1 start, and only while still in its
