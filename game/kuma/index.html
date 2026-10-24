@@ -1132,6 +1132,7 @@
   // left the music at its old speed until the player happened to touch the
   // slider themselves.
   function setBPM(newBpm){
+    var prevBpm = BPM;
     BPM = newBpm;
     if (!sagePhase) reachedLevel = Math.max(reachedLevel, tierOfBpm(BPM));
     bpmRange.value = BPM;
@@ -1145,6 +1146,18 @@
     if (bgmAutoMode){
       var want = autoTrackForBpm(BPM);
       if (want !== currentTrackKey){ loadBgmTrack(want); return; }
+    }
+    // The BGM tempo is its playback rate. The beat that is already scheduled
+    // (nextBeatTime, in the same clock as beatClockNow()-AUDIO_OFFSET) was
+    // placed with the OLD tempo; a rate change in the middle of a beat moves
+    // the music's next beat by (remaining time) x (old rate / new rate), so the
+    // scheduled beat must be rescaled the same way, otherwise the hit window
+    // stays off the audible beat (by up to ~0.5 beat x the tempo change, tens
+    // of ms for a -10 BPM hit) for the rest of the run. Beats already past
+    // (inside the window after the beat) need nothing.
+    if (bgmSource && bgmStartCtxTime !== null && prevBpm !== BPM && prevBpm > 0 && BPM > 0){
+      var nowC = audioCtx.currentTime - bgmStartCtxTime - AUDIO_OFFSET;
+      if (nextBeatTime > nowC) nextBeatTime = nowC + (nextBeatTime - nowC) * (prevBpm / BPM);
     }
     if (bgmSource) bgmSource.playbackRate.value = BPM / BGM_NATIVE_BPM;
   }
