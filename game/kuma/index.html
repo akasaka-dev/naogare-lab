@@ -2328,17 +2328,25 @@
   }
 
   // ---- DECO CUBS ----------------------------------------------------------------------------------------
-  // LEVEL3's extra cubs: pure decoration. They never attack and are not part of the bear's logic; they walk
-  // to random spots and perform (dance, bow, nod, shake) in a patch BEHIND the attacker (always farther from
-  // the player than DECO_MIN_Z), so they never get in the way. Their group follows the attacker's chase
-  // distance but not its charge (the attacker's own rush is not copied).
-  var DECO_SCALE = 0.4, DECO_SPEED = 2.2, DECO_MIN_Z = -3.5, DECO_MAX_Z = -9, DECO_HALF_X = 5.5;
+  // LEVEL3's extra cubs: pure decoration, moving on their own. They never attack and are not tied to the
+  // attacker's movement. Two rules only: they never come nearer to the player than the attacker (a gap of
+  // DECO_GAP behind it; if the attacker backs into one, that cub hurries out of the way), and they never leave
+  // the camera's view (sideways limit from the camera's field of view at their depth). In between they walk
+  // to random spots and perform (dance, bow, nod, shake, jump, roll...), bounce on the beat, and cheer/wince
+  // at what happens in the run (decoReact). Positions are local to `player`, like the bear's.
+  var DECO_SCALE = 0.4, DECO_SPEED = 2.2, DECO_RUSH_SPEED = 4.5, DECO_GAP = 2.0, DECO_DEPTH = 8, DECO_SIDE = 0.85;
   var DECO_VARIANTS = [{tint:0xf2c9a0}, {tint:0xd2a276}];
   var DECO_PERFORM = ['Dance_Simple', 'Dance_Charleston', 'Head_Nod', 'Bow', 'Idle_ShakeOff', 'Victory', 'Jump_2_RM', 'Roll'];
   var decoGroup = new THREE.Group();
   decoGroup.visible = false; // added to `player` next to player.add(bear)
-  var decoCubs = [], decoLoading = false, decoAnchorZ = null, decoRunning = false;
+  var decoCubs = [], decoLoading = false;
   function decoRand(a, b){ return a + Math.random() * (b - a); }
+  // nearest-to-the-player z a cub may stand at right now (z is negative away from the player)
+  function decoLimitZ(){ return bear.position.z - DECO_GAP; }
+  // how far to either side a cub at depth z stays, so it is always inside the picture
+  function decoHalfW(z){
+    return Math.tan(BASE_FOV * Math.PI / 360) * camera.aspect * (THIRD_PERSON_BACK - z) * DECO_SIDE;
+  }
   function decoFade(d, name){
     var next = d.acts[name];
     if (!next || d.cur === next) return;
@@ -2346,17 +2354,25 @@
     if (d.cur) d.cur.fadeOut(0.25);
     d.cur = next;
   }
+  function decoPickTarget(d){
+    var lim = decoLimitZ();
+    d.tz = decoRand(Math.max(lim - DECO_DEPTH, -45), lim - 0.3);
+    d.tx = decoRand(-1, 1) * decoHalfW(d.tz);
+  }
   function decoWander(d){
     d.mode = 'wander';
-    d.tx = decoRand(-DECO_HALF_X, DECO_HALF_X);
-    d.tz = decoRand(DECO_MAX_Z, DECO_MIN_Z);
-    decoFade(d, 'Walk');
+    decoPickTarget(d);
   }
   function decoPerform(d){
     d.mode = 'perform';
     d.until = decoRand(2.2, 4.5);
     var names = DECO_PERFORM.filter(function(n){ return d.acts[n]; });
     decoFade(d, names.length ? names[Math.floor(Math.random() * names.length)] : 'Fighting_Idle');
+  }
+  function decoScatter(d){
+    decoPickTarget(d);
+    d.holder.position.set(d.tx, 0, d.tz);
+    decoWander(d);
   }
   function loadDecoCubs(){
     if (decoLoading) return;
@@ -2369,7 +2385,6 @@
         model.traverse(function(o){ if (o.isMesh && o.material && o.material.color) o.material.color.setHex(v.tint); });
         var holder = new THREE.Group();
         holder.add(model);
-        holder.position.set(decoRand(-DECO_HALF_X, DECO_HALF_X), 0, decoRand(DECO_MAX_Z, DECO_MIN_Z));
         decoGroup.add(holder);
         var d = {holder: holder, model: model, mixer: new THREE.AnimationMixer(model), acts: {}, cur: null,
                  root: model.getObjectByName('root'), mode: 'wander', tx: 0, tz: 0, until: 0};
@@ -2377,17 +2392,17 @@
           var clip = findClip(gltf.animations, n);
           if (clip) d.acts[n] = d.mixer.clipAction(clip);
         });
-        decoWander(d);
+        decoScatter(d);
         decoCubs.push(d);
       }, undefined, function(e){ decoLoading = false; if (window.console) console.error(e); });
     });
   }
   function decoShow(on){
+    var wasVisible = decoGroup.visible;
     decoGroup.visible = on;
     if (on){
       loadDecoCubs();
-      decoRunning = false;
-      decoAnchorZ = null; // snap to the attacker's line on the next update
+      if (!wasVisible) decoCubs.forEach(decoScatter);
     }
   }
   // The cubs react to the run: cheer on a dodge or a combo tier, wince when the player is hit.
@@ -2407,79 +2422,61 @@
     ph = ((ph % 1) + 1) % 1;
     return Math.sin(ph * Math.PI);
   }
+  function decoFace(d, yaw, rate, step){
+    var df = yaw - d.holder.rotation.y;
+    df = Math.atan2(Math.sin(df), Math.cos(df));
+    d.holder.rotation.y += df * Math.min(1, rate * step);
+  }
   // Called every frame while visible (frame()).
   function decoUpdate(dt){
     if (!decoGroup.visible) return;
     var step = state === 'paused' ? 0 : dt;
-    // follow the attacker's chase line, but not its charge (use where the charge started)
-    var anchor = (lungeState === 'telegraph' || lungeState === 'lunge') ? sageStartZ : bear.position.z;
-    if (decoAnchorZ === null) decoAnchorZ = anchor;
-    var prevZ = decoAnchorZ;
-    decoAnchorZ += (anchor - decoAnchorZ) * (1 - Math.pow(0.001, step));
-    decoGroup.position.set(bear.position.x, 0, decoAnchorZ);
-    // While the attacker closes in or backs off, the cubs run along with it (no sliding in a pose).
-    var vz = step > 0 ? (decoAnchorZ - prevZ) / step : 0;
-    if (decoRunning ? Math.abs(vz) < 0.4 : Math.abs(vz) > 1.0){
-      decoRunning = !decoRunning;
-      if (!decoRunning) decoCubs.forEach(decoWander);
-    }
     var hop = decoBeatHop();
-    var attacking = lungeState === 'telegraph' || lungeState === 'lunge';
+    var lim = decoLimitZ();
     decoCubs.forEach(function(d){
       if (d.reactWait > 0){
         d.reactWait -= step;
         if (d.reactWait <= 0) d.reactT = d.reactDur;
       }
-      if (decoRunning){
-        // like the attacker itself: always facing the player, running in when it closes in, walking when it backs off
-        decoFade(d, vz > 0 ? 'Run_Anime' : 'Walk');
-        d.mode = 'run';
-        var rd = 0 - d.holder.rotation.y;
-        rd = Math.atan2(Math.sin(rd), Math.cos(rd));
-        d.holder.rotation.y += rd * Math.min(1, 8 * step);
-      } else if (d.reactT > 0 || attacking){
-        // cheering/wincing, or bracing while the attacker charges: face the player and hold still
-        var rf = 0 - d.holder.rotation.y;
-        rf = Math.atan2(Math.sin(rf), Math.cos(rf));
-        d.holder.rotation.y += rf * Math.min(1, 8 * step);
-        if (d.reactT > 0){
-          d.reactT -= step;
-          d.mode = 'react';
-          decoFade(d, d.reactClip);
-          if (d.reactT <= 0) decoWander(d);
-        } else {
-          d.mode = 'watch';
-          decoFade(d, 'Fighting_Idle');
-        }
-      } else if (d.mode === 'watch' || d.mode === 'react'){
-        decoWander(d);
+      var crowded = d.holder.position.z > lim + 0.2; // the attacker has backed into this cub's spot
+      if (d.reactT > 0 && !crowded){
+        // cheering or wincing: face the player and stay put
+        decoFace(d, 0, 8, step);
+        d.reactT -= step;
+        d.mode = 'react';
+        decoFade(d, d.reactClip);
+        if (d.reactT <= 0) decoWander(d);
+      } else if (d.mode === 'react' || (crowded && d.mode === 'perform')){
+        d.reactT = 0;
+        decoWander(d); // leave the reaction / the performance and get out of the way
       } else if (d.mode === 'wander'){
+        if (d.tz > lim - 0.3) decoPickTarget(d);
         var dx = d.tx - d.holder.position.x, dz = d.tz - d.holder.position.z, dist = Math.hypot(dx, dz);
         if (dist < 0.4){ decoPerform(d); }
         else {
-          var mv = Math.min(dist, DECO_SPEED * step);
+          var speed = crowded ? DECO_RUSH_SPEED : DECO_SPEED;
+          decoFade(d, crowded ? 'Run_Anime' : 'Walk');
+          var mv = Math.min(dist, speed * step);
           d.holder.position.x += dx / dist * mv;
           d.holder.position.z += dz / dist * mv;
-          var want = Math.atan2(dx, dz), diff = want - d.holder.rotation.y;
-          diff = Math.atan2(Math.sin(diff), Math.cos(diff));
-          d.holder.rotation.y += diff * Math.min(1, 6 * step);
+          decoFace(d, Math.atan2(dx, dz), 6, step);
         }
       } else {
         d.until -= step;
-        var face = 0 - d.holder.rotation.y; // face the player (+z) while performing
-        face = Math.atan2(Math.sin(face), Math.cos(face));
-        d.holder.rotation.y += face * Math.min(1, 4 * step);
+        decoFace(d, 0, 4, step); // face the player (+z) while performing
         if (d.until <= 0) decoWander(d);
       }
-      // keep them behind the attacker whatever happens
-      d.holder.position.z = Math.max(DECO_MAX_Z - 2, Math.min(DECO_MIN_Z, d.holder.position.z));
+      // hard rules, whatever else happened this frame
+      d.holder.position.z = Math.min(lim, d.holder.position.z);
+      var hw = decoHalfW(d.holder.position.z);
+      d.holder.position.x = Math.max(-hw, Math.min(hw, d.holder.position.x));
       var cn = d.cur ? d.cur.getClip().name : '';
       // dances and nods follow the song's tempo; the cub also bounces on every beat (not while jumping/rolling)
       d.mixer.timeScale = (d.mode === 'perform' && /Dance|Nod|Shake/.test(cn)) ? Math.max(0.7, Math.min(1.9, BPM / 100)) : 1;
       d.model.position.y = (d.mode === 'perform' || d.mode === 'wander') && cn !== 'Jump_2_RM' && cn !== 'Roll' ? hop * DECO_HOP : 0;
       d.mixer.update(step);
       // root motion stays in place; the jump's height lives in the root's Y, so keep that for the jump
-      if (d.root) d.root.position.set(0, d.cur && d.cur.getClip().name === 'Jump_2_RM' ? d.root.position.y : 0, 0);
+      if (d.root) d.root.position.set(0, cn === 'Jump_2_RM' ? d.root.position.y : 0, 0);
     });
   }
   // Which bear look each BGM track (tempo tier) shows — the look the bear
