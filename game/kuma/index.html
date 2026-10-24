@@ -1068,6 +1068,14 @@
   // no press at all) plays the *wrong* one instead, so a mistimed dodge reads
   // as flinching the wrong way and taking the hit rather than a no-op.
   var lungeImpactAt = 0, DODGE_GOOD_WINDOW = 0.6;
+  // The stronger the bear (BEAR_LOOKS index 0..3), the more room the player gets
+  // to breathe after being hit and between chained swings: at high tempo a
+  // second swing right after a hit used to end runs too easily. mercy() is 0 for
+  // the first bear (unchanged behaviour) and 1 from the LEVEL4 warrior on.
+  var POST_HIT_GAP_T = 0.3;        // distance after a hit, as a share of GAP_MAX, at full mercy
+  var POST_HIT_EXTRA_COOLDOWN = 2.5; // extra seconds before the next swing after a hit
+  var CHAIN_EXTRA_COOLDOWN = 0.6;    // extra seconds between swings at point-blank
+  function mercy(){ return Math.min(1, bearLookIndex / 3); }
 
   // ---- rhythm/metronome beat system ----
   // Beats alternate L/R forever; each has a fixed-width window centered on its
@@ -4005,7 +4013,7 @@
           // in" cooldown and chain straight into the next one, so the bear
           // presses a close-range advantage with a combo instead of stepping
           // back to idle/run for several seconds between single swings.
-          nextLungeAt = elapsed + (t < CLOSE_RANGE_T ? (0.35 + Math.random()*0.3) : (3 + Math.random()*2));
+          nextLungeAt = elapsed + (t < CLOSE_RANGE_T ? (0.35 + Math.random()*0.3 + CHAIN_EXTRA_COOLDOWN * mercy()) : (3 + Math.random()*2));
           // Keep gap consistent with wherever the charge actually left the bear,
           // so it doesn't snap back out to the pre-lunge distance next frame.
           // bear.position.z is already local to `player` (its literal
@@ -4117,7 +4125,7 @@
           // again. Floor it back to GAP_START — the same distance a fresh
           // run starts at — so getting hit at least buys genuine breathing
           // room instead of a near-guaranteed immediate second hit.
-          gap = Math.max(gap, GAP_START);
+          gap = Math.max(gap, GAP_START + (GAP_MAX * POST_HIT_GAP_T - GAP_START) * mercy());
           // The swing that just landed was still live in lungeState/lungeTimer
           // (and possibly still mirrored via bearModel.scale.x) — left alone,
           // it would silently keep counting down through the whole knockback +
@@ -4125,7 +4133,7 @@
           // 'playing' comes back, reconnecting again almost immediately with
           // no real chance to recover. Abort it here and hand the bear a fresh
           // cooldown instead, same shape as the natural post-swing one.
-          lungeState = 'idle'; nextLungeAt = elapsed + 1.2 + Math.random()*1.2;
+          lungeState = 'idle'; nextLungeAt = elapsed + 1.2 + Math.random()*1.2 + POST_HIT_EXTRA_COOLDOWN * mercy();
           if (bearModel) bearModel.scale.x = enemyScale;
           // A walk step can leave the player model mirrored (scale.x<0) —
           // Hit_Knockback_RM isn't a side-specific clip, so it should always
