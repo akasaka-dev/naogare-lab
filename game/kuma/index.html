@@ -2022,6 +2022,7 @@
   var GRASS_GRID_N = 11; // tiles per side; GRASS_GRID_N * GRASS_TILE_SIZE = 138.6 units across
   var GRASS_SPAN = GRASS_GRID_N * GRASS_TILE_SIZE;
   var grassWrappers = [];
+  var groundCenterV = new THREE.Vector3();
   loadGltfTracked('grass-mud.glb', function(gltf){
     var first = true;
     for (var tz=0; tz<GRASS_GRID_N; tz++){
@@ -4405,16 +4406,27 @@
     // the curve, never created fresh. This runs after every state branch
     // above has had its chance to move playerD, so it's always working from
     // this frame's final position, never last frame's.
-    sky.position.x = player.position.x;
-    sky.position.z = player.position.z;
+    // Normally the ground/sky are centred on the player. While the cut-in camera is
+    // looking at the bear (which can be 50-95 units away after a long run of hits,
+    // beyond the ground tiles' reach) they are centred on the bear instead, so the
+    // bear stands on grass and not on the bare fallback floor. The camera cuts at
+    // both ends of that shot, so the switch is never seen.
+    var gcX = player.position.x, gcZ = player.position.z;
+    if (state === 'cutin' && cutinCamActive){
+      player.updateMatrixWorld(true);
+      bear.getWorldPosition(groundCenterV);
+      gcX = groundCenterV.x; gcZ = groundCenterV.z;
+    }
+    sky.position.x = gcX;
+    sky.position.z = gcZ;
     sky.rotation.y = player.rotation.y;
-    ground.position.x = player.position.x;
-    ground.position.z = player.position.z;
+    ground.position.x = gcX;
+    ground.position.z = gcZ;
     grassWrappers.forEach(function(g){
       // The copy of this tile's own grid slot inside the GRASS_SPAN-wide
-      // square centered on the player, in both axes.
-      g.obj.position.x = g.baseX - GRASS_SPAN * Math.floor((g.baseX - (player.position.x - GRASS_SPAN/2)) / GRASS_SPAN);
-      g.obj.position.z = g.baseZ - GRASS_SPAN * Math.floor((g.baseZ - (player.position.z - GRASS_SPAN/2)) / GRASS_SPAN);
+      // square centered on the ground centre (the player, or the bear in the cut-in), in both axes.
+      g.obj.position.x = g.baseX - GRASS_SPAN * Math.floor((g.baseX - (gcX - GRASS_SPAN/2)) / GRASS_SPAN);
+      g.obj.position.z = g.baseZ - GRASS_SPAN * Math.floor((g.baseZ - (gcZ - GRASS_SPAN/2)) / GRASS_SPAN);
     });
     treeInstances.forEach(function(tr){ placeOnTrack(tr.obj, tr.baseD, tr.lateralX, displayD, TREE_WRAP_DEPTH, WRAP_BEHIND_MARGIN); });
 
