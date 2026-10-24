@@ -2285,7 +2285,12 @@
     eyeGroup.visible = !rig.sage; // the eye spheres are fitted to the standard bear's head
   }
   function applyBearLook(index){
-    bearLookIndex = Math.max(0, Math.min(BEAR_LOOKS.length-1, index));
+    var wantIdx = Math.max(0, Math.min(BEAR_LOOKS.length-1, index));
+    // The sage's model is loaded on demand. Without it the fallback would be the
+    // standard bear at the sage's 0.5x scale (a harmless little cub), so keep the
+    // current bear instead until the sage is actually there.
+    if (BEAR_LOOKS[wantIdx].rig === 'sage' && !bearRigs.sage) return;
+    bearLookIndex = wantIdx;
     var look = BEAR_LOOKS[bearLookIndex];
     eyeMat.color.setHex(look.eye);
     enemyScale = ENEMY_MODEL_SCALE * look.scale;
@@ -2469,6 +2474,7 @@
     playerVictoryAction.reset().play();
     playSfx('victory');
     pendingBearLook = lookIndex;
+    if (lookIndex === SAGE_LOOK) loadSage(function(){}); // make sure it is on its way
     if (lookIndex !== null) showLevelLogo(lookIndex + 1);
   }
   var CUTIN_DURATION = 2.4, CUTIN_FOV = 38;
@@ -2674,7 +2680,7 @@
     applyBearLook(bearLookIndex);
     markPreloaded();
   }, undefined, onModelError);
-  var sageLoading = false;
+  var sageLoading = false, sageWaitT = 0, SAGE_WAIT_S = 8;
   function loadSage(onReady){
     loadSfxLater('jet', 'sound/jet.mp3'); // the charge's whoosh
     if (bearRigs.sage){ onReady(); return; }
@@ -3411,7 +3417,10 @@
     // through to a real tier crossing. While running it takes over like the
     // real thing does: the BGM stops and a fresh lead-in follows.
     else if (k==='j'){ if(!e.repeat && playerVictoryAction && state === 'playing'){
-      startTempoUpSequence((bearLookIndex + 1) % BEAR_LOOKS.length);
+      var nextLook = (bearLookIndex + 1) % BEAR_LOOKS.length;
+      if (nextLook === SAGE_LOOK && !bearRigs.sage){
+        loadSage(function(){ if (state === 'playing' && playerVictoryAction) startTempoUpSequence(SAGE_LOOK); });
+      } else startTempoUpSequence(nextLook);
     } }
   }, {passive:false});
 
@@ -4318,7 +4327,14 @@
       reactionTimer -= dt;
       if (mixer) mixer.update(0);
       if (rootBone) rootBone.position.set(0,0,0);
-      if (reactionTimer <= 0){
+      if (reactionTimer <= 0 && pendingBearLook === SAGE_LOOK && !bearRigs.sage && sageWaitT < SAGE_WAIT_S){
+        // the celebration is over but the sage's model has not arrived yet: hold the pose
+        var firstWait = sageWaitT === 0;
+        sageWaitT += dt || 0.0001;
+        if (firstWait) loadSage(function(){}); // once (a failed load would otherwise retry every frame)
+      } else if (reactionTimer <= 0){
+        if (pendingBearLook === SAGE_LOOK && !bearRigs.sage) pendingBearLook = null; // gave up waiting: keep the current bear
+        sageWaitT = 0;
         if (playerVictoryAction) playerVictoryAction.stop();
         if (pendingBearLook !== null){
           startBearCutin();
