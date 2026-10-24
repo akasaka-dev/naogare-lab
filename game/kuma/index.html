@@ -2244,7 +2244,11 @@
   //   that long before the charge), a 0.5s rush out to endZ, then a smooth
   //   return to Z_NEAR over the rest of the clip.
   var SAGE_CHARGE = {path:'sage', runup:SAGE_RUNUP, endZ:SAGE_END_Z, hitZ:SAGE_HIT_Z, crossT:SAGE_CROSS_T, lungeDur:0.9, lungeAnim:'sprint'};
-  var FAT_CHARGE = {path:'dash', runup:3, endZ:0.5, hitZ:-1.0, crossT:0.23, dashDur:0.5, lungeDur:1.45, windupAnim:'dash', windupT:0.17, lungeAnim:'dash'};
+  var FAT_CHARGE = {path:'dash', runup:3, endZ:0.5, hitZ:-1.0, crossT:0.23, dashDur:0.5, lungeDur:1.45, windupAnim:'dash', windupT:0.17, lungeAnim:'dash',
+    // A dodged rush must clear the player's body: sideScale x the bear's scale is how far it veers
+    // (the fat body is ~2 units wide on each side), it veers quickly, and the dodge window is centred
+    // dodgeLead s before the bear arrives so there is time to veer after a normal press.
+    sideScale:0.65, fastVeer:true, dodgeLead:0.25};
   function chargeCfg(){ return (activeBearRig && activeBearRig.charge) || null; }
   var SAGE_BACKFLIP_DIST = 6, SAGE_HOP = 4;
   var SAGE_DROP_Y = 9, SAGE_DROP_T = 0.45, SAGE_RETURN_DUR = 1.4;
@@ -4066,7 +4070,7 @@
         // hand closest to the player around the midpoint of the telegraph
         // phase, not during the lunge that follows (lunge plays a Sprint
         // clip, not another swing) — so that's what the dodge window targets.
-        lungeImpactAt = elapsed + (chargeCfg() ? TELEGRAPH_DUR + chargeCfg().crossT : TELEGRAPH_DUR/2);
+        lungeImpactAt = elapsed + (chargeCfg() ? TELEGRAPH_DUR + chargeCfg().crossT - (chargeCfg().dodgeLead || 0) : TELEGRAPH_DUR/2);
       } else if (lungeState==='telegraph'){
         lungeTimer -= dt;
         if (lungeTimer<=0){ lungeState='lunge'; lungeTimer = chargeCfg() ? chargeCfg().lungeDur : 0.9; }
@@ -4115,7 +4119,8 @@
             var cu = Math.max(0, chargeC.lungeDur - lungeTimer); // seconds into the charge
             var runZ = sageStartZ - chargeC.runup;
             // A dodged charge flies past on the side the player stepped away from.
-            var chargeX = dodged ? (attackSide === 'L' ? 3.5 : -3.5) : 0;
+            var chargeSide = chargeC.sideScale ? chargeC.sideScale * enemyScale : 3.5;
+            var chargeX = dodged ? (attackSide === 'L' ? chargeSide : -chargeSide) : 0;
             if (chargeC.path === 'dash'){
               if (cu <= chargeC.dashDur){
                 var dv = cu / chargeC.dashDur;
@@ -4123,12 +4128,16 @@
               } else {
                 var rw = Math.min(1, (cu - chargeC.dashDur) / (chargeC.lungeDur - chargeC.dashDur));
                 bear.position.z = chargeC.endZ + (Z_NEAR - chargeC.endZ) * (rw * rw * (3 - 2 * rw));
-                chargeX = 0; // back to the middle on the way home
+                // On the way home it keeps its side until it is back behind the player
+                // (rw 0..0.65), and only then returns to the middle — otherwise it slides
+                // back through the player's body.
+                var cw = Math.max(0, Math.min(1, (rw - 0.65) / 0.35));
+                chargeX = chargeX * (1 - cw * cw * (3 - 2 * cw));
               }
             } else {
               bear.position.z = runZ + (chargeC.endZ - runZ) * Math.pow(cu / chargeC.lungeDur, 1.6);
             }
-            bear.position.x += (chargeX - bear.position.x) * (1 - Math.pow(0.002, dt));
+            bear.position.x += (chargeX - bear.position.x) * (1 - Math.pow(chargeC.fastVeer ? 0.00002 : 0.002, dt));
           }
         } else bear.position.x += (0 - bear.position.x) * (1 - Math.pow(0.0005, dt));
       } else {
