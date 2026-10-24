@@ -2408,9 +2408,10 @@
     }
     decoCubs.forEach(function(d){
       if (decoRunning){
-        decoFade(d, 'Run_Anime');
+        // like the attacker itself: always facing the player, running in when it closes in, walking when it backs off
+        decoFade(d, vz > 0 ? 'Run_Anime' : 'Walk');
         d.mode = 'run';
-        var rw = vz > 0 ? 0 : Math.PI, rd = rw - d.holder.rotation.y;
+        var rd = 0 - d.holder.rotation.y;
         rd = Math.atan2(Math.sin(rd), Math.cos(rd));
         d.holder.rotation.y += rd * Math.min(1, 8 * step);
       } else if (d.mode === 'wander'){
