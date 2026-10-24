@@ -592,7 +592,7 @@
     box-shadow:0 0 8px 1px rgba(255,255,255,0.55);
     will-change:transform, opacity;
   }
-  .push-hint::after{
+  .push-hint::after, .timing-hint::after{
     content:'Push!';
     position:absolute; left:50%; bottom:calc(100% + 8px);
     padding:3px 11px; border-radius:12px;
@@ -602,11 +602,14 @@
     pointer-events:none;
     animation:pushBob 0.3s ease-in-out infinite alternate;
   }
-  .push-hint::before{
+  .push-hint::before, .timing-hint::before{
     content:''; position:absolute; left:50%; bottom:calc(100% + 2px); z-index:1;
     margin-left:-6px; border:6px solid transparent; border-top-color:#fff; border-bottom:0;
     pointer-events:none;
   }
+  /* Debug (D key): how far each press was from the beat. Declared after the Push! bubble so it wins on the same button. */
+  .touch-buttons button.timing-hint{ position:relative; }
+  .timing-hint::after{ content:attr(data-timing); }
   @keyframes pushBob{
     from{ transform:translate(-50%, 0); }
     to{ transform:translate(-50%, -4px); }
@@ -3037,7 +3040,7 @@
     gap = GAP_START; elapsed = 0; score = 0; reactionTimer = 0;
     hp = maxHP; updateHpDisplay();
     combo = 1; missReactionTimer = 0; greenStreak = 0; worldScroll = 0; resetHitStreak();
-    beatDur = 60/BPM; nextBeatTime = beatDur; beatOpen = false; beatHit = false;
+    beatDur = 60/BPM; nextBeatTime = beatDur; beatOpen = false; beatHit = false; missGraceUntil = 0;
     currentLane = 'L'; beatParity = false;
     lungeState = 'idle'; lungeTimer = 0; nextLungeAt = 1.2 + Math.random()*1.2;
     sageReturnT = 0; bear.position.y = 0; sagePhase = false; sageDashT = 0; sageMissStreak = 0;
@@ -3100,7 +3103,7 @@
     beatDur = 60/BPM;
     if (fresh){
       restartBgm();
-      nextBeatTime = beatClockNow();
+      nextBeatTime = beatClockNow(); missGraceUntil = 0;
     } else {
       // Catch nextBeatTime up to the present by whole beats, starting from
       // its own already-correct accumulated value — nextBeatTime was
@@ -3364,7 +3367,16 @@
   // in frame() below) — directly costs distance instead of being a no-op, which
   // is what makes blind button-mashing (and simply not playing) actively
   // counterproductive rather than merely neutral.
+  // A single slip used to cost two or more misses in a row: the window closing with no press, then the late
+  // press itself landing outside every window, and (if the player stayed behind the beat) the same again on the
+  // next beat, with no way back short of skipping a beat. Now a miss opens a short grace (MISS_GRACE_BEATS of a
+  // beat, on the beat clock): further misses inside it only flash the button and cost nothing, so a late press
+  // is not punished a second time. Not pressing at all still costs one miss per beat.
+  var MISS_GRACE_BEATS = 0.9, missGraceUntil = 0;
   function applyMissPenalty(lane){
+    var graceNow = beatClockNow() - AUDIO_OFFSET;
+    if (graceNow < missGraceUntil){ flashLane(lane, 'miss'); return; }
+    missGraceUntil = graceNow + beatDur * MISS_GRACE_BEATS;
     combo = 1; greenStreak = 0; resetHitStreak();
     var missPenalty = MISS_PENALTY_BASE + MISS_PENALTY_SCALE * (gap/GAP_MAX);
     gap = Math.max(0, gap - missPenalty);
@@ -3378,6 +3390,17 @@
     ['camSway','camRoll','camBounce'].forEach(function(k){ sp[k].vel += (Math.random()*2-1)*3.2; });
     flashLane(lane, 'miss');
   }
+  // Debug aid: a bubble over the pressed lane button saying Fast/Delay and by how many ms against the nearest beat.
+  function showTiming(lane){
+    var now = beatClockNow() - AUDIO_OFFSET;
+    var e0 = now - nextBeatTime, e1 = now - (nextBeatTime - beatDur);
+    var err = Math.abs(e0) <= Math.abs(e1) ? e0 : e1;
+    var el = lane === 'L' ? btnL : btnR;
+    el.setAttribute('data-timing', (err > 0 ? 'Delay ' : 'Fast ') + Math.round(Math.abs(err) * 1000) + 'ms');
+    el.classList.add('timing-hint');
+    clearTimeout(el._timingT);
+    el._timingT = setTimeout(function(){ el.classList.remove('timing-hint'); }, 650);
+  }
   function handleLane(lane){
     if (state === 'title') return; // the title starts only from its level buttons
     if (state === 'gameover'){
@@ -3386,6 +3409,7 @@
     }
     if (state !== 'playing') return;
     if (leadInBeats > 0) return; // the "3,2,1" count-in — presses don't count either way
+    if (debugMode) showTiming(lane);
 
     if (beatOpen && !beatHit && lane === currentLane){
       beatHit = true;
