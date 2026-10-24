@@ -1071,11 +1071,12 @@
   // The stronger the bear (BEAR_LOOKS index 0..3), the more room the player gets
   // to breathe after being hit and between chained swings: at high tempo a
   // second swing right after a hit used to end runs too easily. mercy() is 0 for
-  // the first bear (unchanged behaviour) and 1 from the LEVEL4 warrior on.
+  // the first bear (unchanged behaviour) and 1 for the LEVEL4 warrior.
   var POST_HIT_GAP_T = 0.3;        // distance after a hit, as a share of GAP_MAX, at full mercy
   var POST_HIT_EXTRA_COOLDOWN = 2.5; // extra seconds before the next swing after a hit
   var CHAIN_EXTRA_COOLDOWN = 0.6;    // extra seconds between swings at point-blank
-  function mercy(){ return Math.min(1, bearLookIndex / 3); }
+  // The sage (the last boss) gets none: it is always at full strength.
+  function mercy(){ return bearLookIndex >= SAGE_LOOK ? 0 : Math.min(1, bearLookIndex / 3); }
 
   // ---- rhythm/metronome beat system ----
   // Beats alternate L/R forever; each has a fixed-width window centered on its
