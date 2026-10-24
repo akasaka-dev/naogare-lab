@@ -2334,7 +2334,7 @@
   // distance but not its charge (the attacker's own rush is not copied).
   var DECO_SCALE = 0.4, DECO_SPEED = 2.2, DECO_MIN_Z = -3.5, DECO_MAX_Z = -9, DECO_HALF_X = 5.5;
   var DECO_VARIANTS = [{tint:0xf2c9a0}, {tint:0xd2a276}];
-  var DECO_PERFORM = ['Dance_Simple', 'Dance_Charleston', 'Head_Nod', 'Bow', 'Idle_ShakeOff'];
+  var DECO_PERFORM = ['Dance_Simple', 'Dance_Charleston', 'Head_Nod', 'Bow', 'Idle_ShakeOff', 'Victory', 'Jump_2_RM', 'Roll'];
   var decoGroup = new THREE.Group();
   decoGroup.visible = false; // added to `player` next to player.add(bear)
   var decoCubs = [], decoLoading = false, decoAnchorZ = null, decoRunning = false;
@@ -2434,7 +2434,8 @@
       // keep them behind the attacker whatever happens
       d.holder.position.z = Math.max(DECO_MAX_Z - 2, Math.min(DECO_MIN_Z, d.holder.position.z));
       d.mixer.update(step);
-      if (d.root) d.root.position.set(0, 0, 0); // clips with root motion (Jump, Roll) stay in place
+      // root motion stays in place; the jump's height lives in the root's Y, so keep that for the jump
+      if (d.root) d.root.position.set(0, d.cur && d.cur.getClip().name === 'Jump_2_RM' ? d.root.position.y : 0, 0);
     });
   }
   // Which bear look each BGM track (tempo tier) shows — the look the bear
