@@ -829,8 +829,16 @@
   // system) and reveals the debug-only click track in the BGM list. The BGM
   // select itself is a player feature (see the lock in frame()).
   var debugMode = false;
+  var TIMING_DEBUG_KEY = 'kuma-timing-debug';
+  var timingDebug = false;
+  try{ timingDebug = localStorage.getItem(TIMING_DEBUG_KEY) === '1'; }catch(e){}
+  function setTimingDebug(on){
+    timingDebug = on;
+    try{ localStorage.setItem(TIMING_DEBUG_KEY, on ? '1' : '0'); }catch(e){}
+  }
   function setDebugMode(on){
     debugMode = on;
+    if (on) setTimingDebug(true);
     debugMapOn = on;
     debugMapCanvas.hidden = !on;
     bpmRange.disabled = !on;
@@ -845,6 +853,37 @@
   var cardOver = document.getElementById('cardOver');
   var overReason = document.getElementById('overReason');
   var titleLogo = document.getElementById('titleLogo');
+  // Triple-tap the "o" of "Boy" (about 45% across, 18% down the logo image) to switch the Fast/Delay
+  // timing bubbles on or off — the only way to reach them on a phone.
+  (function(){
+    var taps = [];
+    var toast = null, toastT = 0;
+    function say(msg){
+      if (!toast){
+        toast = document.createElement('div');
+        toast.style.cssText = 'position:fixed;left:50%;top:12px;transform:translateX(-50%);z-index:9999;padding:6px 14px;border-radius:14px;background:#fff;color:#1b1503;font:900 14px/1.2 sans-serif;box-shadow:0 2px 8px rgba(0,0,0,0.5);pointer-events:none;';
+        document.body.appendChild(toast);
+      }
+      toast.textContent = msg;
+      toast.style.display = 'block';
+      clearTimeout(toastT);
+      toastT = setTimeout(function(){ toast.style.display = 'none'; }, 1300);
+    }
+    titleLogo.addEventListener('click', function(e){
+      var r = titleLogo.getBoundingClientRect();
+      if (!r.width || !r.height) return;
+      var dx = (e.clientX - r.left) - 0.454 * r.width, dy = (e.clientY - r.top) - 0.177 * r.height;
+      if (Math.hypot(dx, dy) > 0.07 * r.width) { taps = []; return; }
+      var now = performance.now();
+      taps = taps.filter(function(t){ return now - t < 900; });
+      taps.push(now);
+      if (taps.length >= 3){
+        taps = [];
+        setTimingDebug(!timingDebug);
+        say('Timing ' + (timingDebug ? 'ON' : 'OFF'));
+      }
+    });
+  })();
   var cardPaused = document.getElementById('cardPaused');
   var cardTutorial = document.getElementById('cardTutorial');
   var iosAudioUnlock = document.getElementById('iosAudioUnlock');
@@ -3409,7 +3448,7 @@
     }
     if (state !== 'playing') return;
     if (leadInBeats > 0) return; // the "3,2,1" count-in — presses don't count either way
-    if (debugMode) showTiming(lane);
+    if (timingDebug) showTiming(lane);
 
     if (beatOpen && !beatHit && lane === currentLane){
       beatHit = true;
