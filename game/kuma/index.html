@@ -2390,6 +2390,23 @@
       decoAnchorZ = null; // snap to the attacker's line on the next update
     }
   }
+  // The cubs react to the run: cheer on a dodge or a combo tier, wince when the player is hit.
+  // Each cub starts a little after the previous one so it reads as a crowd, not a clone.
+  function decoReact(clip, dur){
+    if (!decoGroup.visible) return;
+    decoCubs.forEach(function(d, i){
+      if (!d.acts[clip]) return;
+      d.reactClip = clip; d.reactDur = dur; d.reactWait = 0.05 + i * 0.12; d.reactT = 0;
+    });
+  }
+  var DECO_HOP = 0.14; // how high they bounce on each beat (world units)
+  // 0..1..0 hop shape per beat, landing on the beat itself; 0 outside a run
+  function decoBeatHop(){
+    if (state !== 'playing') return 0;
+    var ph = 1 - (nextBeatTime - (beatClockNow() - AUDIO_OFFSET)) / beatDur;
+    ph = ((ph % 1) + 1) % 1;
+    return Math.sin(ph * Math.PI);
+  }
   // Called every frame while visible (frame()).
   function decoUpdate(dt){
     if (!decoGroup.visible) return;
@@ -2406,7 +2423,13 @@
       decoRunning = !decoRunning;
       if (!decoRunning) decoCubs.forEach(decoWander);
     }
+    var hop = decoBeatHop();
+    var attacking = lungeState === 'telegraph' || lungeState === 'lunge';
     decoCubs.forEach(function(d){
+      if (d.reactWait > 0){
+        d.reactWait -= step;
+        if (d.reactWait <= 0) d.reactT = d.reactDur;
+      }
       if (decoRunning){
         // like the attacker itself: always facing the player, running in when it closes in, walking when it backs off
         decoFade(d, vz > 0 ? 'Run_Anime' : 'Walk');
@@ -2414,6 +2437,22 @@
         var rd = 0 - d.holder.rotation.y;
         rd = Math.atan2(Math.sin(rd), Math.cos(rd));
         d.holder.rotation.y += rd * Math.min(1, 8 * step);
+      } else if (d.reactT > 0 || attacking){
+        // cheering/wincing, or bracing while the attacker charges: face the player and hold still
+        var rf = 0 - d.holder.rotation.y;
+        rf = Math.atan2(Math.sin(rf), Math.cos(rf));
+        d.holder.rotation.y += rf * Math.min(1, 8 * step);
+        if (d.reactT > 0){
+          d.reactT -= step;
+          d.mode = 'react';
+          decoFade(d, d.reactClip);
+          if (d.reactT <= 0) decoWander(d);
+        } else {
+          d.mode = 'watch';
+          decoFade(d, 'Fighting_Idle');
+        }
+      } else if (d.mode === 'watch' || d.mode === 'react'){
+        decoWander(d);
       } else if (d.mode === 'wander'){
         var dx = d.tx - d.holder.position.x, dz = d.tz - d.holder.position.z, dist = Math.hypot(dx, dz);
         if (dist < 0.4){ decoPerform(d); }
@@ -2434,6 +2473,10 @@
       }
       // keep them behind the attacker whatever happens
       d.holder.position.z = Math.max(DECO_MAX_Z - 2, Math.min(DECO_MIN_Z, d.holder.position.z));
+      var cn = d.cur ? d.cur.getClip().name : '';
+      // dances and nods follow the song's tempo; the cub also bounces on every beat (not while jumping/rolling)
+      d.mixer.timeScale = (d.mode === 'perform' && /Dance|Nod|Shake/.test(cn)) ? Math.max(0.7, Math.min(1.9, BPM / 100)) : 1;
+      d.model.position.y = (d.mode === 'perform' || d.mode === 'wander') && cn !== 'Jump_2_RM' && cn !== 'Roll' ? hop * DECO_HOP : 0;
       d.mixer.update(step);
       // root motion stays in place; the jump's height lives in the root's Y, so keep that for the jump
       if (d.root) d.root.position.set(0, d.cur && d.cur.getClip().name === 'Jump_2_RM' ? d.root.position.y : 0, 0);
@@ -3259,6 +3302,7 @@
     playSwayAnim(side); // the player sways either way; only an on-time one avoids the hit
     if (onTime){
       dodged = true;
+      decoReact('Jump_2_RM', 1.3);
       flashDodge('hit');
     } else {
       flashDodge('miss');
@@ -3407,7 +3451,7 @@
       var hitScoreGain = Math.round(SCORE_HIT_BASE * scoreBpmFactor() * scoreMult);
       score += hitScoreGain;
       showScorePopup(hitScoreGain);
-      if (scoreMult > prevMult) pulseComboTier();
+      if (scoreMult > prevMult){ pulseComboTier(); decoReact('Victory', 1.8); }
       // Counts toward a pass only if this hit landed while the meter is
       // actually showing green — use gap fresh off the update above rather
       // than the frame-start `t`, so a hit that itself pushes into green
@@ -4370,6 +4414,7 @@
         if (sageCharge ? (lungeState === 'lunge' && bear.position.z >= hitCharge.hitZ)
                        : (handWorldPos.distanceTo(playerWorldPos) < HIT_RADIUS * (enemyScale / ENEMY_MODEL_SCALE))){
           hp = Math.max(0, hp - 1); updateHpDisplay(); resetHitStreak();
+          decoReact('Bow', 1.4);
           setBPM(tempoRelief());
           playSfx('hit');
           state = 'knockback'; reactionTimer = knockbackDuration; lastReason = 'You lost...';
