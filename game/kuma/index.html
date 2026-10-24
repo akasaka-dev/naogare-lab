@@ -366,7 +366,13 @@
     background:var(--accent); color:#1b1503;
     box-shadow:0 0 0 2px var(--accent-dim);
   }
-  #btnAudioAdjust, #btnPauseToTitle, #btnRanking{
+  .timing-check{
+    display:flex; align-items:center; gap:6px;
+    font-size:12.5px; font-weight:700; color:#6b6255;
+    cursor:pointer; user-select:none; -webkit-user-select:none; touch-action:manipulation;
+  }
+  .timing-check input{ width:16px; height:16px; margin:0; accent-color:#a1620a; cursor:pointer; }
+  #btnAudioAdjust, #btnPauseToTitle, #btnRanking, #btnLang{
     font-family:var(--font-body);
     font-weight:700;
     font-size:12.5px;
@@ -534,9 +540,10 @@
     font-family:var(--font-mono); font-weight:700;
     min-width:5.5em; display:inline-block;
   }
+  .audio-adjust-lr-row .touch-buttons button{ white-space:nowrap; }
   .audio-adjust-delta{
-    font-family:var(--font-mono); font-weight:700; font-size:13px;
-    min-width:6.6em;
+    font-family:var(--font-mono); font-weight:700; font-size:12px; line-height:1.25;
+    min-width:5.6em;
     color:var(--ink-dim);
   }
   .audio-adjust-delta-l{ text-align:right; }
@@ -559,6 +566,9 @@
     -webkit-user-select:none;
     transition:background .08s,box-shadow .08s,color .08s;
   }
+  .touch-buttons button{ white-space:nowrap; }
+  /* the Japanese labels are three or four characters wide: a little less padding so they stay on one line */
+  html[lang="ja"] .hud-controls .touch-buttons button:not(.icon-btn){ padding:11px 12px; font-size:13px; }
   .touch-buttons button:active{background:var(--accent-dim);color:#1b1503;}
   .touch-buttons button.muted{color:var(--ink-dim);border-color:var(--line-soft);background:var(--bg-panel);}
   .touch-buttons button.icon-btn{
@@ -610,6 +620,7 @@
   /* Debug (D key): how far each press was from the beat. Declared after the Push! bubble so it wins on the same button. */
   .touch-buttons button.timing-hint{ position:relative; }
   .timing-hint::after{ content:attr(data-timing); }
+  html[lang="ja"] .push-hint:not(.timing-hint)::after{ content:'おす！'; }
   @keyframes pushBob{
     from{ transform:translate(-50%, 0); }
     to{ transform:translate(-50%, -4px); }
@@ -656,10 +667,10 @@
     <img class="level-logo" id="levelLogo" alt="">
     <div class="lightning" id="lightning"></div>
     <div class="hud">
-      <div class="hud-gap"><div class="hud-gap-fill" id="gapFill"></div><span class="hud-gap-label">distance</span></div>
+      <div class="hud-gap"><div class="hud-gap-fill" id="gapFill"></div><span class="hud-gap-label" data-i18n="distance">distance</span></div>
       <div class="hud-hp" id="hpLabel"></div>
-      <div class="hud-timer" id="scoreLabel"><span class="score-label">Score:</span> <span id="scoreValue">0</span></div>
-      <div class="hud-combo" id="comboLabel"><span id="comboCount">0</span> COMBO<span class="combo-mult" id="comboMult">x1.0</span></div>
+      <div class="hud-timer" id="scoreLabel"><span class="score-label" data-i18n="scoreColon">Score:</span> <span id="scoreValue">0</span></div>
+      <div class="hud-combo" id="comboLabel"><span id="comboCount">0</span> <span data-i18n="combo">COMBO</span><span class="combo-mult" id="comboMult">x1.0</span></div>
       <div class="score-popup-anchor" id="scorePopupAnchor"></div>
       <div class="hud-countdown" id="countdownLabel"></div>
     </div>
@@ -671,7 +682,7 @@
          (no <audio>/<video> anywhere) don't get. -->
     <audio id="iosAudioUnlock" src="sound/silence-unlock.wav" playsinline hidden></audio>
     <div class="overlay-card visible" id="cardPreload">
-      <h2>Loading...</h2>
+      <h2 data-i18n="loading">Loading...</h2>
       <div class="preload-bar-track"><div class="preload-bar-fill" id="preloadBarFill"></div></div>
       <p id="preloadPercent">0%</p>
       <p id="preloadStatus" hidden></p>
@@ -679,22 +690,26 @@
     <div class="overlay-card" id="cardTitle">
       <img class="title-logo" id="titleLogo" src="title.webp" alt="Boy meets Kuma">
       <div class="level-select" id="levelSelect">
-        <button type="button" class="level-start" data-bpm="80">Start</button>
+        <button type="button" class="level-start" data-bpm="80" data-i18n="start">Start</button>
         <div class="level-row">
           <button type="button" data-bpm="100">LEVEL2</button>
           <button type="button" data-bpm="120">LEVEL3</button>
           <button type="button" data-bpm="150">LEVEL4</button>
         </div>
       </div>
+      <label class="timing-check"><input type="checkbox" id="timingCheck"><span data-i18n="timingCheck">Timing Check</span></label>
       <div class="title-buttons">
-        <button id="btnRanking" type="button">Ranking</button>
-        <button id="btnAudioAdjust" type="button">Audio Adjust</button>
+        <button id="btnRanking" type="button" data-i18n="ranking">Ranking</button>
+        <button id="btnAudioAdjust" type="button" data-i18n="audioAdjust">Audio Adjust</button>
+      </div>
+      <div class="title-buttons">
+        <button id="btnLang" type="button" data-i18n="langBtn">日本語</button>
       </div>
     </div>
     <div class="tutorial-card" id="cardTutorial">
       <div class="tutorial-frame">
         <img id="tutorialImg" src="tutorial.webp" alt="Tutorial" draggable="false">
-        <div class="tutorial-cta">Click<br>or Tap</div>
+        <div class="tutorial-cta" data-i18n-html="clickTap">Click<br>or Tap</div>
       </div>
     </div>
     <div class="overlay-card" id="cardOver">
@@ -702,18 +717,18 @@
       <p id="overStats">Survival Time 0.0s</p>
       <p id="overScore">Score 0</p>
       <p id="overCombo">Max Combo 0</p>
-      <div class="cta">Click or Tap to Respawn</div>
+      <div class="cta" data-i18n="respawn">Click or Tap to Respawn</div>
     </div>
     <div class="overlay-card" id="cardPaused">
       <img class="title-logo" id="pausedLogo" src="paused.webp" alt="Paused">
-      <div class="cta">Tap to Resume</div>
-      <button id="btnPauseToTitle" type="button">Title</button>
+      <div class="cta" data-i18n="resume">Tap to Resume</div>
+      <button id="btnPauseToTitle" type="button" data-i18n="titleBtn">Title</button>
     </div>
     <div class="hud-controls">
       <div class="hud-btn-group">
         <div class="touch-buttons">
-          <button id="btnL" type="button">Left<span class="beat-ring" aria-hidden="true"></span></button>
-          <button id="btnR" type="button">Right<span class="beat-ring" aria-hidden="true"></span></button>
+          <button id="btnL" type="button"><span data-i18n="left">Left</span><span class="beat-ring" aria-hidden="true"></span></button>
+          <button id="btnR" type="button"><span data-i18n="right">Right</span><span class="beat-ring" aria-hidden="true"></span></button>
         </div>
         <div class="key-hints">
           <kbd data-lane="L">Z</kbd><span class="key-sep">/</span><kbd data-lane="R">X</kbd>
@@ -721,7 +736,7 @@
       </div>
       <div class="hud-btn-group">
         <div class="touch-buttons">
-          <button id="btnDodge" type="button">Sway</button>
+          <button id="btnDodge" type="button" data-i18n="sway">Sway</button>
         </div>
         <div class="key-hints">
           <kbd data-dodge="1">C</kbd>
@@ -748,7 +763,7 @@
     <div class="bpm-control">
       <label for="bgmTrackSelect">BGM</label>
       <select id="bgmTrackSelect">
-        <option value="auto">自動(BPM追従)</option>
+        <option value="auto" data-i18n="bgmAuto">Auto (follows BPM)</option>
         <option value="kuma">まってよくまさん (71)</option>
         <option value="asobiba">サイコーのあそびば (105)</option>
         <option value="oikakko">くまさんと鬼ごっこ (125)</option>
@@ -769,16 +784,16 @@
 
 <div class="modal-overlay" id="audioAdjustModal" hidden>
   <div class="modal-card">
-    <h3>Audio Adjust</h3>
-    <p>音に合わせてLeft/Rightを押してください。<b>Delay</b>と出たらスライダーを右へ、<b>Fast</b>と出たら左へ。数回押して、平均が20ms以内になるよう合わせてください。Bluetoothなどは大きく右へ。</p>
+    <h3 data-i18n="audioAdjust">Audio Adjust</h3>
+    <p data-i18n-html="aaText"></p>
     <div class="audio-adjust-row">
-      <button id="audioAdjustPlay" type="button">Play Click</button>
+      <button id="audioAdjustPlay" type="button" data-i18n="playClick">Play Click</button>
     </div>
     <div class="audio-adjust-row audio-adjust-lr-row">
       <span id="audioAdjustDeltaL" class="audio-adjust-delta audio-adjust-delta-l"></span>
       <div class="touch-buttons">
-        <button id="audioAdjustBtnL" type="button">Left</button>
-        <button id="audioAdjustBtnR" type="button">Right</button>
+        <button id="audioAdjustBtnL" type="button" data-i18n="left">Left</button>
+        <button id="audioAdjustBtnR" type="button" data-i18n="right">Right</button>
       </div>
       <span id="audioAdjustDeltaR" class="audio-adjust-delta audio-adjust-delta-r"></span>
     </div>
@@ -798,11 +813,11 @@
     </div>
     <div class="audio-adjust-row">
       <button id="audioAdjustMinus1" type="button">-1ms</button>
-      <button id="audioAdjustReset" type="button">Reset</button>
+      <button id="audioAdjustReset" type="button" data-i18n="reset">Reset</button>
       <button id="audioAdjustPlus1" type="button">+1ms</button>
     </div>
     <div class="preset-list" id="audioPresetList"></div>
-    <button id="audioAdjustClose" class="modal-close" type="button">Close</button>
+    <button id="audioAdjustClose" class="modal-close" type="button" data-i18n="close">Close</button>
   </div>
 </div>
 
@@ -829,11 +844,68 @@
   // system) and reveals the debug-only click track in the BGM list. The BGM
   // select itself is a player feature (see the lock in frame()).
   var debugMode = false;
+  // ---- Language: English / 日本語 (the button under Ranking / Audio Adjust on the title). The default follows
+  // the browser's language; the choice is remembered. Static text carries data-i18n (text) or data-i18n-html
+  // (trusted markup); text built in code goes through t(). The images (logo, tutorial, ...) are not translated.
+  var I18N = {
+    en: {
+      distance:'distance', scoreColon:'Score:', combo:'COMBO', loading:'Loading...', start:'Start',
+      timingCheck:'Timing Check', ranking:'Ranking', audioAdjust:'Audio Adjust', langBtn:'日本語',
+      clickTap:'Click<br>or Tap', respawn:'Click or Tap to Respawn', resume:'Tap to Resume', titleBtn:'Title',
+      left:'Left', right:'Right', sway:'Sway', bgmAuto:'Auto (follows BPM)', modelFail:'Could not load the bear',
+      survival:'Survival Time', bestSurvival:'Best Survival', sec:'s', scoreWord:'Score', bestScore:'Best Score', maxCombo:'Max Combo',
+      top10:'TOP 10!', rankAsk:'Score {n}. Save?', save:'Save', skip:'Skip', name:'Name', ok:'OK', failedTry:'Failed. Try again.',
+      back:'Back', failLoad:'Failed to load.', noRec:'No records', maxComboCaps:'MAX COMBO', close:'Close',
+      aaText:'Tap Left/Right along with the click. If it says <b>Delay</b>, move the slider right; if it says <b>Fast</b>, move it left. Press a few times and aim for an average within 20ms. Bluetooth usually needs a big move to the right.',
+      playClick:'Play Click', stopClick:'Stop Click', playFirst:'Play first', reset:'Reset',
+      delay:'Delay', fast:'Fast', just:'Just', wrongSide:'(wrong side)', preset:'Preset'
+    },
+    ja: {
+      distance:'距離', scoreColon:'スコア:', combo:'コンボ', loading:'読み込み中...', start:'スタート',
+      timingCheck:'タイミングチェック', ranking:'ランキング', audioAdjust:'音のズレ調整', langBtn:'English',
+      clickTap:'クリック<br>かタップ', respawn:'クリックかタップでもう一度', resume:'タップで再開', titleBtn:'タイトル',
+      left:'左', right:'右', sway:'よける', bgmAuto:'自動(BPMに合わせる)', modelFail:'クマを読み込めませんでした',
+      survival:'生き延びた時間', bestSurvival:'ベスト', sec:'秒', scoreWord:'スコア', bestScore:'ベストスコア', maxCombo:'最大コンボ',
+      top10:'TOP 10！', rankAsk:'スコア {n}。保存する？', save:'保存', skip:'やめる', name:'名前', ok:'OK', failedTry:'失敗しました。もう一度やってみてね',
+      back:'戻る', failLoad:'読み込めませんでした', noRec:'記録はまだありません', maxComboCaps:'最大コンボ', close:'閉じる',
+      aaText:'音に合わせて「左」「右」を押してね。<b>おそい</b>と出たらスライダーを右へ、<b>はやい</b>と出たら左へ。数回押して、平均が20ms以内になるように合わせてね。Bluetoothなどは大きく右へ。',
+      playClick:'クリック音を鳴らす', stopClick:'止める', playFirst:'先に鳴らしてね', reset:'リセット',
+      delay:'おそい', fast:'はやい', just:'ぴったり', wrongSide:'(反対)', preset:'プリセット'
+    }
+  };
+  var LANG_KEY = 'kuma-lang';
+  var LANG = (navigator.language || '').toLowerCase().indexOf('ja') === 0 ? 'ja' : 'en';
+  try{ var savedLang = localStorage.getItem(LANG_KEY); if (savedLang === 'ja' || savedLang === 'en') LANG = savedLang; }catch(e){}
+  function t(key){ return (I18N[LANG] && I18N[LANG][key]) || I18N.en[key] || key; }
+  function applyLang(){
+    document.documentElement.lang = LANG;
+    Array.prototype.forEach.call(document.querySelectorAll('[data-i18n]'), function(el){ el.textContent = t(el.getAttribute('data-i18n')); });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-i18n-html]'), function(el){ el.innerHTML = t(el.getAttribute('data-i18n-html')); });
+    // text that depends on state is rebuilt here
+    if (typeof audioAdjustPlay !== 'undefined' && audioAdjustPlay){
+      if (audioAdjustPlay.textContent !== t('loading')) audioAdjustPlay.textContent = testClickSource ? t('stopClick') : t('playClick');
+      audioAdjustDeltaL.textContent = ''; audioAdjustDeltaR.textContent = '';
+      if (typeof renderAudioPresets === 'function') renderAudioPresets();
+    }
+  }
+  document.getElementById('btnLang').addEventListener('click', function(e){
+    e.stopPropagation();
+    LANG = LANG === 'ja' ? 'en' : 'ja';
+    try{ localStorage.setItem(LANG_KEY, LANG); }catch(err){}
+    applyLang();
+  });
+
+  // ---- Timing check: the Fast/Delay bubble over each pressed lane button (title checkbox; D key also turns it on)
   var TIMING_DEBUG_KEY = 'kuma-timing-debug';
   var timingDebug = false;
   try{ timingDebug = localStorage.getItem(TIMING_DEBUG_KEY) === '1'; }catch(e){}
+  var timingCheckEl = document.getElementById('timingCheck');
+  timingCheckEl.checked = timingDebug;
+  timingCheckEl.addEventListener('change', function(){ setTimingDebug(timingCheckEl.checked); });
+  timingCheckEl.parentNode.addEventListener('click', function(e){ e.stopPropagation(); });
   function setTimingDebug(on){
     timingDebug = on;
+    timingCheckEl.checked = on;
     try{ localStorage.setItem(TIMING_DEBUG_KEY, on ? '1' : '0'); }catch(e){}
   }
   function setDebugMode(on){
@@ -853,37 +925,6 @@
   var cardOver = document.getElementById('cardOver');
   var overReason = document.getElementById('overReason');
   var titleLogo = document.getElementById('titleLogo');
-  // Triple-tap the "o" of "Boy" (about 45% across, 18% down the logo image) to switch the Fast/Delay
-  // timing bubbles on or off — the only way to reach them on a phone.
-  (function(){
-    var taps = [];
-    var toast = null, toastT = 0;
-    function say(msg){
-      if (!toast){
-        toast = document.createElement('div');
-        toast.style.cssText = 'position:fixed;left:50%;top:12px;transform:translateX(-50%);z-index:9999;padding:6px 14px;border-radius:14px;background:#fff;color:#1b1503;font:900 14px/1.2 sans-serif;box-shadow:0 2px 8px rgba(0,0,0,0.5);pointer-events:none;';
-        document.body.appendChild(toast);
-      }
-      toast.textContent = msg;
-      toast.style.display = 'block';
-      clearTimeout(toastT);
-      toastT = setTimeout(function(){ toast.style.display = 'none'; }, 1300);
-    }
-    titleLogo.addEventListener('click', function(e){
-      var r = titleLogo.getBoundingClientRect();
-      if (!r.width || !r.height) return;
-      var dx = (e.clientX - r.left) - 0.454 * r.width, dy = (e.clientY - r.top) - 0.177 * r.height;
-      if (Math.hypot(dx, dy) > 0.07 * r.width) { taps = []; return; }
-      var now = performance.now();
-      taps = taps.filter(function(t){ return now - t < 900; });
-      taps.push(now);
-      if (taps.length >= 3){
-        taps = [];
-        setTimingDebug(!timingDebug);
-        say('Timing ' + (timingDebug ? 'ON' : 'OFF'));
-      }
-    });
-  })();
   var cardPaused = document.getElementById('cardPaused');
   var cardTutorial = document.getElementById('cardTutorial');
   var iosAudioUnlock = document.getElementById('iosAudioUnlock');
@@ -2227,7 +2268,7 @@
   // a run with no bear, rather than silently counting it "done" like every
   // other (gracefully-degradable) asset's own error path does.
   function onModelError(err){
-    preloadStatus.textContent = '熊のモデルを読み込めませんでした';
+    preloadStatus.textContent = t('modelFail');
     preloadStatus.hidden = false;
     if (window.console) console.error(err);
   }
@@ -2242,9 +2283,9 @@
   function finishGame(){
     if (elapsed>highScore){ highScore=elapsed; try{ localStorage.setItem(HIGH_KEY, String(highScore)); }catch(e){} }
     if (score>highScoreScore){ highScoreScore=score; try{ localStorage.setItem(SCORE_HIGH_KEY, String(highScoreScore)); }catch(e){} }
-    overStats.textContent = 'Survival Time '+elapsed.toFixed(1)+'s   Best Survival '+Math.max(highScore,elapsed).toFixed(1)+'s';
-    overScore.textContent = 'Score '+Math.round(score)+'   Best Score '+Math.round(Math.max(highScoreScore,score));
-    overCombo.textContent = 'Max Combo ' + maxCombo;
+    overStats.textContent = t('survival')+' '+elapsed.toFixed(1)+t('sec')+'   '+t('bestSurvival')+' '+Math.max(highScore,elapsed).toFixed(1)+t('sec');
+    overScore.textContent = t('scoreWord')+' '+Math.round(score)+'   '+t('bestScore')+' '+Math.round(Math.max(highScoreScore,score));
+    overCombo.textContent = t('maxCombo')+' ' + maxCombo;
     cardOver.classList.add('visible');
     playDropIn(overReason);
     rankOfferAfterGameover();
@@ -2590,22 +2631,22 @@
   }
   function rankShowAsk(){
     rankBody.textContent = '';
-    rankBody.appendChild(rankEl('h3', 'TOP 10!'));
-    rankBody.appendChild(rankEl('p', 'Score ' + Math.round(score) + '. Save?'));
+    rankBody.appendChild(rankEl('h3', t('top10')));
+    rankBody.appendChild(rankEl('p', t('rankAsk').replace('{n}', Math.round(score))));
     var row = rankEl('div', null, 'rank-actions');
-    row.appendChild(rankButton('Save', rankShowName));
-    row.appendChild(rankButton('Skip', rankClose));
+    row.appendChild(rankButton(t('save'), rankShowName));
+    row.appendChild(rankButton(t('skip'), rankClose));
     rankBody.appendChild(row);
     rankOpen();
   }
   function rankShowName(){
     rankBody.textContent = '';
-    rankBody.appendChild(rankEl('h3', 'Name'));
+    rankBody.appendChild(rankEl('h3', t('name')));
     var input = rankEl('input', null, 'rank-input');
-    input.type = 'text'; input.maxLength = 12; input.placeholder = 'Name';
+    input.type = 'text'; input.maxLength = 12; input.placeholder = t('name');
     try{ input.value = localStorage.getItem(RANK_NAME_KEY) || ''; }catch(e){}
     var msg = rankEl('p', '', 'rank-msg');
-    var submit = rankButton('OK', function(){
+    var submit = rankButton(t('ok'), function(){
       var name = input.value.trim();
       if (!name || !rankToken) return;
       submit.disabled = true; msg.textContent = '';
@@ -2613,7 +2654,7 @@
       rankFetch('/score', {method:'POST', headers:{'Content-Type':'application/json'},
         body:JSON.stringify({name:name, score:Math.round(score), level:rankLevel, reached:reachedLevel, maxCombo:maxCombo, token:rankToken})}).then(function(d){
         if (d && d.ok){ rankSubmitted = true; rankToken = null; rankShowList(name, Math.round(score), rankLevel); }
-        else { msg.textContent = 'Failed. Try again.'; submit.disabled = !input.value.trim(); }
+        else { msg.textContent = t('failedTry'); submit.disabled = !input.value.trim(); }
       });
     });
     submit.disabled = !input.value.trim();
@@ -2623,7 +2664,7 @@
     rankBody.appendChild(msg);
     var row = rankEl('div', null, 'rank-actions');
     row.appendChild(submit);
-    row.appendChild(rankButton('Back', rankShowAsk));
+    row.appendChild(rankButton(t('back'), rankShowAsk));
     rankBody.appendChild(row);
     rankOpen();
     input.focus();
@@ -2635,23 +2676,23 @@
   }
   function rankShowList(meName, meScore, meLevel){
     rankBody.textContent = '';
-    rankBody.appendChild(rankEl('h3', 'Ranking'));
+    rankBody.appendChild(rankEl('h3', t('ranking')));
     var list = rankEl('ol', null, 'rank-list');
-    list.appendChild(rankEl('li', 'Loading...'));
+    list.appendChild(rankEl('li', t('loading')));
     rankBody.appendChild(list);
-    rankBody.appendChild(rankButton('Close', rankClose));
+    rankBody.appendChild(rankButton(t('close'), rankClose));
     rankOpen();
     rankFetch('/ranking').then(function(d){
       if (rankModal.hidden || !list.isConnected) return;
       list.textContent = '';
-      if (!d || !d.ok){ list.appendChild(rankEl('li', 'Failed to load.')); return; }
-      if (!d.results.length){ list.appendChild(rankEl('li', 'No records')); return; }
+      if (!d || !d.ok){ list.appendChild(rankEl('li', t('failLoad'))); return; }
+      if (!d.results.length){ list.appendChild(rankEl('li', t('noRec'))); return; }
       d.results.forEach(function(r, i){
         var li = rankEl('li', null, (r.name === meName && r.score === meScore && r.level === meLevel) ? 'me' : '');
         li.appendChild(rankEl('span', String(i + 1), 'rank-pos'));
         var nameBox = rankEl('span', null, 'rank-name');
         nameBox.appendChild(rankEl('span', r.name, 'rank-name-text'));
-        if (r.max_combo > 0) nameBox.appendChild(rankEl('span', 'MAX COMBO ' + r.max_combo, 'rank-combo'));
+        if (r.max_combo > 0) nameBox.appendChild(rankEl('span', t('maxComboCaps') + ' ' + r.max_combo, 'rank-combo'));
         li.appendChild(nameBox);
         li.appendChild(rankEl('span', rankLevelText(r.level, r.reached), 'rank-level'));
         li.appendChild(rankEl('span', String(r.score), 'rank-score'));
@@ -3435,7 +3476,7 @@
     var e0 = now - nextBeatTime, e1 = now - (nextBeatTime - beatDur);
     var err = Math.abs(e0) <= Math.abs(e1) ? e0 : e1;
     var el = lane === 'L' ? btnL : btnR;
-    el.setAttribute('data-timing', (err > 0 ? 'Delay ' : 'Fast ') + Math.round(Math.abs(err) * 1000) + 'ms');
+    el.setAttribute('data-timing', (err > 0 ? t('delay') : t('fast')) + ' ' + Math.round(Math.abs(err) * 1000) + 'ms');
     el.classList.add('timing-hint');
     clearTimeout(el._timingT);
     el._timingT = setTimeout(function(){ el.classList.remove('timing-hint'); }, 650);
@@ -3961,13 +4002,13 @@
       if (editSlot === i){
         var input = document.createElement('input');
         input.type = 'text'; input.className = 'preset-name'; input.maxLength = 12;
-        input.placeholder = 'Name ' + (i + 1); input.value = p ? p.name : '';
+        input.placeholder = t('name') + ' ' + (i + 1); input.value = p ? p.name : '';
         var done = false;
         function commit(save){
           if (done) return; done = true;
           if (save){
             var name = input.value.trim();
-            audioPresets[i] = (name || hasMs) ? { name: name || ('Preset ' + (i + 1)), ms: hasMs ? p.ms : null } : null;
+            audioPresets[i] = (name || hasMs) ? { name: name || (t('preset') + ' ' + (i + 1)), ms: hasMs ? p.ms : null } : null;
             storeAudioPresets();
           }
           renderAudioPresets();
@@ -3984,7 +4025,7 @@
       }
       var load = document.createElement('button'); load.type = 'button'; load.className = 'preset-load';
       var label = document.createElement('span'); label.className = 'preset-label';
-      label.textContent = p ? p.name : 'Name ' + (i + 1);
+      label.textContent = p ? p.name : t('name') + ' ' + (i + 1);
       var ms = document.createElement('span'); ms.className = 'preset-ms';
       ms.textContent = hasMs ? ((p.ms >= 0 ? '+' : '') + p.ms + 'ms') : '';
       load.appendChild(label); load.appendChild(ms);
@@ -3997,7 +4038,7 @@
       var save = document.createElement('button'); save.type = 'button'; save.className = 'preset-icon';
       save.setAttribute('aria-label', 'Save'); save.innerHTML = PRESET_ICON_SAVE;
       save.addEventListener('click', function(){
-        audioPresets[i] = { name: p ? p.name : ('Preset ' + (i + 1)), ms: Math.round(AUDIO_OFFSET*1000) };
+        audioPresets[i] = { name: p ? p.name : (t('preset') + ' ' + (i + 1)), ms: Math.round(AUDIO_OFFSET*1000) };
         storeAudioPresets();
         renderAudioPresets();
       });
@@ -4014,7 +4055,7 @@
     audioAdjustParity = false;
     audioAdjustBtnL.classList.remove('beat-active');
     audioAdjustBtnR.classList.remove('beat-active');
-    audioAdjustPlay.textContent = 'Play Click';
+    audioAdjustPlay.textContent = t('playClick');
     audioAdjustDeltaL.textContent = '';
     audioAdjustDeltaR.textContent = '';
   }
@@ -4024,8 +4065,8 @@
     if (!buf){
       // Normally already there (it loads in the background once the title
       // appears); if not yet, load it now and start as soon as it lands.
-      audioAdjustPlay.textContent = 'Loading...';
-      preloadBgmTrack('tempo120', true, function(){ if (bgmBufferCache.tempo120) startTestClick(); else audioAdjustPlay.textContent = 'Play Click'; });
+      audioAdjustPlay.textContent = t('loading');
+      preloadBgmTrack('tempo120', true, function(){ if (bgmBufferCache.tempo120) startTestClick(); else audioAdjustPlay.textContent = t('playClick'); });
       return;
     }
     resumeAudioCtx();
@@ -4037,7 +4078,7 @@
     var when = audioCtx.currentTime + 0.05;
     testClickSource.start(when, 0);
     testClickStartCtxTime = when;
-    audioAdjustPlay.textContent = 'Stop Click';
+    audioAdjustPlay.textContent = t('stopClick');
     requestAnimationFrame(audioAdjustTick);
   }
   // Flashes the same Left/Right buttons — and the same 'beat-active' class
@@ -4080,7 +4121,7 @@
     // where either thumb actually covers the screen.
     var target = lane === 'L' ? audioAdjustDeltaL : audioAdjustDeltaR;
     if (!testClickStartCtxTime){
-      target.textContent = '再生して';
+      target.textContent = t('playFirst');
       return;
     }
     var beatDur = 60/TEST_CLICK_BPM;
@@ -4091,8 +4132,8 @@
     var laneOk = expectedLane === lane;
     // Same wording as the in-game timing bubble: pressed after the beat = Delay, before it = Fast.
     target.textContent =
-      (deltaMs === 0 ? 'Just' : (deltaMs > 0 ? 'Delay ' : 'Fast ') + Math.abs(deltaMs) + 'ms') +
-      (laneOk ? '' : '(反対)');
+      (deltaMs === 0 ? t('just') : (deltaMs > 0 ? t('delay') : t('fast')) + ' ' + Math.abs(deltaMs) + 'ms') +
+      (laneOk ? '' : t('wrongSide'));
   }
   audioAdjustBtnL.addEventListener('click', function(){ handleAudioAdjustPress('L'); });
   audioAdjustBtnR.addEventListener('click', function(){ handleAudioAdjustPress('R'); });
@@ -4840,6 +4881,7 @@
     if (debugMapOn) drawDebugMap();
     requestAnimationFrame(frame);
   }
+  applyLang();
   requestAnimationFrame(frame);
 })();
 </script>
