@@ -343,6 +343,27 @@
     animation:tutorialBlink 1.4s ease-in-out infinite;
   }
   @keyframes tutorialBlink{ 0%,100%{ opacity:0.35; } 50%{ opacity:1; } }
+  /* Ending: one picture over the whole stage (a blurred copy fills the sides of a narrow stage), shown after the
+     last level-up (the sage phase reaching ENDING_BPM). A click/tap (or Enter/Space/Z/X) moves on. */
+  .ending-card{
+    position:absolute; inset:0; z-index:9;
+    display:flex; align-items:center; justify-content:center;
+    background:#161d12; cursor:pointer; overflow:hidden;
+    opacity:0; pointer-events:none;
+    transition:opacity 1.4s ease;
+  }
+  .ending-card.visible{ opacity:1; pointer-events:auto; }
+  .ending-card .ending-bg{
+    position:absolute; inset:0; width:100%; height:100%; object-fit:cover;
+    filter:blur(18px) brightness(0.65); transform:scale(1.1);
+  }
+  .ending-card .ending-img{ position:relative; width:100%; max-height:100%; object-fit:contain; display:block; }
+  .ending-card .ending-cta{
+    position:absolute; left:0; right:0; bottom:14px; text-align:center;
+    font-size:13px; font-weight:700; letter-spacing:0.08em; color:#fff;
+    text-shadow:0 1px 4px rgba(0,0,0,0.8);
+    animation:tutorialBlink 1.4s ease-in-out infinite;
+  }
   .level-select{display:flex; flex-direction:column; align-items:center; gap:10px;}
   .level-row{display:flex; gap:8px; justify-content:center; flex-wrap:wrap;}
   .level-select button{
@@ -712,6 +733,11 @@
         <div class="tutorial-cta" data-i18n-html="clickTap">Click<br>or Tap</div>
       </div>
     </div>
+    <div class="ending-card" id="cardEnding">
+      <img class="ending-bg" id="endingBg" alt="" aria-hidden="true">
+      <img class="ending-img" id="endingImg" alt="ALL LEVELS CLEAR!" draggable="false">
+      <div class="ending-cta" data-i18n="tapNext">Click or Tap</div>
+    </div>
     <div class="overlay-card" id="cardOver">
       <img class="title-logo" id="overReason" src="gameover.webp" alt="You lost...">
       <p id="overStats">Survival Time 0.0s</p>
@@ -851,7 +877,7 @@
     en: {
       distance:'distance', scoreColon:'Score:', combo:'COMBO', loading:'Loading...', start:'Start',
       timingCheck:'Timing Check', ranking:'Ranking', audioAdjust:'Audio Adjust', langBtn:'日本語',
-      clickTap:'Click<br>or Tap', respawn:'Click or Tap to Respawn', resume:'Tap to Resume', titleBtn:'Title',
+      clickTap:'Click<br>or Tap', tapNext:'Click or Tap', respawn:'Click or Tap to Respawn', resume:'Tap to Resume', titleBtn:'Title',
       left:'Left', right:'Right', sway:'Sway', bgmAuto:'Auto (follows BPM)', modelFail:'Could not load the bear',
       survival:'Survival Time', bestSurvival:'Best Survival', sec:'s', scoreWord:'Score', bestScore:'Best Score', maxCombo:'Max Combo',
       top10:'TOP 10!', rankAsk:'Score {n}. Save?', save:'Save', skip:'Skip', name:'Name', ok:'OK', failedTry:'Failed. Try again.',
@@ -863,7 +889,7 @@
     ja: {
       distance:'距離', scoreColon:'スコア:', combo:'コンボ', loading:'読み込み中...', start:'スタート',
       timingCheck:'タイミングチェック', ranking:'ランキング', audioAdjust:'音のズレ調整', langBtn:'English',
-      clickTap:'クリック<br>かタップ', respawn:'クリックかタップでもう一度', resume:'タップで再開', titleBtn:'タイトル',
+      clickTap:'クリック<br>かタップ', tapNext:'クリックかタップ', respawn:'クリックかタップでもう一度', resume:'タップで再開', titleBtn:'タイトル',
       left:'左', right:'右', sway:'よける', bgmAuto:'自動(BPMに合わせる)', modelFail:'クマを読み込めませんでした',
       survival:'生き延びた時間', bestSurvival:'ベスト', sec:'秒', scoreWord:'スコア', bestScore:'ベストスコア', maxCombo:'最大コンボ',
       top10:'TOP 10！', rankAsk:'スコア {n}。保存する？', save:'保存', skip:'やめる', name:'名前', ok:'OK', failedTry:'失敗しました。もう一度やってみてね',
@@ -2553,6 +2579,7 @@
   function enterSagePhase(){
     sagePhase = true;
     reachedLevel = 5;
+    preloadEnding();
     setBPM(SAGE_START_BPM); // auto mode: autoTrackForBpm now answers 'sage'
     if (currentTrackKey !== 'sage') loadBgmTrack('sage'); // a forced track doesn't follow BPM
   }
@@ -2613,7 +2640,12 @@
     var b = rankEl('button', text); b.type = 'button'; b.addEventListener('click', onClick); return b;
   }
   function rankOpen(){ rankModal.hidden = false; }
-  function rankClose(){ rankModal.hidden = true; rankBody.textContent = ''; }
+  // Set by the ending: runs once when the ranking dialog is closed (Skip / Close), to carry on to the title.
+  var rankOnClose = null;
+  function rankClose(){
+    rankModal.hidden = true; rankBody.textContent = '';
+    if (rankOnClose){ var f = rankOnClose; rankOnClose = null; f(); }
+  }
   function rankOfferAfterGameover(){
     var finalScore = Math.round(score);
     if (finalScore < 1) return;
@@ -2704,6 +2736,77 @@
     e.stopPropagation();
     rankShowList();
   });
+
+  // ---- ENDING -----------------------------------------------------------------------------------------------
+  // In the sage phase every PASS slows the tempo by 2; the PASS that brings it down to ENDING_BPM ends the game.
+  // Order: that PASS's own animation, then the usual level-up celebration (victory pose + fanfare), then the
+  // picture with its own music; a click then offers the ranking (only if the score makes the top 10, like after
+  // a game over) and, once that is closed, goes back to the title.
+  var ENDING_BPM = 50;
+  var ENDING_IMG = 'allclear.webp', ENDING_BGM_FILE = 'Above_The_Cloud_Line.mp3';
+  var endingPending = false;  // the last PASS has landed; waiting for its animation to finish
+  var endingSeq = false;      // the celebration is playing; the picture follows
+  var endingEnteredAt = 0;
+  var endingBgmBuffer = null, endingBgmSource = null, endingBgmWanted = false, endingLoading = false;
+  var cardEnding = document.getElementById('cardEnding');
+  var endingImgEl = document.getElementById('endingImg'), endingBgEl = document.getElementById('endingBg');
+  // Loaded in the background once the sage phase starts (it takes a good many PASSes to get to the end).
+  function preloadEnding(){
+    if (!endingImgEl.getAttribute('src')){ endingImgEl.src = ENDING_IMG; endingBgEl.src = ENDING_IMG; }
+    if (!audioCtx || endingBgmBuffer || endingLoading) return;
+    endingLoading = true;
+    fetch(ENDING_BGM_FILE)
+      .then(function(r){ return r.arrayBuffer(); })
+      .then(function(buf){ return audioCtx.decodeAudioData(buf); })
+      .then(function(decoded){
+        endingBgmBuffer = decoded;
+        if (endingBgmWanted && state === 'ending') playEndingBgm();
+      })
+      .catch(function(e){ endingLoading = false; if (window.console) console.error(e); });
+  }
+  function playEndingBgm(){
+    if (!audioCtx || !bgmGain) return;
+    if (!endingBgmBuffer){ endingBgmWanted = true; preloadEnding(); return; }
+    stopEndingBgm();
+    endingBgmSource = audioCtx.createBufferSource();
+    endingBgmSource.buffer = endingBgmBuffer;
+    endingBgmSource.loop = true;
+    endingBgmSource.connect(bgmGain);
+    endingBgmSource.start();
+  }
+  function stopEndingBgm(){
+    endingBgmWanted = false;
+    if (endingBgmSource){ try{ endingBgmSource.stop(); }catch(e){} endingBgmSource = null; }
+  }
+  function startEnding(){
+    state = 'ending';
+    endingEnteredAt = performance.now();
+    stopBgm();
+    if (elapsed > highScore){ highScore = elapsed; try{ localStorage.setItem(HIGH_KEY, String(highScore)); }catch(e){} }
+    if (score > highScoreScore){ highScoreScore = score; try{ localStorage.setItem(SCORE_HIGH_KEY, String(highScoreScore)); }catch(e){} }
+    preloadEnding();
+    cardEnding.classList.add('visible');
+    playEndingBgm();
+  }
+  function endingToTitle(){
+    state = 'title'; resetGame(); stopBgm();
+    cardTitle.classList.add('visible');
+    playDropIn(titleLogo);
+  }
+  function endingContinue(){
+    if (state !== 'ending' || performance.now() - endingEnteredAt < 1500) return;
+    cardEnding.classList.remove('visible');
+    stopEndingBgm();
+    var finalScore = Math.round(score);
+    if (finalScore < 1 || !rankToken){ endingToTitle(); return; }
+    rankFetch('/ranking').then(function(d){
+      var tenth = (d && d.ok) ? (d.results.length >= RANK_LIMIT ? d.results[RANK_LIMIT - 1].score : -1) : null;
+      if (tenth === null || finalScore <= tenth){ endingToTitle(); return; }
+      rankOnClose = endingToTitle;
+      rankShowAsk();
+    });
+  }
+  cardEnding.addEventListener('click', function(e){ e.stopPropagation(); endingContinue(); });
 
   function startTempoUpSequence(lookIndex){
     stopBgm();
@@ -3125,6 +3228,7 @@
     lungeState = 'idle'; lungeTimer = 0; nextLungeAt = 1.2 + Math.random()*1.2;
     sageReturnT = 0; bear.position.y = 0; sagePhase = false; sageDashT = 0; sageMissStreak = 0;
     swayX = 0; if (playerModel) playerModel.position.x = 0;
+    endingPending = false; endingSeq = false;
     clearGuideDrain();
     dodged = false; dodgeAttempted = false; dodgeTimer = 0;
     if (bearModel) bearModel.scale.x = enemyScale;
@@ -3542,7 +3646,10 @@
         if (greenStreak >= GREEN_STREAK_TARGET){
           greenStreak = 0;
           passLanded = true;
-          if (sagePhase) setBPM(Math.max(BPM_MIN, BPM - 2));
+          if (sagePhase){
+            if (BPM - 2 <= ENDING_BPM){ setBPM(Math.max(BPM_MIN, ENDING_BPM)); endingPending = true; }
+            else setBPM(Math.max(BPM_MIN, BPM - 2));
+          }
           else if (bgmAutoMode && startedAtLevel1() && Math.min(BPM_MAX, BPM + 2) >= SAGE_TRIGGER_BPM) enterSagePhase();
           else setBPM(Math.min(BPM_MAX, BPM + 2));
           playSfx('levelup');
@@ -3680,6 +3787,11 @@
       else if (!e.repeat && (ak === 'x' || ak === 'arrowright')){ e.preventDefault(); handleAudioAdjustPress('R'); }
       return;
     }
+    if (state === 'ending'){
+      var ek = e.key.toLowerCase();
+      if (ek === 'enter' || ek === ' ' || ek === 'z' || ek === 'x'){ e.preventDefault(); endingContinue(); }
+      return;
+    }
     if (tutorialOpen){
       var tk = e.key.toLowerCase();
       if (tk === 'enter' || tk === ' ' || tk === 'z' || tk === 'x'){ e.preventDefault(); closeTutorial(); }
@@ -3693,6 +3805,8 @@
     else if (k==='v'){ if(!e.repeat){ e.preventDefault(); handleRecover(); } }
     else if (k==='k'){ if(!e.repeat) toggleSage(); }
     else if (k==='f'){ if(!e.repeat) toggleFat(); }
+    // Debug-only: plays the level-up celebration and then the ending, without taking the tempo down to ENDING_BPM.
+    else if (k==='e'){ if(!e.repeat && state === 'playing' && playerVictoryAction){ endingSeq = true; startTempoUpSequence(null); } }
     // Debug-only: enters the real sage phase (tempo-up sequence, sage entrance,
     // slow track at SAGE_START_BPM) without climbing to SAGE_TRIGGER_BPM.
     else if (k==='l'){ if(!e.repeat && state === 'playing' && !sagePhase && playerVictoryAction){
@@ -4626,7 +4740,10 @@
         if (pendingBearLook === SAGE_LOOK && !bearRigs.sage) pendingBearLook = null; // gave up waiting: keep the current bear
         sageWaitT = 0;
         if (playerVictoryAction) playerVictoryAction.stop();
-        if (pendingBearLook !== null){
+        if (endingSeq){
+          endingSeq = false;
+          startEnding();
+        } else if (pendingBearLook !== null){
           startBearCutin();
         } else {
           state = 'playing';
@@ -4863,6 +4980,10 @@
     // hit in handleLane(), not by raw key-held state.
     if (dodgeTimer > 0) dodgeTimer = Math.max(0, dodgeTimer - dt);
     if (walkStepTimer > 0) walkStepTimer = Math.max(0, walkStepTimer - dt);
+    if (endingPending && state === 'playing' && walkStepTimer <= 0 && dodgeTimer <= 0 && playerVictoryAction){
+      endingPending = false; endingSeq = true;
+      startTempoUpSequence(null); // the usual level-up celebration; the picture follows it (see 'trackswitch')
+    }
     if (playerMixer && state === 'playing' && dodgeTimer <= 0 && walkStepTimer <= 0){
       setPlayerAnim('idle');
     }
