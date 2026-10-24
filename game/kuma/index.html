@@ -1648,7 +1648,7 @@
   // error path (see onModelError below): the game can't actually run
   // without it, so that failure holds the bar and shows an explicit message
   // instead of waving the player through into a broken run.
-  var PRELOAD_TOTAL = 23;
+  var PRELOAD_TOTAL = 24;
   var preloadedCount = 0;
   // Loads that nothing needs before the first run can end: kicked off once
   // the title screen is up. (Deliberately only things that are certain not
@@ -2217,11 +2217,11 @@
   // pads and is the final stage's boss), so `rig` picks which loaded model
   // is shown (see BEAR_MODEL_FILES). The tint only applies to the standard
   // model, since the others carry their own look.
-  var BEAR_MODEL_FILES = {lv3:'LV3-kuma.glb', lv5:'LV5-kuma.glb'};
+  var BEAR_MODEL_FILES = {lv3:'LV3-kuma.glb', fat:'fatbear-kuma.glb', lv5:'LV5-kuma.glb'};
   var BEAR_LOOKS = [
     {rig:'normal', tint:0xffffff, eye:COLOR_ACCENT, scale:1},
     {rig:'lv3',    tint:0xffffff, eye:0xff3b2a, scale:1.25},
-    {rig:'normal', tint:0x3a2e2e, eye:0xff1a4a, scale:1.5},
+    {rig:'fat',    tint:0x3a2e2e, eye:0xff1a4a, scale:1.7}, // LEVEL3: a fat bear (short limbs: attacks by charging, see FAT_CHARGE); tint only applies to the fallback standard bear
     {rig:'lv5',    tint:0xffffff, eye:0xb44cff, scale:2},
     // The sage (planned LEVEL5 / SuperHard boss). Loaded on demand (K key for
     // now) from SAGE_FILE rather than at startup. Short limbs: its attack is a
@@ -2233,6 +2233,19 @@
   var SAGE_END_Z = 9;        // charge ends past the camera (camera is at z=+4.6)
   var SAGE_HIT_Z = -1.0;     // bear reaching this z (local to player) while charging connects
   var SAGE_CROSS_T = 0.46;   // seconds into the charge when it reaches SAGE_HIT_Z (dodge target)
+  // Bears whose limbs are too short for a swing to ever reach the player attack
+  // by charging instead: they back off during the telegraph, then rush at the
+  // player; the hit connects when the bear reaches hitZ (local to the player)
+  // and the dodge window is centred on that moment (crossT after the charge
+  // starts). The rig's clip does the pose; the code does the travel (the clip's
+  // root motion is zeroed every frame).
+  //  path 'sage': one long accelerating rush that ends past the camera.
+  //  path 'dash': Sword_Dash_RM's own shape — 0.17s wind-up (windupAnim starts
+  //   that long before the charge), a 0.5s rush out to endZ, then a smooth
+  //   return to Z_NEAR over the rest of the clip.
+  var SAGE_CHARGE = {path:'sage', runup:SAGE_RUNUP, endZ:SAGE_END_Z, hitZ:SAGE_HIT_Z, crossT:SAGE_CROSS_T, lungeDur:0.9, lungeAnim:'sprint'};
+  var FAT_CHARGE = {path:'dash', runup:3, endZ:0.5, hitZ:-1.0, crossT:0.23, dashDur:0.5, lungeDur:1.45, windupAnim:'dash', windupT:0.17, lungeAnim:'dash'};
+  function chargeCfg(){ return (activeBearRig && activeBearRig.charge) || null; }
   var SAGE_BACKFLIP_DIST = 6, SAGE_HOP = 4;
   var SAGE_DROP_Y = 9, SAGE_DROP_T = 0.45, SAGE_RETURN_DUR = 1.4;
   var sageReturnT = 0, sageStartZ = 0;
@@ -2607,8 +2620,10 @@
   var STD_CLIPS = [['idle',['Fighting_Idle']],['run',['Walk']],['threat',['Sword_Attack','Sword_Attack_RM']],['sprint',['Sprint']],['closing',['Run_Anime']]];
   // Sage: folded arms while it backs off, Flying_Forward for the charge,
   // Backflip when it connects, Land_Three_Point when it re-enters after a miss.
+  // Fat bear: Fighting_Idle while it backs off, Sword_Dash_RM is the whole attack.
+  var FAT_CLIPS = [['idle',['Fighting_Idle']],['run',['Walk']],['threat',['Fighting_Idle']],['dash',['Sword_Dash_RM']],['closing',['Run_Anime']]];
   var SAGE_CLIPS = [['idle',['Fighting_Idle']],['run',['Walk']],['threat',['Idle_FoldArms']],['sprint',['Flying_Forward']],['closing',['Run_Anime']],['bounce',['Backflip']],['land',['Land_Three_Point']],['sdash',['Sword_Dash_RM']]];
-  function buildBearRig(gltf, clipMap){
+  function buildBearRig(gltf, clipMap, opts){
     var model = gltf.scene;
     model.scale.setScalar(enemyScale);
     model.rotation.y = MODEL_FRONT_Z > 0 ? 0 : Math.PI;
@@ -2621,7 +2636,8 @@
       rootBone: model.getObjectByName('root'),
       mixer: new THREE.AnimationMixer(model),
       actions: {},
-      sage: !!clipMap
+      sage: !!(opts && opts.sage),
+      charge: (opts && opts.charge) || null
     };
     // Each state may list alternative clip names: the LV5 model's attack
     // clip is exported as Sword_Attack_RM (root-motion variant) — the root
@@ -2631,7 +2647,7 @@
       for (var i=0;i<pair[1].length && !clip;i++) clip = findClip(gltf.animations, pair[1][i]);
       if (clip){
         var action = rig.mixer.clipAction(clip);
-        if (pair[0] === 'bounce' || pair[0] === 'land'){
+        if (pair[0] === 'bounce' || pair[0] === 'land' || pair[0] === 'dash'){
           action.setLoop(THREE.LoopOnce); action.clampWhenFinished = true;
           if (pair[0] === 'bounce') action.timeScale = 1.6; // 2.5s clip fits the knockback + get-up
         } else {
@@ -2656,7 +2672,7 @@
     if (sageLoading) return;
     sageLoading = true;
     new THREE.GLTFLoader().load(SAGE_FILE, function(gltf){
-      bearRigs.sage = buildBearRig(gltf, SAGE_CLIPS);
+      bearRigs.sage = buildBearRig(gltf, SAGE_CLIPS, {sage:true, charge:SAGE_CHARGE});
       onReady();
     }, undefined, function(e){ sageLoading = false; if (window.console) console.error(e); });
   }
@@ -2669,7 +2685,7 @@
   // showing the standard bear (see applyBearLook()).
   Object.keys(BEAR_MODEL_FILES).forEach(function(key){
     loadGltfTracked(BEAR_MODEL_FILES[key], function(gltf){
-      bearRigs[key] = buildBearRig(gltf);
+      bearRigs[key] = key === 'fat' ? buildBearRig(gltf, FAT_CLIPS, {charge:FAT_CHARGE}) : buildBearRig(gltf);
       applyBearLook(bearLookIndex);
     });
   });
@@ -4040,17 +4056,17 @@
         // right" anyway.
         attackSide = Math.random() < 0.5 ? 'L' : 'R';
         dodged = false; dodgeAttempted = false;
-        if (bearModel) bearModel.scale.x = (isSageRig() ? 1 : (attackSide === 'R' ? -1 : 1)) * enemyScale;
+        if (bearModel) bearModel.scale.x = (chargeCfg() ? 1 : (attackSide === 'R' ? -1 : 1)) * enemyScale;
         sageStartZ = bear.position.z;
         if (isSageRig()) playSfx('jet'); // peak lands as the charge reaches the player
         // Measured empirically: the Sword_Attack clip's own swing brings the
         // hand closest to the player around the midpoint of the telegraph
         // phase, not during the lunge that follows (lunge plays a Sprint
         // clip, not another swing) — so that's what the dodge window targets.
-        lungeImpactAt = elapsed + (isSageRig() ? TELEGRAPH_DUR + SAGE_CROSS_T : TELEGRAPH_DUR/2);
+        lungeImpactAt = elapsed + (chargeCfg() ? TELEGRAPH_DUR + chargeCfg().crossT : TELEGRAPH_DUR/2);
       } else if (lungeState==='telegraph'){
         lungeTimer -= dt;
-        if (lungeTimer<=0){ lungeState='lunge'; lungeTimer=0.9; }
+        if (lungeTimer<=0){ lungeState='lunge'; lungeTimer = chargeCfg() ? chargeCfg().lungeDur : 0.9; }
       } else if (lungeState==='lunge'){
         lungeTimer -= dt;
         if (lungeTimer<=0){
@@ -4086,18 +4102,30 @@
         // keeping your distance beforehand does. No dash: the proximity gate
         // above only lets an attack start when the bear is already close
         // (t<0.05), so it just squares up and swings from where it's standing.
-        if (isSageRig()){
+        var chargeC = chargeCfg();
+        if (chargeC){
           if (lungeState === 'telegraph'){
             var su = 1 - lungeTimer/TELEGRAPH_DUR;
-            bear.position.z = sageStartZ - SAGE_RUNUP * (1 - Math.pow(1 - su, 2)); // backs off to take a run-up
+            bear.position.z = sageStartZ - chargeC.runup * (1 - Math.pow(1 - su, 2)); // backs off to take a run-up
             bear.position.x += (0 - bear.position.x) * (1 - Math.pow(0.0005, dt));
           } else {
-            var cu = Math.max(0, 1 - lungeTimer/0.9);
-            var runZ = sageStartZ - SAGE_RUNUP;
-            bear.position.z = runZ + (SAGE_END_Z - runZ) * Math.pow(cu, 1.6);
+            var cu = Math.max(0, chargeC.lungeDur - lungeTimer); // seconds into the charge
+            var runZ = sageStartZ - chargeC.runup;
             // A dodged charge flies past on the side the player stepped away from.
-            var sageX = dodged ? (attackSide === 'L' ? 3.5 : -3.5) : 0;
-            bear.position.x += (sageX - bear.position.x) * (1 - Math.pow(0.002, dt));
+            var chargeX = dodged ? (attackSide === 'L' ? 3.5 : -3.5) : 0;
+            if (chargeC.path === 'dash'){
+              if (cu <= chargeC.dashDur){
+                var dv = cu / chargeC.dashDur;
+                bear.position.z = runZ + (chargeC.endZ - runZ) * (1 - Math.pow(1 - dv, 2.2));
+              } else {
+                var rw = Math.min(1, (cu - chargeC.dashDur) / (chargeC.lungeDur - chargeC.dashDur));
+                bear.position.z = chargeC.endZ + (Z_NEAR - chargeC.endZ) * (rw * rw * (3 - 2 * rw));
+                chargeX = 0; // back to the middle on the way home
+              }
+            } else {
+              bear.position.z = runZ + (chargeC.endZ - runZ) * Math.pow(cu / chargeC.lungeDur, 1.6);
+            }
+            bear.position.x += (chargeX - bear.position.x) * (1 - Math.pow(0.002, dt));
           }
         } else bear.position.x += (0 - bear.position.x) * (1 - Math.pow(0.0005, dt));
       } else {
@@ -4126,7 +4154,9 @@
           var rp = Math.min(1, (SAGE_RETURN_DUR - sageReturnT)/SAGE_DROP_T);
           bear.position.y = SAGE_DROP_Y * (1 - rp*rp);
         } else if (bear.position.y !== 0) bear.position.y = 0;
-        var wantAnim = attacking ? (lungeState==='telegraph' ? 'threat' : 'sprint')
+        var wantAnim = attacking ? (lungeState==='telegraph'
+            ? (chargeC && chargeC.windupAnim && lungeTimer <= chargeC.windupT ? chargeC.windupAnim : 'threat')
+            : (chargeC && chargeC.lungeAnim ? chargeC.lungeAnim : 'sprint'))
           : (sageReturnT > 0 ? 'land' : (t < CLOSE_RANGE_T ? 'idle' : (sageDashT > 0 ? 'sdash' : (missReactionTimer > 0 ? 'closing' : 'run'))));
         setAnimState(wantAnim);
         mixer.update(dt);
@@ -4142,7 +4172,8 @@
       // (size-scaled) hit radius at point-blank — measured on the 2x LV5 bear:
       // idle hand 3.32-3.38 vs radius 3.4 — which landed hits with no attack
       // motion at all.
-      var sageCharge = isSageRig();
+      var hitCharge = chargeCfg();
+      var sageCharge = !!hitCharge;
       if (attacking && !dodged && (sageCharge || (handBone && playerHitBone))){
         if (!sageCharge){
           handBone.getWorldPosition(handWorldPos);
@@ -4154,7 +4185,7 @@
         // could never connect), so the radius scales with it too.
         // The sage connects when its charge reaches the player (it has no
         // reach to measure from a hand); everything else uses the hand bone.
-        if (sageCharge ? (lungeState === 'lunge' && bear.position.z >= SAGE_HIT_Z)
+        if (sageCharge ? (lungeState === 'lunge' && bear.position.z >= hitCharge.hitZ)
                        : (handWorldPos.distanceTo(playerWorldPos) < HIT_RADIUS * (enemyScale / ENEMY_MODEL_SCALE))){
           hp = Math.max(0, hp - 1); updateHpDisplay(); resetHitStreak();
           setBPM(tempoRelief());
@@ -4162,7 +4193,7 @@
           state = 'knockback'; reactionTimer = knockbackDuration; lastReason = 'You lost...';
           dyingStartD = playerD;
           dyingStartBearLocalZ = bear.position.z;
-          if (sageCharge) setAnimState('bounce');
+          if (isSageRig()) setAnimState('bounce');
           // A hit only ever lands while the bear is already at point-blank
           // (t < CLOSE_RANGE_T) — left alone, gap is still pinned there
           // through the whole knockback/gettingup/lead-in (all three freeze
