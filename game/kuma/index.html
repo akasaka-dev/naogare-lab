@@ -2332,8 +2332,8 @@
   // attacker's movement. Two rules only: they never come nearer to the player than the attacker (a gap of
   // DECO_GAP behind it; if the attacker backs into one, that cub hurries out of the way), and they never leave
   // the camera's view (sideways limit from the camera's field of view at their depth). In between they walk
-  // to random spots and perform (dance, bow, nod, shake, jump, roll...), bounce on the beat, and cheer/wince
-  // at what happens in the run (decoReact). Positions are local to `player`, like the bear's.
+  // to random spots and perform (dance, bow, nod, shake, jump, roll...). Nothing in the run (the beat, the
+  // player's hits, the attacker's moves) drives their animation. Positions are local to `player`, like the bear's.
   var DECO_SCALE = 0.4, DECO_SPEED = 2.2, DECO_RUSH_SPEED = 4.5, DECO_GAP = 2.0, DECO_DEPTH = 8, DECO_SIDE = 0.85;
   var DECO_VARIANTS = [{tint:0xf2c9a0}, {tint:0xd2a276}];
   var DECO_PERFORM = ['Dance_Simple', 'Dance_Charleston', 'Head_Nod', 'Bow', 'Idle_ShakeOff', 'Victory', 'Jump_2_RM', 'Roll'];
@@ -2405,23 +2405,6 @@
       if (!wasVisible) decoCubs.forEach(decoScatter);
     }
   }
-  // The cubs react to the run: cheer on a dodge or a combo tier, wince when the player is hit.
-  // Each cub starts a little after the previous one so it reads as a crowd, not a clone.
-  function decoReact(clip, dur){
-    if (!decoGroup.visible) return;
-    decoCubs.forEach(function(d, i){
-      if (!d.acts[clip]) return;
-      d.reactClip = clip; d.reactDur = dur; d.reactWait = 0.05 + i * 0.12; d.reactT = 0;
-    });
-  }
-  var DECO_HOP = 0.14; // how high they bounce on each beat (world units)
-  // 0..1..0 hop shape per beat, landing on the beat itself; 0 outside a run
-  function decoBeatHop(){
-    if (state !== 'playing') return 0;
-    var ph = 1 - (nextBeatTime - (beatClockNow() - AUDIO_OFFSET)) / beatDur;
-    ph = ((ph % 1) + 1) % 1;
-    return Math.sin(ph * Math.PI);
-  }
   function decoFace(d, yaw, rate, step){
     var df = yaw - d.holder.rotation.y;
     df = Math.atan2(Math.sin(df), Math.cos(df));
@@ -2431,24 +2414,11 @@
   function decoUpdate(dt){
     if (!decoGroup.visible) return;
     var step = state === 'paused' ? 0 : dt;
-    var hop = decoBeatHop();
     var lim = decoLimitZ();
     decoCubs.forEach(function(d){
-      if (d.reactWait > 0){
-        d.reactWait -= step;
-        if (d.reactWait <= 0) d.reactT = d.reactDur;
-      }
       var crowded = d.holder.position.z > lim + 0.2; // the attacker has backed into this cub's spot
-      if (d.reactT > 0 && !crowded){
-        // cheering or wincing: face the player and stay put
-        decoFace(d, 0, 8, step);
-        d.reactT -= step;
-        d.mode = 'react';
-        decoFade(d, d.reactClip);
-        if (d.reactT <= 0) decoWander(d);
-      } else if (d.mode === 'react' || (crowded && d.mode === 'perform')){
-        d.reactT = 0;
-        decoWander(d); // leave the reaction / the performance and get out of the way
+      if (crowded && d.mode === 'perform'){
+        decoWander(d); // leave the performance and get out of the way
       } else if (d.mode === 'wander'){
         if (d.tz > lim - 0.3) decoPickTarget(d);
         var dx = d.tx - d.holder.position.x, dz = d.tz - d.holder.position.z, dist = Math.hypot(dx, dz);
@@ -2471,9 +2441,6 @@
       var hw = decoHalfW(d.holder.position.z);
       d.holder.position.x = Math.max(-hw, Math.min(hw, d.holder.position.x));
       var cn = d.cur ? d.cur.getClip().name : '';
-      // dances and nods follow the song's tempo; the cub also bounces on every beat (not while jumping/rolling)
-      d.mixer.timeScale = (d.mode === 'perform' && /Dance|Nod|Shake/.test(cn)) ? Math.max(0.7, Math.min(1.9, BPM / 100)) : 1;
-      d.model.position.y = (d.mode === 'perform' || d.mode === 'wander') && cn !== 'Jump_2_RM' && cn !== 'Roll' ? hop * DECO_HOP : 0;
       d.mixer.update(step);
       // root motion stays in place; the jump's height lives in the root's Y, so keep that for the jump
       if (d.root) d.root.position.set(0, cn === 'Jump_2_RM' ? d.root.position.y : 0, 0);
@@ -3299,7 +3266,6 @@
     playSwayAnim(side); // the player sways either way; only an on-time one avoids the hit
     if (onTime){
       dodged = true;
-      decoReact('Jump_2_RM', 1.3);
       flashDodge('hit');
     } else {
       flashDodge('miss');
@@ -3448,7 +3414,7 @@
       var hitScoreGain = Math.round(SCORE_HIT_BASE * scoreBpmFactor() * scoreMult);
       score += hitScoreGain;
       showScorePopup(hitScoreGain);
-      if (scoreMult > prevMult){ pulseComboTier(); decoReact('Victory', 1.8); }
+      if (scoreMult > prevMult) pulseComboTier();
       // Counts toward a pass only if this hit landed while the meter is
       // actually showing green — use gap fresh off the update above rather
       // than the frame-start `t`, so a hit that itself pushes into green
@@ -4411,7 +4377,6 @@
         if (sageCharge ? (lungeState === 'lunge' && bear.position.z >= hitCharge.hitZ)
                        : (handWorldPos.distanceTo(playerWorldPos) < HIT_RADIUS * (enemyScale / ENEMY_MODEL_SCALE))){
           hp = Math.max(0, hp - 1); updateHpDisplay(); resetHitStreak();
-          decoReact('Bow', 1.4);
           setBPM(tempoRelief());
           playSfx('hit');
           state = 'knockback'; reactionTimer = knockbackDuration; lastReason = 'You lost...';
