@@ -536,7 +536,7 @@
   }
   .audio-adjust-delta{
     font-family:var(--font-mono); font-weight:700; font-size:13px;
-    min-width:4.2em;
+    min-width:6.6em;
     color:var(--ink-dim);
   }
   .audio-adjust-delta-l{ text-align:right; }
@@ -770,7 +770,7 @@
 <div class="modal-overlay" id="audioAdjustModal" hidden>
   <div class="modal-card">
     <h3>Audio Adjust</h3>
-    <p>Bluetoothイヤホンなど、音が遅れて聞こえる場合は+方向に調整してください。音にあわせてボタンをクリックし、表示がだいたい+-50ms以内になるよう調整してください。</p>
+    <p>音に合わせてLeft/Rightを押してください。<b>Delay</b>と出たらスライダーを右へ、<b>Fast</b>と出たら左へ。数回押して、平均が20ms以内になるよう合わせてください。Bluetoothなどは大きく右へ。</p>
     <div class="audio-adjust-row">
       <button id="audioAdjustPlay" type="button">Play Click</button>
     </div>
@@ -4082,8 +4082,9 @@
     var deltaMs = Math.round((beatNow - nearestIndex*beatDur)*1000);
     var expectedLane = (((nearestIndex % 2) + 2) % 2 === 0) ? 'L' : 'R';
     var laneOk = expectedLane === lane;
+    // Same wording as the in-game timing bubble: pressed after the beat = Delay, before it = Fast.
     target.textContent =
-      (deltaMs>=0 ? '+' : '') + deltaMs + 'ms' +
+      (deltaMs === 0 ? 'Just' : (deltaMs > 0 ? 'Delay ' : 'Fast ') + Math.abs(deltaMs) + 'ms') +
       (laneOk ? '' : '(反対)');
   }
   audioAdjustBtnL.addEventListener('click', function(){ handleAudioAdjustPress('L'); });
