@@ -376,6 +376,10 @@
   .hud-stick .stick-seq b{ font-size:1.4em; color:#fff; text-decoration:underline; text-underline-offset:0.12em;
     text-shadow:0 0 14px rgba(242,183,5,0.95), 0 2px 6px rgba(0,0,0,0.95); }
   .hud-stick .stick-next{ font-size:min(18px,3.6vw); font-weight:800; color:#ffe9a8; }
+  .extra-tempo{ display:flex; align-items:center; gap:10px; margin:0 0 14px; }
+  .extra-tempo input{ flex:1; min-width:0; accent-color:var(--accent); }
+  .extra-tempo span{ font-family:var(--font-mono); font-weight:700; font-size:13px; min-width:9em; text-align:right; }
+  .extra-tempo button{ padding:6px 10px !important; font-size:12px !important; }
   .extra-opt{ display:flex; align-items:center; justify-content:center; gap:8px; margin:0 0 12px; font-size:13px; font-weight:700; color:var(--ink); cursor:pointer; user-select:none; -webkit-user-select:none; }
   .extra-opt input{ width:16px; height:16px; margin:0; accent-color:var(--accent); cursor:pointer; }
   .rank-tabs{ display:flex; gap:8px; justify-content:center; margin:0 0 10px; }
@@ -1237,6 +1241,11 @@
   var BPM_MAX = parseInt(bpmRange.max, 10) || 160;
   var BPM_RANGE_NORMAL = {min: bpmRange.min, max: bpmRange.max};
   var EXTRA_BPM_MIN = 120; // EXTRA's tempo bar runs from EXTRA_BPM_MIN to EXTRA_BPM_MAX (the song at 60 to 138)
+  // The tempo EXTRA starts at: chosen with the bar in the EXTRA menu (so nobody has to fiddle with it during play),
+  // remembered between visits. A hit never takes "gradually faster" below it.
+  var EXTRA_BPM_KEY = 'kuma-extra-bpm';
+  var extraBpmChoice = 230;
+  try{ var sb = parseInt(localStorage.getItem(EXTRA_BPM_KEY), 10); if (sb >= EXTRA_BPM_MIN && sb <= 276) extraBpmChoice = sb; }catch(e){}
   // The slider's own floor — not used by the miss/poison tempo penalty
   // below, see BPM_PENALTY_FLOOR for why.
   var BPM_MIN = parseInt(bpmRange.min, 10) || 50;
@@ -1325,7 +1334,7 @@
   var reachedLevel = 1;
   function tierOfBpm(b){ return b >= 150 ? 4 : (b >= 120 ? 3 : (b >= 100 ? 2 : 1)); }
   function tempoRelief(){
-    if (extraMode) return extraSpeedUp ? Math.max(EXTRA_BPM, BPM - 10) : BPM; // fixed tempo unless "gradually faster"
+    if (extraMode) return extraSpeedUp ? Math.max(extraBpmChoice, BPM - 10) : BPM; // fixed tempo unless "gradually faster"
     return sagePhase ? Math.min(SAGE_START_BPM, BPM + 10) : Math.max(BPM_PENALTY_FLOOR, BPM - 10);
   }
   // The one place BPM is allowed to change, full stop — the slider and the
@@ -1415,7 +1424,7 @@
     extraPick = pick;
     try{ localStorage.setItem(EXTRA_PICK_KEY, String(pick)); }catch(e){}
     extraModal.hidden = true;
-    extraMode = true; startBPM = EXTRA_BPM;
+    extraMode = true; startBPM = extraBpmChoice;
     resumeAudioCtx();
     loadFat(function(){}); preloadBgmTrack('extra', true); // fetched while the tutorial is read
     openTutorial();
@@ -1425,6 +1434,19 @@
     var h = document.createElement('h3'); h.textContent = t('extra'); extraBody.appendChild(h);
     var p = document.createElement('p'); p.textContent = t('pickHint'); extraBody.appendChild(p);
     var p2 = document.createElement('p'); p2.textContent = t('pickTempo'); extraBody.appendChild(p2);
+    var tw = document.createElement('div'); tw.className = 'extra-tempo';
+    var tsl = document.createElement('input'); tsl.type = 'range'; tsl.min = EXTRA_BPM_MIN; tsl.max = EXTRA_BPM_MAX; tsl.step = 1; tsl.value = extraBpmChoice;
+    var tlab = document.createElement('span');
+    function tempoShow(){ tlab.textContent = 'BPM ' + tsl.value + ' (\u2669' + Math.round(tsl.value / 2) + ')'; } // the song's own tempo is half
+    function tempoSet(v){
+      extraBpmChoice = Math.max(EXTRA_BPM_MIN, Math.min(EXTRA_BPM_MAX, v)); tsl.value = extraBpmChoice; tempoShow();
+      try{ localStorage.setItem(EXTRA_BPM_KEY, String(extraBpmChoice)); }catch(e){}
+    }
+    tsl.addEventListener('input', function(){ tempoSet(parseInt(tsl.value, 10)); });
+    var trst = document.createElement('button'); trst.type = 'button'; trst.textContent = t('reset');
+    trst.addEventListener('click', function(){ tempoSet(EXTRA_BPM); });
+    tempoShow();
+    tw.appendChild(tsl); tw.appendChild(tlab); tw.appendChild(trst); extraBody.appendChild(tw);
     var opt = document.createElement('label'); opt.className = 'extra-opt';
     var cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = extraSpeedUp;
     cb.addEventListener('change', function(){
