@@ -1244,7 +1244,8 @@
   var BPM_PENALTY_FLOOR = 80;
   // EXTRA stage (unlocked by reaching the ending, see startEnding): one stage with the fat bear, a fixed tempo,
   // its own track, no ranking; its best score/time are kept apart from the normal ones.
-  var EXTRA_BPM = 125;
+  var EXTRA_BPM = 230; // the track's nativeBpm (eighth notes of a 115 BPM song)
+  var EXTRA_BPM_MAX = 276; // top of "gradually faster" (the song at 138)
   var EXTRA_UNLOCK_KEY = 'kuma-extra-unlocked', EXTRA_TIME_KEY = 'kuma-extra-best-time', EXTRA_SCORE_KEY = 'kuma-extra-best-score';
   var extraMode = false, extraBestTime = 0, extraBestScore = 0;
   // EXTRA's lane order is a drum "sticking" (L = left hand, R = right hand), one note per press: the rudiments that
@@ -1552,11 +1553,15 @@
     // percussion, pointed at ~75).
     sage: { file: '雪舞う峠の誓い.mp3', nativeBpm: 75, offset: 1.0 },
     tempo120: { file: 'tempo120.mp3', nativeBpm: 120, offset: 0 },
-    // The EXTRA stage's track — PLACEHOLDER (the 鬼ごっこ file again) until the real one exists. The game
-    // counts one "beat" per press, so for a song played in eighth notes nativeBpm is the EIGHTH-NOTE rate,
-    // i.e. twice the song's own tempo (a 90 BPM song pressed on every eighth note: nativeBpm 180). The stage
-    // plays at EXTRA_BPM = that native rate (no tempo changes), so keep the two in step.
-    extra: { file: 'くまさんと鬼ごっこ.mp3', nativeBpm: 125, offset: 1.0 }
+    // ぽっちゃりぐまのブギウギタイム拍あり.mp3 — the EXTRA stage. Straight eighths (not swung), exactly 115 BPM,
+    // pressed on every eighth note, so the game's "beat" is the eighth: nativeBpm = 2 x 115.
+    //  offset      file time (s) of the music's own beat grid at bar 1 beat 1. The first count-in click sits at
+    //              0.521 s, the music's hits about 26 ms ahead of it (measured), so the grid is taken from the music.
+    //  introBeats  beats (eighths) before the player's first press: 4 bars x 8. Free beats, no misses; "3,2,1"
+    //              is shown on the last three quarter notes.
+    //  loopFromBeat / loopBeats  the loop runs from bar 5 (after the intro) to the end of bar 72 (whole bars:
+    //              the song has no sound after ~150.6 s), so the intro is played once.
+    extra: { file: 'ぽっちゃりぐまのブギウギタイム拍あり.mp3', nativeBpm: 230, offset: 0.495, introBeats: 32, loopFromBeat: 32, loopBeats: 576 }
   };
   // Each tier's BPM threshold is the track's own native tempo, so
   // playbackRate is pushed toward 1.0 (least pitch distortion) right as
@@ -1582,6 +1587,7 @@
   var currentTrackKey = null;
   var BGM_NATIVE_BPM = BGM_TRACKS.kuma.nativeBpm;
   var BGM_BEAT_OFFSET = BGM_TRACKS.kuma.offset;
+  var BGM_INTRO_BEATS = 0, BGM_LOOP_FROM = 0, BGM_LOOP_BEATS = 0; // see the extra track; 0 = the usual 3-beat count-in / loop the whole file
   var bgmBuffer = null, bgmSource = null;
   var bgmBufferCache = {}; // track key -> decoded AudioBuffer, so switching back doesn't re-fetch/decode
   // Set when beginRun() asks for a fresh start (startLeadIn(true) ->
@@ -1631,6 +1637,7 @@
       bgmBuffer = decoded;
       BGM_NATIVE_BPM = t.nativeBpm;
       BGM_BEAT_OFFSET = t.offset;
+      BGM_INTRO_BEATS = t.introBeats || 0; BGM_LOOP_FROM = t.loopFromBeat || 0; BGM_LOOP_BEATS = t.loopBeats || 0;
       if (bgmSource || bgmPendingFreshStart){
         bgmPendingFreshStart = false;
         if (state === 'playing' && isUpgrade && playerVictoryAction){
@@ -1824,7 +1831,7 @@
     // below) — without it, looping back around would jump back to sample 0
     // and re-play the pickup once per lap, landing a stray beat 1 mismatch
     // every ~170s instead of just once at the very start.
-    bgmSource.loopStart = BGM_BEAT_OFFSET;
+    bgmSource.loopStart = BGM_BEAT_OFFSET + BGM_LOOP_FROM * (60 / BGM_NATIVE_BPM); // after the intro, if the track has one
     // Left at its default, loopEnd is the buffer's own full duration — but
     // a song's total length is essentially never an exact whole number of
     // beats past BGM_BEAT_OFFSET (for this track, measured: (172.117 -
@@ -1837,7 +1844,7 @@
     // wrap itself beat-exact, at the cost of silently dropping under one
     // beat's worth of tail audio no listener will notice.
     var nativeBeatPeriod = 60 / BGM_NATIVE_BPM;
-    var loopBeats = Math.floor((bgmBuffer.duration - BGM_BEAT_OFFSET) / nativeBeatPeriod);
+    var loopBeats = BGM_LOOP_BEATS || Math.floor((bgmBuffer.duration - BGM_BEAT_OFFSET) / nativeBeatPeriod);
     bgmSource.loopEnd = BGM_BEAT_OFFSET + loopBeats * nativeBeatPeriod;
     bgmSource.playbackRate.value = BPM / BGM_NATIVE_BPM;
     bgmSource.connect(bgmGain);
@@ -3431,7 +3438,9 @@
   // need for it: the music was never the thing that went out of sync, only
   // the flash clock's own zero-point did.
   function startLeadIn(fresh){
-    leadInBeats = 3;
+    // 3 beats normally; a track with an intro holds the whole intro on a fresh start (the music plays through
+    // it), and after a knockback only a short count-in of three quarter notes.
+    leadInBeats = BGM_INTRO_BEATS ? (fresh ? BGM_INTRO_BEATS : 6) : 3;
     beatDur = 60/BPM;
     if (fresh){
       restartBgm();
@@ -3815,7 +3824,7 @@
             else setBPM(Math.max(BPM_MIN, BPM - 2));
           }
           else if (bgmAutoMode && startedAtLevel1() && Math.min(BPM_MAX, BPM + 2) >= SAGE_TRIGGER_BPM) enterSagePhase();
-          else if (!extraMode || extraSpeedUp) setBPM(Math.min(BPM_MAX, BPM + 2));
+          else if (!extraMode || extraSpeedUp) setBPM(Math.min(extraMode ? EXTRA_BPM_MAX : BPM_MAX, BPM + 2));
           playSfx('levelup');
           // A bonus chunk of real distance on top of the steady per-hit
           // trickle above, rewarding a clean streak instead of being the
@@ -4553,7 +4562,8 @@
         beatOpen = true;
         beatHit = false;
         if (leadInBeats > 0){
-          countdownLabel.textContent = String(leadInBeats);
+          // eighth-note tracks show "3,2,1" on the last three quarter notes only
+          countdownLabel.textContent = BGM_INTRO_BEATS ? (leadInBeats <= 6 && leadInBeats % 2 === 0 ? String(leadInBeats / 2) : '') : String(leadInBeats);
           countdownLabel.style.opacity = 1;
         }
       }
