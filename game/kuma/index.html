@@ -1825,9 +1825,10 @@
   function beatClockNow(){
     return bgmStartCtxTime !== null ? (audioCtx.currentTime - bgmStartCtxTime) : elapsed;
   }
+  // returns true when the music was (re)started, i.e. bgmStartCtxTime is the fresh clock origin
   function restartBgm(){
-    if (!audioCtx) return;
-    if (!bgmBuffer){ bgmPendingFreshStart = true; return; }
+    if (!audioCtx) return false;
+    if (!bgmBuffer){ bgmPendingFreshStart = true; return false; }
     if (bgmSource){ try{ bgmSource.stop(); }catch(e){} }
     bgmSource = audioCtx.createBufferSource();
     bgmSource.buffer = bgmBuffer;
@@ -1862,6 +1863,7 @@
     var when = audioCtx.currentTime + 0.02;
     bgmSource.start(when, BGM_BEAT_OFFSET);
     bgmStartCtxTime = when;
+    return true;
   }
   // Called on gameover — there's no beat clock left to stay in sync with at
   // that point (frame()'s metronome block is entirely inside the 'playing'
@@ -3534,8 +3536,10 @@
     introFresh = !!(fresh && BGM_INTRO_BEATS && BGM_WAKE_BEAT);
     beatDur = 60/BPM;
     if (fresh){
-      restartBgm();
-      nextBeatTime = beatClockNow(); missGraceUntil = 0;
+      // The beat clock starts at the music's start (bgmStartCtxTime, scheduled 20 ms ahead of now), so the first
+      // beat is at clock 0 — not at "now" (-20 ms), which put the whole grid 20 ms ahead of the music.
+      var restarted = restartBgm();
+      nextBeatTime = restarted ? 0 : beatClockNow(); missGraceUntil = 0;
     } else {
       // Catch nextBeatTime up to the present by whole beats, starting from
       // its own already-correct accumulated value — nextBeatTime was
