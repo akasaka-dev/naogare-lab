@@ -371,6 +371,11 @@
     text-shadow:0 1px 4px rgba(0,0,0,0.9), 0 0 8px rgba(0,0,0,0.6);
   }
   .hud-stick .stick-seq{ font-family:var(--font-mono); letter-spacing:0.18em; color:var(--accent); }
+  .hud-stick .stick-seq b{ color:#fff; text-decoration:underline; text-underline-offset:3px; }
+  .extra-list{ display:flex; flex-direction:column; gap:8px; margin-bottom:12px; }
+  .extra-list button{ display:flex; justify-content:space-between; align-items:center; gap:12px; text-align:left; }
+  .extra-list button.current{ border-color:var(--accent); color:var(--accent); }
+  .extra-list .pick-seq{ font-family:var(--font-mono); font-size:11px; letter-spacing:0.12em; color:var(--ink-dim); word-break:break-all; text-align:right; }
   .level-select{display:flex; flex-direction:column; align-items:center; gap:10px;}
   .level-row{display:flex; gap:8px; justify-content:center; flex-wrap:wrap;}
   .level-select button{
@@ -818,6 +823,10 @@
   <div class="modal-card" id="rankBody"></div>
 </div>
 
+<div class="modal-overlay" id="extraModal" hidden>
+  <div class="modal-card" id="extraBody"></div>
+</div>
+
 <div class="modal-overlay" id="audioAdjustModal" hidden>
   <div class="modal-card">
     <h3 data-i18n="audioAdjust">Audio Adjust</h3>
@@ -886,7 +895,7 @@
   var I18N = {
     en: {
       distance:'distance', scoreColon:'Score:', combo:'COMBO', loading:'Loading...', start:'Start',
-      extra:'EXTRA', stickSingle:'Single', stickDouble:'Double', stickPara:'Paradiddle', timingCheck:'Timing Check', ranking:'Ranking', audioAdjust:'Audio Adjust', langBtn:'日本語',
+      extra:'EXTRA', stickSingle:'Single Stroke', stickDouble:'Double Stroke', stickPara:'Paradiddle', stickParaDiddle:'Paradiddle-diddle', stickDoublePara:'Double Paradiddle', stickFive:'Five Stroke Roll', stickTriplePara:'Triple Paradiddle', pickAuto:'Auto (all, in order)', pickHint:'Pick one to practise it', timingCheck:'Timing Check', ranking:'Ranking', audioAdjust:'Audio Adjust', langBtn:'日本語',
       clickTap:'Click<br>or Tap', tapNext:'Click or Tap', respawn:'Click or Tap to Respawn', resume:'Tap to Resume', titleBtn:'Title',
       left:'Left', right:'Right', sway:'Sway', bgmAuto:'Auto (follows BPM)', modelFail:'Could not load the bear',
       survival:'Survival Time', bestSurvival:'Best Survival', sec:'s', scoreWord:'Score', bestScore:'Best Score', maxCombo:'Max Combo',
@@ -898,7 +907,7 @@
     },
     ja: {
       distance:'距離', scoreColon:'スコア:', combo:'コンボ', loading:'読み込み中...', start:'スタート',
-      extra:'EXTRA', stickSingle:'シングル', stickDouble:'ダブル', stickPara:'パラディドル', timingCheck:'タイミングチェック', ranking:'ランキング', audioAdjust:'音のズレ調整', langBtn:'English',
+      extra:'EXTRA', stickSingle:'シングルストローク', stickDouble:'ダブルストローク', stickPara:'パラディドル', stickParaDiddle:'パラディドルディドル', stickDoublePara:'ダブルパラディドル', stickFive:'ファイブストロークロール', stickTriplePara:'トリプルパラディドル', pickAuto:'おまかせ(全部を順番に)', pickHint:'1つ選ぶと、それだけを練習できます', timingCheck:'タイミングチェック', ranking:'ランキング', audioAdjust:'音のズレ調整', langBtn:'English',
       clickTap:'クリック<br>かタップ', tapNext:'クリックかタップ', respawn:'クリックかタップでもう一度', resume:'タップで再開', titleBtn:'タイトル',
       left:'左', right:'右', sway:'よける', bgmAuto:'自動(BPMに合わせる)', modelFail:'クマを読み込めませんでした',
       survival:'生き延びた時間', bestSurvival:'ベスト', sec:'秒', scoreWord:'スコア', bestScore:'ベストスコア', maxCombo:'最大コンボ',
@@ -1236,29 +1245,52 @@
   var EXTRA_BPM = 125;
   var EXTRA_UNLOCK_KEY = 'kuma-extra-unlocked', EXTRA_TIME_KEY = 'kuma-extra-best-time', EXTRA_SCORE_KEY = 'kuma-extra-best-score';
   var extraMode = false, extraBestTime = 0, extraBestScore = 0;
-  // EXTRA's lane order is a drum "sticking" (L = left hand, R = right hand), one note per press, switched every
-  // EXTRA_BLOCK presses (= 4 bars of eight notes). Every pattern's length divides EXTRA_BLOCK, so each block
-  // starts at the top of its pattern. stickBeat counts the presses since control was handed to the player.
-  var EXTRA_BLOCK = 32;
+  // EXTRA's lane order is a drum "sticking" (L = left hand, R = right hand), one note per press: the rudiments that
+  // are only a sequence of hands (no rests, accents or flams). Each pattern is played for `cycles` repeats (about
+  // 4 bars of eight notes), then the next one starts: EXTRA's "auto" mode, easiest first. In practice mode
+  // (extraPick >= 0) the chosen pattern simply repeats. stickBeat counts the presses since control was handed to
+  // the player; each pattern's sequence is written to repeat as is (hands alternate across the repeat).
   var EXTRA_STICKS = [
-    {key:'stickSingle', seq:'LR'},        // singles: L R L R
-    {key:'stickDouble', seq:'LLRR'},      // doubles: L L R R
-    {key:'stickPara',   seq:'LRLLRLRR'}   // paradiddle: L R L L  R L R R
+    {key:'stickSingle',     seq:'LR',               cycles:16},  // single stroke roll   R L R L
+    {key:'stickDouble',     seq:'LLRR',             cycles:8},   // double stroke roll   R R L L
+    {key:'stickPara',       seq:'LRLLRLRR',         cycles:4},   // paradiddle           R L R R  L R L L
+    {key:'stickParaDiddle', seq:'LRLLRR',           cycles:6},   // paradiddle-diddle    R L R R L L
+    {key:'stickDoublePara', seq:'LRLRLLRLRLRR',     cycles:3},   // double paradiddle    R L R L R R  L R L R L L
+    {key:'stickFive',       seq:'LLRRLRRLLR',       cycles:3},   // five stroke roll     R R L L R  L L R R L
+    {key:'stickTriplePara', seq:'LRLRLRLLRLRLRLRR', cycles:2}    // triple paradiddle    R L R L R L R R  L R L R L R L L
   ];
+  var EXTRA_PICK_KEY = 'kuma-extra-pick';
+  var extraPick = -1; // -1 = auto (all in order); otherwise the index being practised
+  try{ var sp = parseInt(localStorage.getItem(EXTRA_PICK_KEY), 10); if (sp >= -1 && sp < EXTRA_STICKS.length) extraPick = sp; }catch(e){}
   var stickBeat = 0;
-  function extraStick(n){ return EXTRA_STICKS[Math.floor(n / EXTRA_BLOCK) % EXTRA_STICKS.length]; }
-  function extraLane(n){ var q = extraStick(n).seq; return q.charAt(n % q.length); }
-  var stickLabelEl = document.getElementById('stickLabel'), stickLabelShown = null;
-  // Shown above the buttons while EXTRA is being played; the next pattern is announced for the last bar of a block.
-  function updateStickLabel(on){
-    var html = '';
-    if (extraMode && on){
-      var cur = extraStick(stickBeat), pos = stickBeat % EXTRA_BLOCK;
-      html = t(cur.key) + ' <span class="stick-seq">' + cur.seq + '</span>';
-      if (pos >= EXTRA_BLOCK - 8){ var nx = extraStick(stickBeat + EXTRA_BLOCK - pos); html += ' → ' + t(nx.key) + ' <span class="stick-seq">' + nx.seq + '</span>'; }
+  function extraBlockLen(i){ return EXTRA_STICKS[i].seq.length * EXTRA_STICKS[i].cycles; }
+  var extraTotalLen = 0;
+  EXTRA_STICKS.forEach(function(p, i){ extraTotalLen += extraBlockLen(i); });
+  // Which pattern press n belongs to: {i: index, pos: press within the block, len: the block's length}
+  function extraLocate(n){
+    if (extraPick >= 0){ var L = extraBlockLen(extraPick); return {i: extraPick, pos: n % L, len: L}; }
+    var m = n % extraTotalLen;
+    for (var i = 0; i < EXTRA_STICKS.length; i++){
+      var bl = extraBlockLen(i);
+      if (m < bl) return {i: i, pos: m, len: bl};
+      m -= bl;
     }
-    if (html === stickLabelShown) return;
-    stickLabelShown = html;
+    return {i: 0, pos: 0, len: extraBlockLen(0)};
+  }
+  function extraLane(n){ var loc = extraLocate(n), q = EXTRA_STICKS[loc.i].seq; return q.charAt(loc.pos % q.length); }
+  var stickLabelEl = document.getElementById('stickLabel'), stickLabelBeat = -1, stickLabelOn = false;
+  // Shown above the buttons while EXTRA is being played: the pattern's name, its hands with the next one to
+  // press marked, and (in auto mode) the next pattern's name during the last bar of a block.
+  function updateStickLabel(on){
+    on = !!(extraMode && on);
+    if (stickLabelOn === on && (!on || stickLabelBeat === stickBeat)) return;
+    stickLabelOn = on; stickLabelBeat = stickBeat;
+    var html = '';
+    if (on){
+      var loc = extraLocate(stickBeat), p = EXTRA_STICKS[loc.i], k = loc.pos % p.seq.length;
+      html = t(p.key) + '<br><span class="stick-seq">' + p.seq.split('').map(function(c, j){ return j === k ? '<b>' + c + '</b>' : c; }).join('') + '</span>';
+      if (extraPick < 0 && loc.len - loc.pos <= 8){ html += '<br>→ ' + t(EXTRA_STICKS[extraLocate(stickBeat + loc.len - loc.pos).i].key); }
+    }
     stickLabelEl.innerHTML = html;
     stickLabelEl.hidden = !html;
   }
@@ -1360,13 +1392,41 @@
   function extraUnlocked(){ try{ return localStorage.getItem(EXTRA_UNLOCK_KEY) === '1'; }catch(e){ return false; } }
   function updateExtraButton(){ btnExtra.hidden = !extraUnlocked(); }
   updateExtraButton();
-  btnExtra.addEventListener('click', function(e){
-    e.stopPropagation();
-    if (state !== 'title' || tutorialOpen) return;
+  var extraModal = document.getElementById('extraModal'), extraBody = document.getElementById('extraBody');
+  function startExtra(pick){
+    extraPick = pick;
+    try{ localStorage.setItem(EXTRA_PICK_KEY, String(pick)); }catch(e){}
+    extraModal.hidden = true;
     extraMode = true; startBPM = EXTRA_BPM;
     resumeAudioCtx();
     loadFat(function(){}); preloadBgmTrack('extra', true); // fetched while the tutorial is read
     openTutorial();
+  }
+  function showExtraMenu(){
+    extraBody.textContent = '';
+    var h = document.createElement('h3'); h.textContent = t('extra'); extraBody.appendChild(h);
+    var p = document.createElement('p'); p.textContent = t('pickHint'); extraBody.appendChild(p);
+    var list = document.createElement('div'); list.className = 'extra-list';
+    function item(label, seq, pick){
+      var b = document.createElement('button'); b.type = 'button';
+      if (pick === extraPick) b.className = 'current';
+      var l = document.createElement('span'); l.textContent = label; b.appendChild(l);
+      if (seq){ var q = document.createElement('span'); q.className = 'pick-seq'; q.textContent = seq; b.appendChild(q); }
+      b.addEventListener('click', function(){ startExtra(pick); });
+      list.appendChild(b);
+    }
+    item(t('pickAuto'), '', -1);
+    EXTRA_STICKS.forEach(function(st, i){ item(t(st.key), st.seq, i); });
+    extraBody.appendChild(list);
+    var c = document.createElement('button'); c.type = 'button'; c.className = 'modal-close'; c.textContent = t('close');
+    c.addEventListener('click', function(){ extraModal.hidden = true; });
+    extraBody.appendChild(c);
+    extraModal.hidden = false;
+  }
+  btnExtra.addEventListener('click', function(e){
+    e.stopPropagation();
+    if (state !== 'title' || tutorialOpen) return;
+    showExtraMenu();
   });
   var tutorialOpen = false, tutorialOpenedAt = 0;
   function openTutorial(){
@@ -2369,8 +2429,10 @@
   }
   function finishGame(){
     if (extraMode){
-      if (elapsed>extraBestTime){ extraBestTime=elapsed; try{ localStorage.setItem(EXTRA_TIME_KEY, String(extraBestTime)); }catch(e){} }
-      if (score>extraBestScore){ extraBestScore=score; try{ localStorage.setItem(EXTRA_SCORE_KEY, String(extraBestScore)); }catch(e){} }
+      if (extraPick < 0){ // practising a single pattern does not count toward the bests
+        if (elapsed>extraBestTime){ extraBestTime=elapsed; try{ localStorage.setItem(EXTRA_TIME_KEY, String(extraBestTime)); }catch(e){} }
+        if (score>extraBestScore){ extraBestScore=score; try{ localStorage.setItem(EXTRA_SCORE_KEY, String(extraBestScore)); }catch(e){} }
+      }
     } else {
       if (elapsed>highScore){ highScore=elapsed; try{ localStorage.setItem(HIGH_KEY, String(highScore)); }catch(e){} }
       if (score>highScoreScore){ highScoreScore=score; try{ localStorage.setItem(SCORE_HIGH_KEY, String(highScoreScore)); }catch(e){} }
@@ -3866,7 +3928,7 @@
   });
 
   window.addEventListener('keydown', function(e){
-    if (!rankModal.hidden) return; // typing a nickname must not drive the game
+    if (!rankModal.hidden || !extraModal.hidden) return; // typing a nickname / picking a pattern must not drive the game
     if (!audioAdjustModal.hidden){
       // Audio Adjust: Z/X (or the arrows) press Left/Right there, like the on-screen buttons; no other key acts.
       var ak = e.key.toLowerCase();
