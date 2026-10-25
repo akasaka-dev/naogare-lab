@@ -3502,6 +3502,31 @@
     var hand = Math.max(0, Math.min(1, (p - 0.7) / 0.3)), usualY = -activeBearRig.groundShift * enemyScale;
     introLiftNow = (meshY * (1 - hand) + usualY * hand) - usualY - INTRO_SINK * (1 - hand);
   }
+  // EXTRA's intro camera: starts high above the sleeping bear and zooms down onto its body while it sleeps,
+  // then, as it gets up and bows, swings back to the usual camera behind the player, arriving just before the
+  // first beat. Everything is in the player's local space (the camera is the player's child, like the bear).
+  var INTRO_CAM_HIGH = 38;   // starting height above the bear
+  var introCamP0 = new THREE.Vector3(), introCamP1 = new THREE.Vector3(), introCamPn = new THREE.Vector3(), introCamT = new THREE.Vector3();
+  var introCamQ1 = new THREE.Quaternion(), introCamQn = new THREE.Quaternion(), introCamM = new THREE.Matrix4(), introCamUp = new THREE.Vector3(0, 1, 0);
+  function introCamLook(eye, target, qOut){ introCamM.lookAt(eye, target, introCamUp); qOut.setFromRotationMatrix(introCamM); }
+  function applyIntroCamera(){
+    var c = Math.max(0, beatClockNow()), wakeAt = BGM_WAKE_BEAT * beatDur, endAt = BGM_INTRO_BEATS * beatDur - 0.15;
+    var bx = bear.position.x, bz = bear.position.z;
+    introCamT.set(bx, 1.8, bz); // the body
+    introCamP0.set(bx, INTRO_CAM_HIGH, bz + 6);
+    introCamP1.set(bx, 7, bz + 7.5);
+    introCamPn.copy(camera.position); introCamQn.copy(camera.quaternion); // the usual camera, as set just above
+    if (c < wakeAt){
+      var u = Math.min(1, c / wakeAt), s1 = u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2; // ease in-out
+      camera.position.lerpVectors(introCamP0, introCamP1, s1);
+      introCamLook(camera.position, introCamT, camera.quaternion);
+    } else {
+      var w = Math.max(0, Math.min(1, (c - wakeAt) / (endAt - wakeAt))), s2 = w * w * (3 - 2 * w);
+      introCamLook(introCamP1, introCamT, introCamQ1);
+      camera.position.lerpVectors(introCamP1, introCamPn, s2);
+      camera.quaternion.copy(introCamQ1).slerp(introCamQn, s2);
+    }
+  }
   function startLeadIn(fresh){
     // 3 beats normally; a track with an intro holds the whole intro on a fresh start (the music plays through
     // it), and after a knockback only a short count-in of three quarter notes.
@@ -5210,6 +5235,7 @@
       cutinTarget.copy(cutinHead); cutinTarget.y -= 0.7*cs;
       camera.lookAt(cutinTarget);
     }
+    if (state === 'playing' && leadInBeats > 0 && introEntrance()) applyIntroCamera();
     camera.fov = cutinCamActive ? CUTIN_FOV : BASE_FOV + sp.fovKick.cur;
     camera.updateProjectionMatrix();
 
