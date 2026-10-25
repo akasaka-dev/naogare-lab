@@ -903,7 +903,7 @@
   var I18N = {
     en: {
       distance:'distance', scoreColon:'Score:', combo:'COMBO', loading:'Loading...', start:'Start',
-      extra:'EXTRA', stickSingle:'Single Stroke', stickDouble:'Double Stroke', stickPara:'Paradiddle', stickParaDiddle:'Paradiddle-diddle', stickDoublePara:'Double Paradiddle', stickFive:'Five Stroke Roll', stickTriplePara:'Triple Paradiddle', pickAuto:'Auto (all, in order)', rankTabMain:'Normal', rankTabExtra:'EXTRA', speedUp:'Gradually faster', pickHint:'Pick one to practise it', timingCheck:'Timing Check', ranking:'Ranking', audioAdjust:'Audio Adjust', langBtn:'日本語',
+      extra:'EXTRA', stickSingle:'Single Stroke', stickDouble:'Double Stroke', stickPara:'Paradiddle', stickParaDiddle:'Paradiddle-diddle', stickDoublePara:'Double Paradiddle', stickFive:'Five Stroke Roll', stickTriplePara:'Triple Paradiddle', pickAuto:'Auto (all, in order)', rankTabMain:'Normal', rankTabExtra:'EXTRA', speedUp:'Gradually faster', pickHint:'Pick one to practise it', pickTempo:'You can also change the tempo freely with the bar below.', timingCheck:'Timing Check', ranking:'Ranking', audioAdjust:'Audio Adjust', langBtn:'日本語',
       clickTap:'Click<br>or Tap', tapNext:'Click or Tap', respawn:'Click or Tap to Respawn', resume:'Tap to Resume', titleBtn:'Title',
       left:'Left', right:'Right', sway:'Sway', bgmAuto:'Auto (follows BPM)', modelFail:'Could not load the bear',
       survival:'Survival Time', bestSurvival:'Best Survival', sec:'s', scoreWord:'Score', bestScore:'Best Score', maxCombo:'Max Combo',
@@ -915,7 +915,7 @@
     },
     ja: {
       distance:'距離', scoreColon:'スコア:', combo:'コンボ', loading:'読み込み中...', start:'スタート',
-      extra:'EXTRA', stickSingle:'シングルストローク', stickDouble:'ダブルストローク', stickPara:'パラディドル', stickParaDiddle:'パラディドルディドル', stickDoublePara:'ダブルパラディドル', stickFive:'ファイブストロークロール', stickTriplePara:'トリプルパラディドル', pickAuto:'おまかせ(全部を順番に)', rankTabMain:'通常', rankTabExtra:'EXTRA', speedUp:'だんだん早くなる', pickHint:'1つ選ぶと、それだけを練習できます', timingCheck:'タイミングチェック', ranking:'ランキング', audioAdjust:'音のズレ調整', langBtn:'English',
+      extra:'EXTRA', stickSingle:'シングルストローク', stickDouble:'ダブルストローク', stickPara:'パラディドル', stickParaDiddle:'パラディドルディドル', stickDoublePara:'ダブルパラディドル', stickFive:'ファイブストロークロール', stickTriplePara:'トリプルパラディドル', pickAuto:'おまかせ(全部を順番に)', rankTabMain:'通常', rankTabExtra:'EXTRA', speedUp:'だんだん早くなる', pickHint:'1つ選ぶと、それだけを練習できます', pickTempo:'下のテンポバーも自由に変更してください', timingCheck:'タイミングチェック', ranking:'ランキング', audioAdjust:'音のズレ調整', langBtn:'English',
       clickTap:'クリック<br>かタップ', tapNext:'クリックかタップ', respawn:'クリックかタップでもう一度', resume:'タップで再開', titleBtn:'タイトル',
       left:'左', right:'右', sway:'よける', bgmAuto:'自動(BPMに合わせる)', modelFail:'クマを読み込めませんでした',
       survival:'生き延びた時間', bestSurvival:'ベスト', sec:'秒', scoreWord:'スコア', bestScore:'ベストスコア', maxCombo:'最大コンボ',
@@ -1235,6 +1235,8 @@
   // duplication that let the slider's max and the ratchet's ceiling drift
   // out of sync with each other.
   var BPM_MAX = parseInt(bpmRange.max, 10) || 160;
+  var BPM_RANGE_NORMAL = {min: bpmRange.min, max: bpmRange.max};
+  var EXTRA_BPM_MIN = 120; // EXTRA's tempo bar runs from EXTRA_BPM_MIN to EXTRA_BPM_MAX (the song at 60 to 138)
   // The slider's own floor — not used by the miss/poison tempo penalty
   // below, see BPM_PENALTY_FLOOR for why.
   var BPM_MIN = parseInt(bpmRange.min, 10) || 50;
@@ -1366,6 +1368,7 @@
     }
     if (bgmSource) bgmSource.playbackRate.value = BPM / BGM_NATIVE_BPM;
   }
+  bpmRange.addEventListener('change', function(){ bpmRange.blur(); });
   bpmRange.addEventListener('input', function(){
     setBPM(parseInt(bpmRange.value, 10) || 92);
   });
@@ -1421,6 +1424,7 @@
     extraBody.textContent = '';
     var h = document.createElement('h3'); h.textContent = t('extra'); extraBody.appendChild(h);
     var p = document.createElement('p'); p.textContent = t('pickHint'); extraBody.appendChild(p);
+    var p2 = document.createElement('p'); p2.textContent = t('pickTempo'); extraBody.appendChild(p2);
     var opt = document.createElement('label'); opt.className = 'extra-opt';
     var cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = extraSpeedUp;
     cb.addEventListener('change', function(){
@@ -3611,6 +3615,8 @@
       preloadBgmTrack('sage', true);
       new Image().src = 'levellogo/SuperHard.webp';
     }
+    bpmRange.min = extraMode ? EXTRA_BPM_MIN : BPM_RANGE_NORMAL.min;
+    bpmRange.max = extraMode ? EXTRA_BPM_MAX : BPM_RANGE_NORMAL.max;
     if (extraMode){
       bgmAutoMode = false; // the fixed track, whatever the BPM
       loadBgmTrack('extra');
@@ -4612,6 +4618,8 @@
   function frame(now){
     var pauseLocked = state !== 'playing';
     if (btnPause.disabled !== pauseLocked) btnPause.disabled = pauseLocked;
+    var tempoFree = debugMode || (extraMode && state !== 'title' && state !== 'gameover'); // EXTRA: the tempo bar is free
+    if (bpmRange.disabled === tempoFree) bpmRange.disabled = !tempoFree;
     var bgmLocked = !(debugMode || state === 'title' || state === 'gameover');
     if (bgmTrackSelect.disabled !== bgmLocked) bgmTrackSelect.disabled = bgmLocked;
     var dt = Math.max(0, Math.min(0.05, (now-lastT)/1000));
