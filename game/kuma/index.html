@@ -366,12 +366,16 @@
   }
   /* EXTRA: the sticking pattern being played, and the next one near the end of a block */
   .hud-stick{
-    position:absolute; left:0; right:0; bottom:84px; z-index:4; text-align:center; pointer-events:none;
-    font-weight:900; font-size:14px; letter-spacing:0.08em; color:#fff;
-    text-shadow:0 1px 4px rgba(0,0,0,0.9), 0 0 8px rgba(0,0,0,0.6);
+    position:absolute; left:50%; top:42%; transform:translate(-50%,-50%); z-index:4; text-align:center; pointer-events:none;
+    max-width:94%; padding:10px 20px 12px; border-radius:20px; background:rgba(8,12,6,0.42);
+    text-shadow:0 2px 6px rgba(0,0,0,0.95), 0 0 14px rgba(0,0,0,0.7);
   }
-  .hud-stick .stick-seq{ font-family:var(--font-mono); letter-spacing:0.18em; color:var(--accent); }
-  .hud-stick .stick-seq b{ color:#fff; text-decoration:underline; text-underline-offset:3px; }
+  .hud-stick .stick-name{ font-weight:900; font-size:min(26px,4.6vw); letter-spacing:0.06em; color:#fff; }
+  .hud-stick .stick-seq{ display:inline-block; margin-top:2px; font-family:var(--font-mono); font-weight:900; font-size:min(44px,5.4vw);
+    letter-spacing:0.14em; line-height:1.15; color:rgba(242,183,5,0.78); }
+  .hud-stick .stick-seq b{ font-size:1.4em; color:#fff; text-decoration:underline; text-underline-offset:0.12em;
+    text-shadow:0 0 14px rgba(242,183,5,0.95), 0 2px 6px rgba(0,0,0,0.95); }
+  .hud-stick .stick-next{ font-size:min(18px,3.6vw); font-weight:800; color:#ffe9a8; }
   .extra-opt{ display:flex; align-items:center; justify-content:center; gap:8px; margin:0 0 12px; font-size:13px; font-weight:700; color:var(--ink); cursor:pointer; user-select:none; -webkit-user-select:none; }
   .extra-opt input{ width:16px; height:16px; margin:0; accent-color:var(--accent); cursor:pointer; }
   .rank-tabs{ display:flex; gap:8px; justify-content:center; margin:0 0 10px; }
@@ -1299,8 +1303,8 @@
     var html = '';
     if (on){
       var loc = extraLocate(stickBeat), p = EXTRA_STICKS[loc.i], k = loc.pos % p.seq.length;
-      html = t(p.key) + '<br><span class="stick-seq">' + p.seq.split('').map(function(c, j){ return j === k ? '<b>' + c + '</b>' : c; }).join('') + '</span>';
-      if (extraPick < 0 && loc.len - loc.pos <= 8){ html += '<br>→ ' + t(EXTRA_STICKS[extraLocate(stickBeat + loc.len - loc.pos).i].key); }
+      html = '<span class="stick-name">' + t(p.key) + '</span><br><span class="stick-seq">' + p.seq.split('').map(function(c, j){ return j === k ? '<b>' + c + '</b>' : c; }).join('') + '</span>';
+      if (extraPick < 0 && loc.len - loc.pos <= 8){ html += '<br><span class="stick-next">→ ' + t(EXTRA_STICKS[extraLocate(stickBeat + loc.len - loc.pos).i].key) + '</span>'; }
     }
     stickLabelEl.innerHTML = html;
     stickLabelEl.hidden = !html;
