@@ -372,6 +372,8 @@
   }
   .hud-stick .stick-seq{ font-family:var(--font-mono); letter-spacing:0.18em; color:var(--accent); }
   .hud-stick .stick-seq b{ color:#fff; text-decoration:underline; text-underline-offset:3px; }
+  .extra-opt{ display:flex; align-items:center; justify-content:center; gap:8px; margin:0 0 12px; font-size:13px; font-weight:700; color:var(--ink); cursor:pointer; user-select:none; -webkit-user-select:none; }
+  .extra-opt input{ width:16px; height:16px; margin:0; accent-color:var(--accent); cursor:pointer; }
   .extra-list{ display:flex; flex-direction:column; gap:8px; margin-bottom:12px; }
   .extra-list button{ display:flex; justify-content:space-between; align-items:center; gap:12px; text-align:left; }
   .extra-list button.current{ border-color:var(--accent); color:var(--accent); }
@@ -895,7 +897,7 @@
   var I18N = {
     en: {
       distance:'distance', scoreColon:'Score:', combo:'COMBO', loading:'Loading...', start:'Start',
-      extra:'EXTRA', stickSingle:'Single Stroke', stickDouble:'Double Stroke', stickPara:'Paradiddle', stickParaDiddle:'Paradiddle-diddle', stickDoublePara:'Double Paradiddle', stickFive:'Five Stroke Roll', stickTriplePara:'Triple Paradiddle', pickAuto:'Auto (all, in order)', pickHint:'Pick one to practise it', timingCheck:'Timing Check', ranking:'Ranking', audioAdjust:'Audio Adjust', langBtn:'日本語',
+      extra:'EXTRA', stickSingle:'Single Stroke', stickDouble:'Double Stroke', stickPara:'Paradiddle', stickParaDiddle:'Paradiddle-diddle', stickDoublePara:'Double Paradiddle', stickFive:'Five Stroke Roll', stickTriplePara:'Triple Paradiddle', pickAuto:'Auto (all, in order)', speedUp:'Gradually faster', pickHint:'Pick one to practise it', timingCheck:'Timing Check', ranking:'Ranking', audioAdjust:'Audio Adjust', langBtn:'日本語',
       clickTap:'Click<br>or Tap', tapNext:'Click or Tap', respawn:'Click or Tap to Respawn', resume:'Tap to Resume', titleBtn:'Title',
       left:'Left', right:'Right', sway:'Sway', bgmAuto:'Auto (follows BPM)', modelFail:'Could not load the bear',
       survival:'Survival Time', bestSurvival:'Best Survival', sec:'s', scoreWord:'Score', bestScore:'Best Score', maxCombo:'Max Combo',
@@ -907,7 +909,7 @@
     },
     ja: {
       distance:'距離', scoreColon:'スコア:', combo:'コンボ', loading:'読み込み中...', start:'スタート',
-      extra:'EXTRA', stickSingle:'シングルストローク', stickDouble:'ダブルストローク', stickPara:'パラディドル', stickParaDiddle:'パラディドルディドル', stickDoublePara:'ダブルパラディドル', stickFive:'ファイブストロークロール', stickTriplePara:'トリプルパラディドル', pickAuto:'おまかせ(全部を順番に)', pickHint:'1つ選ぶと、それだけを練習できます', timingCheck:'タイミングチェック', ranking:'ランキング', audioAdjust:'音のズレ調整', langBtn:'English',
+      extra:'EXTRA', stickSingle:'シングルストローク', stickDouble:'ダブルストローク', stickPara:'パラディドル', stickParaDiddle:'パラディドルディドル', stickDoublePara:'ダブルパラディドル', stickFive:'ファイブストロークロール', stickTriplePara:'トリプルパラディドル', pickAuto:'おまかせ(全部を順番に)', speedUp:'だんだん早くなる', pickHint:'1つ選ぶと、それだけを練習できます', timingCheck:'タイミングチェック', ranking:'ランキング', audioAdjust:'音のズレ調整', langBtn:'English',
       clickTap:'クリック<br>かタップ', tapNext:'クリックかタップ', respawn:'クリックかタップでもう一度', resume:'タップで再開', titleBtn:'タイトル',
       left:'左', right:'右', sway:'よける', bgmAuto:'自動(BPMに合わせる)', modelFail:'クマを読み込めませんでした',
       survival:'生き延びた時間', bestSurvival:'ベスト', sec:'秒', scoreWord:'スコア', bestScore:'ベストスコア', maxCombo:'最大コンボ',
@@ -1261,6 +1263,11 @@
   ];
   var EXTRA_PICK_KEY = 'kuma-extra-pick';
   var extraPick = -1; // -1 = auto (all in order); otherwise the index being practised
+  // "Gradually faster": the tempo rises with every PASS like in the normal stages (and a hit lowers it again, but
+  // never below EXTRA_BPM). Off = the fixed tempo.
+  var EXTRA_SPEED_KEY = 'kuma-extra-speedup';
+  var extraSpeedUp = false;
+  try{ extraSpeedUp = localStorage.getItem(EXTRA_SPEED_KEY) === '1'; }catch(e){}
   try{ var sp = parseInt(localStorage.getItem(EXTRA_PICK_KEY), 10); if (sp >= -1 && sp < EXTRA_STICKS.length) extraPick = sp; }catch(e){}
   var stickBeat = 0;
   function extraBlockLen(i){ return EXTRA_STICKS[i].seq.length * EXTRA_STICKS[i].cycles; }
@@ -1308,7 +1315,7 @@
   var reachedLevel = 1;
   function tierOfBpm(b){ return b >= 150 ? 4 : (b >= 120 ? 3 : (b >= 100 ? 2 : 1)); }
   function tempoRelief(){
-    if (extraMode) return BPM; // fixed tempo
+    if (extraMode) return extraSpeedUp ? Math.max(EXTRA_BPM, BPM - 10) : BPM; // fixed tempo unless "gradually faster"
     return sagePhase ? Math.min(SAGE_START_BPM, BPM + 10) : Math.max(BPM_PENALTY_FLOOR, BPM - 10);
   }
   // The one place BPM is allowed to change, full stop — the slider and the
@@ -1406,6 +1413,14 @@
     extraBody.textContent = '';
     var h = document.createElement('h3'); h.textContent = t('extra'); extraBody.appendChild(h);
     var p = document.createElement('p'); p.textContent = t('pickHint'); extraBody.appendChild(p);
+    var opt = document.createElement('label'); opt.className = 'extra-opt';
+    var cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = extraSpeedUp;
+    cb.addEventListener('change', function(){
+      extraSpeedUp = cb.checked;
+      try{ localStorage.setItem(EXTRA_SPEED_KEY, extraSpeedUp ? '1' : '0'); }catch(e){}
+    });
+    var cbText = document.createElement('span'); cbText.textContent = t('speedUp');
+    opt.appendChild(cb); opt.appendChild(cbText); extraBody.appendChild(opt);
     var list = document.createElement('div'); list.className = 'extra-list';
     function item(label, seq, pick){
       var b = document.createElement('button'); b.type = 'button';
@@ -3800,7 +3815,7 @@
             else setBPM(Math.max(BPM_MIN, BPM - 2));
           }
           else if (bgmAutoMode && startedAtLevel1() && Math.min(BPM_MAX, BPM + 2) >= SAGE_TRIGGER_BPM) enterSagePhase();
-          else if (!extraMode) setBPM(Math.min(BPM_MAX, BPM + 2));
+          else if (!extraMode || extraSpeedUp) setBPM(Math.min(BPM_MAX, BPM + 2));
           playSfx('levelup');
           // A bonus chunk of real distance on top of the steady per-hit
           // trickle above, rewarding a clean streak instead of being the
