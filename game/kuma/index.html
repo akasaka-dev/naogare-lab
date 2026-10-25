@@ -374,6 +374,8 @@
   .hud-stick .stick-seq b{ color:#fff; text-decoration:underline; text-underline-offset:3px; }
   .extra-opt{ display:flex; align-items:center; justify-content:center; gap:8px; margin:0 0 12px; font-size:13px; font-weight:700; color:var(--ink); cursor:pointer; user-select:none; -webkit-user-select:none; }
   .extra-opt input{ width:16px; height:16px; margin:0; accent-color:var(--accent); cursor:pointer; }
+  .rank-tabs{ display:flex; gap:8px; justify-content:center; margin:0 0 10px; }
+  .rank-tabs button.current{ border-color:var(--accent); color:var(--accent); }
   .extra-list{ display:flex; flex-direction:column; gap:8px; margin-bottom:12px; }
   .extra-list button{ display:flex; justify-content:space-between; align-items:center; gap:12px; text-align:left; }
   .extra-list button.current{ border-color:var(--accent); color:var(--accent); }
@@ -897,7 +899,7 @@
   var I18N = {
     en: {
       distance:'distance', scoreColon:'Score:', combo:'COMBO', loading:'Loading...', start:'Start',
-      extra:'EXTRA', stickSingle:'Single Stroke', stickDouble:'Double Stroke', stickPara:'Paradiddle', stickParaDiddle:'Paradiddle-diddle', stickDoublePara:'Double Paradiddle', stickFive:'Five Stroke Roll', stickTriplePara:'Triple Paradiddle', pickAuto:'Auto (all, in order)', speedUp:'Gradually faster', pickHint:'Pick one to practise it', timingCheck:'Timing Check', ranking:'Ranking', audioAdjust:'Audio Adjust', langBtn:'日本語',
+      extra:'EXTRA', stickSingle:'Single Stroke', stickDouble:'Double Stroke', stickPara:'Paradiddle', stickParaDiddle:'Paradiddle-diddle', stickDoublePara:'Double Paradiddle', stickFive:'Five Stroke Roll', stickTriplePara:'Triple Paradiddle', pickAuto:'Auto (all, in order)', rankTabMain:'Normal', rankTabExtra:'EXTRA', speedUp:'Gradually faster', pickHint:'Pick one to practise it', timingCheck:'Timing Check', ranking:'Ranking', audioAdjust:'Audio Adjust', langBtn:'日本語',
       clickTap:'Click<br>or Tap', tapNext:'Click or Tap', respawn:'Click or Tap to Respawn', resume:'Tap to Resume', titleBtn:'Title',
       left:'Left', right:'Right', sway:'Sway', bgmAuto:'Auto (follows BPM)', modelFail:'Could not load the bear',
       survival:'Survival Time', bestSurvival:'Best Survival', sec:'s', scoreWord:'Score', bestScore:'Best Score', maxCombo:'Max Combo',
@@ -909,7 +911,7 @@
     },
     ja: {
       distance:'距離', scoreColon:'スコア:', combo:'コンボ', loading:'読み込み中...', start:'スタート',
-      extra:'EXTRA', stickSingle:'シングルストローク', stickDouble:'ダブルストローク', stickPara:'パラディドル', stickParaDiddle:'パラディドルディドル', stickDoublePara:'ダブルパラディドル', stickFive:'ファイブストロークロール', stickTriplePara:'トリプルパラディドル', pickAuto:'おまかせ(全部を順番に)', speedUp:'だんだん早くなる', pickHint:'1つ選ぶと、それだけを練習できます', timingCheck:'タイミングチェック', ranking:'ランキング', audioAdjust:'音のズレ調整', langBtn:'English',
+      extra:'EXTRA', stickSingle:'シングルストローク', stickDouble:'ダブルストローク', stickPara:'パラディドル', stickParaDiddle:'パラディドルディドル', stickDoublePara:'ダブルパラディドル', stickFive:'ファイブストロークロール', stickTriplePara:'トリプルパラディドル', pickAuto:'おまかせ(全部を順番に)', rankTabMain:'通常', rankTabExtra:'EXTRA', speedUp:'だんだん早くなる', pickHint:'1つ選ぶと、それだけを練習できます', timingCheck:'タイミングチェック', ranking:'ランキング', audioAdjust:'音のズレ調整', langBtn:'English',
       clickTap:'クリック<br>かタップ', tapNext:'クリックかタップ', respawn:'クリックかタップでもう一度', resume:'タップで再開', titleBtn:'タイトル',
       left:'左', right:'右', sway:'よける', bgmAuto:'自動(BPMに合わせる)', modelFail:'クマを読み込めませんでした',
       survival:'生き延びた時間', bestSurvival:'ベスト', sec:'秒', scoreWord:'スコア', bestScore:'ベストスコア', maxCombo:'最大コンボ',
@@ -1244,6 +1246,7 @@
   var BPM_PENALTY_FLOOR = 80;
   // EXTRA stage (unlocked by reaching the ending, see startEnding): one stage with the fat bear, a fixed tempo,
   // its own track, no ranking; its best score/time are kept apart from the normal ones.
+  var EXTRA_LEVEL = 9; // the level number EXTRA is sent to the ranking server as (its own board)
   var EXTRA_BPM = 230; // the track's nativeBpm (eighth notes of a 115 BPM song)
   var EXTRA_BPM_MAX = 276; // top of "gradually faster" (the song at 138)
   var EXTRA_UNLOCK_KEY = 'kuma-extra-unlocked', EXTRA_TIME_KEY = 'kuma-extra-best-time', EXTRA_SCORE_KEY = 'kuma-extra-best-score';
@@ -2799,10 +2802,10 @@
   }
   function rankOfferAfterGameover(){
     var finalScore = Math.round(score);
-    if (finalScore < 1 || extraMode) return; // EXTRA has no ranking
+    if (finalScore < 1 || (extraMode && extraPick >= 0)) return; // practising one pattern is not ranked
     // Only offered when the score would actually make the top 10 (the
     // server enforces the same rule).
-    rankFetch('/ranking').then(function(d){
+    rankFetch(extraMode ? '/ranking?board=extra' : '/ranking').then(function(d){
       if (!d || !d.ok) return;
       var tenth = d.results.length >= RANK_LIMIT ? d.results[RANK_LIMIT - 1].score : -1;
       if (finalScore <= tenth) return;
@@ -2854,18 +2857,31 @@
   }
   // "LV1→3": the start level, then the highest LEVEL reached (SH = SuperHard).
   function rankLevelText(start, reached){
+    if (start === EXTRA_LEVEL) return 'EXTRA';
     var r = reached >= start ? reached : start;
     return 'LV' + start + '\u2192' + (r >= 5 ? 'SH' : r);
   }
-  function rankShowList(meName, meScore, meLevel){
+  // board: 'main' or 'extra' (defaults to the board of the run that was just registered, else the normal one);
+  // the tabs only show once EXTRA has been unlocked on this device.
+  function rankShowList(meName, meScore, meLevel, board){
+    board = board || (meLevel === EXTRA_LEVEL ? 'extra' : 'main');
     rankBody.textContent = '';
     rankBody.appendChild(rankEl('h3', t('ranking')));
+    if (extraUnlocked()){
+      var tabs = rankEl('div', null, 'rank-tabs');
+      [['main', 'rankTabMain'], ['extra', 'rankTabExtra']].forEach(function(tb){
+        var b = rankButton(t(tb[1]), function(){ rankShowList(meName, meScore, meLevel, tb[0]); });
+        if (tb[0] === board) b.className = 'current';
+        tabs.appendChild(b);
+      });
+      rankBody.appendChild(tabs);
+    }
     var list = rankEl('ol', null, 'rank-list');
     list.appendChild(rankEl('li', t('loading')));
     rankBody.appendChild(list);
     rankBody.appendChild(rankButton(t('close'), rankClose));
     rankOpen();
-    rankFetch('/ranking').then(function(d){
+    rankFetch(board === 'extra' ? '/ranking?board=extra' : '/ranking').then(function(d){
       if (rankModal.hidden || !list.isConnected) return;
       list.textContent = '';
       if (!d || !d.ok){ list.appendChild(rankEl('li', t('failLoad'))); return; }
@@ -3492,7 +3508,8 @@
     }
     cardPreload.classList.remove('visible');
     resumeAudioCtx();
-    if (extraMode){ rankToken = null; rankSubmitted = false; rankRunId++; } // no ranking for EXTRA
+    if (extraMode && extraPick >= 0){ rankToken = null; rankSubmitted = false; rankRunId++; } // practising one pattern: no ranking
+    else if (extraMode) rankBeginSession(EXTRA_LEVEL); // EXTRA (auto) has its own ranking board
     else rankBeginSession(levelButtons.map(function(b){ return parseInt(b.dataset.bpm, 10); }).indexOf(startBPM) + 1);
     if (iosAudioUnlock){ iosAudioUnlock.currentTime = 0; iosAudioUnlock.play().catch(function(){}); }
     playSfx('start');
