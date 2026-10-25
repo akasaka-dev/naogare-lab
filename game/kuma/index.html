@@ -1562,9 +1562,11 @@
     //              0.521 s, the music's hits about 26 ms ahead of it (measured), so the grid is taken from the music.
     //  introBeats  beats (eighths) before the player's first press: 4 bars x 8. Free beats, no misses; "3,2,1"
     //              is shown on the last three quarter notes.
+    //  wakeBeat    beat (eighth) at which the fat bear starts getting up: bar 4 beat 1, where the music builds
+    //              (it sleeps through bars 1-3), so it is standing and ready by bar 5.
     //  loopFromBeat / loopBeats  the loop runs from bar 5 (after the intro) to the end of bar 72 (whole bars:
     //              the song has no sound after ~150.6 s), so the intro is played once.
-    extra: { file: 'ぽっちゃりぐまのブギウギタイム拍あり.mp3', nativeBpm: 230, offset: 0.495, introBeats: 32, loopFromBeat: 32, loopBeats: 576 }
+    extra: { file: 'ぽっちゃりぐまのブギウギタイム拍あり.mp3', nativeBpm: 230, offset: 0.495, introBeats: 32, loopFromBeat: 32, loopBeats: 576, wakeBeat: 24 }
   };
   // Each tier's BPM threshold is the track's own native tempo, so
   // playbackRate is pushed toward 1.0 (least pitch distortion) right as
@@ -1590,7 +1592,7 @@
   var currentTrackKey = null;
   var BGM_NATIVE_BPM = BGM_TRACKS.kuma.nativeBpm;
   var BGM_BEAT_OFFSET = BGM_TRACKS.kuma.offset;
-  var BGM_INTRO_BEATS = 0, BGM_LOOP_FROM = 0, BGM_LOOP_BEATS = 0; // see the extra track; 0 = the usual 3-beat count-in / loop the whole file
+  var BGM_INTRO_BEATS = 0, BGM_LOOP_FROM = 0, BGM_LOOP_BEATS = 0, BGM_WAKE_BEAT = 0; // see the extra track; 0 = the usual 3-beat count-in / loop the whole file
   var bgmBuffer = null, bgmSource = null;
   var bgmBufferCache = {}; // track key -> decoded AudioBuffer, so switching back doesn't re-fetch/decode
   // Set when beginRun() asks for a fresh start (startLeadIn(true) ->
@@ -1640,7 +1642,7 @@
       bgmBuffer = decoded;
       BGM_NATIVE_BPM = t.nativeBpm;
       BGM_BEAT_OFFSET = t.offset;
-      BGM_INTRO_BEATS = t.introBeats || 0; BGM_LOOP_FROM = t.loopFromBeat || 0; BGM_LOOP_BEATS = t.loopBeats || 0;
+      BGM_INTRO_BEATS = t.introBeats || 0; BGM_LOOP_FROM = t.loopFromBeat || 0; BGM_LOOP_BEATS = t.loopBeats || 0; BGM_WAKE_BEAT = t.wakeBeat || 0;
       if (bgmSource || bgmPendingFreshStart){
         bgmPendingFreshStart = false;
         if (state === 'playing' && isUpgrade && playerVictoryAction){
@@ -3145,7 +3147,8 @@
   // Backflip when it connects, Land_Three_Point when it re-enters after a miss.
   // Fat bear: Fighting_Idle while it backs off, Sword_Dash_RM is the whole attack.
   var CUB_CLIPS = [['idle',['Fighting_Idle']],['run',['Walk']],['threat',['Fighting_Idle']],['dash',['Sword_Dash_RM']],['closing',['Run_Anime']]];
-  var FAT_CLIPS = [['idle',['Fighting_Idle']],['run',['Walk']],['threat',['Fighting_Idle']],['dash',['Sword_Dash_RM']],['closing',['Run_Anime']]];
+  // sleep / wake: EXTRA's intro (the bear sleeps through the quiet bars, then gets up on the build-up)
+  var FAT_CLIPS = [['idle',['Fighting_Idle']],['run',['Walk']],['threat',['Fighting_Idle']],['dash',['Sword_Dash_RM']],['closing',['Run_Anime']],['sleep',['Sleeping']],['wake',['LayToIdle']]];
   var SAGE_CLIPS = [['idle',['Fighting_Idle']],['run',['Walk']],['threat',['Idle_FoldArms']],['sprint',['Flying_Forward']],['closing',['Run_Anime']],['bounce',['Backflip']],['land',['Land_Three_Point']],['sdash',['Sword_Dash_RM']]];
   function buildBearRig(gltf, clipMap, opts){
     var model = gltf.scene;
@@ -3174,7 +3177,7 @@
       for (var i=0;i<pair[1].length && !clip;i++) clip = findClip(gltf.animations, pair[1][i]);
       if (clip){
         var action = rig.mixer.clipAction(clip);
-        if (pair[0] === 'bounce' || pair[0] === 'land' || pair[0] === 'dash'){
+        if (pair[0] === 'bounce' || pair[0] === 'land' || pair[0] === 'dash' || pair[0] === 'wake'){
           action.setLoop(THREE.LoopOnce); action.clampWhenFinished = true;
           if (pair[0] === 'bounce') action.timeScale = 1.6; // 2.5s clip fits the knockback + get-up
         } else {
@@ -3400,6 +3403,7 @@
     sageReturnT = 0; bear.position.y = 0; sagePhase = false; sageDashT = 0; sageMissStreak = 0;
     swayX = 0; if (playerModel) playerModel.position.x = 0;
     endingPending = false; endingSeq = false;
+    if (introFresh){ introFresh = false; if (activeBearRig) eyeGroup.visible = !activeBearRig.sage; }
     clearGuideDrain();
     dodged = false; dodgeAttempted = false; dodgeTimer = 0;
     if (bearModel) bearModel.scale.x = enemyScale;
@@ -3453,10 +3457,50 @@
   // back to the start on every single hit read as harsh, and there was no
   // need for it: the music was never the thing that went out of sync, only
   // the flash clock's own zero-point did.
+  // EXTRA's intro entrance: only on a fresh start with an intro (see the track's wakeBeat), and only for the bear
+  // that has the clips (the fat bear). The bear is frozen during every other lead-in.
+  // While it sleeps/wakes the bear lies low: lifted so the lying body rests on the ground (the usual groundShift is
+  // for its standing feet), and set to one side so it is not hidden behind the player; it moves to the middle as it
+  // gets up.
+  var INTRO_X = 2.2;
+  var introLiftNow = 0; // how far the bear is raised during the intro (see driveBearIntro)
+  var introSkin = null, introSkinOf = null, introV = new THREE.Vector3();
+  // world height of the lowest point of the bear's mesh in its current pose (every other vertex is enough)
+  function lowestBearY(){
+    if (introSkinOf !== bearModel){ introSkinOf = bearModel; introSkin = null; bearModel.traverse(function(o){ if (o.isSkinnedMesh && !introSkin) introSkin = o; }); }
+    if (!introSkin) return 0;
+    var pos = introSkin.geometry.attributes.position, lo = Infinity;
+    for (var i = 0; i < pos.count; i += 2){
+      introV.fromBufferAttribute(pos, i);
+      introSkin.boneTransform(i, introV);
+      introV.applyMatrix4(introSkin.matrixWorld);
+      if (introV.y < lo) lo = introV.y;
+    }
+    return lo;
+  }
+  var introFresh = false;
+  function introEntrance(){ return introFresh && activeBearRig && activeBearRig.actions.sleep && activeBearRig.actions.wake; }
+  function driveBearIntro(dt){
+    var c = beatClockNow(), wakeAt = BGM_WAKE_BEAT * beatDur;
+    var wakeDur = animActions.wake.getClip().duration;
+    if (c < wakeAt){ setAnimState('sleep'); eyeGroup.visible = false; }
+    else if (c < wakeAt + wakeDur){ setAnimState('wake'); eyeGroup.visible = c > wakeAt + wakeDur * 0.5; }
+    else { setAnimState('idle'); eyeGroup.visible = true; }
+    var p = Math.max(0, Math.min(1, (c - wakeAt) / wakeDur)), k = p * p * (3 - 2 * p);
+    bear.position.x = INTRO_X * (1 - k);
+    mixer.update(dt);
+    // Keep the lowest point of the mesh on the ground, whatever the pose (lying, rolling, rising); once it is
+    // standing, hand over to the usual foot-bone ground shift so nothing jumps when the game starts.
+    bearModel.updateMatrixWorld(true);
+    var meshY = bearModel.position.y - lowestBearY();
+    var hand = Math.max(0, Math.min(1, (p - 0.7) / 0.3)), usualY = -activeBearRig.groundShift * enemyScale;
+    introLiftNow = (meshY * (1 - hand) + usualY * hand) - usualY;
+  }
   function startLeadIn(fresh){
     // 3 beats normally; a track with an intro holds the whole intro on a fresh start (the music plays through
     // it), and after a knockback only a short count-in of three quarter notes.
     leadInBeats = BGM_INTRO_BEATS ? (fresh ? BGM_INTRO_BEATS : 6) : 3;
+    introFresh = !!(fresh && BGM_INTRO_BEATS && BGM_WAKE_BEAT);
     beatDur = 60/BPM;
     if (fresh){
       restartBgm();
@@ -4611,6 +4655,7 @@
             // many toggles the lead-in itself happened to use.
             beatParity = false; stickBeat = 0;
             currentLane = extraMode ? extraLane(0) : 'L';
+            if (introFresh){ introFresh = false; if (activeBearRig) eyeGroup.visible = !activeBearRig.sage; }
             // Real control is only handed back now — give a fresh cooldown
             // measured from THIS moment. The knockback hit-detection below
             // already sets one when a swing lands, but elapsed keeps
@@ -4654,7 +4699,10 @@
       // just driven by this one real beat clock (leadInBeats) instead of a
       // second timer that could disagree with it.
       if (leadInBeats > 0){
-        if (mixer){ mixer.update(0); if (rootBone) rootBone.position.set(0,0,0); }
+        if (mixer){
+          if (introEntrance()) driveBearIntro(dt); else mixer.update(0);
+          if (rootBone) rootBone.position.set(0,0,0);
+        }
       } else {
 
       // The attack sequence (telegraph + lunge + the swing itself) only
@@ -5160,7 +5208,7 @@
     camera.updateProjectionMatrix();
 
     if (bearModel){
-      bearModel.position.y = (reducedMotion ? 0 : Math.sin(time*2.1)*0.02) - (activeBearRig ? activeBearRig.groundShift : 0) * enemyScale;
+      bearModel.position.y = (reducedMotion ? 0 : Math.sin(time*2.1)*0.02) - (activeBearRig ? activeBearRig.groundShift : 0) * enemyScale + (introEntrance() ? introLiftNow : 0);
     }
     decoUpdate(dt);
 
