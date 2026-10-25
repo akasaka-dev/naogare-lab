@@ -1240,12 +1240,12 @@
   // out of sync with each other.
   var BPM_MAX = parseInt(bpmRange.max, 10) || 160;
   var BPM_RANGE_NORMAL = {min: bpmRange.min, max: bpmRange.max};
-  var EXTRA_BPM_MIN = 120; // EXTRA's tempo bar runs from EXTRA_BPM_MIN to EXTRA_BPM_MAX (the song at 60 to 138)
+  var EXTRA_BPM_MIN = 60; // EXTRA's tempo bar runs from EXTRA_BPM_MIN to EXTRA_BPM_MAX (the song's own BPM)
   // The tempo EXTRA starts at: chosen with the bar in the EXTRA menu (so nobody has to fiddle with it during play),
   // remembered between visits. A hit never takes "gradually faster" below it.
   var EXTRA_BPM_KEY = 'kuma-extra-bpm';
-  var extraBpmChoice = 230;
-  try{ var sb = parseInt(localStorage.getItem(EXTRA_BPM_KEY), 10); if (sb >= EXTRA_BPM_MIN && sb <= 276) extraBpmChoice = sb; }catch(e){}
+  var extraBpmChoice = 115;
+  try{ var sb = parseInt(localStorage.getItem(EXTRA_BPM_KEY), 10); if (sb >= EXTRA_BPM_MIN && sb <= 138) extraBpmChoice = sb; }catch(e){} // a value saved under the old eighth-note grid is ignored
   // The slider's own floor — not used by the miss/poison tempo penalty
   // below, see BPM_PENALTY_FLOOR for why.
   var BPM_MIN = parseInt(bpmRange.min, 10) || 50;
@@ -1262,8 +1262,8 @@
   // EXTRA stage (unlocked by reaching the ending, see startEnding): one stage with the fat bear, a fixed tempo,
   // its own track, no ranking; its best score/time are kept apart from the normal ones.
   var EXTRA_LEVEL = 9; // the level number EXTRA is sent to the ranking server as (its own board)
-  var EXTRA_BPM = 230; // the track's nativeBpm (eighth notes of a 115 BPM song)
-  var EXTRA_BPM_MAX = 276; // top of "gradually faster" (the song at 138)
+  var EXTRA_BPM = 115; // the track's nativeBpm: the song's own tempo
+  var EXTRA_BPM_MAX = 138; // top of the tempo bar and of "gradually faster"
   var EXTRA_UNLOCK_KEY = 'kuma-extra-unlocked', EXTRA_TIME_KEY = 'kuma-extra-best-time', EXTRA_SCORE_KEY = 'kuma-extra-best-score';
   var extraMode = false, extraBestTime = 0, extraBestScore = 0;
   // EXTRA's lane order is a drum "sticking" (L = left hand, R = right hand), one note per press: the rudiments that
@@ -1437,7 +1437,7 @@
     var tw = document.createElement('div'); tw.className = 'extra-tempo';
     var tsl = document.createElement('input'); tsl.type = 'range'; tsl.min = EXTRA_BPM_MIN; tsl.max = EXTRA_BPM_MAX; tsl.step = 1; tsl.value = extraBpmChoice;
     var tlab = document.createElement('span');
-    function tempoShow(){ tlab.textContent = 'BPM ' + tsl.value + ' (\u2669' + Math.round(tsl.value / 2) + ')'; } // the song's own tempo is half
+    function tempoShow(){ tlab.textContent = 'BPM ' + tsl.value; }
     function tempoSet(v){
       extraBpmChoice = Math.max(EXTRA_BPM_MIN, Math.min(EXTRA_BPM_MAX, v)); tsl.value = extraBpmChoice; tempoShow();
       try{ localStorage.setItem(EXTRA_BPM_KEY, String(extraBpmChoice)); }catch(e){}
@@ -1587,16 +1587,17 @@
     sage: { file: '雪舞う峠の誓い.mp3', nativeBpm: 75, offset: 1.0 },
     tempo120: { file: 'tempo120.mp3', nativeBpm: 120, offset: 0 },
     // ぽっちゃりぐまのブギウギタイム拍あり.mp3 — the EXTRA stage. Straight eighths (not swung), exactly 115 BPM,
-    // pressed on every eighth note, so the game's "beat" is the eighth: nativeBpm = 2 x 115.
+    // pressed on every QUARTER note (one press per beat of the song: easier to learn the stickings on; an eighth-note
+    // version would be nativeBpm 230 with every beat count below doubled).
     //  offset      file time (s) of the music's own beat grid at bar 1 beat 1. The first count-in click sits at
     //              0.521 s, the music's hits about 26 ms ahead of it (measured), so the grid is taken from the music.
-    //  introBeats  beats (eighths) before the player's first press: 4 bars x 8. Free beats, no misses; "3,2,1"
-    //              is shown on the last three quarter notes.
-    //  wakeBeat    beat (eighth) at which the fat bear starts getting up: bar 3 beat 1 (it sleeps through bars 1-2).
+    //  introBeats  beats before the player's first press: 4 bars x 4. Free beats, no misses; "3,2,1" is shown on
+    //              the last three.
+    //  wakeBeat    beat at which the fat bear starts getting up: bar 3 beat 1 (it sleeps through bars 1-2).
     //              It then bows (the Bow clip, sped up to end just before the intro does) and is ready at bar 5.
     //  loopFromBeat / loopBeats  the loop runs from bar 5 (after the intro) to the end of bar 72 (whole bars:
     //              the song has no sound after ~150.6 s), so the intro is played once.
-    extra: { file: 'ぽっちゃりぐまのブギウギタイム拍あり.mp3', nativeBpm: 230, offset: 0.495, introBeats: 32, loopFromBeat: 32, loopBeats: 576, wakeBeat: 16 }
+    extra: { file: 'ぽっちゃりぐまのブギウギタイム拍あり.mp3', nativeBpm: 115, offset: 0.495, introBeats: 16, loopFromBeat: 16, loopBeats: 288, wakeBeat: 8 }
   };
   // Each tier's BPM threshold is the track's own native tempo, so
   // playbackRate is pushed toward 1.0 (least pitch distortion) right as
@@ -3561,8 +3562,8 @@
   }
   function startLeadIn(fresh){
     // 3 beats normally; a track with an intro holds the whole intro on a fresh start (the music plays through
-    // it), and after a knockback only a short count-in of three quarter notes.
-    leadInBeats = BGM_INTRO_BEATS ? (fresh ? BGM_INTRO_BEATS : 6) : 3;
+    // it), and after a knockback only the short 3-beat count-in.
+    leadInBeats = (fresh && BGM_INTRO_BEATS) ? BGM_INTRO_BEATS : 3;
     introFresh = !!(fresh && BGM_INTRO_BEATS && BGM_WAKE_BEAT);
     beatDur = 60/BPM;
     if (fresh){
@@ -4692,8 +4693,8 @@
         beatOpen = true;
         beatHit = false;
         if (leadInBeats > 0){
-          // eighth-note tracks show "3,2,1" on the last three quarter notes only
-          countdownLabel.textContent = BGM_INTRO_BEATS ? (leadInBeats <= 6 && leadInBeats % 2 === 0 ? String(leadInBeats / 2) : '') : String(leadInBeats);
+          // a long intro shows "3,2,1" on its last three beats only
+          countdownLabel.textContent = leadInBeats <= 3 ? String(leadInBeats) : '';
           countdownLabel.style.opacity = 1;
         }
       }
