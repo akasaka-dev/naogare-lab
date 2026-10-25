@@ -3462,7 +3462,7 @@
   // While it sleeps/wakes the bear lies low: lifted so the lying body rests on the ground (the usual groundShift is
   // for its standing feet), and set to one side so it is not hidden behind the player; it moves to the middle as it
   // gets up.
-  var INTRO_X = 2.2;
+  var INTRO_X = 2.2, INTRO_SINK = 0.6; // INTRO_SINK: a sleeping bear settles a little into the grass (world units); 0 once it is up
   var introLiftNow = 0; // how far the bear is raised during the intro (see driveBearIntro)
   var introSkin = null, introSkinOf = null, introV = new THREE.Vector3();
   // world height of the lowest point of the bear's mesh in its current pose (every other vertex is enough)
@@ -3494,7 +3494,7 @@
     bearModel.updateMatrixWorld(true);
     var meshY = bearModel.position.y - lowestBearY();
     var hand = Math.max(0, Math.min(1, (p - 0.7) / 0.3)), usualY = -activeBearRig.groundShift * enemyScale;
-    introLiftNow = (meshY * (1 - hand) + usualY * hand) - usualY;
+    introLiftNow = (meshY * (1 - hand) + usualY * hand) - usualY - INTRO_SINK * (1 - p);
   }
   function startLeadIn(fresh){
     // 3 beats normally; a track with an intro holds the whole intro on a fresh start (the music plays through
