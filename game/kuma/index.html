@@ -1562,11 +1562,11 @@
     //              0.521 s, the music's hits about 26 ms ahead of it (measured), so the grid is taken from the music.
     //  introBeats  beats (eighths) before the player's first press: 4 bars x 8. Free beats, no misses; "3,2,1"
     //              is shown on the last three quarter notes.
-    //  wakeBeat    beat (eighth) at which the fat bear starts getting up: bar 4 beat 1, where the music builds
-    //              (it sleeps through bars 1-3), so it is standing and ready by bar 5.
+    //  wakeBeat    beat (eighth) at which the fat bear starts getting up: bar 3 beat 1 (it sleeps through bars 1-2).
+    //              It then bows (the Bow clip, sped up to end just before the intro does) and is ready at bar 5.
     //  loopFromBeat / loopBeats  the loop runs from bar 5 (after the intro) to the end of bar 72 (whole bars:
     //              the song has no sound after ~150.6 s), so the intro is played once.
-    extra: { file: 'ぽっちゃりぐまのブギウギタイム拍あり.mp3', nativeBpm: 230, offset: 0.495, introBeats: 32, loopFromBeat: 32, loopBeats: 576, wakeBeat: 24 }
+    extra: { file: 'ぽっちゃりぐまのブギウギタイム拍あり.mp3', nativeBpm: 230, offset: 0.495, introBeats: 32, loopFromBeat: 32, loopBeats: 576, wakeBeat: 16 }
   };
   // Each tier's BPM threshold is the track's own native tempo, so
   // playbackRate is pushed toward 1.0 (least pitch distortion) right as
@@ -3147,8 +3147,8 @@
   // Backflip when it connects, Land_Three_Point when it re-enters after a miss.
   // Fat bear: Fighting_Idle while it backs off, Sword_Dash_RM is the whole attack.
   var CUB_CLIPS = [['idle',['Fighting_Idle']],['run',['Walk']],['threat',['Fighting_Idle']],['dash',['Sword_Dash_RM']],['closing',['Run_Anime']]];
-  // sleep / wake: EXTRA's intro (the bear sleeps through the quiet bars, then gets up on the build-up)
-  var FAT_CLIPS = [['idle',['Fighting_Idle']],['run',['Walk']],['threat',['Fighting_Idle']],['dash',['Sword_Dash_RM']],['closing',['Run_Anime']],['sleep',['Sleeping']],['wake',['LayToIdle']]];
+  // sleep / wake / bow: EXTRA's intro (the bear sleeps, gets up, and bows before the fight)
+  var FAT_CLIPS = [['idle',['Fighting_Idle']],['run',['Walk']],['threat',['Fighting_Idle']],['dash',['Sword_Dash_RM']],['closing',['Run_Anime']],['sleep',['Sleeping']],['wake',['LayToIdle']],['bow',['Bow']]];
   var SAGE_CLIPS = [['idle',['Fighting_Idle']],['run',['Walk']],['threat',['Idle_FoldArms']],['sprint',['Flying_Forward']],['closing',['Run_Anime']],['bounce',['Backflip']],['land',['Land_Three_Point']],['sdash',['Sword_Dash_RM']]];
   function buildBearRig(gltf, clipMap, opts){
     var model = gltf.scene;
@@ -3177,7 +3177,7 @@
       for (var i=0;i<pair[1].length && !clip;i++) clip = findClip(gltf.animations, pair[1][i]);
       if (clip){
         var action = rig.mixer.clipAction(clip);
-        if (pair[0] === 'bounce' || pair[0] === 'land' || pair[0] === 'dash' || pair[0] === 'wake'){
+        if (pair[0] === 'bounce' || pair[0] === 'land' || pair[0] === 'dash' || pair[0] === 'wake' || pair[0] === 'bow'){
           action.setLoop(THREE.LoopOnce); action.clampWhenFinished = true;
           if (pair[0] === 'bounce') action.timeScale = 1.6; // 2.5s clip fits the knockback + get-up
         } else {
@@ -3462,6 +3462,7 @@
   // While it sleeps/wakes the bear lies low: lifted so the lying body rests on the ground (the usual groundShift is
   // for its standing feet), and set to one side so it is not hidden behind the player; it moves to the middle as it
   // gets up.
+  var INTRO_READY = 0.1; // seconds of ready pose between the bow and the first beat
   var INTRO_X = 2.2, INTRO_SINK = 1.4; // INTRO_SINK: the lying bear settles into the grass (world units); kept while it gets up, 0 once it stands
   var introLiftNow = 0; // how far the bear is raised during the intro (see driveBearIntro)
   var introSkin = null, introSkinOf = null, introV = new THREE.Vector3();
@@ -3482,9 +3483,14 @@
   function introEntrance(){ return introFresh && activeBearRig && activeBearRig.actions.sleep && activeBearRig.actions.wake; }
   function driveBearIntro(dt){
     var c = beatClockNow(), wakeAt = BGM_WAKE_BEAT * beatDur;
-    var wakeDur = animActions.wake.getClip().duration;
+    var wakeDur = animActions.wake.getClip().duration, wakeEnd = wakeAt + wakeDur;
+    var bowEnd = BGM_INTRO_BEATS * beatDur - INTRO_READY; // the bow ends here, a moment before the first beat
     if (c < wakeAt){ setAnimState('sleep'); eyeGroup.visible = false; }
-    else if (c < wakeAt + wakeDur){ setAnimState('wake'); eyeGroup.visible = c > wakeAt + wakeDur * 0.5; }
+    else if (c < wakeEnd){ setAnimState('wake'); eyeGroup.visible = c > wakeAt + wakeDur * 0.5; }
+    else if (animActions.bow && c < bowEnd){
+      setAnimState('bow'); eyeGroup.visible = true;
+      animActions.bow.timeScale = animActions.bow.getClip().duration / Math.max(0.5, bowEnd - wakeEnd); // fit the time left
+    }
     else { setAnimState('idle'); eyeGroup.visible = true; }
     var p = Math.max(0, Math.min(1, (c - wakeAt) / wakeDur)), k = p * p * (3 - 2 * p);
     bear.position.x = INTRO_X * (1 - k);
