@@ -404,6 +404,8 @@
   .th-key{ display:none; position:absolute; right:6px; bottom:5px; padding:1px 7px; font-size:13px; min-width:0; pointer-events:none; }
   .stage-wrap.two-hand .th-key{ display:block; }
   @media (pointer:coarse){ .stage-wrap.two-hand .th-key{ display:none; } }
+  #soundHint{ position:absolute; left:50%; top:42%; transform:translateX(-50%); z-index:30; pointer-events:none;
+    padding:10px 18px; border-radius:999px; background:rgba(0,0,0,0.72); color:#ffe27a; font-weight:700; font-size:16px; white-space:nowrap; }
   .level-select{display:flex; flex-direction:column; align-items:center; gap:10px;}
   .level-row{display:flex; gap:8px; justify-content:center; flex-wrap:wrap;}
   .level-select button{
@@ -744,6 +746,7 @@
          doesn't silence, which otherwise-identical Web-Audio-only pages
          (no <audio>/<video> anywhere) don't get. -->
     <audio id="iosAudioUnlock" src="sound/silence-unlock.wav" playsinline hidden></audio>
+    <div id="soundHint" hidden data-i18n="tapSound">Tap to turn the sound on</div>
     <div class="overlay-card visible" id="cardPreload">
       <h2 data-i18n="loading">Loading...</h2>
       <div class="preload-bar-track"><div class="preload-bar-fill" id="preloadBarFill"></div></div>
@@ -924,7 +927,7 @@
   var I18N = {
     en: {
       distance:'distance', scoreColon:'Score:', combo:'COMBO', loading:'Loading...', start:'Start',
-      loadFail:'Could not load. Check your connection and try again.', twoHand:'Two-Hand Mode (Z and /)', extra:'EXTRA', stickSingle:'Single Stroke', stickDouble:'Double Stroke', stickPara:'Paradiddle', stickParaDiddle:'Paradiddle-diddle', stickDoublePara:'Double Paradiddle', stickFive:'Five Stroke Roll', stickTriplePara:'Triple Paradiddle', pickAuto:'Auto (all, in order)', rankTabMain:'Normal', rankTabExtra:'EXTRA', speedUp:'Gradually faster', pickHint:'Learn the basic techniques of percussion', pickTempo:'You can also change the tempo freely with the bar below.', timingCheck:'Timing Check', ranking:'Ranking', audioAdjust:'Audio Adjust', langBtn:'日本語',
+      tapSound:'Tap to turn the sound on', loadFail:'Could not load. Check your connection and try again.', twoHand:'Two-Hand Mode (Z and /)', extra:'EXTRA', stickSingle:'Single Stroke', stickDouble:'Double Stroke', stickPara:'Paradiddle', stickParaDiddle:'Paradiddle-diddle', stickDoublePara:'Double Paradiddle', stickFive:'Five Stroke Roll', stickTriplePara:'Triple Paradiddle', pickAuto:'Auto (all, in order)', rankTabMain:'Normal', rankTabExtra:'EXTRA', speedUp:'Gradually faster', pickHint:'Learn the basic techniques of percussion', pickTempo:'You can also change the tempo freely with the bar below.', timingCheck:'Timing Check', ranking:'Ranking', audioAdjust:'Audio Adjust', langBtn:'日本語',
       clickTap:'Click<br>or Tap', tapNext:'Click or Tap', respawn:'Click or Tap to Respawn', resume:'Tap to Resume', titleBtn:'Title',
       left:'Left', right:'Right', sway:'Sway', bgmAuto:'Auto (follows BPM)', modelFail:'Could not load the bear',
       survival:'Survival Time', bestSurvival:'Best Survival', sec:'s', scoreWord:'Score', bestScore:'Best Score', maxCombo:'Max Combo',
@@ -936,7 +939,7 @@
     },
     ja: {
       distance:'距離', scoreColon:'スコア:', combo:'コンボ', loading:'読み込み中...', start:'スタート',
-      loadFail:'読み込めませんでした。通信を確かめて、もう一度やってね', twoHand:'両手モード (Zと/)', extra:'EXTRA', stickSingle:'シングルストローク', stickDouble:'ダブルストローク', stickPara:'パラディドル', stickParaDiddle:'パラディドルディドル', stickDoublePara:'ダブルパラディドル', stickFive:'ファイブストロークロール', stickTriplePara:'トリプルパラディドル', pickAuto:'おまかせ(全部を順番に)', rankTabMain:'通常', rankTabExtra:'EXTRA', speedUp:'だんだん早くなる', pickHint:'打楽器の基礎奏法を覚えることができます', pickTempo:'下のテンポバーも自由に変更してください', timingCheck:'タイミングチェック', ranking:'ランキング', audioAdjust:'音のズレ調整', langBtn:'English',
+      tapSound:'タップで音を出す', loadFail:'読み込めませんでした。通信を確かめて、もう一度やってね', twoHand:'両手モード (Zと/)', extra:'EXTRA', stickSingle:'シングルストローク', stickDouble:'ダブルストローク', stickPara:'パラディドル', stickParaDiddle:'パラディドルディドル', stickDoublePara:'ダブルパラディドル', stickFive:'ファイブストロークロール', stickTriplePara:'トリプルパラディドル', pickAuto:'おまかせ(全部を順番に)', rankTabMain:'通常', rankTabExtra:'EXTRA', speedUp:'だんだん早くなる', pickHint:'打楽器の基礎奏法を覚えることができます', pickTempo:'下のテンポバーも自由に変更してください', timingCheck:'タイミングチェック', ranking:'ランキング', audioAdjust:'音のズレ調整', langBtn:'English',
       clickTap:'クリック<br>かタップ', tapNext:'クリックかタップ', respawn:'クリックかタップでもう一度', resume:'タップで再開', titleBtn:'タイトル',
       left:'左', right:'右', sway:'よける', bgmAuto:'自動(BPMに合わせる)', modelFail:'クマを読み込めませんでした',
       survival:'生き延びた時間', bestSurvival:'ベスト', sec:'秒', scoreWord:'スコア', bestScore:'ベストスコア', maxCombo:'最大コンボ',
@@ -1008,6 +1011,7 @@
   var preloadBarFill = document.getElementById('preloadBarFill');
   var preloadPercent = document.getElementById('preloadPercent');
   var preloadStatus = document.getElementById('preloadStatus');
+  var soundHint = document.getElementById('soundHint'), soundOffSince = 0;
   var cardTitle = document.getElementById('cardTitle');
   var cardOver = document.getElementById('cardOver');
   var overReason = document.getElementById('overReason');
@@ -1556,9 +1560,17 @@
   // (see stageActivate and the keydown listener below), so resuming it
   // there is guaranteed to be inside that gesture rather than a separate,
   // gesture-less call that browsers would silently ignore.
+  // Not only 'suspended': iOS Safari also puts the context in 'interrupted' (a call, Siri, the page in the
+  // background, another audio session starting), and resume() is the way out of both. The whole beat clock (and so
+  // EXTRA's intro camera, which sits on its first frame at clock 0) runs on audioCtx.currentTime: a context that is
+  // not running froze the game on the opening aerial shot.
   function resumeAudioCtx(){
-    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(function(){});
+    if (audioCtx && audioCtx.state !== 'running' && audioCtx.state !== 'closed') audioCtx.resume().catch(function(){});
   }
+  // Any touch/click/key is a user gesture the browser lets resume() work in, so every one of them tries it.
+  ['touchstart', 'touchend', 'mousedown', 'click', 'keydown'].forEach(function(ev){
+    document.addEventListener(ev, resumeAudioCtx, {capture:true, passive:true});
+  });
   // Persistent gain nodes for the two mute toggles below (future sound
   // effects vs BGM) — every source connects through one of these instead of
   // straight to destination, so muting is just a gain flip and never
@@ -4745,6 +4757,13 @@
   var lastT = performance.now();
 
   function frame(now){
+    // The sound context stopped (iOS interruption) while a run is on: the beat clock stands still with it. Say so;
+    // the next tap resumes it (see resumeAudioCtx).
+    var soundOff = !!audioCtx && state === 'playing' && audioCtx.state !== 'running';
+    if (soundOff){ if (!soundOffSince) soundOffSince = now; else if (now - soundOffSince > 700) resumeAudioCtx(); }
+    else soundOffSince = 0;
+    var showSoundHint = soundOff && now - soundOffSince > 700;
+    if (soundHint.hidden === showSoundHint) soundHint.hidden = !showSoundHint;
     var pauseLocked = state !== 'playing';
     if (btnPause.disabled !== pauseLocked) btnPause.disabled = pauseLocked;
     var tempoFree = debugMode || (extraMode && state !== 'title' && state !== 'gameover'); // EXTRA: the tempo bar is free
