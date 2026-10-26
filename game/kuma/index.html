@@ -924,7 +924,7 @@
   var I18N = {
     en: {
       distance:'distance', scoreColon:'Score:', combo:'COMBO', loading:'Loading...', start:'Start',
-      twoHand:'Two-Hand Mode (Z and /)', extra:'EXTRA', stickSingle:'Single Stroke', stickDouble:'Double Stroke', stickPara:'Paradiddle', stickParaDiddle:'Paradiddle-diddle', stickDoublePara:'Double Paradiddle', stickFive:'Five Stroke Roll', stickTriplePara:'Triple Paradiddle', pickAuto:'Auto (all, in order)', rankTabMain:'Normal', rankTabExtra:'EXTRA', speedUp:'Gradually faster', pickHint:'Learn the basic techniques of percussion', pickTempo:'You can also change the tempo freely with the bar below.', timingCheck:'Timing Check', ranking:'Ranking', audioAdjust:'Audio Adjust', langBtn:'日本語',
+      loadFail:'Could not load EXTRA. Check your connection and try again.', twoHand:'Two-Hand Mode (Z and /)', extra:'EXTRA', stickSingle:'Single Stroke', stickDouble:'Double Stroke', stickPara:'Paradiddle', stickParaDiddle:'Paradiddle-diddle', stickDoublePara:'Double Paradiddle', stickFive:'Five Stroke Roll', stickTriplePara:'Triple Paradiddle', pickAuto:'Auto (all, in order)', rankTabMain:'Normal', rankTabExtra:'EXTRA', speedUp:'Gradually faster', pickHint:'Learn the basic techniques of percussion', pickTempo:'You can also change the tempo freely with the bar below.', timingCheck:'Timing Check', ranking:'Ranking', audioAdjust:'Audio Adjust', langBtn:'日本語',
       clickTap:'Click<br>or Tap', tapNext:'Click or Tap', respawn:'Click or Tap to Respawn', resume:'Tap to Resume', titleBtn:'Title',
       left:'Left', right:'Right', sway:'Sway', bgmAuto:'Auto (follows BPM)', modelFail:'Could not load the bear',
       survival:'Survival Time', bestSurvival:'Best Survival', sec:'s', scoreWord:'Score', bestScore:'Best Score', maxCombo:'Max Combo',
@@ -936,7 +936,7 @@
     },
     ja: {
       distance:'距離', scoreColon:'スコア:', combo:'コンボ', loading:'読み込み中...', start:'スタート',
-      twoHand:'両手モード (Zと/)', extra:'EXTRA', stickSingle:'シングルストローク', stickDouble:'ダブルストローク', stickPara:'パラディドル', stickParaDiddle:'パラディドルディドル', stickDoublePara:'ダブルパラディドル', stickFive:'ファイブストロークロール', stickTriplePara:'トリプルパラディドル', pickAuto:'おまかせ(全部を順番に)', rankTabMain:'通常', rankTabExtra:'EXTRA', speedUp:'だんだん早くなる', pickHint:'打楽器の基礎奏法を覚えることができます', pickTempo:'下のテンポバーも自由に変更してください', timingCheck:'タイミングチェック', ranking:'ランキング', audioAdjust:'音のズレ調整', langBtn:'English',
+      loadFail:'読み込めませんでした。通信を確かめて、もう一度やってね', twoHand:'両手モード (Zと/)', extra:'EXTRA', stickSingle:'シングルストローク', stickDouble:'ダブルストローク', stickPara:'パラディドル', stickParaDiddle:'パラディドルディドル', stickDoublePara:'ダブルパラディドル', stickFive:'ファイブストロークロール', stickTriplePara:'トリプルパラディドル', pickAuto:'おまかせ(全部を順番に)', rankTabMain:'通常', rankTabExtra:'EXTRA', speedUp:'だんだん早くなる', pickHint:'打楽器の基礎奏法を覚えることができます', pickTempo:'下のテンポバーも自由に変更してください', timingCheck:'タイミングチェック', ranking:'ランキング', audioAdjust:'音のズレ調整', langBtn:'English',
       clickTap:'クリック<br>かタップ', tapNext:'クリックかタップ', respawn:'クリックかタップでもう一度', resume:'タップで再開', titleBtn:'タイトル',
       left:'左', right:'右', sway:'よける', bgmAuto:'自動(BPMに合わせる)', modelFail:'クマを読み込めませんでした',
       survival:'生き延びた時間', bestSurvival:'ベスト', sec:'秒', scoreWord:'スコア', bestScore:'ベストスコア', maxCombo:'最大コンボ',
@@ -1757,15 +1757,21 @@
   // already the live buffer for that key).
   // `background` loads don't count toward the title screen's preload gate
   // (see startBackgroundLoads()), and `onDone` runs once the track is cached.
+  var bgmPreloading = {}; // key -> callbacks waiting for the download that is already under way
   function preloadBgmTrack(key, background, onDone){
     var t = BGM_TRACKS[key];
     function done(){ if (!background) markPreloaded(); if (onDone) onDone(); }
     if (!t || !audioCtx || bgmBufferCache[key]){ done(); return; }
+    // Asking again while the file is still coming (the EXTRA start polls every 250 ms) must not start another
+    // download: on a slow connection those piled up and nothing ever finished.
+    if (bgmPreloading[key]){ bgmPreloading[key].push(done); return; }
+    bgmPreloading[key] = [done];
+    function finish(){ var w = bgmPreloading[key]; delete bgmPreloading[key]; w.forEach(function(f){ f(); }); }
     fetch(t.file)
       .then(function(r){ return r.arrayBuffer(); })
       .then(function(buf){ return audioCtx.decodeAudioData(buf); })
-      .then(function(decoded){ bgmBufferCache[key] = decoded; done(); })
-      .catch(function(e){ if (window.console) console.error(e); if (!background) markPreloaded(); else if (onDone) onDone(); });
+      .then(function(decoded){ bgmBufferCache[key] = decoded; finish(); })
+      .catch(function(e){ if (window.console) console.error(e); finish(); });
   }
   loadBgmTrack(autoTrackForBpm(BPM));
   // tempo120 is only the Audio Adjust click track — it loads in the
@@ -3278,7 +3284,7 @@
   var fatLoading = false, fatWaiters = [];
   function loadFat(onReady){
     if (bearRigs.fat){ onReady(); return; }
-    fatWaiters.push(onReady);
+    if (fatWaiters.indexOf(onReady) < 0) fatWaiters.push(onReady);
     if (fatLoading) return;
     fatLoading = true;
     new THREE.GLTFLoader().load(FAT_FILE, function(gltf){
@@ -3645,14 +3651,24 @@
     // match current gap — see the ratchet comment in handleLane()'s success
     // branch for why the camera never moves backward like that.
   }
+  var EXTRA_WAIT_MAX_MS = 45000, extraWaitSince = 0, extraNoop = function(){};
   function beginRun(){
     if (extraMode && (!bearRigs.fat || !bgmBufferCache.extra)){
       // EXTRA's fat bear and track are loaded on demand: wait for them behind the loading card
+      if (!extraWaitSince) extraWaitSince = performance.now();
+      if (performance.now() - extraWaitSince > EXTRA_WAIT_MAX_MS){
+        // give up: say so, then back to the title (the downloads keep going; trying again may be quick)
+        extraWaitSince = 0;
+        preloadStatus.textContent = t('loadFail'); preloadStatus.hidden = false;
+        setTimeout(function(){ preloadStatus.hidden = true; cardPreload.classList.remove('visible'); cardTitle.classList.add('visible'); }, 3500);
+        return;
+      }
       cardPreload.classList.add('visible');
-      loadFat(function(){}); preloadBgmTrack('extra', true);
+      loadFat(extraNoop); preloadBgmTrack('extra', true);
       setTimeout(beginRun, 250);
       return;
     }
+    extraWaitSince = 0;
     cardPreload.classList.remove('visible');
     resumeAudioCtx();
     if (extraMode && extraPick >= 0){ rankToken = null; rankSubmitted = false; rankRunId++; } // practising one pattern: no ranking
