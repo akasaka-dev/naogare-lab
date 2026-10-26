@@ -1997,6 +1997,11 @@
   // See setBPM(): a tempo change that lands after a beat has sounded but before its hit window has closed (that
   // gap is AUDIO_OFFSET + the window long) is carried here and added when the window closes and the grid moves on.
   var beatCloseCorr = 0;
+  // Which beat of the song the grid is on: 0 at the music's first beat, +1 for every beat that passes (a beat that
+  // passes while frozen by a knockback counts too). Control is always handed over on a beat that is
+  // controlPhase (mod 4) — the same place in the bar as on a fresh start, where the player's Left lands — so
+  // getting back up after a bear hit puts Left on the strong beat again instead of on an off-beat.
+  var beatSeq = 0, controlPhase = 3;
   var currentLane = 'L', beatParity = false;
   var beatRingL = btnL.querySelector('.beat-ring'), beatRingR = btnR.querySelector('.beat-ring');
   var RING_START = 1.9;
@@ -3681,6 +3686,7 @@
       // beat is at clock 0 — not at "now" (-20 ms), which put the whole grid 20 ms ahead of the music.
       var restarted = restartBgm();
       nextBeatTime = restarted ? 0 : beatClockNow(); missGraceUntil = 0;
+      beatSeq = 0; controlPhase = leadInBeats % 4;
     } else {
       // Catch nextBeatTime up to the present by whole beats, starting from
       // its own already-correct accumulated value — nextBeatTime was
@@ -3696,7 +3702,10 @@
       // snapping to the wrong beat boundary — exactly the display/audio
       // mismatch this resync exists to prevent, not reintroduce.
       var now = beatClockNow();
-      while (nextBeatTime < now) nextBeatTime += beatDur;
+      while (nextBeatTime < now){ nextBeatTime += beatDur; beatSeq += 1; }
+      // The count-in is 3 beats or a few more: long enough that control starts on the same place in the bar as at
+      // the start of the run (the beat at nextBeatTime is beat number beatSeq; control starts leadInBeats later).
+      leadInBeats = 3 + (((controlPhase - beatSeq - 3) % 4) + 4) % 4;
     }
     beatOpen = false; beatHit = false;
     // Not set to '3' here directly — that used to make the very first
@@ -4847,7 +4856,7 @@
         nextBeatTime += beatDur + beatCloseCorr;
         beatCloseCorr = 0;
         beatParity = !beatParity;
-        stickBeat += 1;
+        stickBeat += 1; beatSeq += 1;
         currentLane = extraMode ? extraLane(stickBeat) : (beatParity ? 'R' : 'L');
         if (leadInBeats > 0){
           leadInBeats -= 1;
