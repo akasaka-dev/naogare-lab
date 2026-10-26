@@ -388,6 +388,18 @@
   .extra-list button{ display:flex; justify-content:space-between; align-items:center; gap:12px; text-align:left; }
   .extra-list button.current{ border-color:var(--accent); color:var(--accent); }
   .extra-list .pick-seq{ font-family:var(--font-mono); font-size:11px; letter-spacing:0.12em; color:var(--ink-dim); word-break:break-all; text-align:right; }
+  /* Two-hand mode (title checkbox): Left at the far left and Right at the far right, one for each thumb; Sway and Eat
+     stay in the middle. The first button group is dissolved (display:contents) so its buttons can be placed apart. */
+  .stage-wrap.two-hand .hud-controls{ justify-content:space-between; gap:8px; padding-left:10px; padding-right:10px; }
+  .stage-wrap.two-hand .hud-controls > .hud-btn-group:first-child,
+  .stage-wrap.two-hand .hud-controls > .hud-btn-group:first-child > .touch-buttons{ display:contents; }
+  .stage-wrap.two-hand .hud-controls > .hud-btn-group:first-child > .key-hints{ display:none; }
+  .stage-wrap.two-hand #btnL{ order:0; }
+  .stage-wrap.two-hand .hud-controls > .hud-btn-group:nth-child(2){ order:1; }
+  .stage-wrap.two-hand .hud-controls > .hud-btn-group:nth-child(3){ order:2; }
+  .stage-wrap.two-hand #btnR{ order:3; }
+  .stage-wrap.two-hand #btnL, .stage-wrap.two-hand #btnR{ min-width:96px; min-height:68px; align-self:flex-start; font-size:17px; }
+  @media (pointer:fine){ .stage-wrap.two-hand #btnL, .stage-wrap.two-hand #btnR{ opacity:0.55; } }
   .level-select{display:flex; flex-direction:column; align-items:center; gap:10px;}
   .level-row{display:flex; gap:8px; justify-content:center; flex-wrap:wrap;}
   .level-select button{
@@ -613,8 +625,8 @@
     transition:background .08s,box-shadow .08s,color .08s;
   }
   .touch-buttons button{ white-space:nowrap; }
-  /* the Japanese labels are three or four characters wide: a little less padding so they stay on one line */
-  html[lang="ja"] .hud-controls .touch-buttons button:not(.icon-btn){ padding:11px 12px; font-size:13px; }
+  /* the Japanese labels are only one to three characters: keep the lane buttons as wide as the English ones */
+  html[lang="ja"] #btnL, html[lang="ja"] #btnR, html[lang="ja"] #btnDodge{ min-width:71px; }
   .touch-buttons button:active{background:var(--accent-dim);color:#1b1503;}
   .touch-buttons button.muted{color:var(--ink-dim);border-color:var(--line-soft);background:var(--bg-panel);}
   .touch-buttons button.icon-btn{
@@ -746,6 +758,7 @@
       </div>
       <div class="level-select"><button type="button" id="btnExtra" class="level-extra" hidden data-i18n="extra">Extra</button></div>
       <label class="timing-check"><input type="checkbox" id="timingCheck"><span data-i18n="timingCheck">Timing Check</span></label>
+      <label class="timing-check"><input type="checkbox" id="twoHand"><span data-i18n="twoHand">Two-Hand Mode (Z and /)</span></label>
       <div class="title-buttons">
         <button id="btnRanking" type="button" data-i18n="ranking">Ranking</button>
         <button id="btnAudioAdjust" type="button" data-i18n="audioAdjust">Audio Adjust</button>
@@ -907,7 +920,7 @@
   var I18N = {
     en: {
       distance:'distance', scoreColon:'Score:', combo:'COMBO', loading:'Loading...', start:'Start',
-      extra:'EXTRA', stickSingle:'Single Stroke', stickDouble:'Double Stroke', stickPara:'Paradiddle', stickParaDiddle:'Paradiddle-diddle', stickDoublePara:'Double Paradiddle', stickFive:'Five Stroke Roll', stickTriplePara:'Triple Paradiddle', pickAuto:'Auto (all, in order)', rankTabMain:'Normal', rankTabExtra:'EXTRA', speedUp:'Gradually faster', pickHint:'Learn the basic techniques of percussion', pickTempo:'You can also change the tempo freely with the bar below.', timingCheck:'Timing Check', ranking:'Ranking', audioAdjust:'Audio Adjust', langBtn:'日本語',
+      twoHand:'Two-Hand Mode (Z and /)', extra:'EXTRA', stickSingle:'Single Stroke', stickDouble:'Double Stroke', stickPara:'Paradiddle', stickParaDiddle:'Paradiddle-diddle', stickDoublePara:'Double Paradiddle', stickFive:'Five Stroke Roll', stickTriplePara:'Triple Paradiddle', pickAuto:'Auto (all, in order)', rankTabMain:'Normal', rankTabExtra:'EXTRA', speedUp:'Gradually faster', pickHint:'Learn the basic techniques of percussion', pickTempo:'You can also change the tempo freely with the bar below.', timingCheck:'Timing Check', ranking:'Ranking', audioAdjust:'Audio Adjust', langBtn:'日本語',
       clickTap:'Click<br>or Tap', tapNext:'Click or Tap', respawn:'Click or Tap to Respawn', resume:'Tap to Resume', titleBtn:'Title',
       left:'Left', right:'Right', sway:'Sway', bgmAuto:'Auto (follows BPM)', modelFail:'Could not load the bear',
       survival:'Survival Time', bestSurvival:'Best Survival', sec:'s', scoreWord:'Score', bestScore:'Best Score', maxCombo:'Max Combo',
@@ -919,7 +932,7 @@
     },
     ja: {
       distance:'距離', scoreColon:'スコア:', combo:'コンボ', loading:'読み込み中...', start:'スタート',
-      extra:'EXTRA', stickSingle:'シングルストローク', stickDouble:'ダブルストローク', stickPara:'パラディドル', stickParaDiddle:'パラディドルディドル', stickDoublePara:'ダブルパラディドル', stickFive:'ファイブストロークロール', stickTriplePara:'トリプルパラディドル', pickAuto:'おまかせ(全部を順番に)', rankTabMain:'通常', rankTabExtra:'EXTRA', speedUp:'だんだん早くなる', pickHint:'打楽器の基礎奏法を覚えることができます', pickTempo:'下のテンポバーも自由に変更してください', timingCheck:'タイミングチェック', ranking:'ランキング', audioAdjust:'音のズレ調整', langBtn:'English',
+      twoHand:'両手モード (Zと/)', extra:'EXTRA', stickSingle:'シングルストローク', stickDouble:'ダブルストローク', stickPara:'パラディドル', stickParaDiddle:'パラディドルディドル', stickDoublePara:'ダブルパラディドル', stickFive:'ファイブストロークロール', stickTriplePara:'トリプルパラディドル', pickAuto:'おまかせ(全部を順番に)', rankTabMain:'通常', rankTabExtra:'EXTRA', speedUp:'だんだん早くなる', pickHint:'打楽器の基礎奏法を覚えることができます', pickTempo:'下のテンポバーも自由に変更してください', timingCheck:'タイミングチェック', ranking:'ランキング', audioAdjust:'音のズレ調整', langBtn:'English',
       clickTap:'クリック<br>かタップ', tapNext:'クリックかタップ', respawn:'クリックかタップでもう一度', resume:'タップで再開', titleBtn:'タイトル',
       left:'左', right:'右', sway:'よける', bgmAuto:'自動(BPMに合わせる)', modelFail:'クマを読み込めませんでした',
       survival:'生き延びた時間', bestSurvival:'ベスト', sec:'秒', scoreWord:'スコア', bestScore:'ベストスコア', maxCombo:'最大コンボ',
@@ -956,6 +969,19 @@
   var TIMING_DEBUG_KEY = 'kuma-timing-debug';
   var timingDebug = false;
   try{ timingDebug = localStorage.getItem(TIMING_DEBUG_KEY) === '1'; }catch(e){}
+  // Two-hand mode: the lane buttons sit at both ends of the screen (Left = Z, Right = /); remembered
+  var TWO_HAND_KEY = 'kuma-two-hand';
+  var twoHandEl = document.getElementById('twoHand');
+  function setTwoHand(on){
+    twoHandEl.checked = on;
+    stageWrap.classList.toggle('two-hand', on);
+    try{ localStorage.setItem(TWO_HAND_KEY, on ? '1' : '0'); }catch(e){}
+  }
+  var twoHandSaved = false;
+  try{ twoHandSaved = localStorage.getItem(TWO_HAND_KEY) === '1'; }catch(e){}
+  setTwoHand(twoHandSaved);
+  twoHandEl.addEventListener('change', function(){ setTwoHand(twoHandEl.checked); });
+  twoHandEl.parentNode.addEventListener('click', function(e){ e.stopPropagation(); });
   var timingCheckEl = document.getElementById('timingCheck');
   timingCheckEl.checked = timingDebug;
   timingCheckEl.addEventListener('change', function(){ setTimingDebug(timingCheckEl.checked); });
@@ -4109,7 +4135,7 @@
     if (e.target && e.target.tagName === 'INPUT' && e.target.type === 'text') return;
     var k = e.key.toLowerCase();
     if (k==='z' || k==='arrowleft'){ if(!e.repeat){ e.preventDefault(); handleLane('L'); } }
-    else if (k==='x' || k==='arrowright'){ if(!e.repeat){ e.preventDefault(); handleLane('R'); } }
+    else if (k==='x' || k==='arrowright' || k==='/' || e.code === 'Slash'){ if(!e.repeat){ e.preventDefault(); handleLane('R'); } }
     else if (k==='c'){ if(!e.repeat){ e.preventDefault(); handleDodge(); } }
     else if (k==='v'){ if(!e.repeat){ e.preventDefault(); handleRecover(); } }
     else if (k==='k'){ if(!e.repeat) toggleSage(); }
