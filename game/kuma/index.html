@@ -1301,17 +1301,19 @@
   var EXTRA_UNLOCK_KEY = 'kuma-extra-unlocked', EXTRA_TIME_KEY = 'kuma-extra-best-time', EXTRA_SCORE_KEY = 'kuma-extra-best-score';
   var extraMode = false, extraBestTime = 0, extraBestScore = 0;
   // EXTRA's lane order is a drum "sticking" (L = left hand, R = right hand), one note per press: the rudiments that
-  // are only a sequence of hands (no rests, accents or flams). Each pattern is played for `cycles` repeats (about
-  // 4 bars of eight notes), then the next one starts: EXTRA's "auto" mode, easiest first. In practice mode
+  // are only a sequence of hands (no rests, accents or flams). Each pattern is played for `cycles` repeats, then the
+  // next one starts: EXTRA's "auto" mode, easiest first. Every block is a whole number of 16-press phrases (4 bars
+  // of quarter notes), so each pattern changes on a phrase line of the song; the blocks add up to 288 presses, the
+  // length of the song's loop, so the whole round lines up with the music again each time. In practice mode
   // (extraPick >= 0) the chosen pattern simply repeats. stickBeat counts the presses since control was handed to
   // the player; each pattern's sequence is written to repeat as is (hands alternate across the repeat).
   var EXTRA_STICKS = [
-    {key:'stickSingle',     seq:'LR',               cycles:16},  // single stroke roll   R L R L
+    {key:'stickSingle',     seq:'LR',               cycles:8},    // single stroke roll   R L R L
     {key:'stickDouble',     seq:'LLRR',             cycles:8},   // double stroke roll   R R L L
     {key:'stickPara',       seq:'LRLLRLRR',         cycles:4},   // paradiddle           R L R R  L R L L
-    {key:'stickParaDiddle', seq:'LRLLRR',           cycles:6},   // paradiddle-diddle    R L R R L L
-    {key:'stickDoublePara', seq:'LRLRLLRLRLRR',     cycles:3},   // double paradiddle    R L R L R R  L R L R L L
-    {key:'stickFive',       seq:'LLRRLRRLLR',       cycles:3},   // five stroke roll     R R L L R  L L R R L
+    {key:'stickParaDiddle', seq:'LRLLRR',           cycles:8},   // paradiddle-diddle    R L R R L L
+    {key:'stickDoublePara', seq:'LRLRLLRLRLRR',     cycles:4},   // double paradiddle    R L R L R R  L R L R L L
+    {key:'stickFive',       seq:'LLRRLRRLLR',       cycles:8},   // five stroke roll     R R L L R  L L R R L
     {key:'stickTriplePara', seq:'LRLRLRLLRLRLRLRR', cycles:2}    // triple paradiddle    R L R L R L R R  L R L R L R L L
   ];
   var EXTRA_PICK_KEY = 'kuma-extra-pick';
