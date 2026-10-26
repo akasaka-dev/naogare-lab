@@ -924,7 +924,7 @@
   var I18N = {
     en: {
       distance:'distance', scoreColon:'Score:', combo:'COMBO', loading:'Loading...', start:'Start',
-      loadFail:'Could not load EXTRA. Check your connection and try again.', twoHand:'Two-Hand Mode (Z and /)', extra:'EXTRA', stickSingle:'Single Stroke', stickDouble:'Double Stroke', stickPara:'Paradiddle', stickParaDiddle:'Paradiddle-diddle', stickDoublePara:'Double Paradiddle', stickFive:'Five Stroke Roll', stickTriplePara:'Triple Paradiddle', pickAuto:'Auto (all, in order)', rankTabMain:'Normal', rankTabExtra:'EXTRA', speedUp:'Gradually faster', pickHint:'Learn the basic techniques of percussion', pickTempo:'You can also change the tempo freely with the bar below.', timingCheck:'Timing Check', ranking:'Ranking', audioAdjust:'Audio Adjust', langBtn:'日本語',
+      loadFail:'Could not load. Check your connection and try again.', twoHand:'Two-Hand Mode (Z and /)', extra:'EXTRA', stickSingle:'Single Stroke', stickDouble:'Double Stroke', stickPara:'Paradiddle', stickParaDiddle:'Paradiddle-diddle', stickDoublePara:'Double Paradiddle', stickFive:'Five Stroke Roll', stickTriplePara:'Triple Paradiddle', pickAuto:'Auto (all, in order)', rankTabMain:'Normal', rankTabExtra:'EXTRA', speedUp:'Gradually faster', pickHint:'Learn the basic techniques of percussion', pickTempo:'You can also change the tempo freely with the bar below.', timingCheck:'Timing Check', ranking:'Ranking', audioAdjust:'Audio Adjust', langBtn:'日本語',
       clickTap:'Click<br>or Tap', tapNext:'Click or Tap', respawn:'Click or Tap to Respawn', resume:'Tap to Resume', titleBtn:'Title',
       left:'Left', right:'Right', sway:'Sway', bgmAuto:'Auto (follows BPM)', modelFail:'Could not load the bear',
       survival:'Survival Time', bestSurvival:'Best Survival', sec:'s', scoreWord:'Score', bestScore:'Best Score', maxCombo:'Max Combo',
@@ -1737,17 +1737,14 @@
     // production (Cloudflare sends real caching headers); the local dev
     // server's own Last-Modified is recent enough right after an edit that
     // it revalidates anyway.
-    fetch(t.file)
-      .then(function(r){ return r.arrayBuffer(); })
-      .then(function(buf){ return audioCtx.decodeAudioData(buf); })
-      .then(function(decoded){
-        bgmBufferCache[key] = decoded;
-        // Only apply it if this is still the selected track — a fast
-        // double-switch shouldn't let an earlier, slower decode clobber a
-        // later selection once it finally resolves.
-        if (currentTrackKey === key && bgmBuffer !== decoded) apply(decoded);
-      })
-      .catch(function(e){ if (window.console) console.error(e); });
+    // One download per track, shared with preloadBgmTrack() (the first track used to be fetched twice).
+    preloadBgmTrack(key, true, function(){
+      var decoded = bgmBufferCache[key];
+      // Only apply it if this is still the selected track — a fast
+      // double-switch shouldn't let an earlier, slower decode clobber a
+      // later selection once it finally resolves.
+      if (decoded && currentTrackKey === key && bgmBuffer !== decoded) apply(decoded);
+    });
   }
   // Decodes a track into the cache without touching bgmBuffer/currentTrackKey
   // or restarting anything — used below to warm up every track up front, so
@@ -1776,7 +1773,10 @@
   loadBgmTrack(autoTrackForBpm(BPM));
   // tempo120 is only the Audio Adjust click track — it loads in the
   // background after the title appears (and on demand if needed sooner).
-  Object.keys(BGM_TRACKS).forEach(function(key){ if (key !== 'tempo120' && key !== 'sage' && key !== 'extra') preloadBgmTrack(key); });
+  // LEVEL1's track is in the gate; the tracks of LEVEL2-4 load in the background once the title is up (see
+  // loadDeferredAssets): the title used to wait for all 44 MB, which on a slow connection looked like a freeze.
+  var DEFERRED_TRACKS = ['asobiba', 'oikakko', 'doro'];
+  Object.keys(BGM_TRACKS).forEach(function(key){ if (key !== 'tempo120' && key !== 'sage' && key !== 'extra' && DEFERRED_TRACKS.indexOf(key) < 0) preloadBgmTrack(key); });
 
   // One-shot sound effects — same fetch+decodeAudioData+cache approach as
   // the BGM tracks above, but played fire-and-forget through a fresh
@@ -1987,7 +1987,10 @@
   // without it, so that failure holds the bar and shows an explicit message
   // instead of waving the player through into a broken run.
   var PRELOAD_TOTAL = 24;
-  var preloadedCount = 0;
+  // 6 of the 24 (the 3 tracks and the 3 bears of LEVEL2-4) are not waited for; they count as done from the start
+  // and are fetched by loadDeferredAssets() once the title is up.
+  var PRELOAD_DEFERRED = 6;
+  var preloadedCount = PRELOAD_DEFERRED;
   // Loads that nothing needs before the first run can end: kicked off once
   // the title screen is up. (Deliberately only things that are certain not
   // to be needed early — the gameover BGM and the Audio Adjust click track.
@@ -1997,6 +2000,7 @@
   function startBackgroundLoads(){
     if (backgroundLoadsStarted) return;
     backgroundLoadsStarted = true;
+    loadDeferredAssets();
     preloadGameoverBgm();
     preloadBgmTrack('tempo120', true);
     loadDecoCubs(); // LEVEL3's wandering cubs, in the background (not part of the title's preload gate)
@@ -3305,12 +3309,22 @@
   }
   // Not required to play — if one fails to load, that LEVEL just keeps
   // showing the standard bear (see applyBearLook()).
-  Object.keys(BEAR_MODEL_FILES).forEach(function(key){
-    loadGltfTracked(BEAR_MODEL_FILES[key], function(gltf){
+  var bearModelRequested = {};
+  function loadBearModel(key){
+    if (bearRigs[key] || bearModelRequested[key]) return;
+    bearModelRequested[key] = true;
+    new THREE.GLTFLoader().load(BEAR_MODEL_FILES[key], function(gltf){
       bearRigs[key] = key === 'cub' ? buildBearRig(gltf, CUB_CLIPS, {charge:CUB_CHARGE}) : buildBearRig(gltf);
       applyBearLook(bearLookIndex);
+    }, undefined, function(e){ bearModelRequested[key] = false; if (window.console) console.error(e); });
+  }
+  // Started when the title appears, in LEVEL order (a LEVEL button pressed earlier asks for its own first).
+  function loadDeferredAssets(){
+    [['asobiba', 'lv3'], ['oikakko', 'cub'], ['doro', 'lv5']].forEach(function(p){
+      preloadBgmTrack(p[0], true);
+      loadBearModel(p[1]);
     });
-  });
+  }
 
   // farmer.glb: a dedicated player character replacing the earlier debug
   // placeholder (the bear rig reused as a stand-in). Same Mixamo-style skeleton
@@ -3652,9 +3666,18 @@
     // branch for why the camera never moves backward like that.
   }
   var EXTRA_WAIT_MAX_MS = 45000, extraWaitSince = 0, extraNoop = function(){};
+  // What the chosen start needs before it can run: EXTRA's bear and track, or a LEVEL's track and bear (LEVEL2-4 are
+  // loaded in the background after the title appears, so they may still be on their way).
+  function startNeeds(){
+    if (extraMode) return {track: 'extra', rig: 'fat'};
+    var idx = levelButtons.map(function(b){ return parseInt(b.dataset.bpm, 10); }).indexOf(startBPM), track = 'kuma';
+    for (var i = 0; i < BGM_AUTO_TIERS.length; i++){ if (startBPM >= BGM_AUTO_TIERS[i].minBpm){ track = BGM_AUTO_TIERS[i].key; break; } }
+    return {track: track, rig: idx >= 0 ? BEAR_LOOKS[idx].rig : 'normal'};
+  }
   function beginRun(){
-    if (extraMode && (!bearRigs.fat || !bgmBufferCache.extra)){
-      // EXTRA's fat bear and track are loaded on demand: wait for them behind the loading card
+    var need = startNeeds();
+    if (!bearRigs[need.rig] || !bgmBufferCache[need.track]){
+      // load on demand and wait for it behind the loading card
       if (!extraWaitSince) extraWaitSince = performance.now();
       if (performance.now() - extraWaitSince > EXTRA_WAIT_MAX_MS){
         // give up: say so, then back to the title (the downloads keep going; trying again may be quick)
@@ -3664,7 +3687,8 @@
         return;
       }
       cardPreload.classList.add('visible');
-      loadFat(extraNoop); preloadBgmTrack('extra', true);
+      if (need.rig === 'fat') loadFat(extraNoop); else loadBearModel(need.rig);
+      preloadBgmTrack(need.track, true);
       setTimeout(beginRun, 250);
       return;
     }
