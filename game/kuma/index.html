@@ -400,6 +400,10 @@
   .stage-wrap.two-hand #btnR{ order:3; }
   .stage-wrap.two-hand #btnL, .stage-wrap.two-hand #btnR{ min-width:96px; min-height:68px; align-self:flex-start; font-size:17px; }
   @media (pointer:fine){ .stage-wrap.two-hand #btnL, .stage-wrap.two-hand #btnR{ opacity:0.55; } }
+  /* its key names (the usual Z / X hints are hidden in this mode): a small badge in the corner of each button, on devices with a keyboard */
+  .th-key{ display:none; position:absolute; right:6px; bottom:5px; padding:1px 7px; font-size:13px; min-width:0; pointer-events:none; }
+  .stage-wrap.two-hand .th-key{ display:block; }
+  @media (pointer:coarse){ .stage-wrap.two-hand .th-key{ display:none; } }
   .level-select{display:flex; flex-direction:column; align-items:center; gap:10px;}
   .level-row{display:flex; gap:8px; justify-content:center; flex-wrap:wrap;}
   .level-select button{
@@ -793,8 +797,8 @@
     <div class="hud-controls">
       <div class="hud-btn-group">
         <div class="touch-buttons">
-          <button id="btnL" type="button"><span data-i18n="left">Left</span><span class="beat-ring" aria-hidden="true"></span></button>
-          <button id="btnR" type="button"><span data-i18n="right">Right</span><span class="beat-ring" aria-hidden="true"></span></button>
+          <button id="btnL" type="button"><span data-i18n="left">Left</span><kbd class="th-key">Z</kbd><span class="beat-ring" aria-hidden="true"></span></button>
+          <button id="btnR" type="button"><span data-i18n="right">Right</span><kbd class="th-key">/</kbd><span class="beat-ring" aria-hidden="true"></span></button>
         </div>
         <div class="key-hints">
           <kbd data-lane="L">Z</kbd><span class="key-sep">/</span><kbd data-lane="R">X</kbd>
