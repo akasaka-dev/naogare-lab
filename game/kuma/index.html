@@ -1409,6 +1409,7 @@
       else beatCloseCorr += (nowC - nextBeatTime) * (1 - rr);
     }
     if (bgmSource) bgmSource.playbackRate.value = BPM / BGM_NATIVE_BPM;
+    prefetchNextTrack();
   }
   bpmRange.addEventListener('change', function(){ bpmRange.blur(); });
   bpmRange.addEventListener('input', function(){
@@ -1690,6 +1691,29 @@
   // Keeping all three in lockstep makes that window impossible: whatever
   // restartBgm() sees is always self-consistent, even if it's a frame
   // "behind" the just-requested track.
+  // Memory: a decoded track is about 60 MB (stereo float32), so keeping every track decoded came to about 470 MB of
+  // music alone, which pushed an iPhone over its limit after a long session (straight to the ending, then EXTRA).
+  // Only the playing track and the next tier's stay decoded (plus the sage's while LEVEL1's run can still reach it);
+  // anything else is fetched again (the HTTP cache has it) and decoded when it is needed.
+  var TRACK_ORDER = ['kuma', 'asobiba', 'oikakko', 'doro'];
+  function nextTrackOf(key){ var i = TRACK_ORDER.indexOf(key); return (i >= 0 && i < TRACK_ORDER.length - 1) ? TRACK_ORDER[i + 1] : null; }
+  function trimBgmCache(){
+    var keep = {};
+    keep[currentTrackKey] = true;
+    var nx = nextTrackOf(currentTrackKey); if (nx) keep[nx] = true;
+    if (!extraMode && (startedAtLevel1() || sagePhase)) keep.sage = true;
+    Object.keys(bgmBufferCache).forEach(function(k){ if (!keep[k] && !bgmPreloading[k]) delete bgmBufferCache[k]; });
+  }
+  // decode the next tier's track a little before the tempo gets there, so the tempo-up never waits for it
+  function prefetchNextTrack(){
+    if (sagePhase || extraMode || !currentTrackKey) return;
+    var nx = nextTrackOf(currentTrackKey);
+    if (!nx || bgmBufferCache[nx]) return;
+    var tier = BGM_AUTO_TIERS.filter(function(t){ return t.key === nx; })[0];
+    if (tier && BPM >= tier.minBpm - 10) preloadBgmTrack(nx, true);
+  }
+  // fetch a file just to have the browser cache it (no decoding, so almost no memory)
+  function primeFile(url){ try{ fetch(url).then(function(r){ return r.arrayBuffer(); }).catch(function(){}); }catch(e){} }
   function loadBgmTrack(key){
     var t = BGM_TRACKS[key];
     if (!t || !audioCtx) return;
@@ -1707,6 +1731,7 @@
       BGM_NATIVE_BPM = t.nativeBpm;
       BGM_BEAT_OFFSET = t.offset;
       BGM_INTRO_BEATS = t.introBeats || 0; BGM_LOOP_FROM = t.loopFromBeat || 0; BGM_LOOP_BEATS = t.loopBeats || 0; BGM_WAKE_BEAT = t.wakeBeat || 0;
+      trimBgmCache(); prefetchNextTrack();
       if (bgmSource || bgmPendingFreshStart){
         bgmPendingFreshStart = false;
         if (state === 'playing' && isUpgrade && playerVictoryAction){
@@ -1845,7 +1870,7 @@
   }
   function playGameoverBgm(){
     if (!audioCtx || !bgmGain) return;
-    if (!gameoverBgmBuffer){ gameoverBgmWanted = true; return; }
+    if (!gameoverBgmBuffer){ gameoverBgmWanted = true; preloadGameoverBgm(); return; }
     stopGameoverBgm();
     gameoverBgmSource = audioCtx.createBufferSource();
     gameoverBgmSource.buffer = gameoverBgmBuffer;
@@ -2001,8 +2026,8 @@
     if (backgroundLoadsStarted) return;
     backgroundLoadsStarted = true;
     loadDeferredAssets();
-    preloadGameoverBgm();
-    preloadBgmTrack('tempo120', true);
+    primeFile(GAMEOVER_BGM_FILE); // decoded at the game over
+    primeFile(BGM_TRACKS.tempo120.file); // decoded when Audio Adjust opens
     loadDecoCubs(); // LEVEL3's wandering cubs, in the background (not part of the title's preload gate)
   }
   function updatePreloadUI(){
@@ -2999,8 +3024,9 @@
   var cardEnding = document.getElementById('cardEnding');
   var endingImgEl = document.getElementById('endingImg'), endingBgEl = document.getElementById('endingBg');
   // Loaded in the background once the sage phase starts (it takes a good many PASSes to get to the end).
-  function preloadEnding(){
+  function preloadEnding(withBgm){
     if (!endingImgEl.getAttribute('src')){ endingImgEl.src = ENDING_IMG; endingBgEl.src = ENDING_IMG; }
+    if (!withBgm) return; // from the sage's entrance only the picture is fetched; the music is decoded at the ending
     if (!audioCtx || endingBgmBuffer || endingLoading) return;
     endingLoading = true;
     fetch(ENDING_BGM_FILE)
@@ -3014,7 +3040,7 @@
   }
   function playEndingBgm(){
     if (!audioCtx || !bgmGain) return;
-    if (!endingBgmBuffer){ endingBgmWanted = true; preloadEnding(); return; }
+    if (!endingBgmBuffer){ endingBgmWanted = true; preloadEnding(true); return; }
     stopEndingBgm();
     endingBgmSource = audioCtx.createBufferSource();
     endingBgmSource.buffer = endingBgmBuffer;
@@ -3033,7 +3059,7 @@
     try{ localStorage.setItem(EXTRA_UNLOCK_KEY, '1'); }catch(e){} // reaching the ending unlocks EXTRA on this device
     if (elapsed > highScore){ highScore = elapsed; try{ localStorage.setItem(HIGH_KEY, String(highScore)); }catch(e){} }
     if (score > highScoreScore){ highScoreScore = score; try{ localStorage.setItem(SCORE_HIGH_KEY, String(highScoreScore)); }catch(e){} }
-    preloadEnding();
+    preloadEnding(true);
     cardEnding.classList.add('visible');
     playEndingBgm();
   }
@@ -3047,6 +3073,7 @@
     if (state !== 'ending' || performance.now() - endingEnteredAt < 1500) return;
     cardEnding.classList.remove('visible');
     stopEndingBgm();
+    endingBgmBuffer = null; endingLoading = false; // the ending music is not needed again until the next ending
     var finalScore = Math.round(score);
     if (finalScore < 1 || !rankToken){ endingToTitle(); return; }
     rankFetch('/ranking').then(function(d){
@@ -3321,7 +3348,7 @@
   // Started when the title appears, in LEVEL order (a LEVEL button pressed earlier asks for its own first).
   function loadDeferredAssets(){
     [['asobiba', 'lv3'], ['oikakko', 'cub'], ['doro', 'lv5']].forEach(function(p){
-      preloadBgmTrack(p[0], true);
+      primeFile(BGM_TRACKS[p[0]].file); // decoded later, when the tempo gets near (or a LEVEL button asks)
       loadBearModel(p[1]);
     });
   }
@@ -3483,6 +3510,7 @@
   }, undefined, onModelError);
 
   function resetGame(){
+    gameoverBgmBuffer = null; // the game-over music is decoded again at the next game over
     gap = GAP_START; elapsed = 0; score = 0; reactionTimer = 0;
     hp = maxHP; updateHpDisplay();
     combo = 1; missReactionTimer = 0; greenStreak = 0; worldScroll = 0; resetHitStreak();
@@ -4645,6 +4673,7 @@
   });
   audioAdjustClose.addEventListener('click', function(){
     stopTestClick();
+    delete bgmBufferCache.tempo120; // decoded again if the dialog is opened again
     audioAdjustModal.hidden = true;
   });
   updateAudioAdjustLabel();
