@@ -1363,17 +1363,20 @@
       var want = autoTrackForBpm(BPM);
       if (want !== currentTrackKey){ loadBgmTrack(want); return; }
     }
-    // The BGM tempo is its playback rate. The beat that is already scheduled
-    // (nextBeatTime, in the same clock as beatClockNow()-AUDIO_OFFSET) was
-    // placed with the OLD tempo; a rate change in the middle of a beat moves
-    // the music's next beat by (remaining time) x (old rate / new rate), so the
-    // scheduled beat must be rescaled the same way, otherwise the hit window
-    // stays off the audible beat (by up to ~0.5 beat x the tempo change, tens
-    // of ms for a -10 BPM hit) for the rest of the run. Beats already past
-    // (inside the window after the beat) need nothing.
+    // The BGM tempo is its playback rate, so the music's next beat moves when the tempo changes mid-beat.
+    // nextBeatTime is the music's beat on the plain beatClockNow() clock (AUDIO_OFFSET is only applied when the
+    // hit window is compared, see frame()); c is the music's position on that clock now, r the old/new tempo.
+    //  * the beat is still ahead (next > c): its remaining time scales by r around c.
+    //  * the beat has already sounded but its window is still open or not yet open (next <= c; that gap is
+    //    AUDIO_OFFSET + the window long): the beat AFTER it, which the grid reaches by next + beatDur(new) when the
+    //    window closes, really comes at next + 60/BPM(new) + (c - next) x (1 - r); the missing (c - next)(1 - r)
+    //    is carried in beatCloseCorr. (The judgement of the beat whose window is open is left untouched.)
+    // Earlier versions pivoted on c - AUDIO_OFFSET, which is only right when the offset is 0: with 0.3 s the
+    // readings drifted by about 0.3 x ln(newBPM/oldBPM) (60 ms from BPM 80 to 98) until a track change.
     if (bgmSource && bgmStartCtxTime !== null && prevBpm !== BPM && prevBpm > 0 && BPM > 0){
-      var nowC = audioCtx.currentTime - bgmStartCtxTime - AUDIO_OFFSET;
-      if (nextBeatTime > nowC) nextBeatTime = nowC + (nextBeatTime - nowC) * (prevBpm / BPM);
+      var nowC = audioCtx.currentTime - bgmStartCtxTime, rr = prevBpm / BPM;
+      if (nextBeatTime > nowC) nextBeatTime = nowC + (nextBeatTime - nowC) * rr;
+      else beatCloseCorr += (nowC - nextBeatTime) * (1 - rr);
     }
     if (bgmSource) bgmSource.playbackRate.value = BPM / BGM_NATIVE_BPM;
   }
@@ -1905,6 +1908,9 @@
     bgmStartCtxTime = null;
   }
   var beatDur = 60/BPM, nextBeatTime = beatDur, beatOpen = false, beatHit = false;
+  // See setBPM(): a tempo change that lands after a beat has sounded but before its hit window has closed (that
+  // gap is AUDIO_OFFSET + the window long) is carried here and added when the window closes and the grid moves on.
+  var beatCloseCorr = 0;
   var currentLane = 'L', beatParity = false;
   var beatRingL = btnL.querySelector('.beat-ring'), beatRingR = btnR.querySelector('.beat-ring');
   var RING_START = 1.9;
@@ -3561,6 +3567,7 @@
     }
   }
   function startLeadIn(fresh){
+    beatCloseCorr = 0;
     // 3 beats normally; a track with an intro holds the whole intro on a fresh start (the music plays through
     // it), and after a knockback only the short 3-beat count-in.
     leadInBeats = (fresh && BGM_INTRO_BEATS) ? BGM_INTRO_BEATS : 3;
@@ -4706,7 +4713,8 @@
         // though — those beats are free, matching the lane buttons staying
         // unlit for them just below.
         if (!beatHit && leadInBeats <= 0) applyMissPenalty(currentLane);
-        nextBeatTime += beatDur;
+        nextBeatTime += beatDur + beatCloseCorr;
+        beatCloseCorr = 0;
         beatParity = !beatParity;
         stickBeat += 1;
         currentLane = extraMode ? extraLane(stickBeat) : (beatParity ? 'R' : 'L');
