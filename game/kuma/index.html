@@ -1279,7 +1279,7 @@
   // The tempo EXTRA starts at: chosen with the bar in the EXTRA menu (so nobody has to fiddle with it during play),
   // remembered between visits. A hit never takes "gradually faster" below it.
   var EXTRA_BPM_KEY = 'kuma-extra-bpm8'; // (the older 'kuma-extra-bpm' was in quarter notes: not read)
-  var extraBpmChoice = 100;
+  var extraBpmChoice = 142;
   try{ var sb = parseInt(localStorage.getItem(EXTRA_BPM_KEY), 10); if (sb >= EXTRA_BPM_MIN && sb <= 300) extraBpmChoice = sb; }catch(e){}
   // The slider's own floor — not used by the miss/poison tempo penalty
   // below, see BPM_PENALTY_FLOOR for why.
@@ -1297,7 +1297,7 @@
   // EXTRA stage (unlocked by reaching the ending, see startEnding): one stage with the fat bear, a fixed tempo,
   // its own track, no ranking; its best score/time are kept apart from the normal ones.
   var EXTRA_LEVEL = 9; // the level number EXTRA is sent to the ranking server as (its own board)
-  var EXTRA_BPM = 100; // where the tempo bar starts (and what its reset button returns to)
+  var EXTRA_BPM = 142; // where the tempo bar starts (and what its reset button returns to)
   var EXTRA_BPM_MAX = 300; // top of the tempo bar and of "gradually faster"
   var EXTRA_UNLOCK_KEY = 'kuma-extra-unlocked', EXTRA_TIME_KEY = 'kuma-extra-best-time', EXTRA_SCORE_KEY = 'kuma-extra-best-score';
   var extraMode = false, extraBestTime = 0, extraBestScore = 0;
