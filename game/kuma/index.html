@@ -1275,12 +1275,12 @@
   // out of sync with each other.
   var BPM_MAX = parseInt(bpmRange.max, 10) || 160;
   var BPM_RANGE_NORMAL = {min: bpmRange.min, max: bpmRange.max};
-  var EXTRA_BPM_MIN = 60; // EXTRA's tempo bar runs from EXTRA_BPM_MIN to EXTRA_BPM_MAX (the song's own BPM)
+  var EXTRA_BPM_MIN = 100; // EXTRA's tempo bar runs from EXTRA_BPM_MIN to EXTRA_BPM_MAX (presses per minute: one press per eighth note, the song itself is at 230 = 115 x 2)
   // The tempo EXTRA starts at: chosen with the bar in the EXTRA menu (so nobody has to fiddle with it during play),
   // remembered between visits. A hit never takes "gradually faster" below it.
-  var EXTRA_BPM_KEY = 'kuma-extra-bpm';
-  var extraBpmChoice = 115;
-  try{ var sb = parseInt(localStorage.getItem(EXTRA_BPM_KEY), 10); if (sb >= EXTRA_BPM_MIN && sb <= 138) extraBpmChoice = sb; }catch(e){} // a value saved under the old eighth-note grid is ignored
+  var EXTRA_BPM_KEY = 'kuma-extra-bpm8'; // (the older 'kuma-extra-bpm' was in quarter notes: not read)
+  var extraBpmChoice = 100;
+  try{ var sb = parseInt(localStorage.getItem(EXTRA_BPM_KEY), 10); if (sb >= EXTRA_BPM_MIN && sb <= 300) extraBpmChoice = sb; }catch(e){}
   // The slider's own floor — not used by the miss/poison tempo penalty
   // below, see BPM_PENALTY_FLOOR for why.
   var BPM_MIN = parseInt(bpmRange.min, 10) || 50;
@@ -1297,8 +1297,8 @@
   // EXTRA stage (unlocked by reaching the ending, see startEnding): one stage with the fat bear, a fixed tempo,
   // its own track, no ranking; its best score/time are kept apart from the normal ones.
   var EXTRA_LEVEL = 9; // the level number EXTRA is sent to the ranking server as (its own board)
-  var EXTRA_BPM = 115; // the track's nativeBpm: the song's own tempo
-  var EXTRA_BPM_MAX = 138; // top of the tempo bar and of "gradually faster"
+  var EXTRA_BPM = 100; // where the tempo bar starts (and what its reset button returns to)
+  var EXTRA_BPM_MAX = 300; // top of the tempo bar and of "gradually faster"
   var EXTRA_UNLOCK_KEY = 'kuma-extra-unlocked', EXTRA_TIME_KEY = 'kuma-extra-best-time', EXTRA_SCORE_KEY = 'kuma-extra-best-score';
   var extraMode = false, extraBestTime = 0, extraBestScore = 0;
   // EXTRA's lane order is a drum "sticking" (L = left hand, R = right hand), one note per press: the rudiments that
@@ -1307,17 +1307,17 @@
   // repeats. stickBeat counts the presses since control was handed to the player.
   // To sit on the music, one cycle of every pattern is 2, 4, 8 or 16 presses: a rudiment of another length (6, 10, 12)
   // gets plain single strokes (`fill`, LR...) added at its end up to the next of those, so the cycle always ends on a
-  // bar line (4 presses = 1 bar). Every block is a whole number of 16-press phrases (4 bars), and the blocks add up to
-  // 288 presses, the length of the song's loop, so each round lines up with the music again.
+  // bar line (8 presses = 1 bar of eighths). Every block is a whole number of 32-press phrases (4 bars), and the
+  // blocks add up to 576 presses, the length of the song's loop, so each round lines up with the music again.
   // seq = core + fill (the hands alternate across the repeat).
   var EXTRA_STICKS = [
-    {key:'stickSingle',     core:'LR',               fill:'',       cycles:8},  // single stroke roll   R L R L
-    {key:'stickDouble',     core:'LLRR',             fill:'',       cycles:8},  // double stroke roll   R R L L
-    {key:'stickPara',       core:'LRLLRLRR',         fill:'',       cycles:4},  // paradiddle           R L R R  L R L L
-    {key:'stickParaDiddle', core:'LRLLRR',           fill:'LR',     cycles:6},  // paradiddle-diddle    R L R R L L (+ L R)
-    {key:'stickDoublePara', core:'LRLRLLRLRLRR',     fill:'LRLR',   cycles:3},  // double paradiddle    R L R L R R  L R L R L L (+ L R L R)
-    {key:'stickFive',       core:'LLRRLRRLLR',       fill:'LRLRLR', cycles:3},  // five stroke roll     R R L L R  L L R R L (+ L R L R L R)
-    {key:'stickTriplePara', core:'LRLRLRLLRLRLRLRR', fill:'',       cycles:4}   // triple paradiddle    R L R L R L R R  L R L R L R L L
+    {key:'stickSingle',     core:'LR',               fill:'',       cycles:16},  // single stroke roll   R L R L
+    {key:'stickDouble',     core:'LLRR',             fill:'',       cycles:16},  // double stroke roll   R R L L
+    {key:'stickPara',       core:'LRLLRLRR',         fill:'',       cycles:8},  // paradiddle           R L R R  L R L L
+    {key:'stickParaDiddle', core:'LRLLRR',           fill:'LR',     cycles:12},  // paradiddle-diddle    R L R R L L (+ L R)
+    {key:'stickDoublePara', core:'LRLRLLRLRLRR',     fill:'LRLR',   cycles:6},  // double paradiddle    R L R L R R  L R L R L L (+ L R L R)
+    {key:'stickFive',       core:'LLRRLRRLLR',       fill:'LRLRLR', cycles:6},  // five stroke roll     R R L L R  L L R R L (+ L R L R L R)
+    {key:'stickTriplePara', core:'LRLRLRLLRLRLRLRR', fill:'',       cycles:8}   // triple paradiddle    R L R L R L R R  L R L R L R L L
   ];
   EXTRA_STICKS.forEach(function(p){ p.seq = p.core + p.fill; });
   // the hands as markup: the filler dimmed, the next press (index k, -1 = none) marked
@@ -1381,7 +1381,7 @@
   var reachedLevel = 1;
   function tierOfBpm(b){ return b >= 150 ? 4 : (b >= 120 ? 3 : (b >= 100 ? 2 : 1)); }
   function tempoRelief(){
-    if (extraMode) return extraSpeedUp ? Math.max(extraBpmChoice, BPM - 10) : BPM; // fixed tempo unless "gradually faster"
+    if (extraMode) return extraSpeedUp ? Math.max(extraBpmChoice, BPM - 20) : BPM; // fixed tempo unless "gradually faster"
     return sagePhase ? Math.min(SAGE_START_BPM, BPM + 10) : Math.max(BPM_PENALTY_FLOOR, BPM - 10);
   }
   // The one place BPM is allowed to change, full stop — the slider and the
@@ -1488,7 +1488,7 @@
     var tw = document.createElement('div'); tw.className = 'extra-tempo';
     var tsl = document.createElement('input'); tsl.type = 'range'; tsl.min = EXTRA_BPM_MIN; tsl.max = EXTRA_BPM_MAX; tsl.step = 1; tsl.value = extraBpmChoice;
     var tlab = document.createElement('span');
-    function tempoShow(){ tlab.textContent = 'BPM ' + tsl.value; }
+    function tempoShow(){ tlab.textContent = 'BPM ' + tsl.value + ' (♩' + Math.round(tsl.value / 2) + ')'; } // the song's own tempo is half
     function tempoSet(v){
       extraBpmChoice = Math.max(EXTRA_BPM_MIN, Math.min(EXTRA_BPM_MAX, v)); tsl.value = extraBpmChoice; tempoShow();
       try{ localStorage.setItem(EXTRA_BPM_KEY, String(extraBpmChoice)); }catch(e){}
@@ -1646,17 +1646,16 @@
     sage: { file: '雪舞う峠の誓い.mp3', nativeBpm: 75, offset: 1.0 },
     tempo120: { file: 'tempo120.mp3', nativeBpm: 120, offset: 0 },
     // ぽっちゃりぐまのブギウギタイム拍あり.mp3 — the EXTRA stage. Straight eighths (not swung), exactly 115 BPM,
-    // pressed on every QUARTER note (one press per beat of the song: easier to learn the stickings on; an eighth-note
-    // version would be nativeBpm 230 with every beat count below doubled).
+    // pressed on every EIGHTH note, so the game's "beat" is the eighth: nativeBpm = 2 x 115.
     //  offset      file time (s) of the music's own beat grid at bar 1 beat 1. The first count-in click sits at
     //              0.521 s, the music's hits about 26 ms ahead of it (measured), so the grid is taken from the music.
-    //  introBeats  beats before the player's first press: 4 bars x 4. Free beats, no misses; "3,2,1" is shown on
-    //              the last three.
-    //  wakeBeat    beat at which the fat bear starts getting up: bar 3 beat 1 (it sleeps through bars 1-2).
+    //  introBeats  beats (eighths) before the player's first press: 4 bars x 8. Free beats, no misses; "3,2,1" is
+    //              shown on the last three quarter notes.
+    //  wakeBeat    beat (eighth) at which the fat bear starts getting up: bar 3 beat 1 (it sleeps through bars 1-2).
     //              It then bows (the Bow clip, sped up to end just before the intro does) and is ready at bar 5.
     //  loopFromBeat / loopBeats  the loop runs from bar 5 (after the intro) to the end of bar 72 (whole bars:
     //              the song has no sound after ~150.6 s), so the intro is played once.
-    extra: { file: 'ぽっちゃりぐまのブギウギタイム拍あり.mp3', nativeBpm: 115, offset: 0.495, introBeats: 16, loopFromBeat: 16, loopBeats: 288, wakeBeat: 8 }
+    extra: { file: 'ぽっちゃりぐまのブギウギタイム拍あり.mp3', nativeBpm: 230, offset: 0.495, introBeats: 32, loopFromBeat: 32, loopBeats: 576, wakeBeat: 16 }
   };
   // Each tier's BPM threshold is the track's own native tempo, so
   // playbackRate is pushed toward 1.0 (least pitch distortion) right as
@@ -1999,7 +1998,7 @@
   var beatCloseCorr = 0;
   // Which beat of the song the grid is on: 0 at the music's first beat, +1 for every beat that passes (a beat that
   // passes while frozen by a knockback counts too). Control is always handed over on a beat that is
-  // controlPhase (mod 4) — the same place in the bar as on a fresh start, where the player's Left lands — so
+  // controlPhase (mod one bar: 4 beats, 8 for EXTRA's eighths) — the same place in the bar as on a fresh start, where the player's Left lands — so
   // getting back up after a bear hit puts Left on the strong beat again instead of on an off-beat.
   var beatSeq = 0, controlPhase = 3;
   var currentLane = 'L', beatParity = false;
@@ -3674,11 +3673,13 @@
       camera.quaternion.copy(introCamQ1).slerp(introCamQn, s2);
     }
   }
+  // An eighth-note track (EXTRA) counts in with three quarter notes = 6 beats, and a bar is 8 beats; the others 3 and 4.
+  function countInBase(){ return BGM_INTRO_BEATS ? 6 : 3; }
   function startLeadIn(fresh){
     beatCloseCorr = 0;
     // 3 beats normally; a track with an intro holds the whole intro on a fresh start (the music plays through
     // it), and after a knockback only the short 3-beat count-in.
-    leadInBeats = (fresh && BGM_INTRO_BEATS) ? BGM_INTRO_BEATS : 3;
+    leadInBeats = (fresh && BGM_INTRO_BEATS) ? BGM_INTRO_BEATS : countInBase();
     introFresh = !!(fresh && BGM_INTRO_BEATS && BGM_WAKE_BEAT);
     beatDur = 60/BPM;
     if (fresh){
@@ -3686,7 +3687,7 @@
       // beat is at clock 0 — not at "now" (-20 ms), which put the whole grid 20 ms ahead of the music.
       var restarted = restartBgm();
       nextBeatTime = restarted ? 0 : beatClockNow(); missGraceUntil = 0;
-      beatSeq = 0; controlPhase = leadInBeats % 4;
+      beatSeq = 0; controlPhase = leadInBeats % (BGM_INTRO_BEATS ? 8 : 4);
     } else {
       // Catch nextBeatTime up to the present by whole beats, starting from
       // its own already-correct accumulated value — nextBeatTime was
@@ -3705,7 +3706,8 @@
       while (nextBeatTime < now){ nextBeatTime += beatDur; beatSeq += 1; }
       // The count-in is 3 beats or a few more: long enough that control starts on the same place in the bar as at
       // the start of the run (the beat at nextBeatTime is beat number beatSeq; control starts leadInBeats later).
-      leadInBeats = 3 + (((controlPhase - beatSeq - 3) % 4) + 4) % 4;
+      var cb = countInBase(), bar = BGM_INTRO_BEATS ? 8 : 4;
+      leadInBeats = cb + (((controlPhase - beatSeq - cb) % bar) + bar) % bar;
     }
     beatOpen = false; beatHit = false;
     // Not set to '3' here directly — that used to make the very first
@@ -4092,7 +4094,7 @@
             else setBPM(Math.max(BPM_MIN, BPM - 2));
           }
           else if (bgmAutoMode && startedAtLevel1() && Math.min(BPM_MAX, BPM + 2) >= SAGE_TRIGGER_BPM) enterSagePhase();
-          else if (!extraMode || extraSpeedUp) setBPM(Math.min(extraMode ? EXTRA_BPM_MAX : BPM_MAX, BPM + 2));
+          else if (!extraMode || extraSpeedUp) setBPM(Math.min(extraMode ? EXTRA_BPM_MAX : BPM_MAX, BPM + (extraMode ? 4 : 2)));
           playSfx('levelup');
           // A bonus chunk of real distance on top of the steady per-hit
           // trickle above, rewarding a clean streak instead of being the
@@ -4841,7 +4843,7 @@
         beatHit = false;
         if (leadInBeats > 0){
           // a long intro shows "3,2,1" on its last three beats only
-          countdownLabel.textContent = leadInBeats <= 3 ? String(leadInBeats) : '';
+          countdownLabel.textContent = BGM_INTRO_BEATS ? (leadInBeats <= 6 && leadInBeats % 2 === 0 ? String(leadInBeats / 2) : '') : (leadInBeats <= 3 ? String(leadInBeats) : '');
           countdownLabel.style.opacity = 1;
         }
       }

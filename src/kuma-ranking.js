@@ -27,10 +27,10 @@ const SESSION_MAX_AGE_MS = 3 * 60 * 60 * 1000;
 // anything that couldn't have been earned in the time since the session
 // started (best realistic pace is ~1500 pts/s at max combo and high BPM).
 const MAX_POINTS_PER_SECOND = 2500;
-// EXTRA presses on every eighth note at up to ~276 BPM-equivalent, and its tempo
+// EXTRA presses on every eighth note at up to 300 BPM (presses per minute), and its tempo
 // factor multiplies the score: allow more per second and a higher combo pace.
-const MAX_POINTS_PER_SECOND_EXTRA = 4500;
-const MAX_BPM = 210, MAX_BPM_EXTRA = 276;
+const MAX_POINTS_PER_SECOND_EXTRA = 5000;
+const MAX_BPM = 210, MAX_BPM_EXTRA = 330;
 const SCORE_GRACE = 2000;
 
 function jsonResponse(data, status) {
