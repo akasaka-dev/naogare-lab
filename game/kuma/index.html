@@ -1317,7 +1317,7 @@
   // To sit on the music, one cycle of every pattern is 2, 4, 8 or 16 presses: a rudiment of another length (6, 10, 12)
   // gets plain single strokes (`fill`, LR...) added at its end up to the next of those, so the cycle always ends on a
   // bar line (8 presses = 1 bar of eighths). Every block is a whole number of 32-press phrases (4 bars), and the
-  // blocks add up to 576 presses, the length of the song's loop, so each round lines up with the music again.
+  // blocks add up to 544 presses (= 32 + 512: the loop runs from bar 5 to the end of bar 72, 17 phrases), so each round starts again exactly where the music loops.
   // seq = core + fill (the hands alternate across the repeat).
   var EXTRA_STICKS = [
     {key:'stickSingle',     core:'LR',               fill:'',       cycles:16},  // single stroke roll   R L R L
@@ -1326,7 +1326,7 @@
     {key:'stickParaDiddle', core:'LRLLRR',           fill:'LR',     cycles:12},  // paradiddle-diddle    R L R R L L (+ L R)
     {key:'stickDoublePara', core:'LRLRLLRLRLRR',     fill:'LRLR',   cycles:6},  // double paradiddle    R L R L R R  L R L R L L (+ L R L R)
     {key:'stickFive',       core:'LLRRLRRLLR',       fill:'LRLRLR', cycles:6},  // five stroke roll     R R L L R  L L R R L (+ L R L R L R)
-    {key:'stickTriplePara', core:'LRLRLRLLRLRLRLRR', fill:'',       cycles:8}   // triple paradiddle    R L R L R L R R  L R L R L R L L
+    {key:'stickTriplePara', core:'LRLRLRLLRLRLRLRR', fill:'',       cycles:6}   // triple paradiddle    R L R L R L R R  L R L R L R L L
   ];
   EXTRA_STICKS.forEach(function(p){ p.seq = p.core + p.fill; });
   // the hands as markup: the filler dimmed, the next press (index k, -1 = none) marked
@@ -1654,17 +1654,18 @@
     // percussion, pointed at ~75).
     sage: { file: '雪舞う峠の誓い.mp3', nativeBpm: 75, offset: 1.0 },
     tempo120: { file: 'tempo120.mp3', nativeBpm: 120, offset: 0 },
-    // ぽっちゃりぐまのブギウギタイム拍あり.mp3 — the EXTRA stage. Straight eighths (not swung), exactly 115 BPM,
+    // ぽっちゃりぐまのブギウギタイム.mp3 — the EXTRA stage. Straight eighths (not swung), exactly 115 BPM,
     // pressed on every EIGHTH note, so the game's "beat" is the eighth: nativeBpm = 2 x 115.
     //  offset      file time (s) of the music's own beat grid at bar 1 beat 1. The first count-in click sits at
-    //              0.521 s, the music's hits about 26 ms ahead of it (measured), so the grid is taken from the music.
+    //              0.521 s. (The 2nd master, ぽっちゃりぐまのブギウギタイム.mp3, is the first one moved 32.45 ms later
+    //              (cross-correlation): 0.495 + 0.0325. Check with Timing Check.)
     //  introBeats  beats (eighths) before the player's first press: 4 bars x 8. Free beats, no misses; "3,2,1" is
     //              shown on the last three quarter notes.
     //  wakeBeat    beat (eighth) at which the fat bear starts getting up: bar 3 beat 1 (it sleeps through bars 1-2).
     //              It then bows (the Bow clip, sped up to end just before the intro does) and is ready at bar 5.
     //  loopFromBeat / loopBeats  the loop runs from bar 5 (after the intro) to the end of bar 72 (whole bars:
     //              the song has no sound after ~150.6 s), so the intro is played once.
-    extra: { file: 'ぽっちゃりぐまのブギウギタイム拍あり.mp3', nativeBpm: 230, offset: 0.495, introBeats: 32, loopFromBeat: 32, loopBeats: 576, wakeBeat: 16 }
+    extra: { file: 'ぽっちゃりぐまのブギウギタイム.mp3', nativeBpm: 230, offset: 0.5275, introBeats: 32, loopFromBeat: 32, loopBeats: 576, wakeBeat: 16 }
   };
   // Each tier's BPM threshold is the track's own native tempo, so
   // playbackRate is pushed toward 1.0 (least pitch distortion) right as
