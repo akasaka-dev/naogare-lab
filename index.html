@@ -268,6 +268,83 @@
   }
   .entry__video-frame iframe{position:absolute; inset:0; width:100%; height:100%; border:0;}
 
+  /* ---------- index (thumbnail jump nav) ---------- */
+  @media (prefers-reduced-motion:no-preference){ html{scroll-behavior:smooth;} }
+  #index, #catalog, #channel, .entry-row[id], .release[id]{scroll-margin-top:1.2rem;}
+  .index{padding:1.6rem 0 0;}
+  .index__group + .index__group{margin-top:1.8rem;}
+  .index__head{
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+    gap:1rem;
+    margin-bottom:0.8rem;
+  }
+  .index__label{
+    font-family:'JetBrains Mono',monospace;
+    font-size:0.72rem;
+    letter-spacing:0.18em;
+    color:var(--mist-dim);
+    margin:0;
+  }
+  .index__label b{font-family:'Zen Kaku Gothic New',sans-serif; font-weight:500; letter-spacing:0.04em; color:var(--mist); margin-left:0.6rem;}
+  .index__jump, .to-index{
+    font-family:'JetBrains Mono',monospace;
+    font-size:0.75rem;
+    letter-spacing:0.06em;
+    color:var(--current);
+    text-decoration:none;
+    white-space:nowrap;
+  }
+  .index__jump:hover, .to-index:hover{color:var(--mist);}
+  .index__grid{
+    list-style:none;
+    margin:0;
+    padding:0;
+    display:grid;
+    grid-template-columns:repeat(auto-fill, minmax(140px, 1fr));
+    gap:0.9rem;
+  }
+  .index__item{display:block; text-decoration:none; color:var(--mist-dim);}
+  .index__thumb{
+    position:relative;
+    display:block;
+    aspect-ratio:16/10;
+    border-radius:8px;
+    overflow:hidden;
+    background:#000;
+    border:1px solid var(--border);
+    transition:border-color .18s ease, transform .18s ease;
+  }
+  .index__thumb img{width:100%; height:100%; object-fit:cover; display:block;}
+  .index__badge{
+    position:absolute; top:0.35rem; left:0.35rem; z-index:1;
+    font-family:'JetBrains Mono',monospace;
+    font-size:0.6rem;
+    letter-spacing:0.08em;
+    color:var(--night);
+    background:var(--lantern);
+    padding:0.05rem 0.4rem;
+    border-radius:999px;
+  }
+  .index__name{
+    display:-webkit-box;
+    -webkit-line-clamp:2;
+    -webkit-box-orient:vertical;
+    overflow:hidden;
+    margin-top:0.45rem;
+    font-size:0.75rem;
+    line-height:1.45;
+    transition:color .18s ease;
+  }
+  .index__item:hover .index__thumb{border-color:var(--current-dim); transform:translateY(-2px);}
+  .index__item:hover .index__name{color:var(--mist);}
+  .index__item:focus-visible{outline:2px solid var(--current); outline-offset:3px; border-radius:8px;}
+  .section__aside{display:flex; align-items:baseline; gap:1.2rem; flex-wrap:wrap;}
+  @media (max-width:640px){
+    .index__grid{grid-template-columns:repeat(3, 1fr); gap:0.7rem;}
+  }
+
   /* ---------- like button ---------- */
   .entry-row{display:flex; flex-direction:column; gap:0.5rem;}
   .like-btn{
@@ -468,15 +545,50 @@
   </svg>
 </div>
 
+<nav class="index" id="index" aria-label="目次">
+  <div class="wrap">
+    <div class="index__group">
+      <div class="index__head">
+        <p class="index__label">GAMES<b>ゲーム</b></p>
+        <a class="index__jump" href="#catalog">ゲームコーナーへ ↓</a>
+      </div>
+      <ul class="index__grid">
+          <li><a class="index__item" href="#g-kuma"><span class="index__thumb"><img src="assets/top/kuma.webp" alt="" loading="lazy"></span><span class="index__name">Boy meets Kuma</span></a></li>
+          <li><a class="index__item" href="#g-line4-second"><span class="index__thumb"><img src="assets/top/line4-second.webp" alt="" loading="lazy"></span><span class="index__name">黄昏のフォー・イン・ア・ロウII</span></a></li>
+          <li><a class="index__item" href="#g-snake"><span class="index__thumb"><img src="assets/top/lumensnake.webp" alt="" loading="lazy"></span><span class="index__name">LUMEN SNAKE - CYBER</span></a></li>
+          <li><a class="index__item" href="#g-fuwao"><span class="index__thumb"><img src="assets/top/fuwao.webp" alt="" loading="lazy"></span><span class="index__name">たすけあいヒーロー ふわお</span></a></li>
+          <li><a class="index__item" href="#g-line4"><span class="index__thumb"><img src="assets/top/tasogare.webp" alt="" loading="lazy"></span><span class="index__name">黄昏のフォー・イン・ア・ロウ</span></a></li>
+          <li><a class="index__item" href="#g-ikku-gozaru"><span class="index__thumb"><img src="assets/top/ikku.webp" alt="" loading="lazy"></span><span class="index__name">一句ござる！</span></a></li>
+      </ul>
+    </div>
+    <div class="index__group">
+      <div class="index__head">
+        <p class="index__label">MUSIC<b>音楽</b></p>
+        <a class="index__jump" href="#channel">音楽コーナーへ ↓</a>
+      </div>
+      <ul class="index__grid">
+          <li><a class="index__item" href="#m-forevermore"><span class="index__thumb"><span class="index__badge">SONG</span><img src="assets/top/forevermore.webp" alt="" loading="lazy"></span><span class="index__name">Forevermore</span></a></li>
+          <li><a class="index__item" href="#m-ost-line4"><span class="index__thumb"><span class="index__badge">OST</span><img src="assets/top/tasogare.webp" alt="" loading="lazy"></span><span class="index__name">黄昏のフォー・イン・ア・ロウ</span></a></li>
+          <li><a class="index__item" href="#m-ost-snake"><span class="index__thumb"><span class="index__badge">OST</span><img src="assets/top/lumensnake.webp" alt="" loading="lazy"></span><span class="index__name">LUMEN SNAKE - CYBER</span></a></li>
+          <li><a class="index__item" href="#m-ost-line4-second"><span class="index__thumb"><span class="index__badge">OST</span><img src="assets/top/line4-second.webp" alt="" loading="lazy"></span><span class="index__name">黄昏のフォー・イン・ア・ロウII</span></a></li>
+          <li><a class="index__item" href="#m-ost-kuma"><span class="index__thumb"><span class="index__badge">OST</span><img src="assets/top/kuma.webp" alt="" loading="lazy"></span><span class="index__name">Boy Meets Kuma</span></a></li>
+      </ul>
+    </div>
+  </div>
+</nav>
+
 <section id="catalog">
   <div class="wrap">
     <div class="section__head">
       <h2 class="section__title"><span>RELEASE CATALOG</span>作品一覧</h2>
-      <p class="section__note">タップ / クリックでそれぞれのゲームへ</p>
+      <div class="section__aside">
+        <p class="section__note">タップ / クリックでそれぞれのゲームへ</p>
+        <a class="to-index" href="#index">↑ 目次</a>
+      </div>
     </div>
     <div class="catalog">
 
-      <div class="entry-row">
+      <div class="entry-row" id="g-kuma">
         <a class="entry" href="/game/kuma/">
           <div class="entry__thumb">
             <span class="entry__num">No.06</span>
@@ -503,7 +615,7 @@
         </button>
       </div>
 
-      <div class="entry-row">
+      <div class="entry-row" id="g-line4-second">
         <a class="entry" href="/game/line4-second/">
           <div class="entry__thumb">
             <span class="entry__num">No.05</span>
@@ -524,7 +636,7 @@
         </button>
       </div>
 
-      <div class="entry-row">
+      <div class="entry-row" id="g-snake">
         <a class="entry" href="/game/snake/">
           <div class="entry__thumb">
             <span class="entry__num">No.04</span>
@@ -545,7 +657,7 @@
         </button>
       </div>
 
-      <div class="entry-row">
+      <div class="entry-row" id="g-fuwao">
         <a class="entry" href="/game/fuwao/">
           <div class="entry__thumb">
             <span class="entry__num">No.03</span>
@@ -566,7 +678,7 @@
         </button>
       </div>
 
-      <div class="entry-row">
+      <div class="entry-row" id="g-line4">
         <a class="entry" href="/game/line4/">
           <div class="entry__thumb">
             <span class="entry__num">No.02</span>
@@ -587,7 +699,7 @@
         </button>
       </div>
 
-      <div class="entry-row">
+      <div class="entry-row" id="g-ikku-gozaru">
         <a class="entry" href="/game/ikku-gozaru/">
           <div class="entry__thumb">
             <span class="entry__num">No.01</span>
@@ -625,6 +737,7 @@
   <div class="wrap">
     <div class="section__head">
       <h2 class="section__title"><span>MUSIC</span>音楽もやってます</h2>
+      <a class="to-index" href="#index">↑ 目次</a>
     </div>
     <div class="channel">
       <div class="channel__thumb"><img src="assets/top/youtube.webp" alt="NM Labo YouTubeチャンネル" loading="lazy"></div>
@@ -639,7 +752,7 @@
       </div>
     </div>
 
-    <div class="release">
+    <div class="release" id="m-forevermore">
       <a class="release__media" href="/saikai/">
         <img src="assets/top/forevermore.webp" alt="Forevermore の映像" loading="lazy">
       </a>
@@ -652,7 +765,7 @@
       </a>
     </div>
 
-    <div class="release">
+    <div class="release" id="m-ost-line4">
       <div class="release__media">
         <iframe src="https://www.youtube.com/embed/Z8poBFuI0rg" title="黄昏のフォー・イン・ア・ロウ サウンドトラック" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-presentation" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
       </div>
@@ -665,7 +778,7 @@
       </a>
     </div>
 
-    <div class="release">
+    <div class="release" id="m-ost-snake">
       <div class="release__media">
         <iframe src="https://www.youtube.com/embed/eqAKFX9_bN8" title="LUMEN SNAKE - CYBER サウンドトラック" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-presentation" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
       </div>
@@ -678,7 +791,7 @@
       </a>
     </div>
 
-    <div class="release">
+    <div class="release" id="m-ost-line4-second">
       <div class="release__media">
         <iframe src="https://www.youtube.com/embed/HL9tmVVQ2Jg" title="黄昏のフォー・イン・ア・ロウII 地平の行方 サウンドトラック" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-presentation" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
       </div>
@@ -691,7 +804,7 @@
       </a>
     </div>
 
-    <div class="release">
+    <div class="release" id="m-ost-kuma">
       <div class="release__media">
         <iframe src="https://www.youtube.com/embed/yOhu10B-kiA" title="Boy Meets Kuma サウンドトラック" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-presentation" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
       </div>
