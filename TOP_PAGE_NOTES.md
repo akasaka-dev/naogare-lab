@@ -59,18 +59,49 @@ Hero"）。実際にプレイする `/game/<name>/` のゲーム本体は日本�
    （これまでは `ClaudePj/game/top素材/` に置いて渡す運用でした）
 2. WebPに変換する: 長辺1000px以内にリサイズ → quality 85 で
    `assets/top/<name>.webp` として保存
+   （元画像に透過がある場合はそのままだと黒背景になる。イラストの内側に透明部分が
+   あることもあるので、白など絵に合う単色の背景に合成してから保存する。
+   例: `assets/top/kuma.webp` は白背景に合成済み）
 3. `index.html` 内の `.catalog` ブロックの**先頭**（現在一番上にあるエントリの直前）に
-   `<div class="entry-row">`（`<a class="entry">` + いいねボタンの `<button class="like-btn">`）
-   を1つ追加し、番号は**既存の最大値+1**を新規に割り振る（既存エントリの番号は一切変更しない）
+   `<div class="entry-row" id="g-<ゲームID>">`（`<a class="entry">` + いいねボタンの
+   `<button class="like-btn">`）を1つ追加し、番号は**既存の最大値+1**を新規に割り振る（既存エントリの番号は一切変更しない）
    （既存のいずれかのブロックをコピーして書き換えるのが早い。`data-game` 属性は
    `/api/likes/<id>` で使うゲームIDと一致させること。さらに `src/likes.js` の
    `VALID_GAME_IDS` にもそのIDを追加すること。追加し忘れるといいねボタンが
-   `invalid_game`（400）になる）
-4. 「準備中」カード（`.entry--soon`、一覧の一番下に固定）の番号を、追加したゲームの次の番号に更新する
-5. `.hero__stats` の「公開中の作品」数を更新する（`.hero__lede` には本数を書いていないので変更不要）
-6. `sitemap.xml` に `https://naogare-lab.naogare.workers.dev/game/<name>/` の `<url>` エントリを1つ追加する
+   `invalid_game`（400）になる。`id="g-<ゲームID>"` は目次からのジャンプ先）
+4. 目次（`<nav id="index">`）の **GAMES グループの `.index__grid` の先頭**に
+   `<li><a class="index__item" href="#g-<ゲームID>">…</a></li>` を1つ追加する
+   （既存の `<li>` をコピーして、`href`・サムネ画像・`.index__name` を書き換える。
+   サムネは手順2の画像をそのまま使う。目次は幅が狭いので、長いタイトルは
+   `.index__name` だけ短くしてよい（例: 「黄昏のフォー・イン・ア・ロウII」））
+5. 「準備中」カード（`.entry--soon`、一覧の一番下に固定）の番号を、追加したゲームの次の番号に更新する
+6. `.hero__stats` の「公開中の作品」数を更新する（`.hero__lede` には本数を書いていないので変更不要）
+7. `sitemap.xml` に `https://naogare-lab.naogare.workers.dev/game/<name>/` の `<url>` エントリを1つ追加する
    （`robots.txt` は変更不要）
-7. ローカルで `python -m http.server` などを使って表示・リンク先を確認してから commit
+8. ローカルで `python -m http.server` などを使って表示・リンク先を確認してから commit
+   （目次のサムネを押して、該当エントリーへ飛ぶことも確認する）
+
+## 音楽コーナーに作品（サントラ・楽曲）を追加する手順
+
+**これも `index.html` と `en/index.html` の両方に対して行うこと。**
+
+音楽コーナー（`<section id="channel">`）は、チャンネル紹介（NM Labo）の下に
+`.release` カードが並ぶ構成。並び順は次のとおり。
+
+- Web で聴く楽曲（例: Forevermore → `/saikai/`）: チャンネル紹介のすぐ下、サントラより上
+- サントラ: **古い順**（新しいものを一番下に追加）
+
+1. `.release` カードを1つ追加する。既存のサントラのブロックをコピーして、
+   YouTube 埋め込み（`https://www.youtube.com/embed/<動画ID>`）、`title`、見出し、説明文、
+   BOOTH のリンクを書き換える。`<div class="release" id="m-ost-<ゲームID>">` のように
+   目次用の id を付ける（楽曲は `m-<名前>`、例: `m-forevermore`）
+   - 動画ではなくページへのリンクにする場合は、`<a class="release__media" href="...">` に
+     `<img>` を入れる（Forevermore のブロックを参照）
+2. 目次（`<nav id="index">`）の **MUSIC グループの `.index__grid`** に、
+   ページ上の並びと同じ位置で `<li>` を1つ追加する。
+   サントラはゲームのサムネ画像を使い回し、`<span class="index__badge">OST</span>` を付ける
+   （楽曲は `SONG`）
+3. ローカルで表示と目次からのジャンプを確認してから commit
 
 ## SEO関連ファイル
 
