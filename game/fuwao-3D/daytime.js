@@ -177,9 +177,10 @@ export function createDaytime({ sun, lightDir, sunDir, fill, hemi, scene, style,
     skyUniforms.uSat.value = 1 + 1.2 * Math.min(1, k.amt + k.glow.r);
     skyUniforms.uStarAngle.value = (t.hour / 24) * Math.PI * 2;
 
-    // 夜は窓と街灯を明るく、ふわおのまわりをランプで照らす
+    // 窓と街灯は昼は消えていて、日が傾くと灯り始め、日が沈むころには全部つく。夜はふわおのまわりをランプで照らす
+    const on = THREE.MathUtils.smoothstep(k.lamp, 0.15, 0.7);
     for (const [m, i] of glowBase) {
-      const v = i * (1 + 1.6 * k.lamp);
+      const v = i * 2.6 * on;
       m.emissiveIntensity = v;
       const toon = style.toon(m);
       if (toon) toon.emissiveIntensity = v;
