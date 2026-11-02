@@ -204,7 +204,7 @@ const progressBar = document.querySelector('#progress div');
 const hud = document.getElementById('hud');
 const crosshair = document.getElementById('crosshair');
 
-const FILES = ['models/town.glb', 'models/distant.glb', 'models/pancannon.glb', 'models/germboss.glb', 'models/bread.glb', 'models/grandpa.glb', 'models/girl.glb'];
+const FILES = ['models/town.glb', 'models/distant.glb', 'models/pancannon.glb', 'models/germboss.glb', 'models/bread.glb', 'models/grandpa.glb', 'models/girl.glb', 'models/grandma.glb'];
 const loaded = {}, total = {};
 // 公開版のモデルは meshopt で圧縮してある（25MB を超えるファイルは置けないため）
 const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
@@ -631,18 +631,20 @@ function updateBreads(dt) {
   }
 }
 
-// ---- 住民（おじいちゃん、少女） ----
+// ---- 住民（おじいちゃん、おばあちゃん、少女） ----
 // 家のまわりを歩いては立ち止まる。近くにパンが浮かんでいたら歩いていって食べる。
 // アニメは Idle / Walk（その場で足踏み）/ Eat。前へ進むのはここで動かす。
 // 少女はおなかをすかせていて（Hungry ＋ への字口）、パンを食べると笑顔になって Joy で喜び、そのあとは Idle ＋ 笑顔
 // radius / height は当たり判定の円柱（GLB の extras に hit_radius / hit_height があればそちらを使う）
 const RESIDENT_KINDS = {
   grandpa: { speed: 0.3, eatPos: new THREE.Vector3(0.04, 1.11, 0.48), radius: 0.3, height: 1.62 },   // 1サイクル約0.4m。杖の分だけ太め
+  grandma: { speed: 0.31, eatPos: new THREE.Vector3(0.03, 1.04, 0.45), radius: 0.28, height: 1.5 },   // おじいちゃんと並んで歩ける速さ
   girl: { speed: 0.46, eatPos: new THREE.Vector3(0, 0.78, 0.46), radius: 0.25, height: 1.2, hungry: true, smileAt: 32 },
 };
 const RESIDENTS = [
   { kind: 'grandpa', home: new THREE.Vector3(15, 0, 7.5), radius: 5 },   // スタート地点の西、表通り
   { kind: 'grandpa', home: new THREE.Vector3(2, 0, 6), radius: 5 },
+  { kind: 'grandma', home: new THREE.Vector3(5, 0, 7), radius: 5 },     // 西のおじいちゃんの近く
   { kind: 'girl', home: new THREE.Vector3(19, 0, 6), radius: 3 },
 ];
 const RES_HURRY = 1.6;           // パンへ向かうときは少し急ぐ（速さもアニメもこの倍）
@@ -894,7 +896,7 @@ function catchBread(b) {
 }
 
 async function init() {
-  const [town, distant, pancannon, germboss, bread, grandpa, girl] = await Promise.all(FILES.map(load));
+  const [town, distant, pancannon, germboss, bread, grandpa, girl, grandma] = await Promise.all(FILES.map(load));
   statusEl.textContent = 'シーンを組み立て中…';
   await new Promise((r) => setTimeout(r, 0));
 
@@ -924,7 +926,7 @@ async function init() {
   setupAnimations(pancannon.animations);
   placeBoss(germboss);
   setupBread(bread);
-  placeResidents({ grandpa, girl });
+  placeResidents({ grandpa, girl, grandma });
 
   style.set(new URLSearchParams(location.search).get('style') !== 'pbr');
   respawn();
