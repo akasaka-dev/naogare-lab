@@ -29,6 +29,9 @@
     <loc>https://naogare-lab.naogare.workers.dev/game/snake/</loc>
   </url>
   <url>
+    <loc>https://naogare-lab.naogare.workers.dev/game/kuma/</loc>
+  </url>
+  <url>
     <loc>https://naogare-lab.naogare.workers.dev/saikai/</loc>
   </url>
 </urlset>
