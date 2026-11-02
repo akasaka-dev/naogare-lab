@@ -6,6 +6,7 @@ import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 import { MeshBVH, acceleratedRaycast } from 'three-mesh-bvh';
 import { createAnimeStyle } from './anime.js';
 import { createTouchControls } from './touch.js';
+import { createDaytime, skyUniforms, SKY_GLSL } from './daytime.js';
 
 // ---- 値はすべて docs/scene-notes.md より（色は Blender のリニア値） ----
 const lin = (r, g, b) => new THREE.Color().setRGB(r, g, b, THREE.LinearSRGBColorSpace);
@@ -90,7 +91,10 @@ const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerH
 camera.rotation.order = 'YXZ';
 
 // ---- ライト ----
+// sunDir は太陽の向き（空に描く）、lightDir は影を落とす光の向き（昼は太陽、夜は月）。どちらも daytime.js が時刻に合わせて動かす
 const sunDir = new THREE.Vector3(-0.468, 0.469, 0.749).normalize();
+const lightDir = sunDir.clone();
+skyUniforms.uSun.value = sunDir;
 const sun = new THREE.DirectionalLight(lin(1.0, 0.78, 0.52), 3.0);
 sun.castShadow = true;
 sun.shadow.mapSize.set(4096, 4096);
@@ -103,13 +107,14 @@ scene.add(sun, sun.target);
 // 影の 1 ピクセル単位でずらさないと、歩くたびに影の縁がちらつく
 const SUN_DISTANCE = 300;
 const shadowTexel = (SHADOW_RANGE * 2) / sun.shadow.mapSize.x;
-const sunX = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), sunDir).normalize();
-const sunY = new THREE.Vector3().crossVectors(sunDir, sunX);
+const sunX = new THREE.Vector3(), sunY = new THREE.Vector3();
 function followShadow(center) {
+  sunX.crossVectors(UP, lightDir).normalize();
+  sunY.crossVectors(lightDir, sunX);
   const a = Math.round(center.dot(sunX) / shadowTexel) * shadowTexel;
   const b = Math.round(center.dot(sunY) / shadowTexel) * shadowTexel;
-  sun.target.position.copy(sunX).multiplyScalar(a).addScaledVector(sunY, b).addScaledVector(sunDir, center.dot(sunDir));
-  sun.position.copy(sun.target.position).addScaledVector(sunDir, SUN_DISTANCE);
+  sun.target.position.copy(sunX).multiplyScalar(a).addScaledVector(sunY, b).addScaledVector(lightDir, center.dot(lightDir));
+  sun.position.copy(sun.target.position).addScaledVector(lightDir, SUN_DISTANCE);
 }
 
 const fill = new THREE.DirectionalLight(lin(0.65, 0.75, 1.0), 0.3);
@@ -120,18 +125,14 @@ const ambient = lin(0.80, 0.72, 0.62);
 const hemi = new THREE.HemisphereLight(ambient, ambient.clone().multiplyScalar(0.55), 0.7);
 scene.add(hemi);
 
-// ---- 空（球状のスカイドーム、グラデーション） ----
+// ---- 空（球状のスカイドーム、グラデーション。色・太陽・月・星は daytime.js が時刻に合わせて変える） ----
 const sky = new THREE.Mesh(
   new THREE.SphereGeometry(1500, 48, 24),
   new THREE.ShaderMaterial({
     side: THREE.BackSide,
     depthWrite: false,
     fog: false,
-    uniforms: {
-      cHorizon: { value: lin(1.0, 0.72, 0.45) },
-      cMid: { value: lin(0.95, 0.85, 0.70) },
-      cZenith: { value: lin(0.05, 0.28, 1.0) },
-    },
+    uniforms: skyUniforms,
     vertexShader: /* glsl */`
       varying vec3 vDir;
       void main() {
@@ -140,12 +141,16 @@ const sky = new THREE.Mesh(
         gl_Position.z = gl_Position.w; // 常に最奥
       }`,
     fragmentShader: /* glsl */`
-      uniform vec3 cHorizon, cMid, cZenith;
+      ${SKY_GLSL}
       varying vec3 vDir;
       void main() {
-        float h = normalize(vDir).y;
+        vec3 d = normalize(vDir);
+        float h = d.y;
         vec3 c = mix(cHorizon, cMid, smoothstep(0.0, 0.18, h));
         c = mix(c, cZenith, smoothstep(0.12, 1.0, h));
+        c = skyExtras(d, c);
+        float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+        c = max(mix(vec3(l), c, uSat), 0.0);
         gl_FragColor = vec4(c, 1.0);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
@@ -204,7 +209,7 @@ const progressBar = document.querySelector('#progress div');
 const hud = document.getElementById('hud');
 const crosshair = document.getElementById('crosshair');
 
-const FILES = ['models/town.glb', 'models/distant.glb', 'models/pancannon.glb', 'models/germboss.glb', 'models/bread.glb', 'models/grandpa.glb', 'models/girl.glb', 'models/grandma.glb'];
+const FILES = ['models/town.glb', 'models/distant.glb', 'models/pancannon.glb', 'models/germboss.glb', 'models/bread.glb', 'models/grandpa.glb', 'models/girl.glb', 'models/grandma.glb', 'models/town_ruin.glb'];
 const loaded = {}, total = {};
 // 公開版のモデルは meshopt で圧縮してある（25MB を超えるファイルは置けないため）
 const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
@@ -292,6 +297,7 @@ const isPassThrough = (mat) => /ivy|leaf|flower|lily|foam|wheat/i.test(mat.name)
 // ---- 当たり判定（地形・建物を 1 つの BVH に） ----
 // 水面は別の判定にして「入れない場所」として扱う
 let collider = null;
+let colliders = [];      // collider と、廃墟の区画ごとに変わる部分（ruinCollider）
 let waterCollider = null;
 function bvhMesh(meshes) {
   const geo = mergeGeometries(meshes.map((m) => {
@@ -306,18 +312,178 @@ function bvhMesh(meshes) {
   mesh.updateMatrixWorld();
   return mesh;
 }
-function buildCollider(groups) {
+// extraWater: 廃墟の間は隠している噴水の水など（入れない場所なのは変わらない）
+function buildCollider(groups, extraWater = []) {
   const all = groups.flatMap((g) => g.children);
   collider = bvhMesh(all.filter((m) => !isWater(m.material) && !isPassThrough(m.material)));
-  waterCollider = bvhMesh(all.filter((m) => isWater(m.material)));
+  waterCollider = bvhMesh([...all, ...extraWater].filter((m) => isWater(m.material)));
+  colliders = [collider];
 }
 
 const ray = new THREE.Raycaster();
 ray.firstHitOnly = true;
-function cast(origin, dir, far, target = collider) {
+function cast(origin, dir, far, target = colliders) {
   ray.set(origin, dir);
   ray.far = far;
-  return ray.intersectObject(target, false)[0] || null;
+  const hits = Array.isArray(target) ? ray.intersectObjects(target, false) : ray.intersectObject(target, false);
+  return hits[0] || null;
+}
+
+// ---- 廃墟の町（town_ruin.glb） ----
+// パン工房以外の 10 区画が廃墟の状態から始まり、区画ごとに元の町へ戻す。廃墟の間は
+// town.glb の一部（区画の extras.ru_hide）を隠し、town_ruin.glb の部品（ヘドロ・ガレキ・崩れた家）をかぶせ、
+// 区画の範囲（extras.ru_tint_boxes）の色をシェーダーでくすませる
+const RUIN_PAD = [1.5, 3];   // 範囲の外 1.5m まではそのままくすませ、3m で消える（家の裏が範囲から少しはみ出しているため）
+const RUIN_FADE = 1.5;       // 戻すとき、廃墟の部品が消えるまで（秒）
+const RUIN_TINT_FADE = 3;    // 戻すとき、色が戻るまで（秒）
+const WORKSHOP_BOX = [-17, -41.5, 2, -26];   // パン工房（WS_*）は範囲に入っていてもくすませない
+const ruinAreas = [];
+const ruinUniforms = { uRuinBox: { value: [] }, uRuinAmt: { value: [] } };
+let ruinCollider = null;
+
+// 町の材質に「範囲の中ならくすませる」処理を足す（アニメ調の材質にも引き継がれる）
+function addRuinTint(mat) {
+  const prev = mat.onBeforeCompile;
+  const key = mat.customProgramCacheKey();
+  mat.onBeforeCompile = (shader, r) => {
+    prev.call(mat, shader, r);
+    const n = ruinUniforms.uRuinAmt.value.length;   // 全区画を読み込んだあとに組み立てられる
+    Object.assign(shader.uniforms, ruinUniforms);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vRuinPos;')
+      .replace('#include <project_vertex>', '#include <project_vertex>\nvRuinPos = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+        uniform vec4 uRuinBox[${n}];
+        uniform float uRuinAmt[${n}];
+        varying vec3 vRuinPos;`)
+      .replace('#include <color_fragment>', /* glsl */`#include <color_fragment>
+        {
+          vec2 p = vRuinPos.xz;
+          float ru = 0.0;
+          for (int i = 0; i < ${n}; i++) {
+            vec2 d = max(max(uRuinBox[i].xy - p, p - uRuinBox[i].zw), 0.0);
+            ru = max(ru, uRuinAmt[i] * (1.0 - smoothstep(${RUIN_PAD[0].toFixed(1)}, ${RUIN_PAD[1].toFixed(1)}, length(d))));
+          }
+          if (p.x > ${WORKSHOP_BOX[0].toFixed(1)} && p.x < ${WORKSHOP_BOX[2].toFixed(1)} && p.y > ${WORKSHOP_BOX[1].toFixed(1)} && p.y < ${WORKSHOP_BOX[3].toFixed(1)}) ru = 0.0;
+          float l = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
+          vec3 dull = mix(vec3(l), diffuseColor.rgb, 0.35) * 0.78 * vec3(0.97, 0.95, 1.0);
+          diffuseColor.rgb = mix(diffuseColor.rgb, dull, ru);
+        }`);
+  };
+  mat.customProgramCacheKey = () => `${key}|ruin`;
+  mat.needsUpdate = true;
+}
+
+// 町を結合する前に呼ぶ。隠すノードを町から外して区画ごとにまとめ、廃墟の部品を区画ごとに結合する。
+// 返り値は町の材質（くすませる対象）
+function setupRuin(townRoot, ruinRoot) {
+  townRoot.updateMatrixWorld(true);
+  ruinRoot.updateMatrixWorld(true);
+  const byName = new Map();
+  const townMats = new Map();
+  townRoot.traverse((o) => {
+    if (o.name) byName.set(o.name, o);
+    if (o.isMesh) townMats.set(o.material.name, o.material);
+  });
+  const inWindmill = new Set();
+  windmill?.traverse((o) => { byName.set(o.name, o); inWindmill.add(o); });
+
+  for (const node of [...ruinRoot.children]) {
+    const hideSet = new Set(JSON.parse(node.userData.ru_hide || '[]'));
+    // 隠す家に付いている出窓・看板・煙突などは、隠すリストに無ければ町に残す（Blender と同じ見た目）
+    const hiddenObjs = [...hideSet].map((name) => byName.get(name)).filter(Boolean);
+    for (const o of hiddenObjs) {
+      for (const c of [...o.children]) if (!hideSet.has(c.name)) (inWindmill.has(o) ? o.parent : townRoot).attach(c);
+    }
+    const hidden = new THREE.Group();
+    const toggles = [];   // 回している風車の羽根は結合せず、表示だけ切り替える
+    for (const o of hiddenObjs) {
+      if (inWindmill.has(o)) { o.visible = false; toggles.push(o); }
+      else if (!hideSet.has(o.parent?.name)) hidden.attach(o);
+    }
+    const hiddenMerged = mergeByMaterial(hidden);
+    hiddenMerged.visible = false;
+    scene.add(hiddenMerged);
+
+    // 廃墟の部品。区画ごとに材質を複製しておく（戻すときに区画だけ透明にして消すため）。
+    // 崩れた家は町と同じ材質の複製にして、町と同じようにくすませる
+    const own = new Map();
+    const copy = (m, tint) => {
+      if (!own.has(m)) {
+        const c = m.clone();
+        if (tint) addRuinTint(c);
+        own.set(m, c);
+      }
+      return own.get(m);
+    };
+    const solid = new THREE.Group(), cover = new THREE.Group();
+    for (const part of [...node.children]) {
+      const house = !!part.userData.ru_tinted;
+      part.traverse((o) => {
+        if (o.isMesh) o.material = house ? copy(townMats.get(o.material.name) || o.material, true) : copy(o.material, false);
+      });
+      // 崩れた家・ガレキ・枯れ木はぶつかる。壁や地面に貼りついたヘドロや板は見た目だけ
+      (house || /_(Debris\d*|DeadTrees)$/.test(part.name) ? solid : cover).attach(part);
+    }
+    const ruin = new THREE.Group();
+    const solidMerged = mergeByMaterial(solid);
+    ruin.add(solidMerged, mergeByMaterial(cover));
+    scene.add(ruin);
+
+    const boxes = JSON.parse(node.userData.ru_tint_boxes || '[]');
+    const boxIdx = boxes.map((b) => {
+      ruinUniforms.uRuinBox.value.push(new THREE.Vector4(...b));
+      return ruinUniforms.uRuinAmt.value.push(1) - 1;
+    });
+    ruinAreas.push({
+      name: node.name, ruin, hidden: hiddenMerged, toggles, boxIdx,
+      ruinSolid: solidMerged.children.filter((m) => !isPassThrough(m.material)),
+      townSolid: hiddenMerged.children.filter((m) => !isWater(m.material) && !isPassThrough(m.material)),
+      restored: false, fade: 0,
+    });
+  }
+  return townMats;
+}
+
+// 区画ごとに変わる当たり判定（廃墟ならガレキと崩れた家、戻した区画は隠していた屋台や木）
+function rebuildRuinCollider() {
+  const meshes = ruinAreas.flatMap((a) => (a.restored ? a.townSolid : a.ruinSolid));
+  ruinCollider?.geometry.dispose();
+  ruinCollider = meshes.length ? bvhMesh(meshes) : null;
+  colliders = ruinCollider ? [collider, ruinCollider] : [collider];
+}
+
+// 区画を元の町に戻す（パンを届けたときなどに呼ぶ）。部品は薄くなって消え、色は数秒かけて戻る
+function restoreArea(name) {
+  const a = ruinAreas.find((x) => x.name === name || x.name === `RU_${name}`);
+  if (!a || a.restored) return false;
+  a.restored = true;
+  a.hidden.visible = true;
+  a.toggles.forEach((o) => { o.visible = true; });
+  a.ruin.traverse((o) => {
+    if (!o.isMesh) return;
+    for (const m of new Set([o.material, o.userData.pbrMaterial])) if (m) { m.transparent = true; m.depthWrite = false; }
+  });
+  rebuildRuinCollider();
+  return true;
+}
+
+function updateRuin(dt) {
+  for (const a of ruinAreas) {
+    if (!a.restored || a.fade >= RUIN_TINT_FADE) continue;
+    a.fade = Math.min(RUIN_TINT_FADE, a.fade + dt);
+    for (const i of a.boxIdx) ruinUniforms.uRuinAmt.value[i] = 1 - a.fade / RUIN_TINT_FADE;
+    if (!a.ruin.parent) continue;
+    const k = Math.min(1, a.fade / RUIN_FADE);
+    a.ruin.traverse((o) => {
+      if (o.isMesh) for (const m of new Set([o.material, o.userData.pbrMaterial])) if (m) m.opacity = 1 - k;
+    });
+    if (k >= 1) {
+      scene.remove(a.ruin);
+      a.ruin.traverse((o) => { if (o.isMesh) o.geometry.dispose(); });
+    }
+  }
 }
 
 // ---- ふわお（パン射出ロボの操縦席に乗っている） ----
@@ -432,6 +598,12 @@ if (new URLSearchParams(location.search).has('debug')) {
     get breads() { return breads; },
     get residents() { return residents; },
     get waterCollider() { return waterCollider; },
+    // 例: __fuwao.restore('Plaza')。区画の名前は __fuwao.ruinAreas
+    get ruinAreas() { return ruinAreas.map((a) => `${a.name}${a.restored ? '（戻した）' : ''}`); },
+    restore: restoreArea,
+    restoreAll() { ruinAreas.forEach((a) => restoreArea(a.name)); },
+    // 例: __fuwao.daytime.set(18.5)
+    get daytime() { return daytime; },
   };
 }
 
@@ -896,12 +1068,13 @@ function catchBread(b) {
 }
 
 async function init() {
-  const [town, distant, pancannon, germboss, bread, grandpa, girl, grandma] = await Promise.all(FILES.map(load));
+  const [town, distant, pancannon, germboss, bread, grandpa, girl, grandma, townRuin] = await Promise.all(FILES.map(load));
   statusEl.textContent = 'シーンを組み立て中…';
   await new Promise((r) => setTimeout(r, 0));
 
   windmill = takeWindmillRotor(town.scene);
   scene.add(windmill);
+  const townMats = setupRuin(town.scene, townRuin.scene);
   const townMerged = mergeByMaterial(town.scene);
   const distantMerged = mergeByMaterial(distant.scene, { castShadow: false });
   // 遠景は影を落とさない（広い地形が重いため）が、町の南の畑の納屋・干し草・かかし・柵・橋は落とす
@@ -914,8 +1087,10 @@ async function init() {
       if (isWater(m.material)) { makeWater(m.material); m.castShadow = false; }
     }
   }
+  for (const m of townMats.values()) addRuinTint(m);
   scene.add(townMerged, distantMerged);
-  buildCollider([townMerged, distantMerged]);
+  buildCollider([townMerged, distantMerged], ruinAreas.flatMap((a) => a.hidden.children));
+  rebuildRuinCollider();
 
   // 既定シーン（PanCannon）のみ。glb 内の Bakery シーンは distant の重複なので使わない
   model = pancannon.scene;
@@ -927,6 +1102,20 @@ async function init() {
   placeBoss(germboss);
   setupBread(bread);
   placeResidents({ grandpa, girl, grandma });
+
+  // 夜にふわおのまわりを照らすランプ（昼は明るさ 0。ライトの数が変わると全部のシェーダーを作り直すので、出しっぱなしにする）
+  const lamp = new THREE.PointLight(lin(1.0, 0.72, 0.42), 0, 14, 2);
+  lamp.position.set(0, 2.6, 0.5);
+  player.add(lamp);
+  // 夜に明るくする窓と街灯（廃墟の崩れた家の窓も含む）
+  const glowMats = new Set();
+  scene.traverse((o) => { if (o.isMesh && /BK_glass/.test(o.material.name)) glowMats.add(o.material); });
+  // ?time=18.5 のように始まりの時刻を指定できる（ないときは 14 時）
+  const startHour = parseFloat(new URLSearchParams(location.search).get('time'));
+  daytime = createDaytime({
+    sun, lightDir, sunDir, fill, hemi, scene, style, lamp, glowMats: [...glowMats],
+    startHour: Number.isFinite(startHour) ? startHour : undefined,
+  });
 
   style.set(new URLSearchParams(location.search).get('style') !== 'pbr');
   respawn();
@@ -1410,10 +1599,14 @@ function updateCamera() {
   followShadow(feet);
 }
 
+let daytime = null;
 function tick(dt, active) {
+  // 一時停止中は時間を止める（見た目の切り替えには合わせ直す）。N を押している間は早送り
+  daytime.update(active ? dt : 0, active && keys.has('KeyN'));
   waterUniforms.uTime.value += dt;
   time.value += dt;
   if (windmill) windmill.rotation.z += WINDMILL_SPEED * dt;
+  updateRuin(dt);
   updateBoss(dt);
   updateBreads(dt);
   updateResidents(dt);
@@ -1434,7 +1627,7 @@ renderer.setAnimationLoop(() => {
 
   fpsAcc += dt; fpsFrames++;
   if (fpsAcc > 0.5) {
-    hud.textContent = ready ? `${Math.round(fpsFrames / fpsAcc)} fps  ·  ${style.enabled ? 'アニメ調' : '元の見た目'}  ·  x ${feet.x.toFixed(1)}  y ${feet.y.toFixed(2)}  z ${feet.z.toFixed(1)}` : '';
+    hud.textContent = ready ? `${daytime.clock}  ·  ${Math.round(fpsFrames / fpsAcc)} fps  ·  ${style.enabled ? 'アニメ調' : '元の見た目'}  ·  x ${feet.x.toFixed(1)}  y ${feet.y.toFixed(2)}  z ${feet.z.toFixed(1)}` : '';
     fpsAcc = 0; fpsFrames = 0;
   }
 });

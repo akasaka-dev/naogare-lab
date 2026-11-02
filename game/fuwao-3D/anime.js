@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { skyUniforms, SKY_GLSL } from './daytime.js';
 
 // ---- 手描きアニメ調の描画（実験） ----
 // トゥーン材質（柔らかい 2 段の塗り分け＋塗りムラ）、描き雲の空、
@@ -71,13 +72,14 @@ const SKY_VERT = /* glsl */`
 // 青空ともくもくした描き雲（上は白、太陽と反対側はラベンダーの影）
 const SKY_FRAG = /* glsl */`
   uniform float uTime;
-  uniform vec3 uSun, cHorizon, cZenith;
+  ${SKY_GLSL}
   varying vec3 vDir;
   ${NOISE_GLSL}
   void main() {
     vec3 d = normalize(vDir);
     float h = d.y;
     vec3 c = mix(cHorizon, cZenith, pow(clamp(h, 0.0, 1.0), 0.55));
+    c = skyExtras(d, c);   // 朝日・夕日の輝き、太陽、月、星（雲の後ろ）
     if (h > 0.0) {
       vec2 p = d.xz / (h + 0.2) * 1.8 + vec2(uTime * 0.012, uTime * 0.005);
       float n = aFbm(p);
@@ -87,6 +89,7 @@ const SKY_FRAG = /* glsl */`
       vec3 cloud = mix(vec3(0.58, 0.60, 0.86), vec3(1.05, 1.02, 0.97), lit);
       float rim = smoothstep(0.47, 0.50, n) - smoothstep(0.50, 0.56, n);
       cloud = mix(cloud, vec3(0.50, 0.56, 0.86), rim * 0.35);
+      cloud *= uCloudTint;   // 朝夕は茜色、夜は暗い青
       c = mix(c, cloud, cover);
     }
     gl_FragColor = vec4(c, 1.0);
@@ -175,7 +178,7 @@ export function createAnimeStyle({ renderer, scene, camera, sun, fill, hemi, sky
 
   const skyMat = new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false, fog: false, toneMapped: false,
-    uniforms: { uTime: time, uSun: { value: sunDir }, cHorizon: { value: LOOK.fog }, cZenith: { value: lin(0.10, 0.32, 0.95) } },
+    uniforms: { uTime: time, ...skyUniforms },   // 空の色・太陽・星は daytime.js が時刻に合わせて変える
     vertexShader: SKY_VERT, fragmentShader: SKY_FRAG,
   });
 
@@ -195,7 +198,8 @@ export function createAnimeStyle({ renderer, scene, camera, sun, fill, hemi, sky
     const water = /water/i.test(m.name);
     // 水面の波（main.js の makeWater）はそのまま引き継ぐ
     t.onBeforeCompile = (shader, r) => { m.onBeforeCompile(shader, r); if (!water) addWash(shader); };
-    t.customProgramCacheKey = () => (water ? 'anime-water' : 'anime-wash');
+    // 元の材質の追加処理（廃墟のくすみなど）があるものとないもので、シェーダーを分ける
+    t.customProgramCacheKey = () => (water ? 'anime-water' : 'anime-wash') + m.customProgramCacheKey();
     toonOf.set(m, t);
     return t;
   }
@@ -255,6 +259,10 @@ export function createAnimeStyle({ renderer, scene, camera, sun, fill, hemi, sky
       swapMaterials(on);
     },
     toggle() { style.set(!style.enabled); },
+    // 今の見た目の昼のライトの値（daytime.js が時刻に合わせて上から色を変える）
+    get base() { return style.enabled ? LOOK : pbr; },
+    // 元の材質から作ったトゥーン材質（まだ作っていなければ undefined）
+    toon: (m) => toonOf.get(m),
     // あとからシーンに足したもの（発射したパンなど）を今の見た目に合わせる
     apply(root) { swapMaterials(style.enabled, root); },
     setSize,

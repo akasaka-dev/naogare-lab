@@ -114,6 +114,7 @@ export function createTouchControls({ press, release, fire, look, toggleView, re
     el.addEventListener('pointercancel', off);
   }
   holdButton(root.querySelector('.btn-jump'), 'Space');
+  holdButton(root.querySelector('.btn-time'), 'KeyN');   // 押している間、時間を早送り
   tapButton(root.querySelector('.btn-fire'), fire);
   tapButton(root.querySelector('.btn-view'), toggleView);
   tapButton(root.querySelector('.btn-reset'), respawn);
