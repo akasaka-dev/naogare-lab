@@ -127,5 +127,16 @@ export function createTouchControls({ press, release, fire, look, toggleView, re
     root.querySelectorAll('.down').forEach((b) => b.classList.remove('down'));
   }
 
+  // 端末によっては、指を離したことが pointerup でも pointercancel でも届かないことがある
+  // （画面の端のジェスチャーなど）。そうなるとスティックやジャンプが押しっぱなしで残るので、
+  // 「画面に指が1本も残っていない」とわかった時点で、全部離したことにする
+  const noFingers = (e) => { if (e.touches.length === 0) reset(); };
+  window.addEventListener('touchend', noFingers, true);
+  window.addEventListener('touchcancel', noFingers, true);
+  // 新しく触った指がその時点で唯一の指なのに、まだ何かを押している扱いなら、それは離し損ねたもの
+  window.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'touch' && e.isPrimary && (stickId !== null || lookId !== null || root.querySelector('.down'))) reset();
+  }, true);
+
   return { stick, reset };
 }

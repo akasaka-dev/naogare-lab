@@ -1020,7 +1020,7 @@ const touch = createTouchControls({
   fire: () => fire(),
   look: lookBy,
   toggleView,
-  respawn: () => respawn(),
+  respawn: () => { releaseAll(); respawn(); },   // 押しっぱなしで残ったときも「戻る」で直る
   pause: () => pause(),
   isPlaying: () => playing,
 });
@@ -1029,7 +1029,10 @@ const touch = createTouchControls({
 // 押しっぱなしのまま進み続ける。そうなりうるときは全部離したことにする
 function releaseAll() { keys.clear(); touch.reset(); }
 window.addEventListener('blur', releaseAll);
+window.addEventListener('focus', releaseAll);
 document.addEventListener('visibilitychange', () => { if (document.hidden) releaseAll(); });
+// 右クリックや長押しのメニューが開くと、その間に離したキーが届かない（blur も起きない）
+window.addEventListener('contextmenu', (e) => { if (playing) e.preventDefault(); releaseAll(); });
 
 // ---- プレイヤー ----
 const feet = new THREE.Vector3();
