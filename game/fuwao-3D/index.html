@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>ふわおの世界 3D</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #1a1410; font-family: "Hiragino Maru Gothic ProN", "Yu Gothic UI", "Meiryo", sans-serif; }
+  canvas { display: block; }
+  #overlay {
+    position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: rgba(30, 20, 12, 0.55); color: #fff6e6; text-align: center; cursor: pointer; user-select: none;
+  }
+  #overlay h1 { font-size: 44px; margin: 0 0 8px; letter-spacing: 0.08em; text-shadow: 0 3px 0 rgba(0,0,0,0.35); }
+  #overlay .start { font-size: 20px; margin: 18px 0; padding: 10px 28px; border-radius: 999px; background: #e8973c; color: #fff; }
+  #overlay .start.disabled { background: #7a6a5a; }
+  #overlay table { margin-top: 10px; font-size: 15px; border-spacing: 14px 4px; }
+  #overlay td:first-child { text-align: right; color: #ffd9a0; }
+  #progress { width: 260px; height: 8px; border-radius: 4px; background: rgba(255,255,255,0.2); overflow: hidden; margin-top: 6px; }
+  #progress div { height: 100%; width: 0; background: #ffcf7a; transition: width 0.2s; }
+  #status { font-size: 13px; opacity: 0.8; margin-top: 6px; }
+  #crosshair { position: fixed; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%; background: rgba(255,255,255,0.7); pointer-events: none; display: none; }
+  #hud { position: fixed; left: 12px; bottom: 10px; color: rgba(255,255,255,0.75); font-size: 12px; pointer-events: none; text-shadow: 0 1px 2px #000; }
+  canvas { touch-action: none; }
+
+  /* ---- スマホ用のタッチ操作（指で触る端末のときだけ、遊んでいる間に出す） ---- */
+  #touchUI { display: none; position: fixed; inset: 0; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+  body.touch.playing #touchUI { display: block; }
+  body.touch #hud { display: none; }
+  #touchUI .touch-area { position: absolute; inset: 0; }
+  /* 前作ふわおと同じ：白い輪とオレンジのつまみ。触ったところに出る */
+  #touchUI .joy-ring {
+    position: absolute; width: 112px; height: 112px; margin: -56px 0 0 -56px; border-radius: 50%;
+    border: 3px solid rgba(255,255,255,0.55); box-sizing: border-box; display: none; pointer-events: none;
+  }
+  #touchUI .joy-ring.on { display: block; }
+  #touchUI .joy-knob {
+    position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; margin: -22px 0 0 -22px; border-radius: 50%;
+    background: rgba(255,107,74,0.75);
+  }
+  #touchUI .btn {
+    position: absolute; display: flex; align-items: center; justify-content: center; border-radius: 50%;
+    color: #fff6e6; font-weight: bold; text-shadow: 0 1px 2px rgba(0,0,0,0.4);
+    background: rgba(232,151,60,0.6); border: 2px solid rgba(255,246,230,0.7); box-sizing: border-box;
+  }
+  #touchUI .btn.down { background: rgba(255,107,74,0.85); transform: scale(0.94); }
+  #touchUI .btn-jump { width: 92px; height: 92px; font-size: 17px;
+    right: calc(18px + env(safe-area-inset-right)); bottom: calc(24px + env(safe-area-inset-bottom)); }
+  #touchUI .btn-fire { width: 72px; height: 72px; font-size: 16px;
+    right: calc(124px + env(safe-area-inset-right)); bottom: calc(40px + env(safe-area-inset-bottom)); }
+  #touchUI .btn-small { width: 44px; height: 44px; font-size: 12px; top: calc(12px + env(safe-area-inset-top));
+    background: rgba(30,20,12,0.4); border-color: rgba(255,246,230,0.5); }
+  #touchUI .btn-pause { right: calc(12px + env(safe-area-inset-right)); }
+  #touchUI .btn-reset { right: calc(64px + env(safe-area-inset-right)); }
+  #touchUI .btn-view { right: calc(116px + env(safe-area-inset-right)); }
+  #overlay .touch-help { display: none; margin-top: 10px; font-size: 14px; line-height: 1.7; }
+  body.touch #overlay table { display: none; }
+  body.touch #overlay .touch-help { display: block; }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/",
+    "three-mesh-bvh": "https://cdn.jsdelivr.net/npm/three-mesh-bvh@0.8.3/build/index.module.js"
+  }
+}
+</script>
+</head>
+<body>
+<div id="overlay">
+  <h1>ふわおの世界</h1>
+  <div id="progress"><div></div></div>
+  <div id="status">読み込み中…</div>
+  <div class="start disabled" id="startLabel">読み込み中</div>
+  <table>
+    <tr><td>WASD / 矢印</td><td>歩く</td></tr>
+    <tr><td>マウス</td><td>カメラを回す</td></tr>
+    <tr><td>ホイール</td><td>カメラの距離</td></tr>
+    <tr><td>Shift</td><td>走る</td></tr>
+    <tr><td>Space</td><td>ジャンプ（空中でもう一度押し続けるとジェット噴射）</td></tr>
+    <tr><td>F</td><td>パンを発射</td></tr>
+    <tr><td>V</td><td>三人称 / 一人称 切り替え</td></tr>
+    <tr><td>T</td><td>アニメ調 / 元の見た目 切り替え</td></tr>
+    <tr><td>R</td><td>スタート地点に戻る</td></tr>
+    <tr><td>Esc</td><td>一時停止</td></tr>
+  </table>
+  <div class="touch-help">
+    画面の左側をドラッグ：歩く（大きく倒すと走る）<br>
+    画面の右側をドラッグ：カメラを回す<br>
+    ジャンプ：空中でもう一度押し続けるとジェット噴射<br>
+    発射：パンを撃つ（空中でも）
+  </div>
+</div>
+<div id="touchUI">
+  <div class="touch-area"></div>
+  <div class="joy-ring"><div class="joy-knob"></div></div>
+  <div class="btn btn-fire">発射</div>
+  <div class="btn btn-jump">ジャンプ</div>
+  <div class="btn btn-small btn-view">視点</div>
+  <div class="btn btn-small btn-reset">戻る</div>
+  <div class="btn btn-small btn-pause">II</div>
+</div>
+<div id="crosshair"></div>
+<div id="hud"></div>
+<script type="module" src="main.js"></script>
+</body>
+</html>
