@@ -42,6 +42,13 @@ Hero"）。実際にプレイする `/game/<name>/` のゲーム本体は日本�
 - 手動デプロイ操作は不要です。push 後、GitHubのCheck Runs（`Workers Builds: naogare-lab`）で
   成功しているか確認できます。
 - 本番URL: https://naogare-lab.naogare.workers.dev/
+- **手元から `wrangler deploy` を直接実行しないこと。** GitHub を通らないデプロイは
+  手元のファイルがそのまま本番になるため、手元のコピーが古いと、`main` にある最新の
+  変更が本番から消える（GitHub には跡が残らない）。2026-11 に、本番が `main` より古い
+  内容に戻る事象があり、`main` から再デプロイして復旧した
+- 本番が `main` と食い違っているときは、`main` に何か commit を push して自動デプロイを
+  走らせ直すか、Cloudflare ダッシュボード（Workers & Pages → naogare-lab → Deployments）で
+  最新の Git ビルドを再実行する
 
 ## 新しいゲームをカタログに追加する手順
 
