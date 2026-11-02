@@ -596,7 +596,9 @@ const _bstep = new THREE.Vector3();
 function updateBreads(dt) {
   for (const b of breads) {
     b.time += dt;
-    if (b.state === 'fly') {
+    if (b.state === 'fly' && catchBread(b)) {
+      // 人に受け止められた
+    } else if (b.state === 'fly') {
       b.vel.y -= BREAD_GRAVITY * dt;
       _bstep.copy(b.vel).multiplyScalar(dt);
       const len = _bstep.length();
@@ -633,9 +635,10 @@ function updateBreads(dt) {
 // 家のまわりを歩いては立ち止まる。近くにパンが浮かんでいたら歩いていって食べる。
 // アニメは Idle / Walk（その場で足踏み）/ Eat。前へ進むのはここで動かす。
 // 少女はおなかをすかせていて（Hungry ＋ への字口）、パンを食べると笑顔になって Joy で喜び、そのあとは Idle ＋ 笑顔
+// radius / height は当たり判定の円柱（GLB の extras に hit_radius / hit_height があればそちらを使う）
 const RESIDENT_KINDS = {
-  grandpa: { speed: 0.3, eatPos: new THREE.Vector3(0.04, 1.11, 0.48) },               // 1サイクル約0.4m
-  girl: { speed: 0.46, eatPos: new THREE.Vector3(0, 0.78, 0.46), hungry: true, smileAt: 32 },
+  grandpa: { speed: 0.3, eatPos: new THREE.Vector3(0.04, 1.11, 0.48), radius: 0.3, height: 1.62 },   // 1サイクル約0.4m。杖の分だけ太め
+  girl: { speed: 0.46, eatPos: new THREE.Vector3(0, 0.78, 0.46), radius: 0.25, height: 1.2, hungry: true, smileAt: 32 },
 };
 const RESIDENTS = [
   { kind: 'grandpa', home: new THREE.Vector3(15, 0, 7.5), radius: 5 },   // スタート地点の西、表通り
@@ -673,8 +676,13 @@ function placeResidents(models) {
       return a;
     };
     const idle = mixer.clipAction(clip('Idle'));
+    let hitRadius = k.radius, hitHeight = k.height;
+    gltf.scene.traverse((o) => {
+      if (o.userData.hit_radius) hitRadius = o.userData.hit_radius;
+      if (o.userData.hit_height) hitHeight = o.userData.hit_height;
+    });
     const r = {
-      kind: k, root, home, radius, mixer, state: 'idle', wait: 1 + Math.random() * 2, target: new THREE.Vector3(), bread: null,
+      kind: k, root, radius: hitRadius, height: hitHeight, roam: radius, home, mixer, state: 'idle', wait: 1 + Math.random() * 2, target: new THREE.Vector3(), bread: null,
       idle, walk: mixer.clipAction(clip('Walk')).play(), walkWeight: 0,
       eat: once('Eat'), joy: once('Joy'), oneShot: null,
       faces: { sad: once('Face_Sad'), smile: once('Face_Smile') }, face: null,
@@ -733,15 +741,15 @@ function updateResidents(dt) {
     if (r.bread && r.state !== 'eat' && r.bread.state !== 'rest') { r.bread.claimedBy = null; r.bread = null; r.state = 'idle'; r.wait = 1; }
     if (!r.bread && r.state !== 'eat') {
       const b = findBread(r);
-      if (b) { r.bread = b; b.claimedBy = r; r.state = 'toBread'; r.stuck = 0; }
+      if (b) { r.bread = b; b.claimedBy = r; r.state = 'toBread'; r.stuck = 0; r.walkTime = 0; }
     }
 
     let speed = 0;
     if (r.state === 'idle') {
       if ((r.wait -= dt) <= 0) {
-        const a = Math.random() * Math.PI * 2, d = r.radius * Math.sqrt(Math.random());
+        const a = Math.random() * Math.PI * 2, d = r.roam * Math.sqrt(Math.random());
         r.target.set(r.home.x + Math.cos(a) * d, pos.y, r.home.z + Math.sin(a) * d);
-        if (canWalkTo(pos, r.target)) r.state = 'walk';
+        if (canWalkTo(pos, r.target)) { r.state = 'walk'; r.walkTime = 0; }
         else r.wait = 0.3;
       }
     } else if (r.state === 'walk' || r.state === 'toBread') {
@@ -749,6 +757,13 @@ function updateResidents(dt) {
       _rd.subVectors(r.target, pos).setY(0);
       const dist = _rd.length();
       const stop = r.state === 'toBread' ? RES_REACH : 0.15;
+      // ロボなどにふさがれて着かないときは、あきらめる
+      if ((r.walkTime += dt) > 15) {
+        if (r.bread) { r.ignore = r.bread; r.bread.claimedBy = null; r.bread = null; }
+        r.state = 'idle';
+        r.wait = 1;
+        continue;
+      }
       if (dist <= stop + 0.02) {
         if (r.state === 'toBread') { r.state = 'eat'; r.wait = 0.8; }
         else { r.state = 'idle'; r.wait = RES_IDLE[0] + Math.random() * (RES_IDLE[1] - RES_IDLE[0]); }
@@ -808,6 +823,74 @@ function updateResidents(dt) {
     if (r.kind.smileAt && r.oneShot === r.eat && r.eat.time >= r.kind.smileAt / ANIM_FPS) setFace(r, 'smile');
     r.mixer.update(dt);
   }
+}
+
+// ---- 人の当たり判定（縦の円柱） ----
+// ロボと人：ロボのほうが重いので人を押しのける。押した先が壁や段差なら、ロボのほうが止まる
+// 人と人：半分ずつよけ合う
+function tryNudge(r, dx, dz) {
+  const pos = r.root.position;
+  const len = Math.hypot(dx, dz);
+  if (len < 1e-5) return true;
+  _rd.set(dx / len, 0, dz / len);
+  _o.set(pos.x, pos.y + 0.5, pos.z);
+  const wall = cast(_o, _rd, len + r.radius);
+  if (wall && hitNormal(wall, _rd)) return false;
+  _rm.set(pos.x + dx, pos.y, pos.z + dz);
+  const gy = groundBelow(_rm);
+  if (gy === null || Math.abs(gy - pos.y) >= RES_STEP || waterLevel(_rm, gy)) return false;
+  pos.set(_rm.x, gy, _rm.z);
+  return true;
+}
+const _push = new THREE.Vector3();
+function collidePeople(active) {
+  for (let i = 0; i < residents.length; i++) {
+    const a = residents[i], pa = a.root.position;
+    for (let j = i + 1; j < residents.length; j++) {
+      const b = residents[j], pb = b.root.position;
+      let dx = pb.x - pa.x, dz = pb.z - pa.z;
+      const d = Math.hypot(dx, dz), overlap = a.radius + b.radius - d;
+      if (overlap <= 0 || Math.abs(pa.y - pb.y) > 1) continue;
+      if (d < 1e-4) { dx = 1; dz = 0; } else { dx /= d; dz /= d; }
+      const h = overlap / 2;
+      if (!tryNudge(b, dx * h, dz * h)) tryNudge(a, -dx * overlap, -dz * overlap);
+      else tryNudge(a, -dx * h, -dz * h);
+    }
+  }
+  if (!active) return;
+  for (const r of residents) {
+    const pos = r.root.position;
+    if (feet.y > pos.y + r.height || feet.y + ROBOT_HEIGHT < pos.y) continue;   // 頭の上を飛び越える
+    let dx = pos.x - feet.x, dz = pos.z - feet.z;
+    const d = Math.hypot(dx, dz), overlap = RADIUS + r.radius - d;
+    if (overlap <= 0) continue;
+    if (d < 1e-4) { dx = Math.sin(heading); dz = Math.cos(heading); } else { dx /= d; dz /= d; }
+    if (!tryNudge(r, dx * overlap, dz * overlap)) moveHorizontal(_push.set(-dx * overlap, 0, -dz * overlap));
+  }
+}
+// 飛んでいるパンが人に当たったら、その人が受け止めて食べる（食べている最中なら、その場に浮かぶ）
+function catchBread(b) {
+  const p = b.root.position, br = 0.15 * b.root.scale.x;
+  for (const r of residents) {
+    const pos = r.root.position;
+    let dx = p.x - pos.x, dz = p.z - pos.z;
+    const d = Math.hypot(dx, dz);
+    if (d > r.radius + br || p.y < pos.y - br || p.y > pos.y + r.height + br) continue;
+    if (d > 1e-4) { dx /= d; dz /= d; } else { dx = Math.sin(r.root.rotation.y); dz = Math.cos(r.root.rotation.y); }
+    p.x = pos.x + dx * (r.radius + br);
+    p.z = pos.z + dz * (r.radius + br);
+    b.state = 'rest';
+    b.time = 0;
+    if (r.state !== 'eat') {
+      if (r.bread) r.bread.claimedBy = null;
+      r.bread = b;
+      b.claimedBy = r;
+      r.state = 'eat';
+      r.wait = 0.8;
+    }
+    return true;
+  }
+  return false;
 }
 
 async function init() {
@@ -1331,6 +1414,7 @@ function tick(dt, active) {
   updateResidents(dt);
   if (active) updatePlayer(dt);
   else moveSpeed = 0;
+  collidePeople(active);
   updateAnimation(dt);
   updateCamera();
 }
