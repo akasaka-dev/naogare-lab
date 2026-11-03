@@ -819,12 +819,19 @@ const RESIDENT_KINDS = {
   girl: { speed: 0.46, eatPos: new THREE.Vector3(0, 0.78, 0.46), radius: 0.25, height: 1.2, hungry: true, smileAt: 32 },
 };
 // id は会話の台本（talks.js）を引く名前
+// house があれば、夜はその家に帰る：out の時刻（[出てくる, 帰る]）になったら way を通って戸口 door まで歩き、
+// 家に入って見えなくなる。朝は戸口から出てきて、way を逆にたどって home へ戻る
+// おばあちゃんと女の子は、表通りの TH_House_10（バルコニーの家）に一緒に住んでいる
+const GRANDMA_DOOR = new THREE.Vector3(6.05, 0, 9.45);
 const RESIDENTS = [
   { id: 'grandpa_east', kind: 'grandpa', home: new THREE.Vector3(15, 0, 7.5), radius: 5 },   // スタート地点の西、表通り
   { id: 'grandpa_west', kind: 'grandpa', home: new THREE.Vector3(2, 0, 6), radius: 5 },
-  { id: 'grandma', kind: 'grandma', home: new THREE.Vector3(5, 0, 7), radius: 5 },     // 西のおじいちゃんの近く
-  { id: 'girl', kind: 'girl', home: new THREE.Vector3(19, 0, 6), radius: 3 },
+  { id: 'grandma', kind: 'grandma', home: new THREE.Vector3(5, 0, 7), radius: 5,     // 西のおじいちゃんの近く
+    house: { door: GRANDMA_DOOR, way: [], out: [6.5, 18.5] } },
+  { id: 'girl', kind: 'girl', home: new THREE.Vector3(19, 0, 6), radius: 3,          // 橋の上。帰りは橋を西へ渡る
+    house: { door: GRANDMA_DOOR, way: [new THREE.Vector3(15, 0, 6.3), new THREE.Vector3(8, 0, 8.3)], out: [7, 18] } },
 ];
+const RES_HOME_HURRY = 1.25;     // 家へ帰るときは少し急ぐ
 const RES_HURRY = 1.6;           // パンへ向かうときは少し急ぐ（速さもアニメもこの倍）
 const RES_TURN = 3;              // 向きを変える速さ
 const RES_STEP = 0.45;           // 上り下りできる段差（歩道のへりや戸口の段）
@@ -835,7 +842,7 @@ const residents = [];
 const _rd = new THREE.Vector3();
 const _rm = new THREE.Vector3();
 function placeResidents(models) {
-  for (const { id, kind, home, radius } of RESIDENTS) {
+  for (const { id, kind, home, radius, house } of RESIDENTS) {
     const gltf = models[kind], k = RESIDENT_KINDS[kind];
     const clip = (name) => THREE.AnimationClip.findByName(gltf.animations, name);
     const root = cloneSkinned(gltf.scene);
@@ -862,7 +869,7 @@ function placeResidents(models) {
       if (o.userData.hit_height) hitHeight = o.userData.hit_height;
     });
     const r = {
-      id, kindName: kind, kind: k, root, radius: hitRadius, height: hitHeight, roam: radius, home, mixer, state: 'idle', wait: 1 + Math.random() * 2, target: new THREE.Vector3(), bread: null,
+      id, kindName: kind, house, route: null, leg: 0, kind: k, root, radius: hitRadius, height: hitHeight, roam: radius, home, mixer, state: 'idle', wait: 1 + Math.random() * 2, target: new THREE.Vector3(), bread: null,
       idle, walk: mixer.clipAction(clip('Walk')).play(), walkWeight: 0,
       eat: once('Eat'), joy: once('Joy'), oneShot: null,
       faces: { sad: once('Face_Sad'), smile: once('Face_Smile') }, face: null,
@@ -914,12 +921,55 @@ function findBread(r) {
   }
   return best;
 }
+// 夜（家にいる時刻）か
+function atHomeTime(r) {
+  const h = daytime.hour, [out, back] = r.house.out;
+  return h >= back || h < out;
+}
+// 地面の高さに合わせた点（way や door は高さを書いていないので）
+function groundPoint(v) {
+  _o.set(v.x, 400, v.z);
+  const hit = cast(_o, DOWN, 800);
+  return new THREE.Vector3(v.x, hit ? hit.point.y : v.y, v.z);
+}
+function walkRoute(r, points, then) {
+  if (r.bread) { r.bread.claimedBy = null; r.bread = null; }
+  r.route = points.map(groundPoint);
+  r.leg = 0;
+  r.afterRoute = then;
+  r.state = 'route';
+  r.walkTime = 0;
+  r.stuck = 0;
+}
+function enterHouse(r) {
+  r.state = 'home';
+  r.root.visible = false;
+  r.root.position.copy(groundPoint(r.house.door));
+}
+function updateHouse(r) {
+  if (!r.house || r.state === 'talk' || r.state === 'eat') return;
+  const night = atHomeTime(r);
+  if (r.state === 'home') {
+    if (night) return;
+    // 朝：戸口から出てきて、来た道を戻る
+    const route = [...r.house.way].reverse().concat(r.home);
+    r.root.visible = true;
+    r.root.rotation.y = Math.atan2(route[0].x - r.house.door.x, route[0].z - r.house.door.z);
+    walkRoute(r, route, 'idle');
+  } else if (night && r.afterRoute !== 'home') {
+    if (!r.placed) { enterHouse(r); return; }   // 夜に始めたときは、はじめから家の中
+    walkRoute(r, r.house.way.concat(r.house.door), 'home');
+  }
+  r.placed = true;
+}
 function updateResidents(dt) {
   for (const r of residents) {
     const pos = r.root.position;
+    updateHouse(r);
+    if (r.state === 'home') continue;
     // 食べに行っていたパンが消えたらあきらめる
     if (r.bread && r.state !== 'eat' && r.bread.state !== 'rest') { r.bread.claimedBy = null; r.bread = null; r.state = 'idle'; r.wait = 1; }
-    if (!r.bread && r.state !== 'eat' && r.state !== 'talk') {
+    if (!r.bread && r.state !== 'eat' && r.state !== 'talk' && r.state !== 'route') {
       const b = findBread(r);
       if (b) { r.bread = b; b.claimedBy = r; r.state = 'toBread'; r.stuck = 0; r.walkTime = 0; }
     }
@@ -929,6 +979,32 @@ function updateResidents(dt) {
       // 話している間は立ち止まって、ロボのほうを向く
       const want = Math.atan2(feet.x - pos.x, feet.z - pos.z);
       r.root.rotation.y = turnToward(r.root.rotation.y, want, 1 - Math.exp(-RES_TURN * dt));
+    } else if (r.state === 'route') {
+      // 決まった道を歩く（家へ帰る、家から出てくる）。ふさがれて進めないときは、そのまま着いたことにする
+      const wp = r.route[r.leg];
+      _rd.subVectors(wp, pos).setY(0);
+      const dist = _rd.length();
+      let arrived = (r.walkTime += dt) > 90 || r.stuck > 3;
+      if (dist < 0.2 && ++r.leg >= r.route.length) arrived = true;
+      if (arrived) {
+        r.route = null;
+        if (r.afterRoute === 'home') enterHouse(r);
+        else { r.state = 'idle'; r.wait = 1; }
+        r.afterRoute = null;
+        if (r.state === 'home') continue;
+      } else if (dist >= 0.2) {
+        const want = Math.atan2(_rd.x, _rd.z);
+        r.root.rotation.y = turnToward(r.root.rotation.y, want, 1 - Math.exp(-RES_TURN * dt));
+        const facing = Math.cos(want - r.root.rotation.y);
+        speed = r.kind.speed * RES_HOME_HURRY * Math.max(0, facing);
+        const step = Math.min(speed * dt, dist);
+        const nx = pos.x + Math.sin(r.root.rotation.y) * step, nz = pos.z + Math.cos(r.root.rotation.y) * step;
+        _rm.set(nx, pos.y, nz);
+        const gy = groundBelow(_rm);
+        // 下りは少し高い段（植木の縁などに乗ってしまったとき）でも降りられる
+        if (gy !== null && gy - pos.y < RES_STEP && pos.y - gy < 0.8) pos.set(nx, gy, nz);
+        else { r.stuck += dt; speed = 0; }
+      }
     } else if (r.state === 'idle') {
       if ((r.wait -= dt) <= 0) {
         const a = Math.random() * Math.PI * 2, d = r.roam * Math.sqrt(Math.random());
@@ -1030,8 +1106,10 @@ const _push = new THREE.Vector3();
 function collidePeople(active) {
   for (let i = 0; i < residents.length; i++) {
     const a = residents[i], pa = a.root.position;
+    if (!a.root.visible) continue;   // 家の中
     for (let j = i + 1; j < residents.length; j++) {
       const b = residents[j], pb = b.root.position;
+      if (!b.root.visible) continue;
       let dx = pb.x - pa.x, dz = pb.z - pa.z;
       const d = Math.hypot(dx, dz), overlap = a.radius + b.radius - d;
       if (overlap <= 0 || Math.abs(pa.y - pb.y) > 1) continue;
@@ -1044,6 +1122,7 @@ function collidePeople(active) {
   if (!active) return;
   for (const r of residents) {
     const pos = r.root.position;
+    if (!r.root.visible) continue;
     if (feet.y > pos.y + r.height || feet.y + ROBOT_HEIGHT < pos.y) continue;   // 頭の上を飛び越える
     let dx = pos.x - feet.x, dz = pos.z - feet.z;
     const d = Math.hypot(dx, dz), overlap = RADIUS + r.radius - d;
@@ -1057,6 +1136,7 @@ function catchBread(b) {
   const p = b.root.position, br = 0.15 * b.root.scale.x;
   for (const r of residents) {
     const pos = r.root.position;
+    if (!r.root.visible) continue;
     let dx = p.x - pos.x, dz = p.z - pos.z;
     const d = Math.hypot(dx, dz);
     if (d > r.radius + br || p.y < pos.y - br || p.y > pos.y + r.height + br) continue;
@@ -1170,7 +1250,7 @@ function residentAt(x, y, tol = 8) {
   let best = null, bestD = TALK_RANGE;
   for (const r of residents) {
     const d = r.root.position.distanceTo(feet);
-    if (d > bestD || r.state === 'eat') continue;
+    if (d > bestD || r.state === 'eat' || !r.root.visible) continue;
     const foot = screenOf(r, 0), head = screenOf(r, r.height);
     if (!foot || !head) continue;
     const halfW = (r.radius + 0.1) * (foot.y - head.y) / r.height;
@@ -1186,7 +1266,7 @@ function talkTarget() {
   let best = null, bestD = Infinity;
   const cx = window.innerWidth / 2, cy = window.innerHeight / 2, lim = window.innerHeight * TALK_AIM;
   for (const r of residents) {
-    if (r.root.position.distanceTo(feet) > TALK_NEAR || r.state === 'eat') continue;
+    if (r.root.position.distanceTo(feet) > TALK_NEAR || r.state === 'eat' || !r.root.visible) continue;
     const p = screenOf(r, r.height * 0.6);
     if (!p) continue;
     const d = Math.hypot(p.x - cx, p.y - cy);
@@ -1199,6 +1279,7 @@ function startTalk(r) {
   const script = TALKS[r.id] || TALKS[r.kindName];
   if (!script) return;
   if (r.bread) { r.bread.claimedBy = null; r.bread = null; }
+  r.route = r.afterRoute = null;   // 家へ帰る途中なら、話し終わってから帰り直す
   r.state = 'talk';
   talkWith = r;
   keys.clear();
