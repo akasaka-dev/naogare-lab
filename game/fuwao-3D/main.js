@@ -597,6 +597,7 @@ if (new URLSearchParams(location.search).has('debug')) {
     get floating() { return floating; },
     get mixer() { return mixer; },
     get boss() { return boss; },
+    bossDistance,
     get breads() { return breads; },
     get residents() { return residents; },
     get waterCollider() { return waterCollider; },
@@ -642,7 +643,7 @@ function clipsFromExtras(root, clips) {
 
 // ---- ボス ----
 // 待機（idle）をくり返し、ときどき爪たたきつけ（attack_slam）と回転ドリル突進（attack_drill）を交互に見せる。
-// GB_Hit_* / GB_Hurt_* は当たり判定用の空のオブジェクト（extras に collider・radius・damage）。まだ使っていない
+// GB_Hit_* / GB_Hurt_* は当たり判定用の空のオブジェクト（extras に collider・radius・damage）。今はトゲの球（GB_Hit_Spikes）だけを体当たりに使う
 const BOSS_IDLE_TIME = 6;   // 攻撃と攻撃のあいだの待機（秒）
 const BOSS_FADE = 0.25;
 let boss = null, bossMixer = null, bossActions = null;
@@ -687,6 +688,95 @@ function updateBoss(dt) {
     bossNext = bossNext === 'attack_slam' ? 'attack_drill' : 'attack_slam';
   }
   bossMixer.update(dt);
+}
+
+// ---- ボスが町へ近づく・ジェットで体当たりして押し戻す ----
+// ボスは町（BOSS_TARGET）へ向かって少しずつ進み、BOSS_STOP まで来たらそこで止まる（今は着いても何も起きない）。
+// ジェット噴射中に速い勢いでトゲの球（GB_Hit_Spikes）にぶつかると体当たり：ボスを町と反対へ押し戻し、
+// ロボははね返される。ゆっくりぶつかったときや歩いているときは、ボスを通り抜けないように押し出すだけ
+const BOSS_TARGET = new THREE.Vector3(0, 0, 12);   // 町の真ん中（広場のあたり）
+const BOSS_CREEP = 0.25;      // 町へ近づく速さ（m/秒）。BOSS_POS から BOSS_STOP まで約 3 分
+const BOSS_STOP = 45;         // 町の真ん中からこの距離まで来たら止まる（町の東の端の外）
+const BOSS_FAR = 160;         // これより遠くへは押し戻せない
+const BOSS_TURN = 0.6;        // 町のほうへ向き直る速さ
+const RAM_MIN_SPEED = 7;      // これより速く飛んでいたら体当たり（ジェットの最高速は JET_SPEED）
+const RAM_PUSH = [15, 30];    // 1 回の体当たりで下がる距離（m）。RAM_MIN_SPEED ちょうどで 15m、最高速で 30m
+const RAM_PUSH_DAMP = 0.8;    // 押し戻す勢いの減り方（大きいほど早く止まる。30m 下がるのに約 4 秒）
+const RAM_STUN = 4;           // 体当たりされたあと、また近づき始めるまで（秒）
+const RAM_BOUNCE = 8;         // ロボがはね返される速さ（m/秒）
+const RAM_COOLDOWN = 0.5;     // 続けて体当たりにならない時間（秒）
+let bossSpikes = null, bossSpikeRadius = 9;
+const bossVel = new THREE.Vector3();
+let bossStun = 0, ramCooldown = 0, bossWobble = 0, bossWobbleTime = 0;
+const _bc = new THREE.Vector3();
+const _bd = new THREE.Vector3();
+function setupBossMove() {
+  bossSpikes = boss.getObjectByName('GB_Hit_Spikes');
+  if (bossSpikes?.userData.radius) bossSpikeRadius = bossSpikes.userData.radius;
+}
+// 町の真ん中からボスまでの水平距離
+function bossDistance() {
+  return Math.hypot(boss.position.x - BOSS_TARGET.x, boss.position.z - BOSS_TARGET.z);
+}
+function moveBoss(dt) {
+  if (!boss) return;
+  const pos = boss.position;
+  _bd.set(BOSS_TARGET.x - pos.x, 0, BOSS_TARGET.z - pos.z);
+  const dist = _bd.length();
+  _bd.divideScalar(dist || 1);
+  // 町へ向かって進む（押し戻されている間と、そのあとしばらくは止まる）
+  if ((bossStun -= dt) <= 0 && dist > BOSS_STOP) pos.addScaledVector(_bd, Math.min(BOSS_CREEP * dt, dist - BOSS_STOP));
+  pos.addScaledVector(bossVel, dt);
+  bossVel.multiplyScalar(Math.exp(-RAM_PUSH_DAMP * dt));
+  // 押し戻せる範囲
+  const d = bossDistance();
+  if (d > BOSS_FAR) { pos.x = BOSS_TARGET.x + (pos.x - BOSS_TARGET.x) * BOSS_FAR / d; pos.z = BOSS_TARGET.z + (pos.z - BOSS_TARGET.z) * BOSS_FAR / d; }
+  // 地面の高さに合わせる（斜面を上り下りする）
+  _o.set(pos.x, 400, pos.z);
+  const hit = cast(_o, DOWN, 800);
+  if (hit) pos.y += (hit.point.y - pos.y) * (1 - Math.exp(-4 * dt));
+  boss.rotation.y = turnToward(boss.rotation.y, Math.atan2(_bd.x, _bd.z), 1 - Math.exp(-BOSS_TURN * dt));
+  // 体当たりされると、ぷるんと揺れる
+  if (bossWobble > 0.001) {
+    bossWobbleTime += dt;
+    const w = bossWobble * Math.sin(bossWobbleTime * 14);
+    boss.scale.set(1 + w * 0.08, 1 - w * 0.1, 1 + w * 0.08);
+    bossWobble *= Math.exp(-3 * dt);
+  } else boss.scale.setScalar(1);
+}
+// ロボとボスのトゲ：ぶつかったら押し出す。噴射で速く飛んでいたら体当たり
+function collideBoss(dt) {
+  if (!bossSpikes) return;
+  ramCooldown -= dt;
+  bossSpikes.getWorldPosition(_bc);
+  // 体は地面から浮いているので、球を地面まで縦にのばした形（カプセル）にして、低く飛んでも当たるようにする
+  const low = boss.position.y;
+  if (_bc.y > low) _bc.y = THREE.MathUtils.clamp(feet.y + ROBOT_HEIGHT / 2, low, _bc.y);
+  _bd.set(feet.x - _bc.x, feet.y + ROBOT_HEIGHT / 2 - _bc.y, feet.z - _bc.z);
+  const d = _bd.length(), reach = bossSpikeRadius + RADIUS;
+  if (d >= reach) return;
+  _bd.divideScalar(d || 1);
+  // 体当たりの強さは、ボスへ向かう速さ
+  const toward = -(jetVel.x * _bd.x + jetVel.z * _bd.z);
+  if (ramCooldown <= 0 && toward > RAM_MIN_SPEED) {
+    ramCooldown = RAM_COOLDOWN;
+    const k = THREE.MathUtils.clamp((toward - RAM_MIN_SPEED) / (JET_SPEED - RAM_MIN_SPEED), 0, 1);
+    _rd.set(-_bd.x, 0, -_bd.z).normalize();   // ロボからボスへ（水平）
+    // 勢いが RAM_PUSH_DAMP の割合で減っていくと、下がる距離は 勢い / RAM_PUSH_DAMP
+    bossVel.addScaledVector(_rd, THREE.MathUtils.lerp(RAM_PUSH[0], RAM_PUSH[1], k) * RAM_PUSH_DAMP);
+    bossStun = RAM_STUN;
+    bossWobble = 0.6 + 0.4 * k;
+    bossWobbleTime = 0;
+    // ロボははね返されて、噴射も止まる（もう一度 Space を押し直せば噴射できる）
+    jetting = false;
+    jetEndTime = 0;
+    jetSpeed = 0;
+    jetVel.set(_bd.x, 0, _bd.z).normalize().multiplyScalar(RAM_BOUNCE);
+    velY = Math.max(velY, 4);
+    shake = 1.5;
+  }
+  // 球の外へ押し出す
+  feet.addScaledVector(_bd, reach - d);
 }
 
 // ---- ふわふわパン（発射の弾） ----
@@ -1198,6 +1288,7 @@ async function init() {
   mixer = new THREE.AnimationMixer(model);
   setupAnimations(pancannon.animations);
   placeBoss(germboss);
+  setupBossMove();
   setupBread(bread);
   placeResidents({ grandpa, girl, grandma, mayor });
 
@@ -1384,6 +1475,7 @@ document.getElementById('talk').addEventListener('pointerdown', (e) => {
   if (e.button === 0 && !document.pointerLockElement) advanceTalk();
 });
 function lookBy(dYaw, dPitch) {
+  if (dYaw || dPitch) recentering = false;   // 自分で回したら、正面へ戻すのをやめる
   view.yaw -= dYaw;
   const [lo, hi] = view.thirdPerson ? [-0.35, 1.2] : [-1.4, 1.4];
   view.pitch = THREE.MathUtils.clamp(view.pitch + dPitch, lo, hi);
@@ -1410,10 +1502,22 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyF') fire();
   if (e.code === 'KeyT') style.toggle();
   if (e.code === 'KeyV') toggleView();
+  if (e.code === 'KeyC') recenterCamera();
   if (e.code === 'Space') e.preventDefault();
 });
 window.addEventListener('keyup', (e) => keys.delete(e.code));
 
+// カメラをロボの正面の向き（ロボの後ろから、ロボが向いている方向を見る）へ回す
+let recentering = false;
+function recenterCamera() { recentering = view.thirdPerson; }
+function updateRecenter(dt) {
+  if (!recentering) return;
+  const target = heading + Math.PI;
+  const k = 1 - Math.exp(-10 * dt);
+  view.yaw = turnToward(view.yaw, target, k);
+  view.pitch += (0.25 - view.pitch) * k;
+  if (Math.abs(Math.atan2(Math.sin(target - view.yaw), Math.cos(target - view.yaw))) < 0.01) recentering = false;
+}
 function toggleView() {
   view.thirdPerson = !view.thirdPerson;
   view.pitch = view.thirdPerson ? 0.25 : 0;
@@ -1426,6 +1530,7 @@ const touch = createTouchControls({
   fire: () => fire(),
   look: lookBy,
   tap: clickAt,
+  recenter: () => recenterCamera(),
   toggleView,
   respawn: () => { releaseAll(); respawn(); },   // 押しっぱなしで残ったときも「戻る」で直る
   pause: () => pause(),
@@ -1826,13 +1931,15 @@ function tick(dt, active) {
   if (windmill) windmill.rotation.z += WINDMILL_SPEED * dt;
   updateRuin(dt);
   updateBoss(dt);
+  if (active) moveBoss(dt);   // 一時停止中は近づかない
   updateBreads(dt);
   updateResidents(dt);
   updateTalk(dt);
-  if (active && !talk.active) updatePlayer(dt);
+  if (active && !talk.active) { updatePlayer(dt); collideBoss(dt); }
   else moveSpeed = 0;
   collidePeople(active);
   updateAnimation(dt);
+  updateRecenter(dt);
   updateCamera();
 }
 
@@ -1846,7 +1953,7 @@ renderer.setAnimationLoop(() => {
 
   fpsAcc += dt; fpsFrames++;
   if (fpsAcc > 0.5) {
-    hud.textContent = ready ? `${daytime.clock}  ·  ${Math.round(fpsFrames / fpsAcc)} fps  ·  ${style.enabled ? 'アニメ調' : '元の見た目'}  ·  x ${feet.x.toFixed(1)}  y ${feet.y.toFixed(2)}  z ${feet.z.toFixed(1)}` : '';
+    hud.textContent = ready ? `${daytime.clock}  ·  ${Math.round(fpsFrames / fpsAcc)} fps  ·  ボスまで ${Math.round(bossDistance())}m  ·  ${style.enabled ? 'アニメ調' : '元の見た目'}  ·  x ${feet.x.toFixed(1)}  y ${feet.y.toFixed(2)}  z ${feet.z.toFixed(1)}` : '';
     fpsAcc = 0; fpsFrames = 0;
   }
 });

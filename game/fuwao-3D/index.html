@@ -57,6 +57,7 @@
   #touchUI .btn-reset { right: calc(64px + env(safe-area-inset-right)); }
   #touchUI .btn-view { right: calc(116px + env(safe-area-inset-right)); }
   #touchUI .btn-time { right: calc(168px + env(safe-area-inset-right)); }
+  #touchUI .btn-front { right: calc(220px + env(safe-area-inset-right)); }
   #overlay .touch-help { display: none; margin-top: 10px; font-size: 14px; line-height: 1.7; }
   body.touch #overlay table { display: none; }
   body.touch #overlay .touch-help { display: block; }
@@ -110,6 +111,7 @@
     <tr><td>Space</td><td>ジャンプ（空中でもう一度押し続けるとジェット噴射）</td></tr>
     <tr><td>F</td><td>パンを発射</td></tr>
     <tr><td>クリック</td><td>人と話す（近くで「話す」が出たとき。Space / Enter で次へ）</td></tr>
+    <tr><td>C</td><td>カメラをふわおの正面の向きへ</td></tr>
     <tr><td>V</td><td>三人称 / 一人称 切り替え</td></tr>
     <tr><td>T</td><td>アニメ調 / 元の見た目 切り替え</td></tr>
     <tr><td>N</td><td>押している間、時間を早送り</td></tr>
@@ -122,6 +124,7 @@
     ジャンプ：空中でもう一度押し続けるとジェット噴射<br>
     発射：パンを撃つ（空中でも）<br>
     人をタップ：話す（もう一度タップで次へ）<br>
+    前：カメラをふわおの正面の向きへ<br>
     時：押している間、時間を早送り
   </div>
 </div>
@@ -130,6 +133,7 @@
   <div class="joy-ring"><div class="joy-knob"></div></div>
   <div class="btn btn-fire">発射</div>
   <div class="btn btn-jump">ジャンプ</div>
+  <div class="btn btn-small btn-front">前</div>
   <div class="btn btn-small btn-time">時</div>
   <div class="btn btn-small btn-view">視点</div>
   <div class="btn btn-small btn-reset">戻る</div>

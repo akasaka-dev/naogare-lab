@@ -12,7 +12,7 @@ function capture(el, id) {
   try { el.setPointerCapture(id); } catch { /* 追いかけられなくても操作はできる */ }
 }
 
-export function createTouchControls({ press, release, fire, look, tap, toggleView, respawn, pause, isPlaying }) {
+export function createTouchControls({ press, release, fire, look, tap, recenter, toggleView, respawn, pause, isPlaying }) {
   const root = document.getElementById('touchUI');
   const ring = root.querySelector('.joy-ring');
   const knob = root.querySelector('.joy-knob');
@@ -125,6 +125,7 @@ export function createTouchControls({ press, release, fire, look, tap, toggleVie
   holdButton(root.querySelector('.btn-time'), 'KeyN');   // 押している間、時間を早送り
   tapButton(root.querySelector('.btn-fire'), fire);
   tapButton(root.querySelector('.btn-view'), toggleView);
+  tapButton(root.querySelector('.btn-front'), recenter);   // カメラをロボの正面へ
   tapButton(root.querySelector('.btn-reset'), respawn);
   tapButton(root.querySelector('.btn-pause'), pause);
 
