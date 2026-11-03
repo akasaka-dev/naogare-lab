@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>ふわおの世界 3D</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Klee+One:wght@400;600&display=swap" rel="stylesheet">
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #1a1410; font-family: "Hiragino Maru Gothic ProN", "Yu Gothic UI", "Meiryo", sans-serif; }
   canvas { display: block; }
@@ -57,6 +60,31 @@
   #overlay .touch-help { display: none; margin-top: 10px; font-size: 14px; line-height: 1.7; }
   body.touch #overlay table { display: none; }
   body.touch #overlay .touch-help { display: block; }
+
+  /* ---- 会話：人物画と手書き風の吹き出し（線は talk.js が SVG で描く） ---- */
+  #talk { display: none; position: fixed; inset: 0; user-select: none; -webkit-user-select: none; touch-action: none; cursor: pointer; }
+  body.talking #talk { display: block; }
+  body.talking #touchUI .btn, body.talking #touchUI .joy-ring, body.talking #hud { display: none; }
+  #talk .talk-portrait { display: none; position: absolute; bottom: 0; left: calc(2vw + env(safe-area-inset-left));
+    height: min(52vh, 440px); max-width: 45vw; object-fit: contain; object-position: bottom; pointer-events: none;
+    filter: drop-shadow(0 4px 10px rgba(0,0,0,0.35)); }
+  #talk .talk-bubble { position: absolute; left: 0; top: 0; isolation: isolate; box-sizing: border-box;
+    width: min(540px, calc(100vw - 24px)); min-height: 96px; padding: 14px 28px 26px;
+    font-family: "Klee One", "Hiragino Maru Gothic ProN", "Yu Gothic UI", sans-serif; color: #3a2a1e; }
+  #talk .talk-bubble svg { position: absolute; left: 0; top: 0; z-index: -1; overflow: visible; pointer-events: none; }
+  #talk .talk-bubble .fill { fill: #fffaf0; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.25)); }
+  #talk .talk-bubble .ink { fill: none; stroke: #3a2a1e; stroke-width: 2.6; stroke-linejoin: round; stroke-linecap: round; }
+  #talk .talk-bubble .ink2 { fill: none; stroke: #3a2a1e; stroke-width: 1.4; stroke-linejoin: round; stroke-linecap: round; opacity: 0.6; }
+  #talk .talk-name { font-size: 15px; font-weight: 600; color: #b5651d; min-height: 1em; margin-bottom: 4px; }
+  #talk .talk-text { font-size: 21px; line-height: 1.65; white-space: pre-wrap; min-height: 1.65em; }
+  #talk .talk-next { position: absolute; right: 22px; bottom: 8px; font-size: 13px; color: #b5651d; opacity: 0; }
+  #talk .talk-bubble.done .talk-next { animation: talk-next 0.9s ease-in-out infinite; }
+  @keyframes talk-next { 0%, 100% { opacity: 1; transform: translateY(0); } 50% { opacity: 0.5; transform: translateY(3px); } }
+  /* 話せる人の頭の上に出す目印 */
+  #talkHint { display: none; position: fixed; left: 0; top: 0; pointer-events: none; padding: 3px 12px 4px; border-radius: 14px 16px 13px 15px;
+    font-family: "Klee One", sans-serif; font-weight: 600; font-size: 14px; color: #3a2a1e; background: #fffaf0;
+    border: 2px solid #3a2a1e; box-shadow: 0 2px 5px rgba(0,0,0,0.3); white-space: nowrap; }
+  @media (max-width: 600px) { #talk .talk-text { font-size: 18px; } }
 </style>
 <script type="importmap">
 {
@@ -81,6 +109,7 @@
     <tr><td>Shift</td><td>走る</td></tr>
     <tr><td>Space</td><td>ジャンプ（空中でもう一度押し続けるとジェット噴射）</td></tr>
     <tr><td>F</td><td>パンを発射</td></tr>
+    <tr><td>クリック</td><td>人と話す（近くで「話す」が出たとき。Space / Enter で次へ）</td></tr>
     <tr><td>V</td><td>三人称 / 一人称 切り替え</td></tr>
     <tr><td>T</td><td>アニメ調 / 元の見た目 切り替え</td></tr>
     <tr><td>N</td><td>押している間、時間を早送り</td></tr>
@@ -92,6 +121,7 @@
     画面の右側をドラッグ：カメラを回す<br>
     ジャンプ：空中でもう一度押し続けるとジェット噴射<br>
     発射：パンを撃つ（空中でも）<br>
+    人をタップ：話す（もう一度タップで次へ）<br>
     時：押している間、時間を早送り
   </div>
 </div>
@@ -105,6 +135,16 @@
   <div class="btn btn-small btn-reset">戻る</div>
   <div class="btn btn-small btn-pause">II</div>
 </div>
+<div id="talk">
+  <img class="talk-portrait" alt="">
+  <div class="talk-bubble">
+    <svg><path class="fill"/><path class="ink"/><path class="ink2"/></svg>
+    <div class="talk-name"></div>
+    <div class="talk-text"></div>
+    <div class="talk-next">▼</div>
+  </div>
+</div>
+<div id="talkHint">話す</div>
 <div id="crosshair"></div>
 <div id="hud"></div>
 <script type="module" src="main.js"></script>

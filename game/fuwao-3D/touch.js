@@ -12,7 +12,7 @@ function capture(el, id) {
   try { el.setPointerCapture(id); } catch { /* 追いかけられなくても操作はできる */ }
 }
 
-export function createTouchControls({ press, release, fire, look, toggleView, respawn, pause, isPlaying }) {
+export function createTouchControls({ press, release, fire, look, tap, toggleView, respawn, pause, isPlaying }) {
   const root = document.getElementById('touchUI');
   const ring = root.querySelector('.joy-ring');
   const knob = root.querySelector('.joy-knob');
@@ -21,6 +21,8 @@ export function createTouchControls({ press, release, fire, look, toggleView, re
   const stick = { active: false, x: 0, y: 0, mag: 0 };
   let stickId = null, stickX = 0, stickY = 0;
   let lookId = null, lookX = 0, lookY = 0;
+  // 指を置いた場所と時刻。ほとんど動かさずにすぐ離したらタップ（人と話す）
+  const downs = new Map();
 
   // 一度でも指で触ったらタッチ操作を出す（最初から出すのは指で操作する端末だけ）
   if (window.matchMedia('(pointer: coarse)').matches) document.body.classList.add('touch');
@@ -58,6 +60,7 @@ export function createTouchControls({ press, release, fire, look, toggleView, re
       lookId = e.pointerId;
       lookX = e.clientX; lookY = e.clientY;
     }
+    downs.set(e.pointerId, { x: e.clientX, y: e.clientY, t: performance.now() });
     capture(area, e.pointerId);
   });
   area.addEventListener('pointermove', (e) => {
@@ -66,6 +69,11 @@ export function createTouchControls({ press, release, fire, look, toggleView, re
       look((e.clientX - lookX) * LOOK_SENS, (e.clientY - lookY) * LOOK_SENS);
       lookX = e.clientX; lookY = e.clientY;
     }
+  });
+  area.addEventListener('pointerup', (e) => {
+    const d = downs.get(e.pointerId);
+    downs.delete(e.pointerId);
+    if (d && Math.hypot(e.clientX - d.x, e.clientY - d.y) < 12 && performance.now() - d.t < 350) tap(e.clientX, e.clientY);
   });
   const up = (e) => {
     if (e.pointerId === stickId) endStick();
@@ -124,6 +132,7 @@ export function createTouchControls({ press, release, fire, look, toggleView, re
   function reset() {
     endStick();
     lookId = null;
+    downs.clear();
     holdOffs.forEach((off) => off());
     root.querySelectorAll('.down').forEach((b) => b.classList.remove('down'));
   }

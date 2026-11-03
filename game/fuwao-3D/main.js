@@ -7,6 +7,8 @@ import { MeshBVH, acceleratedRaycast } from 'three-mesh-bvh';
 import { createAnimeStyle } from './anime.js';
 import { createTouchControls } from './touch.js';
 import { createDaytime, skyUniforms, SKY_GLSL } from './daytime.js';
+import { createTalk } from './talk.js';
+import { TALKS } from './talks.js';
 
 // ---- 値はすべて docs/scene-notes.md より（色は Blender のリニア値） ----
 const lin = (r, g, b) => new THREE.Color().setRGB(r, g, b, THREE.LinearSRGBColorSpace);
@@ -604,6 +606,9 @@ if (new URLSearchParams(location.search).has('debug')) {
     restoreAll() { ruinAreas.forEach((a) => restoreArea(a.name)); },
     // 例: __fuwao.daytime.set(18.5)
     get daytime() { return daytime; },
+    // 例: __fuwao.talk(3)（residents の番号の人と話す）
+    talk(i) { startTalk(residents[i]); },
+    advanceTalk,
   };
 }
 
@@ -813,11 +818,12 @@ const RESIDENT_KINDS = {
   grandma: { speed: 0.31, eatPos: new THREE.Vector3(0.03, 1.04, 0.45), radius: 0.28, height: 1.5 },   // おじいちゃんと並んで歩ける速さ
   girl: { speed: 0.46, eatPos: new THREE.Vector3(0, 0.78, 0.46), radius: 0.25, height: 1.2, hungry: true, smileAt: 32 },
 };
+// id は会話の台本（talks.js）を引く名前
 const RESIDENTS = [
-  { kind: 'grandpa', home: new THREE.Vector3(15, 0, 7.5), radius: 5 },   // スタート地点の西、表通り
-  { kind: 'grandpa', home: new THREE.Vector3(2, 0, 6), radius: 5 },
-  { kind: 'grandma', home: new THREE.Vector3(5, 0, 7), radius: 5 },     // 西のおじいちゃんの近く
-  { kind: 'girl', home: new THREE.Vector3(19, 0, 6), radius: 3 },
+  { id: 'grandpa_east', kind: 'grandpa', home: new THREE.Vector3(15, 0, 7.5), radius: 5 },   // スタート地点の西、表通り
+  { id: 'grandpa_west', kind: 'grandpa', home: new THREE.Vector3(2, 0, 6), radius: 5 },
+  { id: 'grandma', kind: 'grandma', home: new THREE.Vector3(5, 0, 7), radius: 5 },     // 西のおじいちゃんの近く
+  { id: 'girl', kind: 'girl', home: new THREE.Vector3(19, 0, 6), radius: 3 },
 ];
 const RES_HURRY = 1.6;           // パンへ向かうときは少し急ぐ（速さもアニメもこの倍）
 const RES_TURN = 3;              // 向きを変える速さ
@@ -829,7 +835,7 @@ const residents = [];
 const _rd = new THREE.Vector3();
 const _rm = new THREE.Vector3();
 function placeResidents(models) {
-  for (const { kind, home, radius } of RESIDENTS) {
+  for (const { id, kind, home, radius } of RESIDENTS) {
     const gltf = models[kind], k = RESIDENT_KINDS[kind];
     const clip = (name) => THREE.AnimationClip.findByName(gltf.animations, name);
     const root = cloneSkinned(gltf.scene);
@@ -856,7 +862,7 @@ function placeResidents(models) {
       if (o.userData.hit_height) hitHeight = o.userData.hit_height;
     });
     const r = {
-      kind: k, root, radius: hitRadius, height: hitHeight, roam: radius, home, mixer, state: 'idle', wait: 1 + Math.random() * 2, target: new THREE.Vector3(), bread: null,
+      id, kindName: kind, kind: k, root, radius: hitRadius, height: hitHeight, roam: radius, home, mixer, state: 'idle', wait: 1 + Math.random() * 2, target: new THREE.Vector3(), bread: null,
       idle, walk: mixer.clipAction(clip('Walk')).play(), walkWeight: 0,
       eat: once('Eat'), joy: once('Joy'), oneShot: null,
       faces: { sad: once('Face_Sad'), smile: once('Face_Smile') }, face: null,
@@ -913,13 +919,17 @@ function updateResidents(dt) {
     const pos = r.root.position;
     // 食べに行っていたパンが消えたらあきらめる
     if (r.bread && r.state !== 'eat' && r.bread.state !== 'rest') { r.bread.claimedBy = null; r.bread = null; r.state = 'idle'; r.wait = 1; }
-    if (!r.bread && r.state !== 'eat') {
+    if (!r.bread && r.state !== 'eat' && r.state !== 'talk') {
       const b = findBread(r);
       if (b) { r.bread = b; b.claimedBy = r; r.state = 'toBread'; r.stuck = 0; r.walkTime = 0; }
     }
 
     let speed = 0;
-    if (r.state === 'idle') {
+    if (r.state === 'talk') {
+      // 話している間は立ち止まって、ロボのほうを向く
+      const want = Math.atan2(feet.x - pos.x, feet.z - pos.z);
+      r.root.rotation.y = turnToward(r.root.rotation.y, want, 1 - Math.exp(-RES_TURN * dt));
+    } else if (r.state === 'idle') {
       if ((r.wait -= dt) <= 0) {
         const a = Math.random() * Math.PI * 2, d = r.roam * Math.sqrt(Math.random());
         r.target.set(r.home.x + Math.cos(a) * d, pos.y, r.home.z + Math.sin(a) * d);
@@ -1128,6 +1138,93 @@ async function init() {
   ready = true;
 }
 
+// ---- 会話 ----
+// 人をクリック（タップ）すると話す。台本は talks.js、吹き出しは talk.js。
+// マウスが画面に固定されているとき（カーソルがない）は、近くにいて画面の中ほどに見えている人の頭に
+// 「話す」を出し、クリックでその人と話す。カーソルや指で操作するときは、触った人と話す
+const TALK_RANGE = 10;     // クリックで話せる距離（m）
+const TALK_NEAR = 4;       // 「話す」を出す距離（m）
+const TALK_AIM = 0.35;     // 「話す」を出すのは、画面の中心から高さのこの割合までに見えている人
+const talk = createTalk();
+let talkWith = null;
+const _sp = new THREE.Vector3();
+// 住民の頭（または足もと）の画面上の位置（px）。カメラの後ろなら null
+function screenOf(r, up) {
+  _sp.copy(r.root.position);
+  _sp.y += up;
+  _sp.project(camera);
+  if (_sp.z > 1) return null;
+  return { x: (_sp.x + 1) / 2 * window.innerWidth, y: (1 - _sp.y) / 2 * window.innerHeight };
+}
+// カメラから胸のあたりまでのあいだに、壁などがないか
+function inSight(r) {
+  _sp.copy(r.root.position);
+  _sp.y += r.height * 0.7;
+  _d.subVectors(_sp, camera.position);
+  const len = _d.length();
+  const hit = cast(camera.position, _d.normalize(), len);
+  return !hit || hit.distance > len - 0.3;
+}
+// 画面の (x, y) に見えている住民（tol は当たりの広さ px）。何人も重なっていたら手前の人
+function residentAt(x, y, tol = 8) {
+  let best = null, bestD = TALK_RANGE;
+  for (const r of residents) {
+    const d = r.root.position.distanceTo(feet);
+    if (d > bestD || r.state === 'eat') continue;
+    const foot = screenOf(r, 0), head = screenOf(r, r.height);
+    if (!foot || !head) continue;
+    const halfW = (r.radius + 0.1) * (foot.y - head.y) / r.height;
+    if (Math.abs(x - (foot.x + head.x) / 2) > halfW + tol || y < head.y - tol || y > foot.y + tol) continue;
+    if (!inSight(r)) continue;
+    best = r; bestD = d;
+  }
+  return best;
+}
+// 「話す」を出す人：近くにいて、画面の中心に一番近く見えている人
+function talkTarget() {
+  if (!onGround || floating || jetting) return null;
+  let best = null, bestD = Infinity;
+  const cx = window.innerWidth / 2, cy = window.innerHeight / 2, lim = window.innerHeight * TALK_AIM;
+  for (const r of residents) {
+    if (r.root.position.distanceTo(feet) > TALK_NEAR || r.state === 'eat') continue;
+    const p = screenOf(r, r.height * 0.6);
+    if (!p) continue;
+    const d = Math.hypot(p.x - cx, p.y - cy);
+    if (d < lim && d < bestD && inSight(r)) { best = r; bestD = d; }
+  }
+  return best;
+}
+function startTalk(r) {
+  if (!r || talk.active || !onGround || floating || jetting) return;
+  const script = TALKS[r.id] || TALKS[r.kindName];
+  if (!script) return;
+  if (r.bread) { r.bread.claimedBy = null; r.bread = null; }
+  r.state = 'talk';
+  talkWith = r;
+  keys.clear();
+  touch.reset();
+  talk.open(script);
+}
+function advanceTalk() {
+  if (!talk.advance()) return;
+  talkWith.state = 'idle';
+  talkWith.wait = RES_IDLE[0];
+  talkWith = null;
+}
+let hintTarget = null;
+function updateTalk(dt) {
+  if (talk.active) {
+    // ロボも話し相手のほうを向く
+    const p = talkWith.root.position;
+    heading = turnToward(heading, Math.atan2(p.x - feet.x, p.z - feet.z), 1 - Math.exp(-6 * dt));
+    const head = screenOf(talkWith, talkWith.height + 0.1);
+    talk.update(dt, head ? { ...head, visible: head.y > 0 && head.y < window.innerHeight && head.x > 0 && head.x < window.innerWidth } : { visible: false });
+    return;
+  }
+  hintTarget = playing ? talkTarget() : null;
+  talk.hint(hintTarget && screenOf(hintTarget, hintTarget.height + 0.15));
+}
+
 // ---- 操作 ----
 let ready = false;
 let playing = false;
@@ -1168,8 +1265,35 @@ document.addEventListener('pointerlockchange', () => {
 });
 
 let dragging = false;
-renderer.domElement.addEventListener('pointerdown', (e) => { dragging = dragLook && playing && e.pointerType !== 'touch'; });
-window.addEventListener('pointerup', () => { dragging = false; });
+let downX = 0, downY = 0, downTime = 0;
+renderer.domElement.addEventListener('pointerdown', (e) => {
+  dragging = dragLook && playing && e.pointerType !== 'touch';
+  downX = e.clientX; downY = e.clientY; downTime = performance.now();
+});
+window.addEventListener('pointerup', (e) => {
+  // ドラッグで見回すときは、動かさずに離したらクリック
+  if (dragging && Math.hypot(e.clientX - downX, e.clientY - downY) < 6 && performance.now() - downTime < 400) clickAt(e.clientX, e.clientY);
+  dragging = false;
+});
+// 画面の (x, y) をクリック（タップ）した：そこに見えている人か、「話す」が出ている人と話す
+function clickAt(x, y) {
+  if (!playing || talk.active) return;
+  let r = residentAt(x, y);
+  if (!r && hintTarget) {
+    const h = screenOf(hintTarget, hintTarget.height + 0.15);
+    if (h && Math.hypot(x - h.x, y - h.y + 14) < 40) r = hintTarget;
+  }
+  startTalk(r);
+}
+// マウスが固定されているときはカーソルがないので、「話す」が出ている人（または画面の中心の人）と話す
+window.addEventListener('mousedown', (e) => {
+  if (!playing || e.button !== 0 || !document.pointerLockElement) return;
+  if (talk.active) advanceTalk();
+  else startTalk(hintTarget || residentAt(window.innerWidth / 2, window.innerHeight / 2, 20));
+});
+document.getElementById('talk').addEventListener('pointerdown', (e) => {
+  if (e.button === 0 && !document.pointerLockElement) advanceTalk();
+});
 function lookBy(dYaw, dPitch) {
   view.yaw -= dYaw;
   const [lo, hi] = view.thirdPerson ? [-0.35, 1.2] : [-1.4, 1.4];
@@ -1187,6 +1311,10 @@ window.addEventListener('wheel', (e) => {
 const keys = new Set();
 window.addEventListener('keydown', (e) => {
   if (dragLook && playing && e.code === 'Escape') { pause(); return; }
+  if (playing && talk.active) {
+    if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); if (!e.repeat) advanceTalk(); }
+    return;
+  }
   keys.add(e.code);
   if (!playing) return;
   if (e.code === 'KeyR') respawn();
@@ -1208,6 +1336,7 @@ const touch = createTouchControls({
   release: (code) => keys.delete(code),
   fire: () => fire(),
   look: lookBy,
+  tap: clickAt,
   toggleView,
   respawn: () => { releaseAll(); respawn(); },   // 押しっぱなしで残ったときも「戻る」で直る
   pause: () => pause(),
@@ -1610,7 +1739,8 @@ function tick(dt, active) {
   updateBoss(dt);
   updateBreads(dt);
   updateResidents(dt);
-  if (active) updatePlayer(dt);
+  updateTalk(dt);
+  if (active && !talk.active) updatePlayer(dt);
   else moveSpeed = 0;
   collidePeople(active);
   updateAnimation(dt);
