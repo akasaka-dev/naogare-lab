@@ -211,7 +211,7 @@ const progressBar = document.querySelector('#progress div');
 const hud = document.getElementById('hud');
 const crosshair = document.getElementById('crosshair');
 
-const FILES = ['models/town.glb', 'models/distant.glb', 'models/pancannon.glb', 'models/germboss.glb', 'models/bread.glb', 'models/grandpa.glb', 'models/girl.glb', 'models/grandma.glb', 'models/town_ruin.glb'];
+const FILES = ['models/town.glb', 'models/distant.glb', 'models/pancannon.glb', 'models/germboss.glb', 'models/bread.glb', 'models/grandpa.glb', 'models/girl.glb', 'models/grandma.glb', 'models/town_ruin.glb', 'models/mayor.glb'];
 const loaded = {}, total = {};
 // 公開版のモデルは meshopt で圧縮してある（25MB を超えるファイルは置けないため）
 const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
@@ -816,6 +816,8 @@ function updateBreads(dt) {
 const RESIDENT_KINDS = {
   grandpa: { speed: 0.3, eatPos: new THREE.Vector3(0.04, 1.11, 0.48), radius: 0.3, height: 1.62 },   // 1サイクル約0.4m。杖の分だけ太め
   grandma: { speed: 0.31, eatPos: new THREE.Vector3(0.03, 1.04, 0.45), radius: 0.28, height: 1.5 },   // おじいちゃんと並んで歩ける速さ
+  // 町長は世界に 1 人。パンは食べない（Eat がない）。立ち止まると、ときどき Think で考えこむ
+  mayor: { speed: 0.5, radius: 0.32, height: 1.75, think: 0.4 },
   girl: { speed: 0.46, eatPos: new THREE.Vector3(0, 0.78, 0.46), radius: 0.25, height: 1.2, hungry: true, smileAt: 32 },
 };
 // id は会話の台本（talks.js）を引く名前
@@ -830,6 +832,7 @@ const RESIDENTS = [
     house: { door: GRANDMA_DOOR, way: [], out: [6.5, 18.5] } },
   { id: 'girl', kind: 'girl', home: new THREE.Vector3(19, 0, 6), radius: 3,          // 橋の上。帰りは橋を西へ渡る
     house: { door: GRANDMA_DOOR, way: [new THREE.Vector3(15, 0, 6.3), new THREE.Vector3(8, 0, 8.3)], out: [7, 18] } },
+  { id: 'mayor', kind: 'mayor', home: new THREE.Vector3(-11, 0, 15), radius: 2.5 },   // 広場、噴水の東側
 ];
 const RES_HOME_HURRY = 1.25;     // 家へ帰るときは少し急ぐ
 const RES_HURRY = 1.6;           // パンへ向かうときは少し急ぐ（速さもアニメもこの倍）
@@ -871,7 +874,7 @@ function placeResidents(models) {
     const r = {
       id, kindName: kind, house, route: null, leg: 0, kind: k, root, radius: hitRadius, height: hitHeight, roam: radius, home, mixer, state: 'idle', wait: 1 + Math.random() * 2, target: new THREE.Vector3(), bread: null,
       idle, walk: mixer.clipAction(clip('Walk')).play(), walkWeight: 0,
-      eat: once('Eat'), joy: once('Joy'), oneShot: null,
+      eat: once('Eat'), joy: once('Joy'), think: once('Think'), oneShot: null,
       faces: { sad: once('Face_Sad'), smile: once('Face_Smile') }, face: null,
     };
     // ふだんの待機。おなかがすいている間は Hungry
@@ -912,6 +915,7 @@ function canWalkTo(from, to) {
   return gy !== null && Math.abs(gy - from.y) < 0.6 && !waterLevel(to, gy);
 }
 function findBread(r) {
+  if (!r.eat) return null;
   let best = null, bestD = RES_SEE_BREAD;
   for (const b of breads) {
     if (b.state !== 'rest' || b.claimedBy || b === r.ignore) continue;
@@ -1006,7 +1010,11 @@ function updateResidents(dt) {
         else { r.stuck += dt; speed = 0; }
       }
     } else if (r.state === 'idle') {
-      if ((r.wait -= dt) <= 0) {
+      if ((r.wait -= dt) <= 0 && r.think && !r.oneShot && Math.random() < r.kind.think) {
+        r.think.reset().play();
+        r.oneShot = r.think;
+        r.wait = r.think.getClip().duration + 1;
+      } else if (r.wait <= 0 && !r.oneShot) {
         const a = Math.random() * Math.PI * 2, d = r.roam * Math.sqrt(Math.random());
         r.target.set(r.home.x + Math.cos(a) * d, pos.y, r.home.z + Math.sin(a) * d);
         if (canWalkTo(pos, r.target)) { r.state = 'walk'; r.walkTime = 0; }
@@ -1136,7 +1144,7 @@ function catchBread(b) {
   const p = b.root.position, br = 0.15 * b.root.scale.x;
   for (const r of residents) {
     const pos = r.root.position;
-    if (!r.root.visible) continue;
+    if (!r.root.visible || !r.eat) continue;   // 町長はパンを受け止めない
     let dx = p.x - pos.x, dz = p.z - pos.z;
     const d = Math.hypot(dx, dz);
     if (d > r.radius + br || p.y < pos.y - br || p.y > pos.y + r.height + br) continue;
@@ -1158,7 +1166,7 @@ function catchBread(b) {
 }
 
 async function init() {
-  const [town, distant, pancannon, germboss, bread, grandpa, girl, grandma, townRuin] = await Promise.all(FILES.map(load));
+  const [town, distant, pancannon, germboss, bread, grandpa, girl, grandma, townRuin, mayor] = await Promise.all(FILES.map(load));
   statusEl.textContent = 'シーンを組み立て中…';
   await new Promise((r) => setTimeout(r, 0));
 
@@ -1191,7 +1199,7 @@ async function init() {
   setupAnimations(pancannon.animations);
   placeBoss(germboss);
   setupBread(bread);
-  placeResidents({ grandpa, girl, grandma });
+  placeResidents({ grandpa, girl, grandma, mayor });
 
   // 夜にふわおのまわりを照らすランプ（昼は明るさ 0。ライトの数が変わると全部のシェーダーを作り直すので、出しっぱなしにする）
   const lamp = new THREE.PointLight(lin(1.0, 0.72, 0.42), 0, 14, 2);

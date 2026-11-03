@@ -17,6 +17,11 @@ export const TALKS = {
     portrait: null,
     lines: ['（まだ会話はありません）'],
   },
+  mayor: {
+    name: '町長',
+    portrait: null,
+    lines: ['（まだ会話はありません）'],
+  },
   girl: {
     name: '女の子',
     portrait: null,
