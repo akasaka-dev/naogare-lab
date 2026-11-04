@@ -2664,9 +2664,9 @@
     document.getElementById('omakeStage').innerHTML = '';
     document.getElementById('omakePlayBtn').textContent = '⏸';
     renderOmakeBgmOptions();
-    document.getElementById('omakeBgmSelect').value = 'ending';
-    SoundMgr.setEndingLoop(true);
-    omakeApplyBgm('ending');
+    document.getElementById('omakeBgmSelect').value = 'title';
+    SoundMgr.setEndingLoop(true); // only matters if the ending theme gets picked from the list
+    omakeApplyBgm('title');
     document.getElementById('omakeScreen').classList.remove('hidden');
     omakeShow(0);
   }
