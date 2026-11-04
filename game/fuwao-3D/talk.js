@@ -11,6 +11,8 @@ const TAIL_HALF = 13;          // しっぽの付け根の半分の幅（px）
 const TAIL_LEN = [22, 56];     // しっぽの長さ（px）
 const MARGIN = 12;             // 画面の端からこれだけあける（px）
 const HEAD_GAP = 64;           // 頭の上の吹き出しは、頭からこれだけ上（px）
+const SIDE_MIN = 260;          // 横に出すときは、ここまで吹き出しを細くしてよい（px）
+const SIDE_GAP = 90;           // 頭の上に入らないとき、横に出す吹き出しは頭の点からこれだけ離す（px）
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
@@ -104,6 +106,16 @@ export function createTalk() {
   const [fillPath, inkPath, ink2Path] = bubble.querySelectorAll('svg path');
   const svg = bubble.querySelector('svg');
   const hintEl = document.getElementById('talkHint');
+  // まだ出していない文字も見えない形で入れておき、吹き出しの大きさを最初からせりふ全体に合わせる
+  // （文字が増えるたびに吹き出しが大きくなって、置き場所が途中で変わらないように）
+  const shownEl = document.createElement('span');
+  const restEl = document.createElement('span');
+  restEl.style.visibility = 'hidden';
+  textEl.replaceChildren(shownEl, restEl);
+  const setText = () => {
+    shownEl.textContent = chars.slice(0, shown).join('');
+    restEl.textContent = chars.slice(shown).join('');
+  };
 
   let entry = null, line = 0, chars = [], shown = 0, wait = 0;
   let boil = 0, phase = [0, 0], phase2 = [0, 0], start2 = 0, drawnKey = '';
@@ -128,7 +140,7 @@ export function createTalk() {
     chars = Array.from(text);
     shown = 0;
     wait = 0;
-    textEl.textContent = '';
+    setText();
     bubble.classList.remove('done');
   }
   function close() {
@@ -154,7 +166,7 @@ export function createTalk() {
       if (!entry) return false;
       if (shown < chars.length) {
         shown = chars.length;
-        textEl.textContent = chars.join('');
+        setText();
         bubble.classList.add('done');
         return false;
       }
@@ -173,13 +185,14 @@ export function createTalk() {
           const c = chars[shown++];
           wait += 1 / CHAR_RATE + (PAUSE[c] || 0);
         }
-        textEl.textContent = chars.slice(0, shown).join('');
+        setText();
         if (shown >= chars.length) bubble.classList.add('done');
       }
 
       // 置き場所
       const W = window.innerWidth, H = window.innerHeight;
-      const bw = bubble.offsetWidth, bh = bubble.offsetHeight;
+      if (bubble.style.width) bubble.style.width = '';
+      let bw = bubble.offsetWidth, bh = bubble.offsetHeight;
       let left, top, tx, ty;
       if (portraitOk) {
         const pr = portrait.getBoundingClientRect();
@@ -193,8 +206,23 @@ export function createTalk() {
         tx = head.x; ty = head.y;
         left = clamp(head.x - bw / 2, MARGIN, W - MARGIN - bw);
         top = clamp(head.y - HEAD_GAP - bh, MARGIN, H - MARGIN - bh);
-        // 頭が画面の上のほうで吹き出しが入らないときは、頭の下に出す
-        if (top + bh > head.y - TAIL_LEN[0]) top = clamp(head.y + HEAD_GAP, MARGIN, H - MARGIN - bh);
+        // 頭の上に入らないときは、顔を隠さないように頭の横へ（広いほう）。横にも入らなければ
+        // 画面のいちばん上で頭からなるべく離す。頭の下に出すのは、頭が画面のほぼ上端にあるときだけ
+        if (top + bh > head.y - TAIL_LEN[0]) {
+          const roomR = W - MARGIN - (head.x + SIDE_GAP), roomL = head.x - SIDE_GAP - MARGIN;
+          const side = Math.max(roomR, roomL);
+          if (side >= SIDE_MIN) {
+            // 横の空きに合わせて細くする（細くした分、縦にのびる）
+            if (side < bw) { bubble.style.width = `${Math.floor(side)}px`; bw = bubble.offsetWidth; bh = bubble.offsetHeight; }
+            left = roomR >= roomL ? head.x + SIDE_GAP : head.x - SIDE_GAP - bw;
+            top = clamp(head.y - bh * 0.75, MARGIN, H - MARGIN - bh);
+          } else if (head.y > bh * 0.6) {
+            left = head.x > W / 2 ? MARGIN : W - MARGIN - bw;
+            top = MARGIN;
+          } else {
+            top = clamp(head.y + HEAD_GAP, MARGIN, H - MARGIN - bh);
+          }
+        }
       } else {
         left = (W - bw) / 2; top = H - bh - H * 0.08;
       }

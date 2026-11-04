@@ -211,7 +211,7 @@ const progressBar = document.querySelector('#progress div');
 const hud = document.getElementById('hud');
 const crosshair = document.getElementById('crosshair');
 
-const FILES = ['models/town.glb', 'models/distant.glb', 'models/pancannon.glb', 'models/germboss.glb', 'models/bread.glb', 'models/grandpa.glb', 'models/girl.glb', 'models/grandma.glb', 'models/town_ruin.glb', 'models/mayor.glb', 'models/germmini.glb', 'models/workshop.glb'];
+const FILES = ['models/town.glb', 'models/distant.glb', 'models/pancannon.glb', 'models/germboss.glb', 'models/bread.glb', 'models/grandpa.glb', 'models/girl.glb', 'models/grandma.glb', 'models/town_ruin.glb', 'models/mayor.glb', 'models/germmini.glb', 'models/workshop.glb', 'models/chief.glb'];
 const loaded = {}, total = {};
 // 公開版のモデルは meshopt で圧縮してある（25MB を超えるファイルは置けないため）
 const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
@@ -610,6 +610,7 @@ if (new URLSearchParams(location.search).has('debug')) {
     // 例: __fuwao.daytime.set(18.5)
     get daytime() { return daytime; },
     get opening() { return opening; },
+    get room() { return room; },
     endOpening() { if (opening) endOpening(); },
     // 例: __fuwao.talk(3)（residents の番号の人と話す）
     talk(i) { startTalk(residents[i]); },
@@ -1387,7 +1388,7 @@ function catchBread(b) {
 }
 
 async function init() {
-  const [town, distant, pancannon, germboss, bread, grandpa, girl, grandma, townRuin, mayor, germmini, workshop] = await Promise.all(FILES.map(load));
+  const [town, distant, pancannon, germboss, bread, grandpa, girl, grandma, townRuin, mayor, germmini, workshop, chief] = await Promise.all(FILES.map(load));
   statusEl.textContent = 'シーンを組み立て中…';
   await new Promise((r) => setTimeout(r, 0));
 
@@ -1429,7 +1430,7 @@ async function init() {
   lamp.position.copy(LAMP_POS);
   player.add(lamp);
   playerLamp = lamp;
-  setupOpening(workshop, mayor);
+  setupOpening(workshop, mayor, chief);
   // 夜に明るくする窓と街灯（廃墟の崩れた家の窓も含む）
   const glowMats = new Set();
   scene.traverse((o) => { if (o.isMesh && /BK_glass/.test(o.material.name)) glowMats.add(o.material); });
@@ -1463,17 +1464,24 @@ async function init() {
 const WORKSHOP_POS = new THREE.Vector3(0, -400, 0);
 const LAMP_POS = new THREE.Vector3(0, 2.6, 0.5);   // ふだんのランプの位置（ロボの上）
 const OPENING_FOV = 40;         // 部屋の中のカメラの画角（メモの目安）
-const OPENING_INTRO = 1.5;      // 部屋の全体を見せてから話し始めるまで（秒）
+const OPENING_INTRO = 3.8;      // 入口から部屋の全体を見せて、町長へ寄っていき、話し始めるまで（秒）
+const OPENING_HOLD = 0.7;       // そのうち、入口からの全体のまま止まっている時間（秒）
+const OPENING_WIDE_FOV = 62;    // 入口から全体を見るときの画角
+const MECHA_SPOT = [0, -2.0];   // 用意されたメカを置く場所（展示台の奥、窯と窯のあいだ。入口からの全体でも正面の奥に見える）
 const OPENING_LAMP = 30;        // 部屋の天井へ移したランプの明るさ
-const FUWAO_FLOAT = 0.85;       // ロボに乗っていないふわおが浮かぶ高さ（町長と目の高さが近くなるように）
-const FUWAO_GAP = 1.35;         // 町長からふわおまで
+const FUWAO_HOP = 0.45;          // 飛び跳ねる高さ（m）
+const FUWAO_HOP_RATE = 7;        // 飛び跳ねる速さ（π / これ 秒で 1 回）
 const FADE_TIME = 0.6;          // 暗転の長さ（秒）
 let opening = null;
 let playerLamp = null;
 let room = null, roomMayor = null, roomMayorMixer = null, roomMayorThink = null, roomFuwao = null;
+let roomChief = null, roomChiefMixer = null, roomChiefActs = {}, roomChiefNow = null;
+let roomMecha = null;
+let openingFov = OPENING_FOV;
+const _oc2 = new THREE.Vector3(), _ot2 = new THREE.Vector3();
 const _oc = new THREE.Vector3(), _ot = new THREE.Vector3(), _oq = new THREE.Quaternion();
 const fadeEl = document.getElementById('fade');
-function setupOpening(workshopGltf, mayorGltf) {
+function setupOpening(workshopGltf, mayorGltf, chiefGltf) {
   room = workshopGltf.scene;
   room.position.copy(WORKSHOP_POS);
   room.traverse((o) => {
@@ -1490,8 +1498,6 @@ function setupOpening(workshopGltf, mayorGltf) {
   roomMayor.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false; } });
   const mark = room.getObjectByName('WI_NPC_Mayor');
   mark.getWorldPosition(roomMayor.position);
-  mark.getWorldQuaternion(_oq);
-  const facing = new THREE.Vector3(0, 0, 1).applyQuaternion(_oq).setY(0).normalize();
   scene.add(roomMayor);
   roomMayorMixer = new THREE.AnimationMixer(roomMayor);
   const clip = (name) => THREE.AnimationClip.findByName(mayorGltf.animations, name);
@@ -1503,36 +1509,97 @@ function setupOpening(workshopGltf, mayorGltf) {
     roomMayorMixer.addEventListener('finished', (e) => { if (e.action === roomMayorThink) roomMayorThink.stop(); });
   }
 
-  // ふわお：ロボの操縦席にいる MP_Rig（体・目・ほっぺ・口）だけを取り出して、町長の正面に浮かべる
+  // ふわお：ロボの操縦席にいる MP_Rig（体・目・ほっぺ・口）だけを取り出して、町長の正面の作業台の上（WI_Stand_Top）に乗せる。
+  // MP_Rig の原点は体の底なので、目印の高さがそのまま天板の上になる
   roomFuwao = new THREE.Group();
   const body = model.getObjectByName('MP_Rig').clone(true);
   body.position.set(0, 0, 0);
   body.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   roomFuwao.add(body);
-  roomFuwao.position.copy(roomMayor.position).addScaledVector(facing, FUWAO_GAP);
-  roomFuwao.userData.baseY = roomMayor.position.y + FUWAO_FLOAT;
+  room.getObjectByName('WI_Stand_Top').getWorldPosition(roomFuwao.position);
+  roomFuwao.userData.baseY = roomFuwao.position.y;
   roomFuwao.rotation.y = Math.atan2(roomMayor.position.x - roomFuwao.position.x, roomMayor.position.z - roomFuwao.position.z);
   roomMayor.rotation.y = roomFuwao.rotation.y + Math.PI;
   scene.add(roomFuwao);
+
+  // 工場長：左の窯の前（WI_NPC_Chief）に、目印の向きのまま立つ。ふだんは腕を組んで Idle、
+  // 台本で who: 'chief' のせりふのあいだは Talk（anim: 'laugh' なら Laugh）
+  roomChief = cloneSkinned(chiefGltf.scene);
+  roomChief.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false; } });
+  const chiefMark = room.getObjectByName('WI_NPC_Chief');
+  chiefMark.getWorldPosition(roomChief.position);
+  chiefMark.getWorldQuaternion(roomChief.quaternion);
+  scene.add(roomChief);
+  roomChiefMixer = new THREE.AnimationMixer(roomChief);
+  for (const name of ['Idle', 'Talk', 'Laugh']) {
+    const c = THREE.AnimationClip.findByName(chiefGltf.animations, name);
+    if (c) roomChiefActs[name] = roomChiefMixer.clipAction(c);
+  }
+  roomChiefNow = roomChiefActs.Idle;
+  roomChiefNow.play();
+
+  // 町のみんなと工場長が用意したメカ：ふわおが乗っていない、からっぽのロボを、作業台のふわおのほうへ向けて置く
+  roomMecha = model.clone(true);
+  roomMecha.traverse((o) => {
+    if (/^(MP_|FX_)/.test(o.name)) o.visible = false;   // ふわお本人と、噴射の炎・煙は出さない
+    if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; }
+  });
+  roomMecha.position.set(MECHA_SPOT[0], 0, MECHA_SPOT[1]).add(WORKSHOP_POS);
+  roomMecha.rotation.y = Math.atan2(roomFuwao.position.x - roomMecha.position.x, roomFuwao.position.z - roomMecha.position.z);
+  scene.add(roomMecha);
+}
+function chiefPlay(name) {
+  const next = roomChiefActs[name] || roomChiefActs.Idle;
+  if (next === roomChiefNow) return;
+  next.reset().play();
+  roomChiefNow.crossFadeTo(next, 0.3, false);
+  roomChiefNow = next;
 }
 // カメラ：WI_Cam_<名前> の位置から WI_Cam_<名前>_Target を見る。ふわおが話すときは町長の肩ごしに
-function openingShot(who) {
+function openingShot(who, jump, shot) {
+  openingFov = OPENING_FOV;
+  // メカの紹介：メカの斜め前（左側）から、少し見下ろして大きく（手前の展示台がかぶらない角度）
+  if (shot === 'mecha') {
+    _ot.set(Math.sin(roomMecha.rotation.y), 0, Math.cos(roomMecha.rotation.y));
+    _oc.copy(roomMecha.position).addScaledVector(_ot, 0.9);
+    _oc.x -= _ot.z * 3.3; _oc.z += _ot.x * 3.3;
+    _oc.y = roomMecha.position.y + 1.8;
+    _ot.copy(roomMecha.position);
+    _ot.y += 1.0;
+    return;
+  }
+  // 最後：右の手前から引いて、メカと作業台のふわおと町長を一緒に
+  if (shot === 'final') {
+    _ot.copy(roomMecha.position).add(roomFuwao.position).multiplyScalar(0.5);
+    _oc.set(3.9, 2.1, 4.3).add(WORKSHOP_POS);
+    _ot.y = WORKSHOP_POS.y + 0.85;
+    openingFov = 50;
+    return;
+  }
+  // 飛び跳ねるときは、横から少し引いて、ふわおと町長を両方入れる
+  if (who === 'fuwao' && jump) {
+    _ot.subVectors(roomFuwao.position, roomMayor.position).setY(0).normalize();
+    const mx = (roomFuwao.position.x + roomMayor.position.x) / 2, mz = (roomFuwao.position.z + roomMayor.position.z) / 2;
+    _oc.set(mx + _ot.z * 3.4 + _ot.x * 0.5, roomMayor.position.y + 1.35, mz - _ot.x * 3.4 + _ot.z * 0.5);
+    _ot.set(mx + _ot.x * 0.3, roomMayor.position.y + 1.05, mz + _ot.z * 0.3);
+    return;
+  }
   if (who === 'fuwao') {
     _ot.subVectors(roomFuwao.position, roomMayor.position).setY(0).normalize();
     _oc.copy(roomMayor.position).addScaledVector(_ot, -1.1);
     _oc.x += _ot.z * 0.95; _oc.z -= _ot.x * 0.95;   // 町長の右肩の外から
     _oc.y = roomMayor.position.y + 1.45;
     _ot.copy(roomFuwao.position);
-    _ot.y -= 0.1;
+    _ot.y = roomFuwao.userData.baseY - 0.1;
     return;
   }
-  const name = who === 'mayor' ? 'Mayor' : 'Overview';
+  const name = who === 'mayor' ? 'Mayor' : who === 'chief' ? 'Chief' : 'Overview';
   room.getObjectByName(`WI_Cam_${name}`).getWorldPosition(_oc);
   room.getObjectByName(`WI_Cam_${name}_Target`).getWorldPosition(_ot);
 }
 function openingHead(who) {
-  _sp.copy(who === 'fuwao' ? roomFuwao.position : roomMayor.position);
-  _sp.y += who === 'fuwao' ? 0.35 : 1.85;
+  _sp.copy(who === 'fuwao' ? roomFuwao.position : who === 'chief' ? roomChief.position : roomMayor.position);
+  _sp.y += who === 'fuwao' ? 0.35 : who === 'chief' ? 1.75 : 1.85;
   _sp.project(camera);
   const x = (_sp.x + 1) / 2 * window.innerWidth, y = (1 - _sp.y) / 2 * window.innerHeight;
   return { x, y, visible: _sp.z < 1 && x > 0 && x < window.innerWidth && y > 0 && y < window.innerHeight };
@@ -1544,7 +1611,6 @@ function updateOpening(dt, active) {
   // 明かりとカメラを部屋に
   if (playerLamp.parent !== room) { room.add(playerLamp); playerLamp.position.set(0, 4, 0.5); }
   playerLamp.intensity = OPENING_LAMP;
-  if (camera.fov !== OPENING_FOV) { camera.fov = OPENING_FOV; camera.updateProjectionMatrix(); }
 
   if (active && o.phase === 'wait') { o.phase = 'intro'; o.t = 0; }
   if (o.phase === 'intro' && o.t > OPENING_INTRO) { o.phase = 'talk'; talk.open(TALKS.opening); }
@@ -1553,15 +1619,46 @@ function updateOpening(dt, active) {
   // 町長が話し始めたら、あごに手を当てて考える
   if (line !== o.line) {
     o.line = line;
+    o.lineT = 0;
+    if (line) o.shotLine = line;   // 話し終わって暗転するあいだは、最後のせりふのカメラのまま
     if (who === 'mayor' && roomMayorThink) roomMayorThink.reset().play();
+    chiefPlay(who !== 'chief' ? 'Idle' : line.anim === 'laugh' ? 'Laugh' : 'Talk');
   }
   if (o.phase === 'fadeout' && o.t > FADE_TIME) { endOpening(); return; }
 
-  // ふわおはふわふわ浮かぶ（話している間は少し弾む）
-  roomFuwao.position.y = roomFuwao.userData.baseY + Math.sin(time.value * (who === 'fuwao' ? 7 : 2.2)) * (who === 'fuwao' ? 0.05 : 0.04);
+  // ふわおは作業台の上で、ゆっくり呼吸するようにふくらむ（話している間は小さく弾む。
+  // anim: 'jump' のせりふでは、天板の上でぴょんぴょん飛び跳ねる）
+  o.lineT = (o.lineT || 0) + dt;
+  const jumping = who === 'fuwao' && line.anim === 'jump';
+  const hop = jumping ? Math.abs(Math.sin(o.lineT * FUWAO_HOP_RATE)) * FUWAO_HOP
+    : who === 'fuwao' ? Math.abs(Math.sin(o.lineT * 9)) * 0.03 : 0;
+  roomFuwao.position.y = roomFuwao.userData.baseY + hop;
+  // 跳ねるときは、着地でつぶれて、上がるときに縦にのびる
+  const h = hop / FUWAO_HOP;
+  const squash = jumping ? 1 - 0.18 * Math.max(0, 1 - h * 4) + 0.08 * h : 1 + Math.sin(time.value * 2.2) * 0.025;
+  roomFuwao.scale.set(1 / Math.sqrt(squash), squash, 1 / Math.sqrt(squash));
   roomMayorMixer.update(dt);
+  roomChiefMixer.update(dt);
 
-  openingShot(o.phase === 'talk' ? who : null);
+  const sl = o.phase === 'fadeout' ? o.shotLine : line;
+  if (o.phase === 'talk' || o.phase === 'fadeout') {
+    openingShot(sl?.who, jumping, sl?.shot);
+  } else {
+    // 入口から部屋の全体を広く見せ、少し止まってから、最初に話す町長のカメラへ寄っていく
+    openingShot(null);
+    _oc.y += 0.3;
+    const k = o.phase === 'intro' ? Math.min(1, Math.max(0, (o.t - OPENING_HOLD) / (OPENING_INTRO - OPENING_HOLD))) : 0;
+    const e = k * k * (3 - 2 * k);
+    if (e > 0) {
+      openingShot('mayor');
+      _oc2.copy(_oc); _ot2.copy(_ot);
+      openingShot(null);
+      _oc.y += 0.3;
+      _oc.lerp(_oc2, e); _ot.lerp(_ot2, e);
+    }
+    openingFov = OPENING_WIDE_FOV + (OPENING_FOV - OPENING_WIDE_FOV) * e;
+  }
+  if (camera.fov !== openingFov) { camera.fov = openingFov; camera.updateProjectionMatrix(); }
   camera.position.copy(_oc);
   camera.lookAt(_ot);
   sky.position.copy(camera.position);
@@ -1577,8 +1674,9 @@ function finishOpening() {
 function endOpening() {
   opening = null;
   document.body.classList.remove('opening');
-  scene.remove(room, roomMayor, roomFuwao);
+  scene.remove(room, roomMayor, roomFuwao, roomChief, roomMecha);
   roomMayorMixer?.uncacheRoot(roomMayor);
+  roomChiefMixer?.uncacheRoot(roomChief);
   player.add(playerLamp);
   playerLamp.position.copy(LAMP_POS);
   camera.fov = 70;
