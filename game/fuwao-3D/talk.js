@@ -123,6 +123,8 @@ export function createTalk() {
     const l = entry.lines[line];
     const text = typeof l === 'string' ? l : l.text;
     setPortrait((typeof l === 'object' && l.portrait) || entry.portrait);
+    // 何人かで話すときは、せりふごとに名前を変えられる（{ name, text }）
+    nameEl.textContent = (typeof l === 'object' && l.name) || entry.name || '';
     chars = Array.from(text);
     shown = 0;
     wait = 0;
@@ -137,10 +139,11 @@ export function createTalk() {
 
   return {
     get active() { return entry !== null; },
+    // 今のせりふ（文字列か { who, name, text, ... }）
+    get line() { return entry ? entry.lines[line] : null; },
     open(e) {
       entry = e;
       line = 0;
-      nameEl.textContent = e.name || '';
       document.body.classList.add('talking');
       hintEl.style.display = 'none';
       drawnKey = '';

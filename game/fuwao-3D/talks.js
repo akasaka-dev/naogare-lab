@@ -7,6 +7,14 @@
 // 今は仮のせりふ。
 
 export const TALKS = {
+  // オープニング（パン工房の中）。who は話している人（mayor / fuwao）で、吹き出しとカメラがその人に向く
+  opening: {
+    lines: [
+      { who: 'mayor', name: '町長', text: '（まだ会話はありません）' },
+      { who: 'fuwao', name: 'ふわお', text: '（まだ会話はありません）' },
+    ],
+  },
+
   grandpa: {
     name: 'おじいちゃん',
     portrait: null,

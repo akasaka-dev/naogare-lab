@@ -211,7 +211,7 @@ const progressBar = document.querySelector('#progress div');
 const hud = document.getElementById('hud');
 const crosshair = document.getElementById('crosshair');
 
-const FILES = ['models/town.glb', 'models/distant.glb', 'models/pancannon.glb', 'models/germboss.glb', 'models/bread.glb', 'models/grandpa.glb', 'models/girl.glb', 'models/grandma.glb', 'models/town_ruin.glb', 'models/mayor.glb', 'models/germmini.glb'];
+const FILES = ['models/town.glb', 'models/distant.glb', 'models/pancannon.glb', 'models/germboss.glb', 'models/bread.glb', 'models/grandpa.glb', 'models/girl.glb', 'models/grandma.glb', 'models/town_ruin.glb', 'models/mayor.glb', 'models/germmini.glb', 'models/workshop.glb'];
 const loaded = {}, total = {};
 // 公開版のモデルは meshopt で圧縮してある（25MB を超えるファイルは置けないため）
 const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
@@ -609,6 +609,8 @@ if (new URLSearchParams(location.search).has('debug')) {
     restoreAll() { ruinAreas.forEach((a) => restoreArea(a.name)); },
     // 例: __fuwao.daytime.set(18.5)
     get daytime() { return daytime; },
+    get opening() { return opening; },
+    endOpening() { if (opening) endOpening(); },
     // 例: __fuwao.talk(3)（residents の番号の人と話す）
     talk(i) { startTalk(residents[i]); },
     advanceTalk,
@@ -1385,7 +1387,7 @@ function catchBread(b) {
 }
 
 async function init() {
-  const [town, distant, pancannon, germboss, bread, grandpa, girl, grandma, townRuin, mayor, germmini] = await Promise.all(FILES.map(load));
+  const [town, distant, pancannon, germboss, bread, grandpa, girl, grandma, townRuin, mayor, germmini, workshop] = await Promise.all(FILES.map(load));
   statusEl.textContent = 'シーンを組み立て中…';
   await new Promise((r) => setTimeout(r, 0));
 
@@ -1424,8 +1426,10 @@ async function init() {
 
   // 夜にふわおのまわりを照らすランプ（昼は明るさ 0。ライトの数が変わると全部のシェーダーを作り直すので、出しっぱなしにする）
   const lamp = new THREE.PointLight(lin(1.0, 0.72, 0.42), 0, 14, 2);
-  lamp.position.set(0, 2.6, 0.5);
+  lamp.position.copy(LAMP_POS);
   player.add(lamp);
+  playerLamp = lamp;
+  setupOpening(workshop, mayor);
   // 夜に明るくする窓と街灯（廃墟の崩れた家の窓も含む）
   const glowMats = new Set();
   scene.traverse((o) => { if (o.isMesh && /BK_glass/.test(o.material.name)) glowMats.add(o.material); });
@@ -1440,11 +1444,146 @@ async function init() {
   respawn();
   tick(0, true);
   renderer.compile(scene, camera);
+  // ?skip のときはオープニングを飛ばして町から始める
+  if (new URLSearchParams(location.search).has('skip')) endOpening();
+  else { opening = { phase: 'wait', t: 0, line: null }; updateOpening(0, false); }
   statusEl.textContent = '';
   document.getElementById('progress').style.display = 'none';
   startLabel.textContent = `${TAP}してはじめる`;
   startLabel.classList.remove('disabled');
   ready = true;
+}
+
+// ---- オープニング（パン工房の中で、ロボに乗っていないふわおと町長が話す） ----
+// スタートを押すと、まずパン工房の中（workshop.glb）の全体を見せてから、台本 TALKS.opening の会話になる。
+// せりふの who（mayor / fuwao）で、吹き出しとカメラがその人に向く。話し終わったら暗転して町（ロボに乗った状態）へ。
+// 部屋は町とは別の場所（WORKSHOP_POS、町の地面のずっと下）に置き、終わったら片づける。
+// 明かりは夜用のランプを部屋の天井へ移して使う（ライトを増やすと、町の全部のシェーダーを作り直すことになるため）。
+// ?skip で飛ばせる
+const WORKSHOP_POS = new THREE.Vector3(0, -400, 0);
+const LAMP_POS = new THREE.Vector3(0, 2.6, 0.5);   // ふだんのランプの位置（ロボの上）
+const OPENING_FOV = 40;         // 部屋の中のカメラの画角（メモの目安）
+const OPENING_INTRO = 1.5;      // 部屋の全体を見せてから話し始めるまで（秒）
+const OPENING_LAMP = 30;        // 部屋の天井へ移したランプの明るさ
+const FUWAO_FLOAT = 0.85;       // ロボに乗っていないふわおが浮かぶ高さ（町長と目の高さが近くなるように）
+const FUWAO_GAP = 1.35;         // 町長からふわおまで
+const FADE_TIME = 0.6;          // 暗転の長さ（秒）
+let opening = null;
+let playerLamp = null;
+let room = null, roomMayor = null, roomMayorMixer = null, roomMayorThink = null, roomFuwao = null;
+const _oc = new THREE.Vector3(), _ot = new THREE.Vector3(), _oq = new THREE.Quaternion();
+const fadeEl = document.getElementById('fade');
+function setupOpening(workshopGltf, mayorGltf) {
+  room = workshopGltf.scene;
+  room.position.copy(WORKSHOP_POS);
+  room.traverse((o) => {
+    if (!o.isMesh) return;
+    const shaft = o.material.transparent;   // 天窓からの光の筒（半透明）は影を作らない
+    o.castShadow = !shaft;
+    o.receiveShadow = !shaft;
+  });
+  scene.add(room);
+  room.updateMatrixWorld(true);
+
+  // 町長：目印の位置に立って、ふわおのほうを向く
+  roomMayor = cloneSkinned(mayorGltf.scene);
+  roomMayor.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false; } });
+  const mark = room.getObjectByName('WI_NPC_Mayor');
+  mark.getWorldPosition(roomMayor.position);
+  mark.getWorldQuaternion(_oq);
+  const facing = new THREE.Vector3(0, 0, 1).applyQuaternion(_oq).setY(0).normalize();
+  scene.add(roomMayor);
+  roomMayorMixer = new THREE.AnimationMixer(roomMayor);
+  const clip = (name) => THREE.AnimationClip.findByName(mayorGltf.animations, name);
+  roomMayorMixer.clipAction(clip('Idle')).play();
+  if (clip('Think')) {
+    roomMayorThink = roomMayorMixer.clipAction(clip('Think'));
+    roomMayorThink.setLoop(THREE.LoopOnce, 1);
+    roomMayorThink.clampWhenFinished = true;
+    roomMayorMixer.addEventListener('finished', (e) => { if (e.action === roomMayorThink) roomMayorThink.stop(); });
+  }
+
+  // ふわお：ロボの操縦席にいる MP_Rig（体・目・ほっぺ・口）だけを取り出して、町長の正面に浮かべる
+  roomFuwao = new THREE.Group();
+  const body = model.getObjectByName('MP_Rig').clone(true);
+  body.position.set(0, 0, 0);
+  body.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  roomFuwao.add(body);
+  roomFuwao.position.copy(roomMayor.position).addScaledVector(facing, FUWAO_GAP);
+  roomFuwao.userData.baseY = roomMayor.position.y + FUWAO_FLOAT;
+  roomFuwao.rotation.y = Math.atan2(roomMayor.position.x - roomFuwao.position.x, roomMayor.position.z - roomFuwao.position.z);
+  roomMayor.rotation.y = roomFuwao.rotation.y + Math.PI;
+  scene.add(roomFuwao);
+}
+// カメラ：WI_Cam_<名前> の位置から WI_Cam_<名前>_Target を見る。ふわおが話すときは町長の肩ごしに
+function openingShot(who) {
+  if (who === 'fuwao') {
+    _ot.subVectors(roomFuwao.position, roomMayor.position).setY(0).normalize();
+    _oc.copy(roomMayor.position).addScaledVector(_ot, -1.1);
+    _oc.x += _ot.z * 0.95; _oc.z -= _ot.x * 0.95;   // 町長の右肩の外から
+    _oc.y = roomMayor.position.y + 1.45;
+    _ot.copy(roomFuwao.position);
+    _ot.y -= 0.1;
+    return;
+  }
+  const name = who === 'mayor' ? 'Mayor' : 'Overview';
+  room.getObjectByName(`WI_Cam_${name}`).getWorldPosition(_oc);
+  room.getObjectByName(`WI_Cam_${name}_Target`).getWorldPosition(_ot);
+}
+function openingHead(who) {
+  _sp.copy(who === 'fuwao' ? roomFuwao.position : roomMayor.position);
+  _sp.y += who === 'fuwao' ? 0.35 : 1.85;
+  _sp.project(camera);
+  const x = (_sp.x + 1) / 2 * window.innerWidth, y = (1 - _sp.y) / 2 * window.innerHeight;
+  return { x, y, visible: _sp.z < 1 && x > 0 && x < window.innerWidth && y > 0 && y < window.innerHeight };
+}
+function updateOpening(dt, active) {
+  const o = opening;
+  o.t += dt;
+  document.body.classList.add('opening');
+  // 明かりとカメラを部屋に
+  if (playerLamp.parent !== room) { room.add(playerLamp); playerLamp.position.set(0, 4, 0.5); }
+  playerLamp.intensity = OPENING_LAMP;
+  if (camera.fov !== OPENING_FOV) { camera.fov = OPENING_FOV; camera.updateProjectionMatrix(); }
+
+  if (active && o.phase === 'wait') { o.phase = 'intro'; o.t = 0; }
+  if (o.phase === 'intro' && o.t > OPENING_INTRO) { o.phase = 'talk'; talk.open(TALKS.opening); }
+  const line = talk.active ? talk.line : null;
+  const who = line && typeof line === 'object' ? line.who : null;
+  // 町長が話し始めたら、あごに手を当てて考える
+  if (line !== o.line) {
+    o.line = line;
+    if (who === 'mayor' && roomMayorThink) roomMayorThink.reset().play();
+  }
+  if (o.phase === 'fadeout' && o.t > FADE_TIME) { endOpening(); return; }
+
+  // ふわおはふわふわ浮かぶ（話している間は少し弾む）
+  roomFuwao.position.y = roomFuwao.userData.baseY + Math.sin(time.value * (who === 'fuwao' ? 7 : 2.2)) * (who === 'fuwao' ? 0.05 : 0.04);
+  roomMayorMixer.update(dt);
+
+  openingShot(o.phase === 'talk' ? who : null);
+  camera.position.copy(_oc);
+  camera.lookAt(_ot);
+  sky.position.copy(camera.position);
+  followShadow(room.position);
+  if (talk.active) talk.update(dt, openingHead(who));
+}
+// 話し終わったら暗転して町へ
+function finishOpening() {
+  opening.phase = 'fadeout';
+  opening.t = 0;
+  fadeEl.classList.add('on');
+}
+function endOpening() {
+  opening = null;
+  document.body.classList.remove('opening');
+  scene.remove(room, roomMayor, roomFuwao);
+  roomMayorMixer?.uncacheRoot(roomMayor);
+  player.add(playerLamp);
+  playerLamp.position.copy(LAMP_POS);
+  camera.fov = 70;
+  camera.updateProjectionMatrix();
+  fadeEl.classList.remove('on');
 }
 
 // ---- 会話 ----
@@ -1504,7 +1643,7 @@ function talkTarget() {
   return best;
 }
 function startTalk(r) {
-  if (!r || talk.active || !onGround || floating || jetting) return;
+  if (!r || opening || talk.active || !onGround || floating || jetting) return;
   const script = TALKS[r.id] || TALKS[r.kindName];
   if (!script) return;
   if (r.bread) { r.bread.claimedBy = null; r.bread = null; }
@@ -1517,6 +1656,7 @@ function startTalk(r) {
 }
 function advanceTalk() {
   if (!talk.advance()) return;
+  if (opening) { finishOpening(); return; }
   talkWith.state = 'idle';
   talkWith.wait = RES_IDLE[0];
   talkWith = null;
@@ -1622,7 +1762,7 @@ window.addEventListener('wheel', (e) => {
 const keys = new Set();
 window.addEventListener('keydown', (e) => {
   if (dragLook && playing && e.code === 'Escape') { pause(); return; }
-  if (playing && talk.active) {
+  if (playing && (talk.active || opening)) {   // 会話中とオープニング中は、会話を進めるキーだけ
     if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); if (!e.repeat) advanceTalk(); }
     return;
   }
@@ -2055,9 +2195,10 @@ function updateCamera() {
 let daytime = null;
 function tick(dt, active) {
   // 一時停止中は時間を止める（見た目の切り替えには合わせ直す）。N を押している間は早送り
-  daytime.update(active ? dt : 0, active && keys.has('KeyN'));
   waterUniforms.uTime.value += dt;
   time.value += dt;
+  if (opening) { updateOpening(dt, active); return; }
+  daytime.update(active ? dt : 0, active && keys.has('KeyN'));
   if (windmill) windmill.rotation.z += WINDMILL_SPEED * dt;
   updateRuin(dt);
   updateBoss(dt);

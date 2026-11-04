@@ -66,6 +66,10 @@
   #talk { display: none; position: fixed; inset: 0; user-select: none; -webkit-user-select: none; touch-action: none; cursor: pointer; }
   body.talking #talk { display: block; }
   body.talking #touchUI .btn, body.talking #touchUI .joy-ring, body.talking #hud { display: none; }
+  /* オープニング（パン工房の中の会話）の間は、操作ボタンと情報を出さない */
+  body.opening #touchUI .btn, body.opening #touchUI .joy-ring, body.opening #hud, body.opening #crosshair { display: none !important; }
+  #fade { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; transition: opacity 0.6s; }
+  #fade.on { opacity: 1; }
   #talk .talk-portrait { display: none; position: absolute; bottom: 0; left: calc(2vw + env(safe-area-inset-left));
     height: min(52vh, 440px); max-width: 45vw; object-fit: contain; object-position: bottom; pointer-events: none;
     filter: drop-shadow(0 4px 10px rgba(0,0,0,0.35)); }
@@ -150,6 +154,7 @@
 </div>
 <div id="talkHint">話す</div>
 <div id="crosshair"></div>
+<div id="fade"></div>
 <div id="hud"></div>
 <script type="module" src="main.js"></script>
 </body>
