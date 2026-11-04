@@ -211,7 +211,7 @@ const progressBar = document.querySelector('#progress div');
 const hud = document.getElementById('hud');
 const crosshair = document.getElementById('crosshair');
 
-const FILES = ['models/town.glb', 'models/distant.glb', 'models/pancannon.glb', 'models/germboss.glb', 'models/bread.glb', 'models/grandpa.glb', 'models/girl.glb', 'models/grandma.glb', 'models/town_ruin.glb', 'models/mayor.glb'];
+const FILES = ['models/town.glb', 'models/distant.glb', 'models/pancannon.glb', 'models/germboss.glb', 'models/bread.glb', 'models/grandpa.glb', 'models/girl.glb', 'models/grandma.glb', 'models/town_ruin.glb', 'models/mayor.glb', 'models/germmini.glb'];
 const loaded = {}, total = {};
 // 公開版のモデルは meshopt で圧縮してある（25MB を超えるファイルは置けないため）
 const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
@@ -598,6 +598,8 @@ if (new URLSearchParams(location.search).has('debug')) {
     get mixer() { return mixer; },
     get boss() { return boss; },
     bossDistance,
+    get germs() { return germs; },
+    spawnGerm,
     get breads() { return breads; },
     get residents() { return residents; },
     get waterCollider() { return waterCollider; },
@@ -777,6 +779,133 @@ function collideBoss(dt) {
   }
   // 球の外へ押し出す
   feet.addScaledVector(_bd, reach - d);
+}
+
+// ---- 子バイ菌（町人の敵） ----
+// 町人を見つけて跳ねながら近づき、体にくっつく（くっついている間は待機。噛みつきのアニメは町人には使わない）。
+// ふわおのジェット体当たり（RAM_MIN_SPEED より速く飛んでいるとき）が当たると、やられアニメで縮んで消える。
+// 今はテスト用に、始めたときに GERM_TEST の場所（町のあちこちの通り）へ 1 匹ずつ置く。動き方はこれから調整する
+const GERM_SPEED = 1.1;        // 跳ねて進む速さ（m/秒）
+const GERM_SEE = 25;           // この距離の町人をねらう
+// 体の中心の高さ（GM_Body_Pivot）と体の半径（GM_Hurt_Body の radius）はモデルから読む。下は読めなかったときの値
+let germBody = 0.8, germRadius = 0.4;
+const GERM_STICK = 0.5;        // 町人の体の表面からこの距離まで来たら、くっつく
+const GERM_HIT = 0.75;         // ジェット体当たりが当たる距離（ロボの体の中心の縦の線から、体の中心まで）
+// ジェットで飛んでいるロボは地面から 4m ほどの高さなので、真下を通り過ぎた子バイ菌にも当たるようにする（仮）
+const GERM_HIT_BELOW = 4.5;
+const GERM_TEST = [
+  [26, 6], [12, 7.5], [-2, 7], [36, 8],   // 表通り（スタート地点、パン屋の前、川の東）
+  [-12, 15], [-22, 13],                   // 広場
+  [12, 30],                               // 南の裏通り
+  [12, -12], [30, -10],                   // 北の裏通り
+  [-14, -30],                             // 奥の段（パン工房の段）
+];
+let germTemplate = null, germClips = null;
+const germs = [];
+const _gp = new THREE.Vector3();
+function setupGerms(gltf) {
+  germTemplate = gltf.scene;
+  germTemplate.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  const pivot = germTemplate.getObjectByName('GM_Body_Pivot'), hurt = germTemplate.getObjectByName('GM_Hurt_Body');
+  if (pivot) germBody = pivot.position.y;
+  if (hurt?.userData.radius) germRadius = hurt.userData.radius;
+  germClips = clipsFromExtras(germTemplate.getObjectByName('GM_Root') || germTemplate, gltf.animations);
+  for (const [x, z] of GERM_TEST) spawnGerm(x, z);
+}
+function spawnGerm(x, z) {
+  const root = germTemplate.clone(true);
+  _gp.set(x, 0, z);
+  root.position.copy(groundPoint(_gp));
+  scene.add(root);
+  const mixer = new THREE.AnimationMixer(root);
+  const act = {};
+  for (const [name, clip] of Object.entries(germClips)) act[name] = mixer.clipAction(clip);
+  for (const name of ['attack', 'defeat']) { act[name].setLoop(THREE.LoopOnce, 1); act[name].clampWhenFinished = true; }
+  const g = { root, mixer, act, state: 'seek', target: null, angle: 0, lift: 0, current: null, wait: 1 + Math.random() * 2 };
+  mixer.addEventListener('finished', (e) => {
+    if (e.action === act.defeat) g.done = true;
+    else if (e.action === act.attack) playGerm(g, 'idle');
+  });
+  playGerm(g, 'move');
+  germs.push(g);
+  return g;
+}
+function playGerm(g, name) {
+  if (g.current === name) return;
+  const next = g.act[name];
+  next.reset().play();
+  if (g.current) g.act[g.current].crossFadeTo(next, 0.15, false);
+  g.current = name;
+}
+// 一番近い、外にいる町人（くっついている数が少ない人を少しひいきする）
+function germTarget(g) {
+  let best = null, bestD = GERM_SEE;
+  for (const r of residents) {
+    if (!r.root.visible) continue;
+    const n = germs.filter((x) => x.target === r && x.state === 'stuck').length;
+    const d = r.root.position.distanceTo(g.root.position) + n * 3;
+    if (d < bestD) { best = r; bestD = d; }
+  }
+  return best;
+}
+function updateGerms(dt) {
+  for (const g of germs) {
+    const pos = g.root.position;
+    if (g.state === 'defeat') { g.mixer.update(dt); continue; }
+    // ねらっていた町人が家に入ったら、はがれて別の人をさがす
+    if (g.target && !g.target.root.visible) { g.target = null; g.state = 'seek'; }
+    if (!g.target) g.target = germTarget(g);
+    const r = g.target;
+    if (g.state === 'seek') {
+      if (!r) { playGerm(g, 'idle'); g.mixer.update(dt); continue; }
+      playGerm(g, 'move');
+      _rd.subVectors(r.root.position, pos).setY(0);
+      const dist = _rd.length();
+      if (dist < r.radius + GERM_STICK && Math.abs(r.root.position.y - pos.y) < 1) {
+        // くっつく：町人の体の表面の、今いる向きの場所に。ほかの子バイ菌と重ならないよう向きをずらし、高さも少しずつ変える
+        g.state = 'stuck';
+        g.angle = Math.atan2(-_rd.x, -_rd.z) - r.root.rotation.y;
+        for (const o of germs) {
+          if (o !== g && o.target === r && o.state === 'stuck' && Math.abs(Math.atan2(Math.sin(o.angle - g.angle), Math.cos(o.angle - g.angle))) < 0.9) g.angle += 1.3;
+        }
+        g.lift = 0.45 + Math.random() * 0.3;
+        playGerm(g, 'idle');
+      } else {
+        g.root.rotation.y = turnToward(g.root.rotation.y, Math.atan2(_rd.x, _rd.z), 1 - Math.exp(-6 * dt));
+        _rd.divideScalar(dist);
+        // 壁や石垣があれば、その手前で跳ねたまま止まる（道をさがすのはこれから）
+        _o.set(pos.x, pos.y + germBody, pos.z);
+        const wall = cast(_o, _rd, germRadius + 0.2);
+        if (!wall || !hitNormal(wall, _rd)) {
+          pos.addScaledVector(_rd, Math.min(GERM_SPEED * dt, dist));
+          const gy = groundBelow(pos, 1);   // 跳ねるので、少しの段差なら越える
+          if (gy !== null) pos.y += (gy - pos.y) * (1 - Math.exp(-10 * dt));
+        }
+      }
+    } else if (g.state === 'stuck') {
+      // 町人の動きと向きについていく。体の表面から外を向く
+      const a = r.root.rotation.y + g.angle, rr = r.radius + germRadius * 0.6;   // 少し体にめりこませる
+      pos.set(r.root.position.x + Math.sin(a) * rr, r.root.position.y + r.height * g.lift - germBody, r.root.position.z + Math.cos(a) * rr);
+      g.root.rotation.y = a + Math.PI;   // くっついている間は待機のまま（噛みつきは町人には使わない）
+    }
+    // ジェット体当たり
+    if (jetVel.length() > RAM_MIN_SPEED) {
+      const dy = pos.y + germBody - feet.y;
+      if (dy > -GERM_HIT_BELOW && dy < ROBOT_HEIGHT + germRadius && Math.hypot(pos.x - feet.x, pos.z - feet.z) < GERM_HIT + germRadius + RADIUS) {
+        g.state = 'defeat';
+        g.target = null;
+        playGerm(g, 'defeat');
+        shake = Math.max(shake, 0.5);
+      }
+    }
+    g.mixer.update(dt);
+  }
+  for (let i = germs.length - 1; i >= 0; i--) {
+    if (!germs[i].done) continue;
+    scene.remove(germs[i].root);
+    germs[i].mixer.uncacheRoot(germs[i].root);
+    germs.splice(i, 1);
+  }
 }
 
 // ---- ふわふわパン（発射の弾） ----
@@ -1256,7 +1385,7 @@ function catchBread(b) {
 }
 
 async function init() {
-  const [town, distant, pancannon, germboss, bread, grandpa, girl, grandma, townRuin, mayor] = await Promise.all(FILES.map(load));
+  const [town, distant, pancannon, germboss, bread, grandpa, girl, grandma, townRuin, mayor, germmini] = await Promise.all(FILES.map(load));
   statusEl.textContent = 'シーンを組み立て中…';
   await new Promise((r) => setTimeout(r, 0));
 
@@ -1291,6 +1420,7 @@ async function init() {
   setupBossMove();
   setupBread(bread);
   placeResidents({ grandpa, girl, grandma, mayor });
+  setupGerms(germmini);   // 町人のそばに置くので、町人のあと
 
   // 夜にふわおのまわりを照らすランプ（昼は明るさ 0。ライトの数が変わると全部のシェーダーを作り直すので、出しっぱなしにする）
   const lamp = new THREE.PointLight(lin(1.0, 0.72, 0.42), 0, 14, 2);
@@ -1934,6 +2064,7 @@ function tick(dt, active) {
   if (active) moveBoss(dt);   // 一時停止中は近づかない
   updateBreads(dt);
   updateResidents(dt);
+  if (active) updateGerms(dt);
   updateTalk(dt);
   if (active && !talk.active) { updatePlayer(dt); collideBoss(dt); }
   else moveSpeed = 0;
