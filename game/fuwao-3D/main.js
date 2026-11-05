@@ -45,6 +45,9 @@ const JET_RISE_TIME = 2.5;    // そこから最大の上昇になるまで（�
 const JET_RISE_MAX = 3.5;     // あおりによる上昇の最大（m/秒、最高速のとき）
 const JET_TILT = 0.3;         // あおりで機首が上がる角度（rad、最大）
 const JET_MAX_ALT = 25;       // 足元の地面からこれ以上は上がらない
+const JET_START_UP = 1.0;     // 噴射を始めたら、ジャンプの上昇はこの速さ（m/秒）までに抑える（跳んですぐ噴けば低く飛べる）
+const JET_HOVER = 0.9;        // 低空では足元の地面からこの高さより下がらない（沈みで地面についてしまわないように）
+const JET_HOVER_PULL = 5;     // その高さより下にいるときに戻す強さ（1/秒）
 // 発射の反動：パンが砲口から出た瞬間に後ろへ押し戻される（下がる距離は 初速 / 減り方）
 const FIRE_SHOT_FRAME = 107;  // 反動を受けるフレーム（発射アニメは 100 から。パンは PC_Muzzle の spawn_frame で出る）
 const RECOIL_SPEED = 4;       // 押し戻しの初速（m/秒）
@@ -1213,7 +1216,7 @@ function updateProgress(dt, active) {
   if (active && !knockout) {
     if (jetting) {
       useFuel(FUEL_JET * dt);
-      if (fuel <= 0) { jetting = false; jetEndTime = 0; }
+      if (fuel <= 0) { jetting = false; jetEndTime = 0; jumpLocked = true; }   // 押したまま着地しても跳ねないように
     } else if (onGround) fuel = Math.min(fuelMax, fuel + FUEL_REGEN * dt);
     // パン工房の前で補給（焼き直し）
     refilling = onGround && Math.hypot(feet.x - WORKSHOP_FRONT.x, feet.z - WORKSHOP_FRONT.z) < WORKSHOP_REFILL_R
@@ -2523,7 +2526,7 @@ function updatePlayer(dt) {
   spaceHeld = space;
   if (!space) jumpLocked = false;
   if (onGround && !firing && space && !jumpLocked) { velY = JUMP_SPEED; onGround = false; }
-  else if (!onGround && spacePressed && !jetting && fuel > FUEL_MIN_START) { jetting = true; jetTime = 0; jetSpeed = moveSpeed; }
+  else if (!onGround && spacePressed && !jetting && fuel > FUEL_MIN_START) { jetting = true; jetTime = 0; jetSpeed = moveSpeed; velY = Math.min(velY, JET_START_UP); }
   if (jetting && !space) { jetting = false; jetEndTime = 0; }
 
   const prevY = feet.y;
@@ -2535,6 +2538,9 @@ function updatePlayer(dt) {
     const tooHigh = ground !== null && feet.y - ground > JET_MAX_ALT;
     const target = tooHigh ? 0 : lift - JET_SINK * (1 - t);
     velY += (target - velY) * (1 - Math.exp(-3 * dt));
+    // 低空では沈まず、地面すれすれ（JET_HOVER）の高さを保つ
+    const alt = ground !== null ? feet.y - ground : Infinity;
+    if (alt < JET_HOVER) velY = Math.max(velY, (JET_HOVER - alt) * JET_HOVER_PULL);
     jetTilt = JET_TILT * (tooHigh ? 0 : lift / JET_RISE_MAX);
   } else {
     jetTilt = 0;
@@ -2556,13 +2562,16 @@ function updatePlayer(dt) {
   if (floor !== null) {
     // 歩いているときは小さな下り段差に吸いつく（滝など大きな段は落ちる）
     const snap = onGround && velY <= 0 ? STEP_HEIGHT : 0;
-    if (feet.y <= floor + snap) {
+    if (jetting && feet.y <= floor) {
+      // 噴射中は、段差などで地面に触れても着地しない（Space を離すまで飛び続ける）
+      feet.y = floor;
+      velY = Math.max(velY, 0);
+      onGround = false;
+    } else if (feet.y <= floor + snap) {
       if (!onGround) landTime = 0;
       feet.y = floor;
       velY = 0;
       onGround = true;
-      // 噴射したまま着地したら、Space を一度離すまではジャンプしない
-      if (jetting) { jetting = false; jetEndTime = 0; jumpLocked = true; }
     } else {
       onGround = false;
     }
