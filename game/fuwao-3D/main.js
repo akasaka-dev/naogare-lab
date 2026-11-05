@@ -618,6 +618,7 @@ if (new URLSearchParams(location.search).has('debug')) {
       return { town: townProgress(), fuel, fuelMax, body, knockout,
         areas: ruinAreas.map((a, i) => `${AREA_NAMES[a.name]} ${Math.round(areaProgress(i) * 100)}% (spots ${areaGauge[i].spots.length}, out ${areaGauge[i].germs.length}, residents ${areaGauge[i].residents.length})`) };
     },
+    buriedAt(x, y, z) { return buriedAt(new THREE.Vector3(x, y, z)); },
     get spots() { return ruinAreas.map((a, i) => [AREA_NAMES[a.name], areaGauge[i].spots.map((p) => [+p.x.toFixed(1), +p.z.toFixed(1)])]); },
     get helps() { return helps.map((h) => [AREA_NAMES[ruinAreas[h.area].name], Math.round(h.dist || 0)]); },
     setFuel(v) { fuel = v; }, setBody(v) { body = v; }, raiseFuelMax,
@@ -2440,7 +2441,15 @@ function waterLevel(pos, gy) {
 const TRAP_CHECK = 0.5, TRAP_TIME = 1.0, TRAP_RANGE = 12, TRAP_ROOF = 6;
 const lastFree = new THREE.Vector3();
 let trapWait = 0, trappedTime = 0, lastFreeSet = false;
+// 地面の下（山の中など）にいるか：頭の上の高いところに、上を向いた地面がある
+const BURIED_GAP = 15;
+function buriedAt(p) {
+  _o.set(p.x, p.y + 0.5, p.z);
+  const hit = cast(_o, UP, 400);
+  return !!hit && hit.distance > BURIED_GAP && hit.face.normal.y > 0.3;
+}
 function enclosedAt(p) {
+  if (buriedAt(p)) return true;
   _o.set(p.x, p.y + 0.5, p.z);
   if (!cast(_o, UP, TRAP_ROOF)) return false;
   for (const h of [0.6, 1.2]) {
@@ -2553,6 +2562,8 @@ const _fwd = new THREE.Vector3();
 const _right = new THREE.Vector3();
 const _move = new THREE.Vector3();
 const _prev = new THREE.Vector3();
+const _sub = new THREE.Vector3(), _subPrev = new THREE.Vector3(), _subMove = new THREE.Vector3();
+const MOVE_SUBSTEP = 0.2;   // これより長い移動は分けて進める（53°の斜面でも 1 回で 0.27m しか上がらない）
 
 function updatePlayer(dt) {
   // カメラの向きを基準に移動方向を決める
@@ -2619,9 +2630,21 @@ function updatePlayer(dt) {
   shake *= Math.exp(-10 * dt);
 
   _prev.copy(feet);
-  moveHorizontal(_move);
-  pushOut();
-  if (crossedWall(_prev, feet)) { feet.x = _prev.x; feet.z = _prev.z; }
+  // 1 フレームの移動を MOVE_SUBSTEP ずつに分けて進め、そのたびに足元の高さを拾う。
+  // 一度に進むと、フレームの遅いスマホでジェットのまま山の斜面へ突っこんだとき、
+  // 1 フレームで斜面が STEP_HEIGHT 以上高くなり、地面の下（山の中）へもぐってしまう
+  const subN = Math.max(1, Math.ceil(_move.length() / MOVE_SUBSTEP));
+  _sub.copy(_move).divideScalar(subN);
+  for (let i = 0; i < subN; i++) {
+    _subPrev.copy(feet);
+    _subMove.copy(_sub);
+    moveHorizontal(_subMove);
+    pushOut();
+    if (crossedWall(_subPrev, feet)) { feet.x = _subPrev.x; feet.z = _subPrev.z; break; }
+    const g = groundBelow(feet);
+    if (g === null) { feet.x = _subPrev.x; feet.z = _subPrev.z; break; }
+    if (g > feet.y) feet.y = g;   // 上り坂・段差を登る
+  }
 
   // 足元の高さ
   let ground = groundBelow(feet);
