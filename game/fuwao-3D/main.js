@@ -808,6 +808,7 @@ const GERM_STICK = 0.5;        // 町人の体の表面からこの距離まで�
 const GERM_HIT = 1.0;          // ジェット体当たりが当たる距離（ロボの体の中心の縦の線から、体の中心まで。少し甘め）
 // ジェットで飛んでいるロボは地面から 4m ほどの高さなので、真下を通り過ぎた子バイ菌にも当たるようにする（仮）
 const GERM_HIT_BELOW = 4.5;
+const GERM_BOUNCE = 6;         // 体当たりしたロボがはね返される速さ（m/秒。ボスは RAM_BOUNCE）
 // 低空で飛んでいるときに、階段や段の少し上にいる子バイ菌にも当たるように、上にも広げる（ロボの頭の上からこの高さまで）
 const GERM_HIT_ABOVE = 1.5;
 const GERM_TEST = [
@@ -913,7 +914,15 @@ function updateGerms(dt) {
         g.state = 'defeat';
         g.target = null;
         playGerm(g, 'defeat');
-        shake = Math.max(shake, 0.5);
+        // ボスに当たったときと同じく、ロボははね返されて噴射も止まる（もう一度 Space を押し直せば噴射できる）
+        jetting = false;
+        jetEndTime = 0;
+        jetSpeed = 0;
+        _rd.set(feet.x - pos.x, 0, feet.z - pos.z);
+        if (_rd.lengthSq() < 1e-4) _rd.set(-Math.sin(heading), 0, -Math.cos(heading));   // 真上を通ったときは後ろへ
+        jetVel.copy(_rd.normalize()).multiplyScalar(GERM_BOUNCE);
+        velY = Math.max(velY, 3);
+        shake = Math.max(shake, 1);
       }
     }
     g.mixer.update(dt);
@@ -2411,6 +2420,42 @@ function waterLevel(pos, gy) {
   return hit && hit.point.y > gy + 0.05 ? hit.point.y : null;
 }
 
+// 閉じ込められたときの救出：壁を抜けて家の中などに入ってしまったら、最後に外にいた場所へ戻す。
+// TRAP_CHECK 秒ごとに、まわり 16 方向（2 つの高さ）がすべて TRAP_RANGE m 以内で壁にふさがれていて、
+// 頭の上 TRAP_ROOF m 以内に天井があるかを調べる。それが TRAP_TIME 秒続いたら戻す
+const TRAP_CHECK = 0.5, TRAP_TIME = 1.0, TRAP_RANGE = 12, TRAP_ROOF = 6;
+const lastFree = new THREE.Vector3();
+let trapWait = 0, trappedTime = 0, lastFreeSet = false;
+function enclosedAt(p) {
+  _o.set(p.x, p.y + 0.5, p.z);
+  if (!cast(_o, UP, TRAP_ROOF)) return false;
+  for (const h of [0.6, 1.2]) {
+    for (let k = 0; k < 16; k++) {
+      const a = k * Math.PI / 8;
+      _o.set(p.x, p.y + h, p.z);
+      _d.set(Math.sin(a), 0, Math.cos(a));
+      if (!cast(_o, _d, TRAP_RANGE)) return false;
+    }
+  }
+  return true;
+}
+function updateTrap(dt) {
+  if ((trapWait -= dt) > 0) return;
+  trapWait = TRAP_CHECK;
+  if (!enclosedAt(feet)) {
+    trappedTime = 0;
+    if (onGround) { lastFree.copy(feet); lastFreeSet = true; }
+    return;
+  }
+  trappedTime += TRAP_CHECK;
+  if (trappedTime < TRAP_TIME || !lastFreeSet) return;
+  trappedTime = 0;
+  feet.copy(lastFree);
+  velY = 0; jetting = false; jetEndTime = 0; jetVel.set(0, 0, 0); recoilVel.set(0, 0, 0);
+  snapToGround(true);
+  showToast('外に戻った！');
+}
+
 function snapToGround(force) {
   const gy = groundBelow(feet, force ? 1 : STEP_HEIGHT);   // 頭上に張り出しがあるので、探すのは少し上まで
   if (gy !== null) feet.y = gy;
@@ -2452,6 +2497,22 @@ function moveHorizontal(delta) {
     }
     if (!blocked) { feet.add(delta); return; }
   }
+}
+
+// 最後の安全策：このフレームの移動の前後を結んだ線が壁を横切っていたら、移動を取り消す。
+// 壁の判定は 3 つの高さの線だけなので、ひさしの斜めの面や壁の段差のところで、壁の向こうへ抜けてしまうことがある
+const CROSS_HEIGHTS = [STEP_HEIGHT + 0.1, 0.9, 1.25, 1.6];   // 登れる段差（STEP_HEIGHT）より上だけ
+function crossedWall(from, to) {
+  _d.set(to.x - from.x, 0, to.z - from.z);
+  const len = _d.length();
+  if (len < 1e-4) return false;
+  _d.divideScalar(len);
+  for (const h of CROSS_HEIGHTS) {
+    _o.set(from.x, from.y + h, from.z);
+    const hit = cast(_o, _d, len);
+    if (hit && hitNormal(hit, _d)) return true;
+  }
+  return false;
 }
 
 // 角などでめり込んだときに押し戻す
@@ -2546,6 +2607,7 @@ function updatePlayer(dt) {
   _prev.copy(feet);
   moveHorizontal(_move);
   pushOut();
+  if (crossedWall(_prev, feet)) { feet.x = _prev.x; feet.z = _prev.z; }
 
   // 足元の高さ
   let ground = groundBelow(feet);
@@ -2750,7 +2812,7 @@ function tick(dt, active) {
   if (active) updateGerms(dt);
   updateTalk(dt);
   updateProgress(dt, active && !talk.active);
-  if (active && !talk.active && !knockout) { updatePlayer(dt); collideBoss(dt); }
+  if (active && !talk.active && !knockout) { updatePlayer(dt); collideBoss(dt); updateTrap(dt); }
   else moveSpeed = 0;
   collidePeople(active);
   updateAnimation(dt);
