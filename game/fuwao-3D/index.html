@@ -36,6 +36,11 @@
     background: rgba(255, 250, 240, 0.88); border: 2.4px solid #3a2a1e; border-radius: 14px 18px 12px 16px / 16px 12px 18px 14px;
     box-shadow: 0 3px 8px rgba(0,0,0,0.25); font-family: "Klee One", "Hiragino Maru Gothic ProN", "Yu Gothic UI", sans-serif; color: #3a2a1e; }
   body.playing #meters { display: block; }
+  /* 燃料とからだはいつも出す。町の復興度・区画・助けを呼ぶ声は、止まって少したったときだけ（main.js の METERS_IDLE） */
+  #meters:not(.show) .meter-town, #meters:not(.show) .meter-area, #meters:not(.show) .meter-helps { display: none; }
+  #meters .meter + .meter.meter-town { margin-top: 8px; padding-top: 6px; border-top: 1.5px dashed #b9a88f; }
+  #meters.show .meter-town, #meters.show .meter-area, #meters.show .meter-helps { animation: meter-in 0.35s ease-out; }
+  @keyframes meter-in { from { opacity: 0; } }
   body.talking #meters, body.opening #meters { display: none; }
   body.touch #meters { top: calc(64px + env(safe-area-inset-top)); }
   #meters .meter { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600; line-height: 1.2; }
@@ -207,10 +212,10 @@
 <div id="talkHint">話す</div>
 <div id="crosshair"></div>
 <div id="meters">
-  <div class="meter meter-town"><span class="label">町の復興度</span><span class="bar"><span class="fill"></span></span><span class="num">0%</span></div>
-  <div class="meter-area"></div>
   <div class="meter meter-fuel"><span class="label">燃料</span><span class="bar"><span class="fill"></span><span class="cap"></span></span></div>
   <div class="meter meter-body"><span class="label">からだ</span><span class="bar"><span class="fill"></span></span></div>
+  <div class="meter meter-town"><span class="label">町の復興度</span><span class="bar"><span class="fill"></span></span><span class="num">0%</span></div>
+  <div class="meter-area"></div>
   <div class="meter-helps"></div>
 </div>
 <div id="toast"></div>

@@ -618,6 +618,7 @@ if (new URLSearchParams(location.search).has('debug')) {
       return { town: townProgress(), fuel, fuelMax, body, knockout,
         areas: ruinAreas.map((a, i) => `${AREA_NAMES[a.name]} ${Math.round(areaProgress(i) * 100)}% (spots ${areaGauge[i].spots.length}, out ${areaGauge[i].germs.length}, residents ${areaGauge[i].residents.length})`) };
     },
+    get spots() { return ruinAreas.map((a, i) => [AREA_NAMES[a.name], areaGauge[i].spots.map((p) => [+p.x.toFixed(1), +p.z.toFixed(1)])]); },
     get helps() { return helps.map((h) => [AREA_NAMES[ruinAreas[h.area].name], Math.round(h.dist || 0)]); },
     setFuel(v) { fuel = v; }, setBody(v) { body = v; }, raiseFuelMax,
     germSpots() { return germs.map((g) => [g.area, ...g.root.position.toArray().map((v) => +v.toFixed(1))]); },
@@ -804,7 +805,7 @@ const GERM_SEE = 25;           // この距離の町人をねらう
 // 体の中心の高さ（GM_Body_Pivot）と体の半径（GM_Hurt_Body の radius）はモデルから読む。下は読めなかったときの値
 let germBody = 0.8, germRadius = 0.4;
 const GERM_STICK = 0.5;        // 町人の体の表面からこの距離まで来たら、くっつく
-const GERM_HIT = 0.75;         // ジェット体当たりが当たる距離（ロボの体の中心の縦の線から、体の中心まで）
+const GERM_HIT = 1.0;          // ジェット体当たりが当たる距離（ロボの体の中心の縦の線から、体の中心まで。少し甘め）
 // ジェットで飛んでいるロボは地面から 4m ほどの高さなので、真下を通り過ぎた子バイ菌にも当たるようにする（仮）
 const GERM_HIT_BELOW = 4.5;
 // 低空で飛んでいるときに、階段や段の少し上にいる子バイ菌にも当たるように、上にも広げる（ロボの頭の上からこの高さまで）
@@ -872,8 +873,9 @@ function updateGerms(dt) {
     if (g.target && !g.target.root.visible) { g.target = null; g.state = 'seek'; }
     if (!g.target) g.target = germTarget(g);
     const r = g.target;
-    if (g.state === 'seek') {
-      if (!r) { playGerm(g, 'idle'); g.mixer.update(dt); continue; }
+    if (g.state === 'seek' && !r) {
+      playGerm(g, 'idle');   // ねらう町人がいなければ、その場で待つ（体当たりには当たる）
+    } else if (g.state === 'seek') {
       playGerm(g, 'move');
       _rd.subVectors(r.root.position, pos).setY(0);
       const dist = _rd.length();
@@ -964,6 +966,8 @@ let helpWait = HELP_FIRST;
 const metersEl = document.getElementById('meters');
 const toastEl = document.getElementById('toast');
 let toastTime = 0, refilling = false;
+const METERS_IDLE = 1.0;        // 町の復興度・区画・助けを呼ぶ声は、止まってからこれだけたったときだけ出す（秒。燃料とからだはいつも出す）
+let stillTime = 0;
 
 // その場所の区画（範囲の長方形が重なるところは、小さい長方形のほうを優先）
 function areaAt(x, z) {
@@ -985,8 +989,15 @@ function streetHeight(z) {
   if (z > -63) return 16.5;
   return null;   // 山の斜面の町は段が曲がっているので、高さでは調べない
 }
+// 小バイ菌の場所の選び方。まず広くて平らなところ（strict）から選び、見つからない区画だけ条件をゆるめる（loose）
+//   flatR / flat … まわり flatR m の地面の高さの違いが flat m まで（階段や坂の途中はやめる）
+//   room / dirs  … 8 方向のうち dirs 方向は room m 先まで何もない（細い路地はやめる。ジェットで飛んで来られるように）
+const SPOT_RULES = [
+  { flatR: 2, flat: 0.35, room: 4, dirs: 3 },
+  { flatR: 1.2, flat: 0.6, room: 2.5, dirs: 2 },
+];
 // 区画の中の、歩ける地面の上の場所をさがす（毎回同じ場所になるように、決まった乱数で）
-function areaSpot(a, rand, avoid) {
+function areaSpot(a, rand, avoid, rule) {
   const boxes = a.boxes, total = boxes.reduce((s, [x0, z0, x1, z1]) => s + (x1 - x0) * (z1 - z0), 0);
   for (let tries = 0; tries < 300; tries++) {
     let r = rand() * total, box = boxes[0];
@@ -1009,6 +1020,26 @@ function areaSpot(a, rand, avoid) {
     let open = 0;
     for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { _d.set(dx, 0, dz); if (!cast(_o, _d, 1.2)) open++; }
     if (open < 3) continue;
+    // 階段や坂の途中はやめる
+    let flat = true;
+    for (let k = 0; k < 8 && flat; k++) {
+      const a = k * Math.PI / 4;
+      _o.set(x + Math.sin(a) * rule.flatR, y + 3, z + Math.cos(a) * rule.flatR);
+      const h = cast(_o, DOWN, 6);
+      if (!h || Math.abs(h.point.y - y) > rule.flat) flat = false;
+    }
+    if (!flat) continue;
+    // 細い路地もやめる
+    let room = 0;
+    for (let k = 0; k < 8; k++) {
+      const a = k * Math.PI / 4;
+      _d.set(Math.sin(a), 0, Math.cos(a));
+      _o.set(x, y + 0.6, z);
+      if (cast(_o, _d, rule.room)) continue;
+      _o.y = y + 1.5;
+      if (!cast(_o, _d, rule.room)) room++;
+    }
+    if (room < rule.dirs) continue;
     if (avoid.some((p) => Math.hypot(p.x - x, p.z - z) < 6)) continue;
     return { x, z };
   }
@@ -1029,10 +1060,12 @@ function setupProgress() {
   }
   ruinAreas.forEach((a, i) => {
     const spots = areaGauge[i].spots;
-    while (spots.length < GERMS_PER_AREA) {
-      const p = areaSpot(a, rand, spots);
-      if (!p) break;
-      spots.push(p);
+    for (const rule of SPOT_RULES) {
+      while (spots.length < GERMS_PER_AREA) {
+        const p = areaSpot(a, rand, spots, rule);
+        if (!p) break;
+        spots.push(p);
+      }
     }
   });
   // パンを食べられる町人だけ（町長は食べない）。区画は家（いつもいる場所）で決める
@@ -1248,6 +1281,10 @@ function updateProgress(dt, active) {
   }
 
   updateHelps(dt, active);
+  // 止まって少したったときだけ、町の復興度などを出す（歩く・走る・跳ぶ・噴射・発射の間は燃料とからだだけ）
+  const still = active && !knockout && onGround && !jetting && !firing && moveSpeed < 0.2;
+  stillTime = still ? stillTime + dt : 0;
+  metersEl.classList.toggle('show', stillTime > METERS_IDLE);
   if (toastTime > 0 && (toastTime -= dt) <= 0) toastEl.classList.remove('on');
   drawMeters();
 }
