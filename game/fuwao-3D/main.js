@@ -807,6 +807,8 @@ const GERM_STICK = 0.5;        // 町人の体の表面からこの距離まで�
 const GERM_HIT = 0.75;         // ジェット体当たりが当たる距離（ロボの体の中心の縦の線から、体の中心まで）
 // ジェットで飛んでいるロボは地面から 4m ほどの高さなので、真下を通り過ぎた子バイ菌にも当たるようにする（仮）
 const GERM_HIT_BELOW = 4.5;
+// 低空で飛んでいるときに、階段や段の少し上にいる子バイ菌にも当たるように、上にも広げる（ロボの頭の上からこの高さまで）
+const GERM_HIT_ABOVE = 1.5;
 const GERM_TEST = [
   [26, 6], [12, 7.5], [-2, 7], [36, 8],   // 表通り（スタート地点、パン屋の前、川の東）
   [-12, 15], [-22, 13],                   // 広場
@@ -905,7 +907,7 @@ function updateGerms(dt) {
     // ジェット体当たり
     if (jetVel.length() > RAM_MIN_SPEED) {
       const dy = pos.y + germBody - feet.y;
-      if (dy > -GERM_HIT_BELOW && dy < ROBOT_HEIGHT + germRadius && Math.hypot(pos.x - feet.x, pos.z - feet.z) < GERM_HIT + germRadius + RADIUS) {
+      if (dy > -GERM_HIT_BELOW && dy < ROBOT_HEIGHT + germRadius + GERM_HIT_ABOVE && Math.hypot(pos.x - feet.x, pos.z - feet.z) < GERM_HIT + germRadius + RADIUS) {
         g.state = 'defeat';
         g.target = null;
         playGerm(g, 'defeat');
