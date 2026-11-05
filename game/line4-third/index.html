@@ -1,0 +1,3864 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-MX6H22G7KZ"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-MX6H22G7KZ');
+</script>
+<!--
+  黄昏のフォー・イン・ア・ロウ
+  Created by naogare — https://www.youtube.com/@NMLabo
+-->
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="author" content="naogare">
+<title>LineUp4 3D - 立体4個並べ対戦ゲーム</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+  :root {
+    --bg: #1e293b;
+    --board: #2563eb;
+    --slot: #0f172a;
+    --p1: #ef4444;
+    --p2: #eab308;
+    --text: #f1f5f9;
+    --accent: #38bdf8;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #0f172a, #1e293b);
+    color: var(--text);
+    font-family: "Segoe UI", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
+    padding: 16px;
+    position: relative;
+    overflow-x: hidden;
+  }
+
+  /* ---- Audio toggles (always visible, above every screen) ---- */
+  #audioControls {
+    position: fixed;
+    top: max(10px, env(safe-area-inset-top));
+    left: max(10px, env(safe-area-inset-left));
+    z-index: 20;
+    display: flex;
+    gap: 8px;
+  }
+  .audio-btn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    background: rgba(15, 23, 42, 0.72);
+    border: 1.5px solid rgba(148, 163, 184, 0.45);
+    color: var(--text);
+    padding: 7px 10px;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    backdrop-filter: blur(4px);
+  }
+  .audio-btn .audio-icon { font-size: 0.95rem; line-height: 1; }
+  .audio-btn .kana-icon {
+    font-weight: 800;
+    font-size: 1.05rem;
+    color: var(--accent);
+  }
+  .audio-btn.muted .kana-icon { color: inherit; }
+  .audio-btn.muted {
+    border-color: rgba(148, 163, 184, 0.25);
+    color: rgba(241, 245, 249, 0.45);
+  }
+  .audio-btn.muted .audio-icon { filter: grayscale(1); opacity: 0.6; }
+  @media (max-width: 480px) {
+    .audio-btn .audio-label { display: none; }
+    .audio-btn { padding: 8px; }
+  }
+
+  /* ---- Splash / title screen ---- */
+  #splashScreen {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #000;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 1.1s ease;
+  }
+  #splashScreen.show { opacity: 1; }
+  #splashScreen.hide { opacity: 0; pointer-events: none; }
+  #splashScreen img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  /* title.webp is a wide landscape illustration — on narrow/portrait screens
+     "cover" crops off the characters and part of the logo at the sides, so
+     switch to "contain" (full artwork visible, letterboxed) there instead. */
+  @media (max-aspect-ratio: 1/1) {
+    #splashScreen img { object-fit: contain; }
+  }
+
+  /* ---- Full-screen CPU character backdrop (shown during play) ---- */
+  #charBgWrap {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    overflow: hidden;
+    display: flex;
+    align-items: flex-end;
+    justify-content: flex-end;
+    opacity: 0;
+    transition: opacity 0.6s ease;
+  }
+  #charBgWrap.show { opacity: 1; }
+  #charBgImg {
+    height: 96vh;
+    max-width: 62vw;
+    object-fit: contain;
+    object-position: bottom right;
+    filter: drop-shadow(0 10px 34px rgba(0,0,0,0.65));
+    -webkit-mask-image: linear-gradient(to left, rgba(0,0,0,1) 38%, rgba(0,0,0,0) 92%);
+    mask-image: linear-gradient(to left, rgba(0,0,0,1) 38%, rgba(0,0,0,0) 92%);
+  }
+  #charBgOverlay {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.6s ease;
+    background: linear-gradient(to right,
+      rgba(10, 15, 30, 1) 0%,
+      rgba(10, 15, 30, 0.88) 32%,
+      rgba(10, 15, 30, 0.4) 58%,
+      rgba(10, 15, 30, 0) 82%);
+  }
+  #charBgOverlay.show { opacity: 1; }
+
+  /* On narrow screens there's no side-by-side space: the desktop layout
+     (character peeking in from the right, page content to its left) leaves
+     the character almost entirely masked out. Switch to a centered figure
+     standing behind the bottom of the screen, fading out before it reaches
+     the UI text up top, instead. */
+  @media (max-width: 640px) {
+    /* The board is opaque and claims the center/bottom of the screen, so a
+       bottom-anchored character just disappears behind it. Put the character
+       in a header band above the board instead — cropped to the upper body
+       via object-fit:cover, faded out before it reaches the board — so it
+       shows through behind the status text without the two fighting for the
+       same space. */
+    #charBgWrap { justify-content: center; align-items: flex-start; }
+    #charBgImg {
+      width: 100vw;
+      max-width: 100vw;
+      height: 36vh;
+      max-height: 36vh;
+      object-fit: cover;
+      object-position: top center;
+      opacity: 0.5;
+      -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,0.95) 55%, rgba(0,0,0,0) 100%);
+      mask-image: linear-gradient(to bottom, rgba(0,0,0,0.95) 55%, rgba(0,0,0,0) 100%);
+    }
+    #charBgOverlay {
+      background: linear-gradient(to bottom,
+        rgba(10, 15, 30, 0.35) 0%,
+        rgba(10, 15, 30, 0.08) 30%,
+        rgba(10, 15, 30, 0) 45%);
+    }
+  }
+
+  .page-content {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  h1 {
+    margin: 0 0 8px;
+    font-size: clamp(1.15rem, 6.2vw, 1.8rem);
+    letter-spacing: 0.05em;
+    overflow-wrap: break-word;
+    max-width: 100%;
+  }
+  .hidden { display: none !important; }
+
+  /* ---- Title screen ---- */
+  #titleScreen, #onlineScreen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+    padding: 36px 30px;
+    background: rgba(15, 23, 42, 0.55);
+    border-radius: 18px;
+    box-shadow: 0 12px 30px rgba(0,0,0,0.45);
+    width: 100%;
+    max-width: min(820px, 92vw);
+    box-sizing: border-box;
+  }
+  @media (max-width: 480px) {
+    #titleScreen, #onlineScreen { padding: 28px 18px; gap: 14px; }
+  }
+  #titleScreen p.subtitle, #onlineScreen p.subtitle {
+    margin: -8px 0 4px;
+    opacity: 0.75;
+    font-size: 0.95rem;
+  }
+  #debugTrigger { user-select: none; }
+
+  /* ---- Online multiplayer (create/join room) ---- */
+  .player-name-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-size: 0.85rem;
+    opacity: 0.9;
+    margin-top: -6px;
+  }
+  #playerNameInput, .name-input {
+    background: #0f172a;
+    border: 2px solid #334155;
+    color: var(--text);
+    border-radius: 10px;
+    padding: 7px 12px;
+    font-size: 0.95rem;
+    width: 130px;
+    text-align: center;
+  }
+  #playerNameInput:focus, .name-input:focus { outline: none; border-color: var(--accent); }
+  #onlineJoinConfirm {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+  }
+  .online-join-row {
+    display: flex;
+    gap: 8px;
+  }
+  #onlineJoinCode {
+    background: #0f172a;
+    border: 2px solid #334155;
+    color: var(--text);
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: 1rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    width: 140px;
+    text-align: center;
+  }
+  #onlineJoinCode:focus { outline: none; border-color: var(--accent); }
+  #onlineJoinBtn {
+    padding: 10px 18px;
+    border-radius: 10px;
+  }
+  .online-error {
+    color: var(--p1);
+    font-size: 0.85rem;
+    min-height: 1.2em;
+    margin: 0;
+  }
+  .online-room-code {
+    font-size: 2.2rem;
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    color: var(--accent);
+    background: #0f172a;
+    border: 2px solid var(--accent);
+    border-radius: 14px;
+    padding: 14px 24px;
+  }
+  .online-waiting-text {
+    font-size: 0.95rem;
+    margin: 0;
+    animation: onlinePulse 1.6s ease-in-out infinite;
+  }
+  @keyframes onlinePulse {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 0.95; }
+  }
+  .mode-options {
+    display: flex;
+    gap: 18px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .mode-btn {
+    background: #0f172a;
+    border: 2px solid var(--accent);
+    color: var(--text);
+    padding: 22px 28px;
+    border-radius: 14px;
+    font-size: 1.05rem;
+    font-weight: 700;
+    cursor: pointer;
+    min-width: 180px;
+    transition: transform 0.15s ease, background 0.15s ease;
+  }
+  .mode-btn .emoji { font-size: 1.8rem; display: block; margin-bottom: 6px; }
+  .mode-btn-sub {
+    display: block;
+    font-size: 0.68rem;
+    font-weight: 500;
+    opacity: 0.65;
+    margin-top: 4px;
+  }
+  .mode-btn:hover {
+    background: var(--accent);
+    color: #0f172a;
+    transform: translateY(-3px);
+  }
+  .mode-btn:hover .mode-btn-sub { color: #0f172a; opacity: 0.8; }
+
+  .back-to-splash-btn {
+    background: transparent;
+    border: none;
+    color: var(--text);
+    opacity: 0.65;
+    font-size: 0.85rem;
+    cursor: pointer;
+    padding: 6px 10px;
+  }
+  .back-to-splash-btn:hover { opacity: 1; text-decoration: underline; }
+
+  .credit {
+    margin: 4px 0 0;
+    font-size: 0.72rem;
+    opacity: 0.45;
+    letter-spacing: 0.02em;
+  }
+  .credit strong { font-weight: 700; opacity: 0.9; }
+  .credit a {
+    color: inherit;
+    opacity: 0.8;
+    text-decoration: none;
+    border-bottom: 1px dotted currentColor;
+  }
+  .credit a:hover { opacity: 1; }
+
+  /* ---- Ladder result overlay (shown between/after CPU matches) ---- */
+  #resultOverlay {
+    position: fixed;
+    inset: 0;
+    z-index: 6;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(5, 8, 18, 0.82);
+    padding: 20px;
+  }
+  .result-card {
+    background: rgba(15, 23, 42, 0.96);
+    border: 2px solid var(--accent);
+    border-radius: 18px;
+    padding: 28px 30px;
+    max-width: 360px;
+    width: 100%;
+    text-align: center;
+    box-shadow: 0 16px 40px rgba(0,0,0,0.6);
+  }
+  .result-portrait {
+    width: 100%;
+    height: 190px;
+    border-radius: 12px;
+    background: #0f172a;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 3rem;
+    margin-bottom: 14px;
+  }
+  .result-portrait:empty { display: none; margin: 0; }
+  .result-portrait img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: top center;
+  }
+  .result-title {
+    font-size: 1.15rem;
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+  .result-message {
+    font-size: 0.9rem;
+    opacity: 0.85;
+    line-height: 1.6;
+    margin-bottom: 20px;
+    white-space: pre-line;
+  }
+  .result-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .result-actions button {
+    width: 100%;
+  }
+  .result-actions .secondary {
+    background: transparent;
+    border: 2px solid #475569;
+    color: var(--text);
+  }
+  /* Online post-game countdown ("leave in N seconds") — see tickPostGameCountdown() */
+  .result-note {
+    margin-top: 12px;
+    font-size: 0.8rem;
+    opacity: 0.7;
+  }
+
+  /* ---- おまけ: post-clear slideshow (see openOmake()) ---- */
+  #omakeBtn.hidden { display: none; }
+  #omakeScreen {
+    position: fixed;
+    inset: 0;
+    z-index: 14;
+    background: #000;
+    overflow: hidden;
+    user-select: none;
+    touch-action: pan-y;
+  }
+  #omakeScreen.hidden { display: none; }
+  #omakeStage { position: absolute; inset: 0; }
+  .omake-slide {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    opacity: 0;
+    transition: opacity 1.2s ease;
+    pointer-events: none;
+  }
+  .omake-slide.show { opacity: 1; animation: omakeDrift 9s linear forwards; }
+  @keyframes omakeDrift { from { transform: scale(1); } to { transform: scale(1.05); } }
+  #omakeCaption {
+    position: absolute;
+    left: 0; right: 0;
+    bottom: calc(max(16px, env(safe-area-inset-bottom)) + 62px);
+    text-align: center;
+    color: #f6f1e7;
+    font-family: "Hiragino Mincho ProN", "Yu Mincho", YuMincho, "MS PMincho", serif;
+    font-size: 1.05rem;
+    letter-spacing: 0.08em;
+    text-shadow: 0 2px 10px rgba(0,0,0,0.95), 0 0 4px rgba(0,0,0,0.95);
+    pointer-events: none;
+  }
+  #omakeBackBtn {
+    position: absolute;
+    top: max(12px, env(safe-area-inset-top));
+    right: max(12px, env(safe-area-inset-right));
+    background: rgba(15, 23, 42, 0.72);
+    border: 1.5px solid rgba(148, 163, 184, 0.5);
+    color: rgba(255, 255, 255, 0.85);
+    border-radius: 999px;
+    padding: 7px 16px;
+    font-size: 0.85rem;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  #omakeControls {
+    position: absolute;
+    left: 50%;
+    bottom: max(16px, env(safe-area-inset-bottom));
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: rgba(15, 23, 42, 0.72);
+    border: 1.5px solid rgba(148, 163, 184, 0.4);
+    border-radius: 999px;
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 0.85rem;
+    max-width: calc(100vw - 24px);
+  }
+  #omakeControls button {
+    background: transparent;
+    border: 1.5px solid rgba(148, 163, 184, 0.5);
+    color: inherit;
+    border-radius: 50%;
+    width: 34px; height: 34px;
+    font-size: 0.95rem;
+    cursor: pointer;
+    padding: 0;
+  }
+  #omakeControls select {
+    background: #0f172a;
+    color: inherit;
+    border: 1.5px solid rgba(148, 163, 184, 0.5);
+    border-radius: 8px;
+    padding: 6px 8px;
+    font-size: 0.85rem;
+    font-family: inherit;
+    min-width: 0;
+  }
+
+  /* ---- All-clear ending ---- */
+  #endingScreen {
+    position: fixed;
+    inset: 0;
+    z-index: 9;
+    background: #000;
+    overflow: hidden;
+    cursor: grab;
+    touch-action: none; /* the crawl is drag-scrubbed by hand, not natively scrolled */
+    user-select: none; /* otherwise a mouse-drag over the crawl text selects it instead of scrubbing */
+    opacity: 0;
+    transition: opacity 0.9s ease;
+  }
+  #endingScreen.dragging { cursor: grabbing; }
+  #endingScreen.show { opacity: 1; }
+  #endingScroll {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    position: relative;
+  }
+  #endingScroll img {
+    display: block;
+    position: absolute;
+    left: 50%;
+    top: 0;
+    -webkit-user-drag: none; /* native image drag would otherwise hijack the crawl-scrub gesture on desktop */
+    /* min-width/min-height (not plain width/height) is the pure-CSS
+       "cover" trick: the browser grows whichever axis is needed to fully
+       cover the screen, so no black #endingScreen background can ever
+       show through even on a phone taller than ending2.webp's own 2:1
+       ratio — it crops a bit off the sides instead. */
+    min-width: 100%;
+    min-height: 100%;
+    width: auto;
+    height: auto;
+    /* Base centering, also the animation's 0% state — starts on the
+       BOTTOM of the artwork (feet) and pans up to the top (sky/faces) by
+       the end, so the scene doesn't close on a close-up of someone's boots. */
+    transform: translate(-50%, calc(-100% + 100vh));
+  }
+  #endingScroll img.pan {
+    animation: endingPan 90s ease-in-out forwards;
+  }
+  @keyframes endingPan {
+    0%, 10% { transform: translate(-50%, calc(-100% + 100vh)); }
+    90%, 100% { transform: translate(-50%, 0); }
+  }
+  /* Narration crawl overlaid on the artwork — see showEndingScreen(). Its
+     start/end transform is set inline (via the Web Animations API) once the
+     text is built and its rendered height is known, so it always scrolls
+     fully clear of the screen regardless of how much text is in it. */
+  #endingTextWrap {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  #endingTextCrawl {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    width: min(560px, 86vw);
+    text-align: center;
+    color: #f6f1e7;
+    font-size: clamp(0.95rem, 2.6vw, 1.1rem);
+    line-height: 1.9;
+    text-shadow: 0 2px 10px rgba(0,0,0,0.9), 0 0 4px rgba(0,0,0,0.9);
+  }
+  #endingTextCrawl p { margin: 0 0 2.6em; white-space: pre-line; }
+  .ending-hint {
+    position: fixed;
+    left: 50%;
+    bottom: max(22px, env(safe-area-inset-bottom));
+    transform: translateX(-50%);
+    z-index: 10;
+    color: var(--text);
+    background: rgba(15, 23, 42, 0.65);
+    border: 1.5px solid rgba(148, 163, 184, 0.45);
+    padding: 8px 18px;
+    border-radius: 999px;
+    font-size: 0.85rem;
+    letter-spacing: 0.04em;
+    pointer-events: none;
+    opacity: 0;
+    animation: endingHintFade 2s ease 1s forwards;
+  }
+  @keyframes endingHintFade {
+    to { opacity: 0.9; }
+  }
+
+  /* ---- Online emote picker (flick/drag-scroll strip) + incoming popup ---- */
+  /* max-width must stay tied to the viewport (vw), not just a flat px cap:
+     #emoteScroller's 25 fixed-width icons give it a large intrinsic content
+     width, and on portrait phones a flat 480px let that intrinsic width
+     inflate #gameScreen (an auto-width flex column) past the viewport,
+     clipping the board's side columns under body's overflow-x:hidden. */
+  #onlineEmoteBar {
+    width: 100%;
+    max-width: min(480px, 92vw);
+    margin-top: 14px;
+  }
+  /* Applied for the post-game grace window (see resultNote/POST_GAME_WINDOW_MS)
+     so the emote strip stays reachable above the result overlay's backdrop
+     instead of being hidden underneath it — pinned to the bottom of the
+     viewport with a higher z-index than #resultOverlay (6). */
+  #onlineEmoteBar.postgame {
+    position: fixed;
+    left: 50%;
+    bottom: max(14px, env(safe-area-inset-bottom));
+    transform: translateX(-50%);
+    z-index: 7;
+    background: rgba(15, 23, 42, 0.9);
+    border: 2px solid #334155;
+    border-radius: 16px;
+    padding: 6px 8px 2px;
+    margin-top: 0;
+  }
+  #emoteScroller {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-x;
+    padding: 4px 4px 10px;
+    cursor: grab;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  #emoteScroller::-webkit-scrollbar { display: none; }
+  #emoteScroller.dragging { cursor: grabbing; }
+  .emote-icon-btn {
+    flex: 0 0 auto;
+    width: 52px;
+    height: 52px;
+    padding: 4px;
+    border-radius: 12px;
+    background: #0f172a;
+    border: 2px solid #334155;
+    cursor: pointer;
+    scroll-snap-align: start;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: border-color 0.15s ease, transform 0.15s ease;
+  }
+  .emote-icon-btn img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-drag: none;
+  }
+  .emote-icon-btn:hover { border-color: var(--accent); }
+  .emote-icon-btn:active { transform: scale(0.92); }
+
+  #incomingEmote {
+    position: fixed;
+    top: 16vh;
+    left: 50%;
+    z-index: 8;
+    width: 120px;
+    height: 120px;
+    opacity: 0;
+    pointer-events: none;
+    transform: translate(-50%, -12px) scale(0.5);
+    transition: opacity 0.25s ease, transform 0.25s ease;
+    filter: drop-shadow(0 6px 16px rgba(0,0,0,0.6));
+  }
+  #incomingEmote img { width: 100%; height: 100%; object-fit: contain; }
+  #incomingEmote.show {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+
+  /* Feedback for your OWN tap: a clone of the tapped icon rises from the
+     button and fades, so it's clear the tap registered (opponent's popup
+     via #incomingEmote is the only feedback that existed before). */
+  .emote-fly {
+    position: fixed;
+    width: 44px;
+    height: 44px;
+    object-fit: contain;
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+    pointer-events: none;
+    z-index: 9;
+    filter: drop-shadow(0 4px 10px rgba(0,0,0,0.5));
+    transition: transform 0.9s cubic-bezier(0.2, 0.7, 0.3, 1), opacity 0.9s ease 0.2s;
+  }
+  .emote-fly.rise {
+    transform: translate(-50%, calc(-50% - 38vh)) scale(1.3);
+    opacity: 0;
+  }
+
+  /* ---- Turn-order coin toss ---- */
+  #turnDecideOverlay {
+    position: fixed;
+    inset: 0;
+    z-index: 7;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(5, 8, 18, 0.82);
+  }
+  .turn-decide-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 18px;
+  }
+  .coin-wrap { perspective: 400px; }
+  .coin {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    background: var(--p1);
+    box-shadow: 0 0 20px 6px rgba(255,255,255,0.18), 0 8px 20px rgba(0,0,0,0.5);
+    animation: coinSpin 0.15s linear infinite;
+  }
+  .coin.settled { animation: coinSettle 0.4s cubic-bezier(0.34, 1.56, 0.64, 1); }
+  @keyframes coinSpin {
+    0%, 100% { transform: scaleX(1); }
+    50% { transform: scaleX(0.12); }
+  }
+  @keyframes coinSettle {
+    0% { transform: scaleX(0.12); }
+    55% { transform: scaleX(1.18) scaleY(0.85); }
+    75% { transform: scaleX(0.92) scaleY(1.06); }
+    100% { transform: scaleX(1) scaleY(1); }
+  }
+  .turn-decide-text {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--text);
+    opacity: 0;
+    transition: opacity 0.25s ease;
+    text-align: center;
+  }
+  .turn-decide-text.show { opacity: 1; }
+
+  /* ---- Game screen ---- */
+  #gameScreen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  #status {
+    font-size: 1.15rem;
+    margin-bottom: 14px;
+    min-height: 1.6em;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+  }
+  #turnTimeoutWarning {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: #f59e0b;
+    margin: -8px 0 12px;
+  }
+  .turn-indicator {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    display: inline-block;
+    box-shadow: 0 0 0 2px rgba(255,255,255,0.3) inset;
+  }
+  .turn-avatar {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    object-fit: cover;
+    object-position: top center;
+    box-shadow: 0 0 0 2px var(--p2);
+  }
+  #modeLabel {
+    font-size: 0.85rem;
+    opacity: 0.7;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  #opponentAvatar {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    object-fit: cover;
+    object-position: top center;
+  }
+
+  /* ---- CPU speech bubble ---- */
+  /* Sits where the game title used to be — reserves its slot only in CPU
+     mode (toggled via the .hidden utility class in JS); the text itself
+     still cross-fades in/out per line via the .show class. */
+  #speechBubble {
+    width: 100%;
+    max-width: 420px;
+    min-height: 64px;
+    box-sizing: border-box;
+    background: rgba(15, 23, 42, 0.94);
+    border: 2px solid var(--accent);
+    border-radius: 16px;
+    padding: 12px 18px;
+    margin: 0 0 14px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    text-align: center;
+    opacity: 0;
+    transform: translateY(-6px);
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  }
+  #speechBubble.show {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  #speechBubble .bubble-name {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 4px;
+  }
+  #speechBubble .bubble-text {
+    font-size: 0.92rem;
+    line-height: 1.55;
+  }
+  #board-wrap {
+    background: rgba(15, 23, 42, 0.55);
+    padding: 4px;
+    border-radius: 14px;
+    box-shadow: 0 12px 30px rgba(0,0,0,0.45);
+    position: relative;
+  }
+  /* The 3D view stays draggable while locked (CPU thinking / coin toss) so the
+     player can keep looking around; taps are ignored in JS instead. */
+  #board-wrap.locked { opacity: 0.92; }
+  #board {
+    position: relative;
+    width: min(92vw, 540px, 62vh);
+    height: min(92vw, 540px, 62vh);
+    min-width: 260px;
+    min-height: 260px;
+    touch-action: none;   /* drags orbit the camera instead of scrolling the page */
+    user-select: none;
+    cursor: grab;
+  }
+  #board:active { cursor: grabbing; }
+  #board canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+  /* height selector for the level plane (right edge of the 3D view) */
+  #levelCtl {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    z-index: 2;
+  }
+  #levelCtl .lvl-label { font-size: 0.65rem; opacity: 0.75; margin-bottom: 2px; }
+  #levelCtl button {
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border-radius: 50%;
+    background: rgba(15, 23, 42, 0.78);
+    color: #cbd5e1;
+    border: 1.5px solid rgba(148, 163, 184, 0.55);
+    font-size: 1rem;
+  }
+  #levelCtl button.active { background: #5fb4ff; color: #0f172a; border-color: #5fb4ff; }
+  .board-hint {
+    margin: 8px 0 0;
+    font-size: 0.78rem;
+    opacity: 0.65;
+    text-align: center;
+    max-width: 92vw;
+  }
+  .title-3d {
+    font-size: 0.62em;
+    letter-spacing: 0.12em;
+    color: var(--accent);
+    white-space: nowrap;
+  }
+  .col-hitzone {
+    position: relative;
+    cursor: pointer;
+    aspect-ratio: 1 / 1;
+  }
+  .cell {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    background: var(--slot);
+    position: relative;
+    transition: transform 0.15s ease;
+  }
+  .cell.p1 { background: var(--p1); box-shadow: 0 0 10px rgba(239,68,68,0.7); }
+  .cell.p2 { background: var(--p2); box-shadow: 0 0 10px rgba(234,179,8,0.7); }
+  .cell.drop {
+    /* Purely cosmetic — game state already updates instantly on click,
+       so this playing out slowly never blocks the next move. */
+    animation: drop 1.1s;
+    transform-origin: bottom center;
+  }
+  .cell.win {
+    animation: pulse 0.8s ease-in-out infinite;
+    box-shadow: 0 0 18px 4px var(--accent);
+  }
+  @keyframes drop {
+    0%   { transform: translateY(-260%) scale(1, 1);         animation-timing-function: cubic-bezier(0.2, 0, 1, 0.35); }
+    10%  { transform: translateY(-250%) scale(1, 1);         animation-timing-function: cubic-bezier(0.2, 0, 1, 0.35); }
+    58%  { transform: translateY(0) scale(1, 1);              animation-timing-function: ease-out; }
+    68%  { transform: translateY(3%) scale(1.1, 0.88);        animation-timing-function: ease-out; }
+    80%  { transform: translateY(-7%) scale(0.96, 1.05);      animation-timing-function: ease-out; }
+    91%  { transform: translateY(2%) scale(1.03, 0.97);       animation-timing-function: ease-out; }
+    97%  { transform: translateY(-1%) scale(0.99, 1.01); }
+    100% { transform: translateY(0) scale(1, 1); }
+  }
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.12); }
+  }
+  .col-hitzone:hover .cell:not(.p1):not(.p2) {
+    background: #1e293b;
+  }
+  #controls {
+    margin-top: 18px;
+    display: flex;
+    gap: 12px;
+  }
+  button {
+    background: var(--accent);
+    color: #0f172a;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: filter 0.15s ease;
+  }
+  button:hover { filter: brightness(1.1); }
+  button:active { filter: brightness(0.9); }
+  button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    filter: none;
+    pointer-events: none;
+  }
+  #titleBtn {
+    background: transparent;
+    border: 2px solid #475569;
+    color: var(--text);
+  }
+  #score {
+    margin-top: 14px;
+    display: flex;
+    gap: 20px;
+    font-size: 0.95rem;
+    opacity: 0.85;
+  }
+</style>
+</head>
+<body>
+
+  <!-- Always-on-top audio toggles — visible through every screen (splash, title, game, results) -->
+  <div id="audioControls">
+    <button id="bgmToggle" class="audio-btn" type="button" aria-label="BGMのオン/オフ" aria-pressed="true">
+      <span class="audio-icon">🎵</span><span class="audio-label">BGM</span>
+    </button>
+    <button id="seToggle" class="audio-btn" type="button" aria-label="効果音のオン/オフ" aria-pressed="true">
+      <span class="audio-icon">🔔</span><span class="audio-label">SE</span>
+    </button>
+    <button id="kanaToggle" class="audio-btn" type="button" aria-label="かなモードのオン/オフ" aria-pressed="false">
+      <span class="audio-icon kana-icon">あ</span><span class="audio-label">かな</span>
+    </button>
+  </div>
+  <audio id="bgmAudio" preload="none"></audio>
+
+  <div id="splashScreen">
+    <img src="title.webp" alt="黄昏のフォー・イン・ア・ロウ タイトル">
+  </div>
+
+  <div id="charBgWrap"><img id="charBgImg" src="" alt=""></div>
+  <div id="charBgOverlay"></div>
+
+  <div class="page-content">
+
+  <!-- Title / mode select screen -->
+  <div id="titleScreen">
+    <h1><span id="titlePrefix">黄昏のフォー・イン・ア・</span><span id="debugTrigger">ロ</span>ウ <span class="title-3d">3D</span></h1>
+    <p class="subtitle" id="titleSubtitle">遊び方を選んでください</p>
+    <div class="player-name-row">
+      <label for="playerNameInput" id="playerNameLabel"></label>
+      <input type="text" id="playerNameInput" maxlength="10" autocomplete="off">
+    </div>
+    <div class="mode-options" id="modeOptions">
+      <button class="mode-btn" id="pvpBtn"><span class="emoji">🧑‍🤝‍🧑</span><span id="pvpBtnLabel"></span></button>
+      <button class="mode-btn" id="cpuBtn"><span class="emoji">🤖</span><span id="cpuBtnLabel"></span><br><span class="mode-btn-sub" id="cpuBtnSub"></span></button>
+      <button class="mode-btn" id="onlineBtn" style="display:none"><span class="emoji">🌐</span><span id="onlineBtnLabel"></span><br><span class="mode-btn-sub" id="onlineBtnSub"></span></button>
+      <button class="mode-btn hidden" id="omakeBtn"><span class="emoji">🎁</span><span id="omakeBtnLabel"></span><br><span class="mode-btn-sub" id="omakeBtnSub"></span></button>
+    </div>
+    <button class="back-to-splash-btn" id="backToSplashBtn"></button>
+    <p class="credit">
+      Created by <strong>naogare</strong> ／
+      <a href="https://www.youtube.com/@NMLabo" target="_blank" rel="noopener noreferrer">YouTube: NMLabo</a>
+    </p>
+  </div>
+
+  <!-- Online multiplayer: create/join a room, then wait for the opponent -->
+  <div id="onlineScreen" class="hidden">
+    <h1 id="onlineHeading"></h1>
+    <div id="onlineMenu">
+      <p class="subtitle" id="onlineIntro"></p>
+      <button class="mode-btn" id="onlineCreateBtn"><span class="emoji">🚪</span><span id="onlineCreateBtnLabel"></span></button>
+      <p class="subtitle" id="onlineOrJoin" style="margin-top:14px;"></p>
+      <div class="online-join-row">
+        <input type="text" id="onlineJoinCode" placeholder="部屋コード" maxlength="6" autocomplete="off" autocapitalize="characters">
+        <button id="onlineJoinBtn"></button>
+      </div>
+      <p class="online-error" id="onlineError"></p>
+      <button class="back-to-splash-btn" id="onlineBackBtn"></button>
+    </div>
+    <div id="onlineWaiting" class="hidden">
+      <p class="subtitle" id="onlineShareInstructions"></p>
+      <div class="online-room-code" id="onlineRoomCode"></div>
+      <button id="onlineCopyBtn"></button>
+      <p class="online-waiting-text" id="onlineWaitingText"></p>
+      <button class="back-to-splash-btn" id="onlineCancelBtn"></button>
+    </div>
+    <div id="onlineJoinConfirm" class="hidden">
+      <p class="subtitle" id="onlineJoinConfirmText"></p>
+      <div class="player-name-row">
+        <label for="onlineJoinNameInput" id="onlineJoinNameLabel"></label>
+        <input type="text" id="onlineJoinNameInput" class="name-input" maxlength="10" autocomplete="off">
+      </div>
+      <button id="onlineJoinConfirmBtn"></button>
+      <button class="back-to-splash-btn" id="onlineJoinCancelBtn"></button>
+    </div>
+  </div>
+
+  <!-- Game screen -->
+  <div id="gameScreen" class="hidden">
+    <div id="speechBubble" class="hidden">
+      <div class="bubble-name" id="bubbleName"></div>
+      <div class="bubble-text" id="bubbleText"></div>
+    </div>
+    <div id="modeLabel"></div>
+    <div id="status"></div>
+    <div id="turnTimeoutWarning" class="hidden"></div>
+    <div id="board-wrap">
+      <div id="board"></div>
+      <div id="levelCtl"><span class="lvl-label" id="levelLabel"></span></div>
+    </div>
+    <p class="board-hint" id="boardHint"></p>
+    <div id="onlineEmoteBar" class="hidden">
+      <div id="emoteScroller">
+        <button class="emote-icon-btn" data-emote="icon21_bubble_sweat"><img src="emotes/icon21_bubble_sweat.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon22_bubble_girl"><img src="emotes/icon22_bubble_girl.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon23_bubble_thanks"><img src="emotes/icon23_bubble_thanks.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon24_bubble_end"><img src="emotes/icon24_bubble_end.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon01_wave"><img src="emotes/icon01_wave.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon02_thumbsup"><img src="emotes/icon02_thumbsup.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon04_crying"><img src="emotes/icon04_crying.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon06_cat_surprised"><img src="emotes/icon06_cat_surprised.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon07_owl_question"><img src="emotes/icon07_owl_question.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon08_rose_heart"><img src="emotes/icon08_rose_heart.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon09_sparkle"><img src="emotes/icon09_sparkle.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon10_skull_ghost"><img src="emotes/icon10_skull_ghost.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon11_char_striker"><img src="emotes/icon11_char_striker.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon12_char_dealer"><img src="emotes/icon12_char_dealer.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon13_char_mask"><img src="emotes/icon13_char_mask.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon14_char_idol"><img src="emotes/icon14_char_idol.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon15_char_puppeteer"><img src="emotes/icon15_char_puppeteer.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon16_pet_owl"><img src="emotes/icon16_pet_owl.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon17_pet_fox"><img src="emotes/icon17_pet_fox.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon18_pet_badger"><img src="emotes/icon18_pet_badger.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon19_pet_mouse"><img src="emotes/icon19_pet_mouse.webp" alt="" draggable="false"></button>
+        <button class="emote-icon-btn" data-emote="icon20_hand_wave"><img src="emotes/icon20_hand_wave.webp" alt="" draggable="false"></button>
+      </div>
+    </div>
+    <div id="controls">
+      <button id="resetBtn">最初からやり直す</button>
+      <button id="titleBtn">タイトルに戻る</button>
+    </div>
+    <div id="score">
+      <span id="score1">プレイヤー1（赤）: 0勝</span>
+      <span id="score2">プレイヤー2（黄）: 0勝</span>
+    </div>
+  </div>
+
+  </div>
+
+  <!-- Ladder result overlay: shown after each CPU match (advance / game over / all-clear / draw) -->
+  <div id="resultOverlay" class="hidden">
+    <div class="result-card">
+      <div class="result-portrait" id="resultPortrait"></div>
+      <div class="result-title" id="resultTitle"></div>
+      <div class="result-message" id="resultMessage"></div>
+      <div class="result-actions" id="resultActions"></div>
+      <div class="result-note" id="resultNote"></div>
+    </div>
+  </div>
+
+  <!-- Turn-order coin toss: brief animation shown before every match starts -->
+  <div id="turnDecideOverlay" class="hidden">
+    <div class="turn-decide-card">
+      <div class="coin-wrap"><div class="coin" id="turnCoin"></div></div>
+      <div class="turn-decide-text" id="turnDecideText"></div>
+    </div>
+  </div>
+
+  <!-- Opponent's emote pops up here briefly when it arrives via polling -->
+  <div id="incomingEmote"><img id="incomingEmoteIcon" src="" alt=""></div>
+
+  <!-- Hidden debug menu: double-click the "ロ" in the title to jump straight to any ladder level -->
+  <div id="debugLevelOverlay" class="hidden">
+    <div class="result-card">
+      <div class="result-title">🛠 デバッグ: 開始レベル選択</div>
+      <div class="result-message">CPU戦の開始レベルを選んでください</div>
+      <div class="result-actions" id="debugLevelActions"></div>
+    </div>
+  </div>
+
+  <!-- おまけ: unlocked by reaching the ending (in memory only - a reload locks
+       it again, by design). Slideshow of the title art, every character, the
+       ending art and the omake-only illustrations, with a BGM picker. See
+       openOmake(). -->
+  <div id="omakeScreen" class="hidden">
+    <div id="omakeStage"></div>
+    <div id="omakeCaption"></div>
+    <button id="omakeBackBtn" type="button"></button>
+    <div id="omakeControls">
+      <button id="omakePrevBtn" type="button" aria-label="前へ">◀</button>
+      <button id="omakePlayBtn" type="button" aria-label="一時停止/再生">⏸</button>
+      <button id="omakeNextBtn" type="button" aria-label="次へ">▶</button>
+      <select id="omakeBgmSelect" aria-label="BGM"></select>
+    </div>
+  </div>
+
+  <!-- All-clear ending: slow scroll through ending2.webp with a narration
+       crawl overlaid on top; ending.mp3 kicks in as the crawl nears its end.
+       ending2.webp is a tall (2:1) crop specifically so width:100% scaling
+       still covers portrait phone screens without gaps — see ending.webp
+       (kept alongside it, unused) for the original, shorter (~1.5:1) art.
+       Click anywhere to return to title. -->
+  <div id="endingScreen" class="hidden">
+    <div id="endingScroll">
+      <img src="ending2.webp" alt="エンディング" draggable="false">
+      <div id="endingTextWrap"><div id="endingTextCrawl"></div></div>
+    </div>
+    <div class="ending-hint" id="endingHint"></div>
+  </div>
+
+<script>
+(function () {
+  // ---------- Audio: looping BGM (file-based, per-screen tracks) + synthesized SFX (Web Audio API) ----------
+  // Music lives in bgm/: title.mp3 plays on the splash/title screens, bgm.mp3
+  // plays during actual matches. Either file can be missing (bgm.mp3 isn't
+  // made yet) — playback just silently no-ops until it shows up. SFX are
+  // generated on the fly via Web Audio API so they work immediately, no files
+  // needed. Both toggles persist via localStorage and stay visible/functional
+  // across every screen (splash, title, game, result overlay).
+  // Some contexts (sandboxed embeds, certain mobile in-app browsers, strict
+  // private-browsing modes) throw on any localStorage access rather than
+  // just failing quietly — guard every call so a blocked storage API can
+  // never take the rest of the game down with it.
+  function safeStorageGet(key) {
+    try { return localStorage.getItem(key); } catch (e) { return null; }
+  }
+  function safeStorageSet(key, value) {
+    try { localStorage.setItem(key, value); } catch (e) { /* ignore */ }
+  }
+
+  const SoundMgr = (function () {
+    const STORAGE_BGM = 'lineup4_bgm_on';
+    const STORAGE_SE = 'lineup4_se_on';
+    let bgmOn = safeStorageGet(STORAGE_BGM) !== '0';
+    let seOn = safeStorageGet(STORAGE_SE) !== '0';
+    let unlocked = false;
+    let ctx = null;
+
+    // 'title' and 'game' are fixed tracks; 'level:N' is resolved to bgm/LVN.mp3
+    // for a per-character theme, falling back to the generic game track (and
+    // from there, silence) wherever a more specific file hasn't been added yet.
+    const TITLE_URL = 'bgm/title.mp3';
+    const GAME_URL = 'bgm/bgm.mp3';
+    const ENDING_URL = 'bgm/ending.mp3';
+    function levelUrl(level) { return 'bgm/LV' + level + '.mp3'; }
+    function urlForKey(key) {
+      if (key === 'title') return TITLE_URL;
+      if (key === 'game') return GAME_URL;
+      if (key === 'ending') return ENDING_URL;
+      if (key.indexOf('level:') === 0) return levelUrl(key.slice(6));
+      return null;
+    }
+
+    const BGM_VOLUME = 0.35;
+    const trackMissing = {};
+    let currentTrackKey = null;
+    let endingLoop = false; // おまけ asks for the ending theme on repeat
+
+    const bgmEl = document.getElementById('bgmAudio');
+    bgmEl.volume = BGM_VOLUME;
+
+    function ensureContext() {
+      if (!ctx) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (AC) ctx = new AC();
+      }
+      if (ctx && ctx.state === 'suspended') ctx.resume();
+      return ctx;
+    }
+
+    function fadeVolume(target, duration) {
+      const start = bgmEl.volume;
+      const t0 = performance.now();
+      function step(now) {
+        const t = Math.min(1, (now - t0) / duration);
+        bgmEl.volume = start + (target - start) * t;
+        if (t < 1) requestAnimationFrame(step);
+      }
+      requestAnimationFrame(step);
+    }
+
+    function playTrack(key, fallbackKey) {
+      if (trackMissing[key]) {
+        if (fallbackKey) playTrack(fallbackKey, fallbackKey === 'game' ? null : 'game');
+        return;
+      }
+      if (currentTrackKey === key) {
+        if (bgmOn && unlocked) bgmEl.play().catch(() => {});
+        return;
+      }
+      currentTrackKey = key;
+      const switchSrc = () => {
+        const thisKey = key;
+        bgmEl.onerror = () => {
+          trackMissing[thisKey] = true;
+          if (fallbackKey && currentTrackKey === thisKey) {
+            playTrack(fallbackKey, fallbackKey === 'game' ? null : 'game');
+          }
+        };
+        bgmEl.src = urlForKey(key);
+        bgmEl.loop = key !== 'ending' || endingLoop; // the ending theme plays once, except in おまけ
+        if (bgmOn && unlocked) {
+          bgmEl.volume = 0;
+          bgmEl.play().then(() => fadeVolume(BGM_VOLUME, 500)).catch(() => {});
+        } else {
+          bgmEl.volume = BGM_VOLUME;
+        }
+      };
+      if (!bgmEl.paused) {
+        fadeVolume(0, 250);
+        setTimeout(() => { bgmEl.pause(); switchSrc(); }, 260);
+      } else {
+        switchSrc();
+      }
+    }
+
+    // Prefer a level-specific theme (bgm/LV{level}.mp3); silently falls back
+    // to the shared game track if that file doesn't exist for this level yet.
+    function playLevelTrack(level) {
+      playTrack('level:' + level, 'game');
+    }
+
+    function tone(freq, duration, type, gainPeak, delay) {
+      if (!seOn) return;
+      const audioCtx = ensureContext();
+      if (!audioCtx) return;
+      const t0 = audioCtx.currentTime + (delay || 0);
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = type || 'sine';
+      osc.frequency.setValueAtTime(freq, t0);
+      gain.gain.setValueAtTime(0, t0);
+      gain.gain.linearRampToValueAtTime(gainPeak || 0.15, t0 + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.001, t0 + duration);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start(t0);
+      osc.stop(t0 + duration + 0.02);
+    }
+
+    return {
+      unlock() {
+        if (unlocked) return;
+        unlocked = true;
+        ensureContext();
+        playTrack(currentTrackKey || 'title');
+      },
+      playTrack,
+      playLevelTrack,
+      setEndingLoop(v) {
+        endingLoop = !!v;
+        if (currentTrackKey === 'ending') bgmEl.loop = endingLoop;
+      },
+      stop() {
+        fadeVolume(0, 250);
+        setTimeout(() => bgmEl.pause(), 260);
+        currentTrackKey = null; // so a later playTrack() re-inits fully instead of just resuming
+      },
+      setBgmOn(v) {
+        bgmOn = v;
+        safeStorageSet(STORAGE_BGM, v ? '1' : '0');
+        if (v) {
+          if (unlocked) bgmEl.play().catch(() => {});
+        } else {
+          bgmEl.pause();
+        }
+      },
+      setSeOn(v) {
+        seOn = v;
+        safeStorageSet(STORAGE_SE, v ? '1' : '0');
+      },
+      isBgmOn: () => bgmOn,
+      isSeOn: () => seOn,
+      seClick() { tone(520, 0.09, 'triangle', 0.12); },
+      seDrop() { tone(160, 0.16, 'sine', 0.22); tone(90, 0.22, 'sine', 0.15, 0.03); },
+      seWin() { [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => tone(f, 0.22, 'triangle', 0.16, i * 0.09)); },
+      seLose() { [392, 329.63, 261.63, 196].forEach((f, i) => tone(f, 0.28, 'sawtooth', 0.1, i * 0.11)); },
+      seDraw() { tone(300, 0.2, 'sine', 0.12); tone(300, 0.2, 'sine', 0.12, 0.15); },
+    };
+  })();
+
+  const bgmToggleBtn = document.getElementById('bgmToggle');
+  const seToggleBtn = document.getElementById('seToggle');
+  function refreshAudioButtons() {
+    const bgmIcon = bgmToggleBtn.querySelector('.audio-icon');
+    const seIcon = seToggleBtn.querySelector('.audio-icon');
+    bgmToggleBtn.classList.toggle('muted', !SoundMgr.isBgmOn());
+    bgmToggleBtn.setAttribute('aria-pressed', String(SoundMgr.isBgmOn()));
+    bgmIcon.textContent = SoundMgr.isBgmOn() ? '🎵' : '🔇';
+    seToggleBtn.classList.toggle('muted', !SoundMgr.isSeOn());
+    seToggleBtn.setAttribute('aria-pressed', String(SoundMgr.isSeOn()));
+    seIcon.textContent = SoundMgr.isSeOn() ? '🔔' : '🔕';
+  }
+  refreshAudioButtons();
+  bgmToggleBtn.addEventListener('click', () => {
+    SoundMgr.unlock();
+    SoundMgr.setBgmOn(!SoundMgr.isBgmOn());
+    refreshAudioButtons();
+  });
+  seToggleBtn.addEventListener('click', () => {
+    SoundMgr.unlock();
+    SoundMgr.setSeOn(!SoundMgr.isSeOn());
+    SoundMgr.seClick();
+    refreshAudioButtons();
+  });
+
+  // ---------- Player name: shown in place of "プレイヤー1" in CPU/online
+  // mode (PvP keeps the plain プレイヤー1/2 labels — there's no single
+  // "you" when two people share one screen), the ending's "あなた", and
+  // synced to the opponent in online play. Defaults to "ノア" so players
+  // who don't care can just ignore the field entirely.
+  const NAME_STORAGE_KEY = 'lineup4_player_name';
+  const DEFAULT_PLAYER_NAME = 'ノア';
+  const MAX_PLAYER_NAME_LENGTH = 10;
+  const playerNameInput = document.getElementById('playerNameInput');
+  playerNameInput.value = safeStorageGet(NAME_STORAGE_KEY) || DEFAULT_PLAYER_NAME;
+  playerNameInput.addEventListener('input', () => {
+    safeStorageSet(NAME_STORAGE_KEY, playerNameInput.value.slice(0, MAX_PLAYER_NAME_LENGTH));
+  });
+  function getPlayerName() {
+    return playerNameInput.value.trim().slice(0, MAX_PLAYER_NAME_LENGTH) || DEFAULT_PLAYER_NAME;
+  }
+  // Minimal HTML-escaping for the couple of spots that build a status string
+  // via innerHTML (for a colored-dot/avatar prefix) and splice a name into
+  // it — online mode means that name can be the OPPONENT's, so it must never
+  // be trusted as markup. Everywhere else a name is used with .textContent,
+  // which is already safe regardless.
+  function escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  // ---------- Kana mode: UI text only (buttons, labels, status messages).
+  // Character names/dialogue are left as-is — this is about making the game's
+  // own chrome readable without kanji, not a full localization pass. K()
+  // picks the right string for whichever mode is active *at the moment it's
+  // called*, so text built dynamically (status line, result overlays, etc.)
+  // always reflects the current mode with no extra wiring; only text that's
+  // set once into static HTML needs applyKanaMode() to re-run on toggle.
+  const KANA_STORAGE_KEY = 'lineup4_kana_on';
+  let kanaMode = safeStorageGet(KANA_STORAGE_KEY) === '1';
+  function K(kanji, kana) { return kanaMode ? kana : kanji; }
+
+  const kanaToggleBtn = document.getElementById('kanaToggle');
+  function refreshKanaButton() {
+    kanaToggleBtn.classList.toggle('muted', !kanaMode);
+    kanaToggleBtn.setAttribute('aria-pressed', String(kanaMode));
+  }
+  refreshKanaButton();
+  kanaToggleBtn.addEventListener('click', () => {
+    SoundMgr.unlock();
+    SoundMgr.seClick();
+    kanaMode = !kanaMode;
+    safeStorageSet(KANA_STORAGE_KEY, kanaMode ? '1' : '0');
+    refreshKanaButton();
+    applyKanaMode();
+  });
+
+  // Re-renders every *statically*-placed UI string (button labels, headings,
+  // placeholders) for the current kanaMode. Dynamic strings (status line,
+  // result overlays, ...) don't need this — they already call K() fresh each
+  // time they run — but if a match is already in progress we also nudge the
+  // couple of screens that only render once at match start.
+  function applyKanaMode() {
+    document.getElementById('boardHint').textContent = K('ドラッグで角度を変更 ／ 右の数字で高さを選び、青い面のマスをタップして置く（スマホは2回タップで確定）', 'ドラッグでかくどをかえる ／ みぎのすうじでたかさをえらび、あおいめんのマスをタップしておく（スマホは2かいタップでかくてい）');
+    document.getElementById('levelLabel').textContent = K('高さ', 'たかさ');
+    document.getElementById('titlePrefix').textContent = K('黄昏のフォー・イン・ア・', 'たそがれのフォー・イン・ア・');
+    document.getElementById('titleSubtitle').textContent = K('遊び方を選んでください', 'あそびかたをえらんでください');
+    document.getElementById('playerNameLabel').textContent = K('プレイヤー名', 'プレイヤーめい');
+    document.getElementById('pvpBtnLabel').textContent = K('対人戦', 'たいじんせん');
+    document.getElementById('cpuBtnLabel').textContent = K('CPU戦', 'CPUせん');
+    document.getElementById('cpuBtnSub').textContent = K('LV1からの勝ち抜き', 'LV1からのかちぬき');
+    document.getElementById('onlineBtnLabel').textContent = K('オンライン対戦', 'オンラインたいせん');
+    document.getElementById('onlineBtnSub').textContent = K('友達を招待', 'ともだちをしょうたい');
+    document.getElementById('omakeBtnLabel').textContent = K('おまけ', 'おまけ');
+    document.getElementById('omakeBtnSub').textContent = K('クリア特典・スライドショー', 'クリアとくてん・スライドショー');
+    document.getElementById('omakeBackBtn').textContent = K('タイトルへ', 'タイトルへ');
+    renderOmakeBgmOptions();
+    const backLabel = K('← タイトルに戻る', '← タイトルにもどる');
+    document.getElementById('backToSplashBtn').textContent = backLabel;
+    document.getElementById('onlineBackBtn').textContent = backLabel;
+
+    document.getElementById('onlineHeading').textContent = '🌐 ' + K('オンライン対戦', 'オンラインたいせん');
+    document.getElementById('onlineIntro').textContent = K('友達を招待して対戦しましょう', 'ともだちをしょうたいしてたいせんしましょう');
+    document.getElementById('onlineCreateBtnLabel').textContent = K('部屋を作る', 'へやをつくる');
+    document.getElementById('onlineOrJoin').textContent = K('または、もらったコードで参加', 'または、もらったコードでさんか');
+    document.getElementById('onlineJoinCode').placeholder = K('部屋コード', 'へやコード');
+    document.getElementById('onlineJoinBtn').textContent = K('参加する', 'さんかする');
+    document.getElementById('onlineShareInstructions').textContent = K('このコードを友達に伝えるか、URLを共有してください', 'このコードをともだちにつたえるか、URLをきょうゆうしてください');
+    document.getElementById('onlineCopyBtn').textContent = K('招待URLをコピー', 'しょうたいURLをコピー');
+    document.getElementById('onlineWaitingText').textContent = K('対戦相手を待っています…', 'たいせんあいてをまっています…');
+    document.getElementById('onlineCancelBtn').textContent = 'キャンセル';
+    document.getElementById('onlineJoinNameLabel').textContent = K('プレイヤー名', 'プレイヤーめい');
+    document.getElementById('onlineJoinConfirmBtn').textContent = K('開始する', 'かいしする');
+    document.getElementById('onlineJoinCancelBtn').textContent = 'キャンセル';
+    renderJoinConfirmText();
+    document.getElementById('endingHint').textContent = K('ドラッグで読み返せます／クリックでタイトルへ', 'ドラッグでよみかえせます／クリックでタイトルへ');
+
+    resetBtn.textContent = K('最初からやり直す', 'さいしょからやりなおす');
+    titleBtn.textContent = K('タイトルに戻る', 'タイトルにもどる');
+
+    // If a match is already up, refresh what's currently on screen too.
+    if (!gameScreen.classList.contains('hidden')) {
+      if (mode === 'pvp') {
+        modeLabelEl.textContent = K('対人戦モード', 'たいじんせんモード');
+      } else if (mode === 'online' && online) {
+        modeLabelEl.textContent = `${K('オンライン対戦', 'オンラインたいせん')}（${K('部屋', 'へや')}: ${online.code}） ／ ${K('あなたは', 'あなたは')}${online.myPlayer === 1 ? K('赤', 'あか') : K('黄', 'き')}`;
+      }
+      if (typeof currentPlayer !== 'undefined' && !gameOver) updateStatus();
+      updateScoreboard();
+    }
+  }
+
+  // ---------- Splash screen ----------
+  const splashScreen = document.getElementById('splashScreen');
+  function showSplash() {
+    SoundMgr.playTrack('title');
+    splashScreen.classList.remove('hide');
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => splashScreen.classList.add('show'));
+    });
+  }
+  function hideSplash() {
+    SoundMgr.unlock();
+    SoundMgr.seClick();
+    splashScreen.classList.remove('show');
+    splashScreen.classList.add('hide');
+  }
+  showSplash();
+  splashScreen.addEventListener('click', () => {
+    hideSplash();
+    // (Online play isn't available in the 3D version yet, so there is no ?room=CODE auto-join.)
+  });
+
+  document.getElementById('backToSplashBtn').addEventListener('click', () => {
+    SoundMgr.seClick();
+    showSplash();
+  });
+
+  const boardEl = document.getElementById('board');
+  const statusEl = document.getElementById('status');
+  const resetBtn = document.getElementById('resetBtn');
+  const titleBtn = document.getElementById('titleBtn');
+  const score1El = document.getElementById('score1');
+  const score2El = document.getElementById('score2');
+  const boardWrap = document.getElementById('board-wrap');
+  const modeLabelEl = document.getElementById('modeLabel');
+
+  const titleScreen = document.getElementById('titleScreen');
+  const gameScreen = document.getElementById('gameScreen');
+  const pvpBtn = document.getElementById('pvpBtn');
+  const cpuBtn = document.getElementById('cpuBtn');
+  const onlineBtn = document.getElementById('onlineBtn');
+
+  // ---------- CPU character roster ----------
+  // 5-stage strength ladder. `depth` = minimax search depth, `wildness` = chance
+  // the character ignores the calculated best move in favor of a rough/random one
+  // (a winning move is always taken regardless, so weaker levels never look "broken").
+  const CHARACTERS = [
+    { level: 1, name: '荒くれストライカー', stars: 2, img: 'chara/LV1.webp', emoji: '👊',
+      desc: '力任せで攻めてくるチンピラ系', depth: 1, wildness: 0.60, // 3D: tuned offline so a beginner wins ~40-50%
+      lines: {
+        normal: [
+          'へへっ、どこに置こうが俺の勝ちだぜ！',
+          '考えすぎんな！　ガツンと来いよ！',
+          'その一手、俺には丸見えだぜ！',
+          'おいおい、そんなところに置いていいのか？',
+          'まだまだ！　ここからひっくり返してやる！',
+        ],
+        aboutToWin: [
+          '見たか！　もう逃げ道はねぇぞ！',
+          'ハハハッ！　あと一手でブッ飛ばしてやる！',
+        ],
+        aboutToLose: [
+          'ちょ、待て！　今のはナシだろ！',
+          'くそっ！　まだ終わっちゃいねぇぞ！',
+        ],
+        victory: 'ガハハハッ！　俺様の勝ちだ！　力ってのはな、最後にモノを言うんだよ！',
+        defeat: 'ぐおおお……！　俺が……負けただと……？　次は絶対ぶっ潰す！',
+      },
+      // Kana-mode dialogue: same shape as `lines`, hiragana-only (sound
+      // effects/loanwords stay katakana, e.g. ガツン・ナシ・モノ). speak()
+      // picks this over `lines` when kanaMode is on. Character names and
+      // speaker labels (PUPPETS, ch.name) are out of scope and stay as-is.
+      linesKana: {
+        normal: [
+          'へへっ、どこにおこうがおれのかちだぜ！',
+          'かんがえすぎんな！　ガツンとこいよ！',
+          'そのいって、おれにはまるみえだぜ！',
+          'おいおい、そんなところにおいていいのか？',
+          'まだまだ！　ここからひっくりかえしてやる！',
+        ],
+        aboutToWin: [
+          'みたか！　もうにげみちはねぇぞ！',
+          'ハハハッ！　あといってでぶっとばしてやる！',
+        ],
+        aboutToLose: [
+          'ちょ、まて！　いまのはナシだろ！',
+          'くそっ！　まだおわっちゃいねぇぞ！',
+        ],
+        victory: 'ガハハハッ！　おれさまのかちだ！　ちからってのはな、さいごにモノをいうんだよ！',
+        defeat: 'ぐおおお……！　おれが……まけただと……？　つぎはぜったいぶっつぶす！',
+      } },
+    { level: 2, name: '黒衣のディーラー', stars: 3, img: 'chara/LV2.webp', emoji: '🃏',
+      desc: '冷静・知的な悪役', depth: 2, wildness: 0.25,
+      lines: {
+        normal: [
+          'なるほど。あなたは、そういう手を選ぶんですね。',
+          '面白い。では、こちらはどうでしょう？',
+          '焦らなくても結構ですよ。時間はありますから。',
+          'その一手には、少々期待していたんですがね。',
+          '勝負というのは、最後まで分からないものですよ。',
+        ],
+        aboutToWin: [
+          'チェックメイト……と言うには、まだ早いですかね。',
+          'どうやら勝負の流れは、こちらに傾いたようですね。',
+        ],
+        aboutToLose: [
+          '……これは少々、計算が狂いましたね。',
+          'なるほど。そう来ましたか。実に興味深い。',
+        ],
+        victory: '勝負あり、ですね。あなたの手札は、すべて見えていましたよ。',
+        defeat: '……私の読みを上回りましたか。お見事。次は、そう簡単にはいきませんよ。',
+      },
+      linesKana: {
+        normal: [
+          'なるほど。あなたは、そういうてをえらぶんですね。',
+          'おもしろい。では、こちらはどうでしょう？',
+          'あせらなくてもけっこうですよ。じかんはありますから。',
+          'そのいってには、しょうしょうきたいしていたんですがね。',
+          'しょうぶというのは、さいごまでわからないものですよ。',
+        ],
+        aboutToWin: [
+          'チェックメイト……というには、まだはやいですかね。',
+          'どうやらしょうぶのながれは、こちらにかたむいたようですね。',
+        ],
+        aboutToLose: [
+          '……これはしょうしょう、けいさんがくるいましたね。',
+          'なるほど。そうきましたか。じつにきょうみぶかい。',
+        ],
+        victory: 'しょうぶあり、ですね。あなたのてふだは、すべてみえていましたよ。',
+        defeat: '……わたしのよみをうわまわりましたか。おみごと。つぎは、そうかんたんにはいきませんよ。',
+      } },
+    { level: 3, name: '狂犬マスク', stars: 4, img: 'chara/LV3.webp', emoji: '🐺',
+      desc: '不気味で攻撃的', depth: 3, wildness: 0.15,
+      lines: {
+        normal: [
+          'ククク……そこに置くんだ？　へぇ……。',
+          'もっと来いよ。まだ全然足りねぇ。',
+          'その顔……いいねぇ。追い詰められてきた顔だ。',
+          '次はどこかな？　どこかなぁ？',
+          'ハハッ！　盤面がぐちゃぐちゃになってきたぜ！',
+        ],
+        aboutToWin: [
+          '見える……見えるぞ！　お前が負ける瞬間が！',
+          'ヒャハハハ！　あと一手だ！　逃げてみろよ！',
+        ],
+        aboutToLose: [
+          '……へぇ。やるじゃねぇか。',
+          'ハハッ……最高だ！　もっとギリギリまで来いよ！',
+        ],
+        victory: 'アハハハハ！　終わっちまった！　もっと遊びたかったのになぁ！',
+        defeat: '……負けた？　俺が？　ハハ……ハハハッ！　最高じゃねぇか！',
+      },
+      linesKana: {
+        normal: [
+          'ククク……そこにおくんだ？　へぇ……。',
+          'もっとこいよ。まだぜんぜんたりねぇ。',
+          'そのかお……いいねぇ。おいつめられてきたかおだ。',
+          'つぎはどこかな？　どこかなぁ？',
+          'ハハッ！　ばんめんがぐちゃぐちゃになってきたぜ！',
+        ],
+        aboutToWin: [
+          'みえる……みえるぞ！　おまえがまけるしゅんかんが！',
+          'ヒャハハハ！　あといってだ！　にげてみろよ！',
+        ],
+        aboutToLose: [
+          '……へぇ。やるじゃねぇか。',
+          'ハハッ……さいこうだ！　もっとギリギリまでこいよ！',
+        ],
+        victory: 'アハハハハ！　おわっちまった！　もっとあそびたかったのになぁ！',
+        defeat: '……まけた？　おれが？　ハハ……ハハハッ！　さいこうじゃねぇか！',
+      } },
+    { level: 4, name: '黒薔薇アイドル', stars: 4, img: 'chara/LV4.webp', emoji: '🌹',
+      desc: '美貌と妖しさを兼ね備えた人気者', depth: 4, wildness: 0.05,
+      lines: {
+        normal: [
+          'あら、そこに置くの？　かわいい選択ね♡',
+          'ふふっ、ちゃんと私を見ててね？',
+          '大丈夫。まだ負けたわけじゃないもの。',
+          'その手……ファンのみんなならどう思うかしら？',
+          '勝負って、こんなにドキドキするものなのね♡',
+        ],
+        aboutToWin: [
+          'うふふ……もう逃げられないわよ♡',
+          'さあ、最後の一手よ。私をもっと楽しませて？',
+        ],
+        aboutToLose: [
+          '……あら？　ちょっと予定と違うわね。',
+          'ふふっ……まだ私が笑ってる理由、分からない？',
+        ],
+        victory: 'みんなーっ！　勝ったよーっ♡ ……ふふ。あなたも、ちゃんと楽しめたかしら？',
+        defeat: '……え？　私が……負けたの？　……ふふ、そういう顔するんだ。覚えておくわね♡',
+      },
+      linesKana: {
+        normal: [
+          'あら、そこにおくの？　かわいいせんたくね♡',
+          'ふふっ、ちゃんとわたしをみててね？',
+          'だいじょうぶ。まだまけたわけじゃないもの。',
+          'そのて……ファンのみんなならどうおもうかしら？',
+          'しょうぶって、こんなにドキドキするものなのね♡',
+        ],
+        aboutToWin: [
+          'うふふ……もうにげられないわよ♡',
+          'さあ、さいごのいってよ。わたしをもっとたのしませて？',
+        ],
+        aboutToLose: [
+          '……あら？　ちょっとよていとちがうわね。',
+          'ふふっ……まだわたしがわらってるりゆう、わからない？',
+        ],
+        victory: 'みんなーっ！　かったよーっ♡ ……ふふ。あなたも、ちゃんとたのしめたかしら？',
+        defeat: '……え？　わたしが……まけたの？　……ふふ、そういうかおするんだ。おぼえておくわね♡',
+      } },
+    { level: 5, name: '傀儡師', stars: 5, img: 'chara/LV5.webp', emoji: '🎭',
+      desc: '名人・ラスボス。ゲーム盤そのものを操る', depth: 5, wildness: 0, // free-placement board: depth 6 takes ~2s per move, 5 about 0.4s
+      // LV5 only: lines are multi-speaker conversations between the puppeteer
+      // ("master") and his four puppets, instead of a single character's line.
+      // See PUPPETS/speakerName() for how `speaker` keys are rendered.
+      lines: {
+        normal: [
+          [
+            { speaker: 'master', text: 'さて……次は、誰に踊ってもらいましょうか。' },
+            { speaker: 'fox', text: 'ボクがいい！' },
+            { speaker: 'owl', text: 'お前は少し黙っていなさい。' },
+          ],
+          [
+            { speaker: 'owl', text: 'マスター、左です。左の手をお忘れなく。' },
+            { speaker: 'master', text: 'おや。私より先に気づきましたか。' },
+          ],
+          [
+            { speaker: 'mouse', text: '……あの……こっち、危ないと思う……。' },
+            { speaker: 'master', text: 'ふふ。ネズミの勘は、侮れませんからね。' },
+          ],
+          [
+            { speaker: 'badger', text: '……。' },
+            { speaker: 'master', text: 'どうしました？' },
+            { speaker: 'badger', text: '……勝てる。' },
+            { speaker: 'master', text: 'それは頼もしい。' },
+          ],
+          [
+            { speaker: 'fox', text: 'ねえねえ、あいつ、次どうすると思う？' },
+            { speaker: 'owl', text: '静かにしなさい。今、考えているところです。' },
+            { speaker: 'fox', text: 'じゃあボクは分かった！' },
+            { speaker: 'master', text: '……では、聞かせてもらいましょうか。' },
+          ],
+        ],
+        aboutToWin: [
+          [
+            { speaker: 'master', text: '……ほら。もう、糸が見えてきましたよ。' },
+            { speaker: 'owl', text: 'あと一手です。' },
+            { speaker: 'fox', text: 'やったー！' },
+            { speaker: 'badger', text: '……まだだ。' },
+            { speaker: 'mouse', text: '……うん。まだ。' },
+            { speaker: 'master', text: 'ふふ。慎重ですね。' },
+          ],
+          [
+            { speaker: 'master', text: 'さあ、最後の一手です。' },
+            { speaker: 'fox', text: 'もう勝った？' },
+            { speaker: 'owl', text: 'まだです。油断は禁物ですよ。' },
+            { speaker: 'mouse', text: '……でも、たぶん勝てる。' },
+            { speaker: 'badger', text: '……勝つ。' },
+            { speaker: 'master', text: '皆さん、ずいぶん気が早いようで。' },
+          ],
+        ],
+        aboutToLose: [
+          [
+            { speaker: 'mouse', text: '……マスター。' },
+            { speaker: 'master', text: 'ええ。分かっていますよ。' },
+            { speaker: 'owl', text: 'これは……なかなか。' },
+            { speaker: 'fox', text: 'えっ、ちょっと待って！　負けるの!?' },
+            { speaker: 'badger', text: '……まだ終わってない。' },
+            { speaker: 'master', text: 'その通りです。' },
+          ],
+          [
+            { speaker: 'owl', text: 'マスター。これは、予定外では？' },
+            { speaker: 'master', text: 'ええ。実に愉快な予定外です。' },
+            { speaker: 'fox', text: '全然愉快じゃないよ！' },
+            { speaker: 'badger', text: '……まだ打てる。' },
+            { speaker: 'mouse', text: '……一手、ある。' },
+            { speaker: 'master', text: 'なるほど。では、その一手に賭けてみましょう。' },
+          ],
+        ],
+        victory: [
+          { speaker: 'master', text: '……終幕です。' },
+          { speaker: 'owl', text: '見事な勝負でした。' },
+          { speaker: 'fox', text: 'やったー！　勝ったー！' },
+          { speaker: 'badger', text: '……当然。' },
+          { speaker: 'mouse', text: '……よかった。' },
+          { speaker: 'master', text: '皆さん、お疲れ様でした。では……次の舞台へ参りましょう。' },
+        ],
+        defeat: [
+          { speaker: 'fox', text: '……負けちゃった。' },
+          { speaker: 'owl', text: '認めましょう。完敗です。' },
+          { speaker: 'badger', text: '……強い。' },
+          { speaker: 'mouse', text: '……すごかった。' },
+          { speaker: 'master', text: '……ふふ。' },
+          { speaker: 'master', text: 'まさか、この私が操られるとはね。' },
+          { speaker: 'fox', text: 'えっ、マスターが人形になったの？' },
+          { speaker: 'master', text: '……それは、次の舞台でのお楽しみです。' },
+        ],
+      },
+      linesKana: {
+        normal: [
+          [
+            { speaker: 'master', text: 'さて……つぎは、だれにおどってもらいましょうか。' },
+            { speaker: 'fox', text: 'ボクがいい！' },
+            { speaker: 'owl', text: 'おまえはすこしだまっていなさい。' },
+          ],
+          [
+            { speaker: 'owl', text: 'マスター、ひだりです。ひだりのてをおわすれなく。' },
+            { speaker: 'master', text: 'おや。わたしよりさきにきづきましたか。' },
+          ],
+          [
+            { speaker: 'mouse', text: '……あの……こっち、あぶないとおもう……。' },
+            { speaker: 'master', text: 'ふふ。ネズミのかんは、あなどれませんからね。' },
+          ],
+          [
+            { speaker: 'badger', text: '……。' },
+            { speaker: 'master', text: 'どうしました？' },
+            { speaker: 'badger', text: '……かてる。' },
+            { speaker: 'master', text: 'それはたのもしい。' },
+          ],
+          [
+            { speaker: 'fox', text: 'ねえねえ、あいつ、つぎどうするとおもう？' },
+            { speaker: 'owl', text: 'しずかにしなさい。いま、かんがえているところです。' },
+            { speaker: 'fox', text: 'じゃあボクはわかった！' },
+            { speaker: 'master', text: '……では、きかせてもらいましょうか。' },
+          ],
+        ],
+        aboutToWin: [
+          [
+            { speaker: 'master', text: '……ほら。もう、いとがみえてきましたよ。' },
+            { speaker: 'owl', text: 'あといってです。' },
+            { speaker: 'fox', text: 'やったー！' },
+            { speaker: 'badger', text: '……まだだ。' },
+            { speaker: 'mouse', text: '……うん。まだ。' },
+            { speaker: 'master', text: 'ふふ。しんちょうですね。' },
+          ],
+          [
+            { speaker: 'master', text: 'さあ、さいごのいってです。' },
+            { speaker: 'fox', text: 'もうかった？' },
+            { speaker: 'owl', text: 'まだです。ゆだんはきんもつですよ。' },
+            { speaker: 'mouse', text: '……でも、たぶんかてる。' },
+            { speaker: 'badger', text: '……かつ。' },
+            { speaker: 'master', text: 'みなさん、ずいぶんきがはやいようで。' },
+          ],
+        ],
+        aboutToLose: [
+          [
+            { speaker: 'mouse', text: '……マスター。' },
+            { speaker: 'master', text: 'ええ。わかっていますよ。' },
+            { speaker: 'owl', text: 'これは……なかなか。' },
+            { speaker: 'fox', text: 'えっ、ちょっとまって！　まけるの!?' },
+            { speaker: 'badger', text: '……まだおわってない。' },
+            { speaker: 'master', text: 'そのとおりです。' },
+          ],
+          [
+            { speaker: 'owl', text: 'マスター。これは、よていがいでは？' },
+            { speaker: 'master', text: 'ええ。じつにゆかいなよていがいです。' },
+            { speaker: 'fox', text: 'ぜんぜんゆかいじゃないよ！' },
+            { speaker: 'badger', text: '……まだうてる。' },
+            { speaker: 'mouse', text: '……いって、ある。' },
+            { speaker: 'master', text: 'なるほど。では、そのいってにかけてみましょう。' },
+          ],
+        ],
+        victory: [
+          { speaker: 'master', text: '……しゅうまくです。' },
+          { speaker: 'owl', text: 'みごとなしょうぶでした。' },
+          { speaker: 'fox', text: 'やったー！　かったー！' },
+          { speaker: 'badger', text: '……とうぜん。' },
+          { speaker: 'mouse', text: '……よかった。' },
+          { speaker: 'master', text: 'みなさん、おつかれさまでした。では……つぎのぶたいへまいりましょう。' },
+        ],
+        defeat: [
+          { speaker: 'fox', text: '……まけちゃった。' },
+          { speaker: 'owl', text: 'みとめましょう。かんぱいです。' },
+          { speaker: 'badger', text: '……つよい。' },
+          { speaker: 'mouse', text: '……すごかった。' },
+          { speaker: 'master', text: '……ふふ。' },
+          { speaker: 'master', text: 'まさか、このわたしがあやつられるとはね。' },
+          { speaker: 'fox', text: 'えっ、マスターがにんぎょうになったの？' },
+          { speaker: 'master', text: '……それは、つぎのぶたいでのおたのしみです。' },
+        ],
+      } },
+  ];
+
+  const PUPPETS = {
+    fox: '🦊 きつね',
+    owl: '🦉 ふくろう',
+    mouse: '🐭 ねずみ',
+    badger: '🦡 あなぐま',
+  };
+  function speakerName(ch, speakerKey) {
+    return speakerKey === 'master' ? ch.name : (PUPPETS[speakerKey] || speakerKey);
+  }
+
+  let grid, currentPlayer, gameOver, cellEls;
+  let scores = { 1: 0, 2: 0 };
+  let mode = 'pvp'; // 'pvp' | 'cpu' | 'online'
+  let currentChar = null;
+  let ladderIndex = 0; // index into CHARACTERS for the current CPU ladder run
+  let cpuThinking = false;
+  let online = null; // { code, token, myPlayer, rev, timer, busy } while in an online match
+  // Pending setTimeout that will call handleLadderOutcome() after a CPU
+  // match's win/lose/draw line finishes playing. Must be cancelled by
+  // initGame() — otherwise clicking "retry" while it's still pending lets it
+  // fire mid-way through the NEW match and pop up a stale result overlay.
+  let ladderOutcomeTimer = null;
+
+  // ---------- Title screen wiring ----------
+  function starString(n) {
+    return '★'.repeat(n) + '☆'.repeat(5 - n);
+  }
+
+  pvpBtn.addEventListener('click', () => { SoundMgr.seClick(); startGame('pvp'); });
+  cpuBtn.addEventListener('click', () => { SoundMgr.seClick(); startLadder(); });
+
+  function startLadder() {
+    ladderIndex = 0;
+    currentChar = CHARACTERS[0];
+    startGame('cpu');
+  }
+
+  // NOTE (line4-third): everything in this online section is inherited from line4 and
+  // is NOT wired up for the 3D board yet (the title button is hidden; it still
+  // addresses a 2D grid via cellEls/ROWS/COLS). Rebuild it for 4x4x4 before enabling.
+  // ---------- Online multiplayer (friend invite via room code / URL) ----------
+  // Server is authoritative: the Worker (src/line4-online.js) owns the grid,
+  // turn order and win/draw detection in a dedicated D1 database. This client
+  // only ever sends "I choose column N" and renders whatever state comes back
+  // — it never decides a win/turn locally the way the pvp/cpu modes do.
+  const ONLINE_API = '/api/line4';
+  const ONLINE_POLL_MS = 1300;
+
+  // Mirrors TURN_TIMEOUT_MS / the 30s warning point in src/line4-online.js —
+  // the server is what actually enforces the forfeit (checked lazily on the
+  // next /state poll from either side); this is purely the countdown display.
+  const TURN_TIMEOUT_MS = 60000;
+  const TURN_TIMEOUT_WARNING_MS = 30000;
+  // How long the post-game emote/leave window stays open — mirrors (and
+  // must stay a bit under) FINISHED_ROOM_GRACE_MS in src/line4-online.js.
+  const POST_GAME_WINDOW_MS = 30000;
+
+  // #resultOverlay is a direct child of <body>, but #onlineEmoteBar normally
+  // lives inside .page-content (position:relative + z-index:1, its own
+  // stacking context) — so no z-index on the emote bar, however high, could
+  // ever out-rank the overlay; it only LOOKED like it was on top while
+  // actually eating no clicks (confirmed via elementFromPoint). Reparenting
+  // it to <body> during the post-game window makes it a real sibling of
+  // #resultOverlay so z-index:7 vs 6 finally applies, then it's moved back
+  // next to the board once the window ends.
+  function pinEmoteBarForPostGame() {
+    document.body.appendChild(document.getElementById('onlineEmoteBar'));
+  }
+  function restoreEmoteBarPosition() {
+    document.getElementById('board-wrap').insertAdjacentElement('afterend', document.getElementById('onlineEmoteBar'));
+  }
+
+  // Called from the finished/leave room after either a decisive win/loss/draw:
+  // stops the post-game countdown, tears down the emote bar's temporary
+  // "postgame" positioning, and returns to the title screen. If *I* was the
+  // winner, also tells the server so the room frees up immediately instead
+  // of waiting for FINISHED_ROOM_GRACE_MS — a loser leaving needs no such
+  // call (the winner might still request a rematch), so this is skipped
+  // when online.wonLastMatch is falsy. Fire-and-forget: the values are read
+  // synchronously before goToTitle() clears `online`, so it's safe even
+  // though the request itself resolves after we've already left.
+  function leavePostGameRoom() {
+    if (online) {
+      online.postGameDeadline = null;
+      if (online.wonLastMatch) {
+        apiPost(`/room/${online.code}/leave`, { token: online.token }).catch(() => {});
+      }
+    }
+    document.getElementById('resultOverlay').classList.add('hidden');
+    goToTitle();
+  }
+
+  function tickPostGameCountdown() {
+    const noteEl = document.getElementById('resultNote');
+    if (mode !== 'online' || !online || !online.postGameDeadline) {
+      noteEl.textContent = '';
+      return;
+    }
+    const remaining = online.postGameDeadline - Date.now();
+    if (remaining <= 0) {
+      leavePostGameRoom();
+      return;
+    }
+    const seconds = Math.ceil(remaining / 1000);
+    noteEl.textContent = `⏱ ${K(`あと${seconds}秒で退室します`, `あと${seconds}びょうでたいしゅつします`)}`;
+  }
+
+  setInterval(() => {
+    tickPostGameCountdown();
+    const warnEl = document.getElementById('turnTimeoutWarning');
+    if (mode !== 'online' || !online || gameOver || !online.turnStartedAt) {
+      warnEl.classList.add('hidden');
+      return;
+    }
+    const remaining = TURN_TIMEOUT_MS - (Date.now() - online.turnStartedAt);
+    if (remaining <= 0 || remaining > TURN_TIMEOUT_WARNING_MS) {
+      warnEl.classList.add('hidden');
+      return;
+    }
+    const seconds = Math.ceil(remaining / 1000);
+    const isMyTurn = currentPlayer === online.myPlayer;
+    warnEl.textContent = isMyTurn
+      ? `⏱ ${K(`あと${seconds}秒で時間切れになります`, `あと${seconds}びょうでじかんぎれになります`)}`
+      : `⏱ ${K(`相手が操作していません…あと${seconds}秒で不戦勝になります`, `あいてがそうさしていません…あと${seconds}びょうでふせんしょうになります`)}`;
+    warnEl.classList.remove('hidden');
+  }, 1000);
+
+  const onlineScreenEl = document.getElementById('onlineScreen');
+  const onlineMenuEl = document.getElementById('onlineMenu');
+  const onlineWaitingEl = document.getElementById('onlineWaiting');
+  const onlineErrorEl = document.getElementById('onlineError');
+  const onlineRoomCodeEl = document.getElementById('onlineRoomCode');
+  const onlineJoinCodeEl = document.getElementById('onlineJoinCode');
+
+  async function apiPost(path, body) {
+    const res = await fetch(ONLINE_API + path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {}),
+    });
+    return res.json();
+  }
+  async function apiGet(path) {
+    const res = await fetch(ONLINE_API + path);
+    return res.json();
+  }
+
+  function onlineErrorMessages() {
+    return {
+      room_not_found: K('部屋が見つかりませんでした。コードを確認してください。', 'へやがみつかりませんでした。コードをかくにんしてください。'),
+      room_full: K('その部屋は現在対戦中です。', 'そのへやはげんざいたいせんちゅうです。'),
+      invalid_body: K('コードを入力してください。', 'コードをにゅうりょくしてください。'),
+      server_error: K('通信エラーが発生しました。もう一度お試しください。', 'つうしんエラーがはっせいしました。もういちどおためしください。'),
+    };
+  }
+  // "3分12秒" / "45秒" — used only for the room_full detail message below.
+  function formatElapsed(ms) {
+    const totalSec = Math.max(0, Math.floor(ms / 1000));
+    const min = Math.floor(totalSec / 60);
+    const sec = totalSec % 60;
+    if (min <= 0) return K(`${sec}秒`, `${sec}びょう`);
+    return K(`${min}分${sec}秒`, `${min}ふん${sec}びょう`);
+  }
+  // room_full carries the occupied room's state (names/streaks/match start
+  // time) so we can tell a blocked joiner who's playing instead of just
+  // "in use" — falls back to the plain message if state is missing.
+  function roomFullDetailMessage(state) {
+    if (!state || !state.p1Name || !state.p2Name) return null;
+    const p1 = state.p1Name, p2 = state.p2Name;
+    let msg = `${p1}${K('さんと', 'さんと')}${p2}${K('さんが対戦中', 'さんがたいせんちゅう')}`;
+    const parts = [];
+    if (state.matchStartedAt) {
+      parts.push(`${K('経過', 'けいか')}${formatElapsed(Date.now() - state.matchStartedAt)}`);
+    }
+    const leader = state.p1Streak >= state.p2Streak ? { name: p1, streak: state.p1Streak } : { name: p2, streak: state.p2Streak };
+    if (leader.streak > 0) {
+      parts.push(`${leader.name}${K('さんが', 'さんが')}${leader.streak}${K('連勝中', 'れんしょうちゅう')}`);
+    }
+    if (parts.length) msg += `（${parts.join('／')}）`;
+    return msg;
+  }
+  function showOnlineError(code, res) {
+    const detail = code === 'room_full' && res && roomFullDetailMessage(res.state);
+    onlineErrorEl.textContent = detail || onlineErrorMessages()[code] || onlineErrorMessages().server_error;
+  }
+  function clearOnlineError() {
+    onlineErrorEl.textContent = '';
+  }
+
+  function showOnlineMenu() {
+    stopOnlinePolling();
+    online = null;
+    onlineWaitingEl.classList.add('hidden');
+    hideJoinConfirm();
+    onlineMenuEl.classList.remove('hidden');
+    clearOnlineError();
+  }
+
+  function goToOnlineScreen() {
+    titleScreen.classList.add('hidden');
+    onlineScreenEl.classList.remove('hidden');
+    showOnlineMenu();
+  }
+
+  onlineBtn.addEventListener('click', () => { SoundMgr.seClick(); goToOnlineScreen(); });
+  document.getElementById('onlineBackBtn').addEventListener('click', () => {
+    SoundMgr.seClick();
+    onlineScreenEl.classList.add('hidden');
+    titleScreen.classList.remove('hidden');
+  });
+  document.getElementById('onlineCancelBtn').addEventListener('click', () => {
+    SoundMgr.seClick();
+    // Waiting for a *new challenger* after a win is a different context than
+    // waiting right after creating a room — cancelling there should abandon
+    // the streak and go home, not drop into the create/join menu.
+    if (online && online.awaitingRematch) goToTitle();
+    else showOnlineMenu();
+  });
+
+  function inviteUrl(code) {
+    const url = new URL(location.href);
+    url.search = '?room=' + code;
+    return url.toString();
+  }
+
+  document.getElementById('onlineCopyBtn').addEventListener('click', async (e) => {
+    SoundMgr.seClick();
+    const url = inviteUrl(online.code);
+    const btn = e.currentTarget;
+    try {
+      await navigator.clipboard.writeText(url);
+      const original = btn.textContent;
+      btn.textContent = 'コピーしました！';
+      setTimeout(() => { btn.textContent = original; }, 1500);
+    } catch (err) {
+      window.prompt('このURLをコピーして送ってください:', url);
+    }
+  });
+
+  async function createOnlineRoom() {
+    clearOnlineError();
+    const res = await apiPost('/room', { name: getPlayerName() });
+    if (!res.ok) { showOnlineError(res.error); return; }
+    online = { code: res.code, token: res.token, myPlayer: 1, rev: res.state.rev, emoteRev: res.state.emoteRev || 0, timer: null, busy: false, awaitingRematch: false };
+    onlineMenuEl.classList.add('hidden');
+    onlineWaitingEl.classList.remove('hidden');
+    onlineRoomCodeEl.textContent = res.code;
+    // requestRematch() overwrites this with a streak message — reset it here
+    // so a fresh room never shows leftover text from an earlier rematch wait.
+    document.getElementById('onlineWaitingText').textContent = K('対戦相手を待っています…', 'たいせんあいてをまっています…');
+    pollForOpponent();
+  }
+
+  // Used both right after creating a room (waiting for p2) and after a win,
+  // once the winner opts to stay (waiting for a new challenger to fill
+  // whichever slot the loser just vacated) — so it checks "is the OTHER
+  // slot filled" symmetrically rather than assuming p2.
+  function pollForOpponent() {
+    online.timer = setInterval(async () => {
+      if (!online) return;
+      try {
+        const res = await apiGet(`/room/${online.code}/state`);
+        const opponentSlotFilled = online.myPlayer === 1 ? res.state.hasP2 : res.state.hasP1;
+        if (res.ok && opponentSlotFilled) {
+          stopOnlinePolling();
+          beginOnlineMatch(res.state);
+        }
+      } catch (e) { /* transient — try again next tick */ }
+    }, ONLINE_POLL_MS);
+  }
+
+  // Entering a code no longer joins immediately — it peeks at the room first
+  // (GET /state, no side effects) so we can ask "play against 〇〇さん?"
+  // before actually taking a seat. Both the manual join button and the
+  // ?room=CODE invite-link auto-join (see the splash click handler above)
+  // go through this same confirm step.
+  let pendingJoinCode = null;
+  let pendingJoinState = null;
+
+  function renderJoinConfirmText() {
+    const el = document.getElementById('onlineJoinConfirmText');
+    if (!pendingJoinState) return;
+    const state = pendingJoinState;
+    const opponentName = state.hasP1 ? state.p1Name : (state.hasP2 ? state.p2Name : null);
+    el.textContent = opponentName
+      ? `${opponentName}${K('さんと対戦します。開始しますか？', 'さんとたいせんします。かいししますか？')}`
+      : K('この部屋に参加します。開始しますか？', 'このへやにさんかします。かいししますか？');
+  }
+
+  function showJoinConfirm(code, state) {
+    pendingJoinCode = code;
+    pendingJoinState = state;
+    renderJoinConfirmText();
+    document.getElementById('onlineJoinNameInput').value = getPlayerName();
+    onlineMenuEl.classList.add('hidden');
+    document.getElementById('onlineJoinConfirm').classList.remove('hidden');
+  }
+
+  function hideJoinConfirm() {
+    pendingJoinCode = null;
+    pendingJoinState = null;
+    document.getElementById('onlineJoinConfirm').classList.add('hidden');
+  }
+
+  async function joinOnlineRoom(code) {
+    clearOnlineError();
+    if (!code) { showOnlineError('invalid_body'); return; }
+    const res = await apiGet(`/room/${code}/state`);
+    if (!res.ok) { showOnlineError(res.error); return; }
+    if (res.state.hasP1 && res.state.hasP2) {
+      onlineErrorEl.textContent = roomFullDetailMessage(res.state) || onlineErrorMessages().room_full;
+      return;
+    }
+    showJoinConfirm(code, res.state);
+  }
+
+  document.getElementById('onlineJoinConfirmBtn').addEventListener('click', async () => {
+    SoundMgr.seClick();
+    const code = pendingJoinCode;
+    // The name field here IS playerNameInput's value everywhere else reads
+    // from (getPlayerName()) — write-through to storage so a change made
+    // right before this match sticks for later matches too.
+    playerNameInput.value = document.getElementById('onlineJoinNameInput').value;
+    safeStorageSet(NAME_STORAGE_KEY, getPlayerName());
+    hideJoinConfirm();
+    const res = await apiPost(`/room/${code}/join`, { name: getPlayerName() });
+    if (!res.ok) {
+      onlineMenuEl.classList.remove('hidden');
+      showOnlineError(res.error, res);
+      return;
+    }
+    online = { code, token: res.token, myPlayer: res.player, rev: res.state.rev, emoteRev: res.state.emoteRev || 0, timer: null, busy: false, awaitingRematch: false };
+    beginOnlineMatch(res.state);
+  });
+  document.getElementById('onlineJoinCancelBtn').addEventListener('click', () => {
+    SoundMgr.seClick();
+    hideJoinConfirm();
+    onlineMenuEl.classList.remove('hidden');
+  });
+
+  // "Winner stays on": called from the win result overlay. Vacates the
+  // loser's slot server-side and reuses the same waiting-room UI/polling as
+  // a freshly created room while a new challenger joins via the same code.
+  async function requestRematch() {
+    online.postGameDeadline = null;
+    restoreEmoteBarPosition();
+    document.getElementById('onlineEmoteBar').classList.remove('postgame');
+    document.getElementById('onlineEmoteBar').classList.add('hidden');
+    document.getElementById('resultNote').textContent = '';
+    try {
+      const res = await apiPost(`/room/${online.code}/rematch`, { token: online.token });
+      if (!res.ok) { goToTitle(); return; }
+      online.rev = res.state.rev;
+      online.awaitingRematch = true;
+      const myStreak = online.myPlayer === 1 ? res.state.p1Streak : res.state.p2Streak;
+      gameScreen.classList.add('hidden');
+      onlineScreenEl.classList.remove('hidden');
+      onlineMenuEl.classList.add('hidden');
+      onlineWaitingEl.classList.remove('hidden');
+      onlineRoomCodeEl.textContent = online.code;
+      document.getElementById('onlineWaitingText').textContent =
+        `${myStreak}${K('連勝中！次の挑戦者を待っています…', 'れんしょうちゅう！つぎのちょうせんしゃをまっています…')}`;
+      pollForOpponent();
+    } catch (e) {
+      goToTitle();
+    }
+  }
+
+  document.getElementById('onlineCreateBtn').addEventListener('click', () => { SoundMgr.seClick(); createOnlineRoom(); });
+  document.getElementById('onlineJoinBtn').addEventListener('click', () => {
+    SoundMgr.seClick();
+    joinOnlineRoom(onlineJoinCodeEl.value.trim().toUpperCase());
+  });
+  onlineJoinCodeEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('onlineJoinBtn').click();
+  });
+
+  function stopOnlinePolling() {
+    if (online && online.timer) { clearInterval(online.timer); online.timer = null; }
+  }
+
+  function startOnlinePolling() {
+    stopOnlinePolling();
+    online.timer = setInterval(async () => {
+      if (!online || online.busy) return;
+      try {
+        const res = await apiGet(`/room/${online.code}/state`);
+        if (!res.ok) return;
+        // Emote check rides on this same poll — no separate request needed.
+        if (res.state.emoteRev !== online.emoteRev) {
+          online.emoteRev = res.state.emoteRev;
+          if (res.state.emoteBy && res.state.emoteBy !== online.myPlayer) {
+            showIncomingEmote(res.state.emote);
+          }
+        }
+        if (res.state.rev !== online.rev) applyOnlineState(res.state);
+      } catch (e) { /* transient — try again next tick */ }
+    }, ONLINE_POLL_MS);
+  }
+
+  const ONLINE_EMOTE_COOLDOWN_MS = 1500;
+  let onlineEmoteCooldownUntil = 0;
+  function flyEmoteFromButton(btn, iconId) {
+    const rect = btn.getBoundingClientRect();
+    const fly = document.createElement('img');
+    fly.src = `emotes/${iconId}.webp`;
+    fly.alt = '';
+    fly.className = 'emote-fly';
+    fly.style.left = `${rect.left + rect.width / 2}px`;
+    fly.style.top = `${rect.top + rect.height / 2}px`;
+    document.body.appendChild(fly);
+    requestAnimationFrame(() => requestAnimationFrame(() => fly.classList.add('rise')));
+    fly.addEventListener('transitionend', () => fly.remove());
+    setTimeout(() => fly.remove(), 1400); // safety net if transitionend never fires
+  }
+
+  async function sendOnlineEmote(emoji, btn) {
+    if (!online || mode !== 'online') return;
+    const now = Date.now();
+    if (now < onlineEmoteCooldownUntil) return;
+    onlineEmoteCooldownUntil = now + ONLINE_EMOTE_COOLDOWN_MS;
+    if (btn) flyEmoteFromButton(btn, emoji);
+    try {
+      const res = await apiPost(`/room/${online.code}/emote`, { token: online.token, emote: emoji });
+      if (res.ok) online.emoteRev = res.state.emoteRev; // it's our own — don't pop it up for ourselves
+    } catch (e) { /* not critical — just drop it */ }
+  }
+
+  function showIncomingEmote(iconId) {
+    const el = document.getElementById('incomingEmote');
+    document.getElementById('incomingEmoteIcon').src = `emotes/${iconId}.webp`;
+    SoundMgr.seClick();
+    el.classList.remove('show');
+    void el.offsetWidth; // restart the pop animation even if one is already mid-flight
+    el.classList.add('show');
+    clearTimeout(showIncomingEmote._t);
+    showIncomingEmote._t = setTimeout(() => el.classList.remove('show'), 1800);
+  }
+
+  // 25-icon picker: flicks/drags to scroll (native touch scrolling handles
+  // that on its own), tap an icon to send. Only mouse pointers get a custom
+  // click-and-drag pan, since a mouse has no native drag-to-scroll — touch
+  // and pen are left to the browser's own momentum scrolling untouched, and
+  // mobile browsers already suppress a click when a touch ends up scrolling.
+  (function setupEmoteScroller() {
+    const scroller = document.getElementById('emoteScroller');
+    let isDown = false;
+    let dragged = false;
+    let startX = 0;
+    let startScrollLeft = 0;
+
+    scroller.addEventListener('pointerdown', (e) => {
+      if (e.pointerType !== 'mouse') return;
+      isDown = true;
+      dragged = false;
+      startX = e.clientX;
+      startScrollLeft = scroller.scrollLeft;
+      scroller.classList.add('dragging');
+    });
+    scroller.addEventListener('pointermove', (e) => {
+      if (!isDown || e.pointerType !== 'mouse') return;
+      const dx = e.clientX - startX;
+      if (Math.abs(dx) > 6) dragged = true;
+      scroller.scrollLeft = startScrollLeft - dx;
+    });
+    function endDrag(e) {
+      if (e.pointerType && e.pointerType !== 'mouse') return;
+      isDown = false;
+      scroller.classList.remove('dragging');
+    }
+    scroller.addEventListener('pointerup', endDrag);
+    scroller.addEventListener('pointercancel', endDrag);
+    scroller.addEventListener('pointerleave', endDrag);
+
+    scroller.addEventListener('click', (e) => {
+      if (dragged) { dragged = false; return; } // that was a drag, not a tap
+      const btn = e.target.closest('.emote-icon-btn');
+      if (!btn) return;
+      SoundMgr.seClick();
+      sendOnlineEmote(btn.dataset.emote, btn);
+    });
+  })();
+
+  function beginOnlineMatch(state) {
+    mode = 'online';
+    online.awaitingRematch = false;
+    online.postGameDeadline = null;
+    online.wonLastMatch = false;
+    online.opponentName = online.myPlayer === 1 ? state.p2Name : state.p1Name;
+    online.turnStartedAt = state.turnStartedAt;
+    const opponentStreak = online.myPlayer === 1 ? state.p2Streak : state.p1Streak;
+    onlineScreenEl.classList.add('hidden');
+    titleScreen.classList.add('hidden');
+    gameScreen.classList.remove('hidden');
+    document.getElementById('speechBubble').classList.add('hidden');
+    document.getElementById('score').classList.add('hidden');
+    resetBtn.classList.add('hidden');
+    restoreEmoteBarPosition();
+    document.getElementById('onlineEmoteBar').classList.remove('hidden', 'postgame');
+    document.getElementById('resultNote').textContent = '';
+    setCharBackground(null);
+    SoundMgr.playTrack('game');
+    modeLabelEl.textContent = `${K('オンライン対戦', 'オンラインたいせん')}（${K('部屋', 'へや')}: ${online.code}） ／ ${K('あなたは', 'あなたは')}${online.myPlayer === 1 ? K('赤', 'あか') : K('黄', 'き')}`
+      + (opponentStreak > 0 ? `（${K('相手は', 'あいては')}${opponentStreak}${K('連勝中', 'れんしょうちゅう')}）` : '');
+
+    grid = state.grid;
+    gameOver = false;
+    cellEls = [];
+    buildBoard();
+    hideBubble();
+    updateStatus(K('先攻・後攻を決めています…', 'せんこう・こうこうをきめています…'));
+    boardWrap.classList.add('locked');
+    online.rev = state.rev;
+    online.emoteRev = state.emoteRev || 0;
+    decideStartingPlayer((starter) => {
+      currentPlayer = starter;
+      boardWrap.classList.remove('locked');
+      updateStatus();
+      startOnlinePolling();
+    }, state.startingPlayer);
+  }
+
+  async function submitOnlineMove(col) {
+    if (!online || online.busy || gameOver) return;
+    if (currentPlayer !== online.myPlayer) return;
+    online.busy = true;
+    boardWrap.classList.add('locked');
+    try {
+      const res = await apiPost(`/room/${online.code}/move`, { token: online.token, col });
+      if (res.ok) {
+        applyOnlineState(res.state);
+      } else {
+        boardWrap.classList.remove('locked');
+      }
+    } catch (e) {
+      boardWrap.classList.remove('locked');
+    }
+    online.busy = false;
+  }
+
+  // Renders whatever the server says the room looks like now — used both for
+  // the response to our own move and for a poll that picked up the opponent's.
+  function applyOnlineState(state) {
+    if (!online || state.rev === online.rev) return;
+    // We're sitting on the post-game result screen and the room just went
+    // back to "not game over" under us — that's not a new match starting,
+    // it's the room having been vacated (the opponent left, or it expired
+    // server-side per FINISHED_ROOM_GRACE_MS). Without this, the code below
+    // would silently redraw an empty board underneath our still-visible
+    // result overlay instead of just sending us home too.
+    if (online.postGameDeadline && !state.gameOver) {
+      leavePostGameRoom();
+      return;
+    }
+    online.rev = state.rev;
+    online.turnStartedAt = state.turnStartedAt;
+
+    // Find the single cell that changed since our local copy and animate it
+    // the same way a local drop does, then adopt the server grid as-is.
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        if (grid[r][c] === 0 && state.grid[r][c] !== 0) {
+          const player = state.grid[r][c];
+          cellEls[r][c].classList.add(player === 1 ? 'p1' : 'p2', 'drop');
+          SoundMgr.seDrop();
+        }
+      }
+    }
+    grid = state.grid;
+    currentPlayer = state.currentPlayer;
+    gameOver = state.gameOver;
+
+    if (state.gameOver) {
+      // Polling stays on through the post-game grace window (see
+      // tickPostGameCountdown/leavePostGameRoom below) — opponent emotes
+      // still arrive via the same poll, and this early-return guard at the
+      // top of applyOnlineState() makes re-entrant calls on the same rev a
+      // no-op, so it's safe to keep ticking.
+      if (state.winLine) state.winLine.forEach(([r, c]) => cellEls[r][c].classList.add('win'));
+      const iWon = state.winner === String(online.myPlayer);
+      online.wonLastMatch = iWon; // read by leavePostGameRoom() to notify the server
+      const isDraw = state.winner === 'draw';
+      if (isDraw) {
+        updateStatus(K('引き分けです！', 'ひきわけです！'));
+        SoundMgr.seDraw();
+      } else {
+        const winnerLabel = state.winner === '1' ? player1Label() : player2Label();
+        updateStatus(`🎉 ${escapeHtml(winnerLabel)}${K('の勝利！', 'のしょうり！')}`);
+        if (iWon) SoundMgr.seWin(); else SoundMgr.seLose();
+      }
+      const myStreak = online.myPlayer === 1 ? state.p1Streak : state.p2Streak;
+      setTimeout(() => {
+        if (!online) return;
+        // Keep the emote strip up (re-pinned above the modal backdrop) so
+        // both players can send a quick thanks/gg — see req: 30秒間スタンプ.
+        pinEmoteBarForPostGame();
+        document.getElementById('onlineEmoteBar').classList.add('postgame');
+        online.postGameDeadline = Date.now() + POST_GAME_WINDOW_MS;
+        if (iWon) {
+          showResultOverlay({
+            title: K('勝利！', 'しょうり！'),
+            message: `${K('相手に勝利しました！', 'あいてにしょうりしました！')}\n${myStreak}${K('連勝中！', 'れんしょうちゅう！')}`,
+            buttons: [
+              { label: K('次の挑戦者を待つ', 'つぎのちょうせんしゃをまつ'), primary: true, onClick: requestRematch },
+              { label: K('退室する', 'たいしゅつする'), onClick: leavePostGameRoom },
+            ],
+          });
+        } else {
+          showResultOverlay({
+            title: isDraw ? K('引き分け', 'ひきわけ') : K('敗北……', 'はいぼく……'),
+            message: isDraw ? K('オンライン対戦は引き分けに終わりました。', 'オンラインたいせんはひきわけにおわりました。') : K('相手に敗れました……', 'あいてにやぶれました……'),
+            buttons: [{ label: K('退室する', 'たいしゅつする'), primary: true, onClick: leavePostGameRoom }],
+          });
+        }
+      }, 1200);
+      return;
+    }
+
+    boardWrap.classList.remove('locked');
+    updateStatus();
+  }
+
+  // ---------- Hidden debug menu: double-click the "ロ" in the title ----------
+  document.getElementById('debugTrigger').addEventListener('dblclick', (e) => {
+    e.preventDefault();
+    const overlay = document.getElementById('debugLevelOverlay');
+    const actions = document.getElementById('debugLevelActions');
+    actions.innerHTML = '';
+    CHARACTERS.forEach((ch, idx) => {
+      const b = document.createElement('button');
+      b.textContent = `LV.${ch.level} ${ch.name}`;
+      if (idx > 0) b.classList.add('secondary');
+      b.addEventListener('click', () => {
+        SoundMgr.seClick();
+        overlay.classList.add('hidden');
+        ladderIndex = idx;
+        currentChar = ch;
+        startGame('cpu');
+      });
+      actions.appendChild(b);
+    });
+    const endingBtn = document.createElement('button');
+    endingBtn.textContent = 'エンディング';
+    endingBtn.classList.add('secondary');
+    endingBtn.addEventListener('click', () => {
+      SoundMgr.seClick();
+      overlay.classList.add('hidden');
+      showEndingScreen();
+    });
+    actions.appendChild(endingBtn);
+    const omakeDebugBtn = document.createElement('button');
+    omakeDebugBtn.textContent = 'おまけ解放';
+    omakeDebugBtn.classList.add('secondary');
+    omakeDebugBtn.addEventListener('click', () => {
+      SoundMgr.seClick();
+      overlay.classList.add('hidden');
+      unlockOmake();
+    });
+    actions.appendChild(omakeDebugBtn);
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.textContent = 'キャンセル';
+    cancelBtn.classList.add('secondary');
+    cancelBtn.addEventListener('click', () => overlay.classList.add('hidden'));
+    actions.appendChild(cancelBtn);
+    overlay.classList.remove('hidden');
+  });
+
+  function startGame(selectedMode) {
+    mode = selectedMode;
+    titleScreen.classList.add('hidden');
+    gameScreen.classList.remove('hidden');
+    resetBtn.classList.remove('hidden');
+    document.getElementById('score').classList.remove('hidden');
+    const speechBubbleEl = document.getElementById('speechBubble');
+    if (mode === 'cpu' && currentChar) {
+      SoundMgr.playLevelTrack(currentChar.level);
+      modeLabelEl.innerHTML = `
+        <img id="opponentAvatar" src="${currentChar.img}" alt=""
+             onerror="this.style.display='none'">
+        LV.${currentChar.level}/5 ${currentChar.name}（${starString(currentChar.stars)}） ／ ${K('あなたは赤', 'あなたはあか')}`;
+      setCharBackground(currentChar);
+      speechBubbleEl.classList.remove('hidden');
+    } else {
+      SoundMgr.playTrack('game');
+      modeLabelEl.textContent = K('対人戦モード', 'たいじんせんモード');
+      setCharBackground(null);
+      speechBubbleEl.classList.add('hidden');
+    }
+    scores = { 1: 0, 2: 0 };
+    updateScoreboard();
+    initGame();
+    Board3D.start(); // after initGame(), which is what creates the 3D view the first time
+  }
+
+  function setCharBackground(ch) {
+    const wrap = document.getElementById('charBgWrap');
+    const overlay = document.getElementById('charBgOverlay');
+    const img = document.getElementById('charBgImg');
+    if (!ch) {
+      wrap.classList.remove('show');
+      overlay.classList.remove('show');
+      return;
+    }
+    img.onload = () => {
+      wrap.classList.add('show');
+      overlay.classList.add('show');
+    };
+    img.onerror = () => {
+      wrap.classList.remove('show');
+      overlay.classList.remove('show');
+    };
+    img.src = ch.img;
+  }
+
+  function goToTitle() {
+    if (ladderOutcomeTimer) { clearTimeout(ladderOutcomeTimer); ladderOutcomeTimer = null; }
+    stopEndingCrawl();
+    Board3D.stop();
+    SoundMgr.playTrack('title');
+    stopOnlinePolling();
+    online = null;
+    gameScreen.classList.add('hidden');
+    onlineScreenEl.classList.add('hidden');
+    titleScreen.classList.remove('hidden');
+    restoreEmoteBarPosition();
+    document.getElementById('onlineEmoteBar').classList.add('hidden');
+    document.getElementById('onlineEmoteBar').classList.remove('postgame');
+    document.getElementById('resultNote').textContent = '';
+    document.getElementById('incomingEmote').classList.remove('show');
+    setCharBackground(null);
+    hideBubble();
+  }
+
+  // ---------- おまけ: post-clear slideshow ----------
+  // Unlocked by reaching the ending. The flag lives only in memory on purpose:
+  // reloading or closing the browser locks it again, so it's a per-session
+  // reward rather than saved progress.
+  let omakeUnlocked = false;
+  function unlockOmake() {
+    omakeUnlocked = true;
+    document.getElementById('omakeBtn').classList.remove('hidden');
+  }
+
+  const OMAKE_SLIDE_MS = 7000;
+  // [track key, label]; keys match SoundMgr.playTrack(). LV1-LV3 have no theme
+  // of their own (they use the shared battle track), so they aren't listed.
+  const OMAKE_BGMS = [
+    ['ending', () => K('エンディング', 'エンディング')],
+    ['title', () => K('タイトル', 'タイトル')],
+    ['game', () => K('通常戦闘', 'つうじょうせんとう')],
+    ['level:4', () => 'LV4'],
+    ['level:5', () => 'LV5'],
+    ['off', () => K('BGMなし', 'BGMなし')],
+  ];
+  let omake = null; // { slides, i, timer, playing } while the screen is open
+
+  function renderOmakeBgmOptions() {
+    const sel = document.getElementById('omakeBgmSelect');
+    const current = sel.value;
+    sel.innerHTML = '';
+    OMAKE_BGMS.forEach(([key, label]) => {
+      const o = document.createElement('option');
+      o.value = key;
+      o.textContent = `🎵 ${label()}`;
+      sel.appendChild(o);
+    });
+    if (current) sel.value = current;
+  }
+
+  // Title art, every character, the ending art actually used by the crawl
+  // (ending2.webp; ending.webp is the older, unused version), then the
+  // omake-only illustrations (omake/ folder), with the clear illustration last.
+  function omakeSlides() {
+    return [
+      { src: 'title.webp', cap: () => K('黄昏のフォー・イン・ア・ロウ', 'たそがれのフォー・イン・ア・ロウ') },
+      ...CHARACTERS.map(c => ({ src: c.img, cap: () => c.name })),
+      { src: 'ending2.webp', cap: () => K('エンディング', 'エンディング') },
+      { src: 'omake/chibi_gathering.webp', cap: () => K('ゴシック城と月夜のちびキャラ大集合', 'ゴシックじょうとつきよのちびキャラだいしゅうごう') },
+      { src: 'omake/balcony.webp', cap: () => K('黒薔薇アイドル', 'くろばらアイドル') },
+      { src: 'omake/album.webp', cap: () => K('黄昏を見つめる仲間たち', 'たそがれをみつめるなかまたち') },
+      { src: 'omake/epilogue.webp', cap: () => K('黄昏の屋上、絆のエピローグ', 'たそがれのおくじょう、きずなのエピローグ') },
+    ];
+  }
+
+  function omakeShow(index) {
+    if (!omake) return;
+    const n = omake.slides.length;
+    omake.i = ((index % n) + n) % n;
+    const slide = omake.slides[omake.i];
+    clearTimeout(omake.timer);
+    const stage = document.getElementById('omakeStage');
+    // A brand-new <img> per slide (not swapping .src on one element): same
+    // stale-pixel precaution as the story screen's freshStoryTextEl().
+    const img = document.createElement('img');
+    img.className = 'omake-slide';
+    img.alt = '';
+    img.draggable = false;
+    const myOmake = omake;
+    // Only the most recently requested slide may ever be revealed: with quick
+    // next/prev presses a slower-loading earlier image could otherwise finish
+    // after a newer one and pop up with the wrong picture/caption, and
+    // abandoned never-shown <img>s would pile up in the DOM.
+    stage.querySelectorAll('.omake-slide:not(.show):not(.leaving)').forEach((el) => el.remove());
+    omake.cur = img;
+    const reveal = () => {
+      if (omake !== myOmake || omake.cur !== img) { img.remove(); return; }
+      stage.querySelectorAll('.omake-slide.show').forEach((old) => {
+        old.classList.remove('show');
+        old.classList.add('leaving'); // fading out; removed below once the fade is done
+        setTimeout(() => old.remove(), 1400);
+      });
+      requestAnimationFrame(() => requestAnimationFrame(() => img.classList.add('show')));
+      document.getElementById('omakeCaption').textContent = slide.cap();
+      if (omake.playing) omake.timer = setTimeout(() => omakeShow(omake.i + 1), OMAKE_SLIDE_MS);
+      new Image().src = omake.slides[(omake.i + 1) % n].src; // warm the next one
+    };
+    img.onload = reveal;
+    img.onerror = () => {
+      img.remove();
+      if (omake === myOmake && omake.cur === img) omake.timer = setTimeout(() => omakeShow(omake.i + 1), 300);
+    };
+    img.src = slide.src;
+    stage.appendChild(img);
+  }
+
+  function omakeSetPlaying(v) {
+    if (!omake) return;
+    omake.playing = v;
+    document.getElementById('omakePlayBtn').textContent = v ? '⏸' : '▶';
+    clearTimeout(omake.timer);
+    if (v) omake.timer = setTimeout(() => omakeShow(omake.i + 1), OMAKE_SLIDE_MS);
+  }
+
+  function omakeApplyBgm(key) {
+    if (key === 'off') SoundMgr.stop();
+    else SoundMgr.playTrack(key, 'game');
+  }
+
+  function openOmake() {
+    if (omake) return;
+    omake = { slides: omakeSlides(), i: 0, timer: null, playing: true };
+    document.getElementById('omakeStage').innerHTML = '';
+    document.getElementById('omakePlayBtn').textContent = '⏸';
+    renderOmakeBgmOptions();
+    document.getElementById('omakeBgmSelect').value = 'title';
+    SoundMgr.setEndingLoop(true); // only matters if the ending theme gets picked from the list
+    omakeApplyBgm('title');
+    document.getElementById('omakeScreen').classList.remove('hidden');
+    omakeShow(0);
+  }
+
+  function closeOmake() {
+    if (!omake) return;
+    clearTimeout(omake.timer);
+    omake = null;
+    document.getElementById('omakeScreen').classList.add('hidden');
+    document.getElementById('omakeStage').innerHTML = '';
+    SoundMgr.setEndingLoop(false);
+    SoundMgr.playTrack('title');
+  }
+
+  (function setupOmake() {
+    document.getElementById('omakeBtn').addEventListener('click', () => { SoundMgr.seClick(); openOmake(); });
+    document.getElementById('omakeBackBtn').addEventListener('click', () => { SoundMgr.seClick(); closeOmake(); });
+    document.getElementById('omakePrevBtn').addEventListener('click', () => { if (omake) omakeShow(omake.i - 1); });
+    document.getElementById('omakeNextBtn').addEventListener('click', () => { if (omake) omakeShow(omake.i + 1); });
+    document.getElementById('omakePlayBtn').addEventListener('click', () => { if (omake) omakeSetPlaying(!omake.playing); });
+    document.getElementById('omakeBgmSelect').addEventListener('change', (e) => omakeApplyBgm(e.target.value));
+    document.addEventListener('keydown', (e) => {
+      if (!omake || e.target.tagName === 'SELECT') return;
+      if (e.key === 'ArrowRight') omakeShow(omake.i + 1);
+      else if (e.key === 'ArrowLeft') omakeShow(omake.i - 1);
+      else if (e.key === ' ') { e.preventDefault(); omakeSetPlaying(!omake.playing); }
+      else if (e.key === 'Escape') closeOmake();
+    });
+    // Swipe left/right on the picture to step through slides.
+    const screenEl = document.getElementById('omakeScreen');
+    let downX = null;
+    screenEl.addEventListener('pointerdown', (e) => { if (e.target.closest('#omakeControls, #omakeBackBtn')) return; downX = e.clientX; });
+    screenEl.addEventListener('pointerup', (e) => {
+      if (downX === null || !omake) { downX = null; return; }
+      const dx = e.clientX - downX;
+      downX = null;
+      if (Math.abs(dx) > 50) omakeShow(omake.i + (dx < 0 ? 1 : -1));
+    });
+    screenEl.addEventListener('pointercancel', () => { downX = null; });
+  })();
+
+  // ---------- All-clear ending: narration crawl over ending2.webp ----------
+  // Kanji/kana pairs, one entry per crawl paragraph — '\n' is an intentional
+  // line break *within* a paragraph (rendered via CSS white-space:pre-line),
+  // a blank line between entries is the paragraph gap.
+  const ENDING_TEXT = [
+    '塔の頂上に、長い戦いの終わりが訪れた。',
+    '傀儡師は静かに倒れ、\nその手から、操り糸が離れていった。',
+    'すると、糸から解かれた四匹のパペットたちが、\n一斉に主人のもとへ駆け寄った。',
+    'フクロウは心配そうに顔をのぞき込み、\nフェネックは必死に頬をつつく。',
+    'アナグマは黙って傍らに座り、\nネズミは小さな手で、主人の指を握った。',
+    '「……おかしいですね」',
+    '傀儡師が、ゆっくりと目を開く。',
+    '「糸はもう、つながっていないというのに」',
+    '四匹は誰一人、彼のそばを離れなかった。',
+    '傀儡師はしばらく彼らを見つめると、\n初めて穏やかに笑った。',
+    '「なるほど……」',
+    '「操っていたつもりだったのは、\n私のほうだったのかもしれませんね」',
+    '{name}は何も言わず、彼らに背を向ける。',
+    '長かった戦いは終わった。',
+    '塔を降りていく{name}の背後で、\n小さな声が聞こえた。',
+    '「マスター、痛い？」',
+    '「……少しだけね」',
+    '「じゃあ、ここにいる」',
+    '傀儡師は答えなかった。\nただ、四匹を見つめて微笑んだ。',
+    '黄昏の塔。\nもう、彼らをつなぐ糸はない。\nそれでも彼の傍らには、四つの影が並んでいた。',
+  ];
+  const ENDING_TEXT_KANA = [
+    'とうのちょうじょうに、ながいたたかいのおわりがおとずれた。',
+    'くぐつしはしずかにたおれ、\nそのてから、あやつりいとがはなれていった。',
+    'すると、いとからほどかれたよんひきのパペットたちが、\nいっせいにしゅじんのもとへかけよった。',
+    'フクロウはしんぱいそうにかおをのぞきこみ、\nフェネックはひっしにほおをつつく。',
+    'アナグマはだまってかたわらにすわり、\nネズミはちいさなてで、しゅじんのゆびをにぎった。',
+    '「……おかしいですね」',
+    'くぐつしが、ゆっくりとめをひらく。',
+    '「いとはもう、つながっていないというのに」',
+    'よんひきはだれひとり、かれのそばをはなれなかった。',
+    'くぐつしはしばらくかれらをみつめると、\nはじめておだやかにわらった。',
+    '「なるほど……」',
+    '「あやつっていたつもりだったのは、\nわたしのほうだったのかもしれませんね」',
+    '{name}はなにもいわず、かれらにせをむける。',
+    'ながかったたたかいはおわった。',
+    'とうをおりていく{name}のはいごで、\nちいさなこえがきこえた。',
+    '「マスター、いたい？」',
+    '「……すこしだけね」',
+    '「じゃあ、ここにいる」',
+    'くぐつしはこたえなかった。\nただ、よんひきをみつめてほほえんだ。',
+    'たそがれのとう。\nもう、かれらをつなぐ糸はない。\nそれでもかれのかたわらには、よっつのかげがならんでいた',
+  ];
+
+  let endingCrawlAnim = null;
+  let endingBgmTimer = null;
+  let endingCrawlTotalMs = 0;
+  let endingCrawlFinished = false; // click-to-title is only honored once this is true
+
+  function stopEndingCrawl() {
+    if (endingCrawlAnim) { endingCrawlAnim.cancel(); endingCrawlAnim = null; }
+    if (endingBgmTimer) { clearTimeout(endingBgmTimer); endingBgmTimer = null; }
+  }
+
+  function showEndingScreen() {
+    unlockOmake(); // clearing the game (or the debug menu's ending) unlocks おまけ
+    SoundMgr.stop(); // the previous track (e.g. LV5's battle theme) would
+                      // otherwise just keep looping until ending.mp3 kicks in
+    const el = document.getElementById('endingScreen');
+    const img = el.querySelector('img');
+    img.classList.remove('pan');
+    void img.offsetWidth; // restart the pan animation each time this is shown
+    img.classList.add('pan');
+    el.classList.remove('hidden');
+    requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('show')));
+
+    stopEndingCrawl();
+    endingCrawlFinished = false;
+    const wrap = document.getElementById('endingTextWrap');
+    const crawl = document.getElementById('endingTextCrawl');
+    const lines = kanaMode ? ENDING_TEXT_KANA : ENDING_TEXT;
+    crawl.innerHTML = '';
+    lines.forEach(text => {
+      const p = document.createElement('p');
+      p.textContent = text.replace(/\{name\}/g, getPlayerName());
+      crawl.appendChild(p);
+    });
+
+    // Pace the crawl by how much text there actually is, so editing ENDING_TEXT
+    // later doesn't require re-tuning a hardcoded duration.
+    const charCount = lines.join('').length;
+    const totalMs = Math.max(45000, Math.min(120000, charCount * 150));
+    endingCrawlTotalMs = totalMs;
+    const startY = wrap.clientHeight;
+    const endY = -crawl.scrollHeight;
+    crawl.style.transform = `translate(-50%, ${startY}px)`;
+    endingCrawlAnim = crawl.animate(
+      [
+        { transform: `translate(-50%, ${startY}px)` },
+        { transform: `translate(-50%, ${endY}px)` },
+      ],
+      { duration: totalMs, easing: 'linear', fill: 'forwards' }
+    );
+    endingCrawlAnim.onfinish = () => { endingCrawlFinished = true; };
+    // Let the ending theme swell in a few seconds before the crawl finishes,
+    // rather than the moment the screen appears.
+    endingBgmTimer = setTimeout(() => SoundMgr.playTrack('ending', 'title'), Math.max(0, totalMs - 5000));
+  }
+
+  // Drag up/down to scrub the crawl back and forth (a young player found the
+  // auto-pace too fast to read) — pauses the WAAPI animation and scrubs its
+  // currentTime while dragging, then resumes auto-play on release. Shares
+  // the "was this a drag or a tap" pattern already used by the emote
+  // scroller, since a plain tap still needs to return to the title screen.
+  (function setupEndingCrawlDrag() {
+    const screen = document.getElementById('endingScreen');
+    let isDown = false;
+    let dragged = false;
+    let startClientY = 0;
+    let startTime = 0;
+
+    screen.addEventListener('pointerdown', (e) => {
+      if (!endingCrawlAnim) return;
+      isDown = true;
+      dragged = false;
+      startClientY = e.clientY;
+      startTime = endingCrawlAnim.currentTime || 0;
+      endingCrawlAnim.pause();
+    });
+    screen.addEventListener('pointermove', (e) => {
+      if (!isDown || !endingCrawlAnim) return;
+      const dy = e.clientY - startClientY;
+      if (Math.abs(dy) > 6) dragged = true;
+      if (!dragged) return;
+      screen.classList.add('dragging');
+      const wrap = document.getElementById('endingTextWrap');
+      const crawl = document.getElementById('endingTextCrawl');
+      const travelPx = wrap.clientHeight + crawl.scrollHeight;
+      // Dragging down (positive dy) reveals earlier text — i.e. rewinds.
+      const deltaTime = travelPx > 0 ? -(dy / travelPx) * endingCrawlTotalMs : 0;
+      const newTime = Math.max(0, Math.min(endingCrawlTotalMs, startTime + deltaTime));
+      endingCrawlAnim.currentTime = newTime;
+    });
+    function endDrag() {
+      if (!isDown) return;
+      isDown = false;
+      screen.classList.remove('dragging');
+      if (dragged && endingCrawlAnim) {
+        if (endingBgmTimer) { clearTimeout(endingBgmTimer); endingBgmTimer = null; }
+        if (endingCrawlAnim.currentTime >= endingCrawlTotalMs) {
+          // .play() on an animation already at its end rewinds it to the
+          // start instead of finishing it (per spec) — .finish() is what
+          // actually fires onfinish here, so dragged-to-the-end doesn't
+          // silently restart the whole crawl.
+          endingCrawlAnim.finish();
+          SoundMgr.playTrack('ending', 'title');
+        } else {
+          endingCrawlAnim.play();
+          // Re-time the BGM cue relative to the scrubbed position, or it'd
+          // fire on the original schedule regardless of where the crawl is now.
+          const remaining = endingCrawlTotalMs - endingCrawlAnim.currentTime;
+          endingBgmTimer = setTimeout(() => SoundMgr.playTrack('ending', 'title'), Math.max(0, remaining - 5000));
+        }
+      }
+    }
+    screen.addEventListener('pointerup', endDrag);
+    screen.addEventListener('pointercancel', endDrag);
+    screen.addEventListener('pointerleave', endDrag);
+
+    screen.addEventListener('click', () => {
+      if (dragged) { dragged = false; return; } // that was a drag, not a tap
+      if (!endingCrawlFinished) return; // a slightly-off drag can register as a click — ignore it until the crawl has actually played through
+      SoundMgr.seClick();
+      stopEndingCrawl();
+      screen.classList.remove('show');
+      setTimeout(() => screen.classList.add('hidden'), 500);
+      goToTitle();
+    });
+  })();
+
+  titleBtn.addEventListener('click', () => { SoundMgr.seClick(); goToTitle(); });
+
+  // ---------- Ladder progression (win → next challenger, lose → run over) ----------
+  function showResultOverlay({ title, message, portraitImg, portraitEmoji, buttons }) {
+    const overlay = document.getElementById('resultOverlay');
+    const portraitEl = document.getElementById('resultPortrait');
+    document.getElementById('resultTitle').textContent = title;
+    document.getElementById('resultMessage').textContent = message;
+    portraitEl.innerHTML = portraitImg
+      ? `<img src="${portraitImg}" alt="" onerror="this.parentElement.innerHTML='${portraitEmoji || ''}'">`
+      : (portraitEmoji || '');
+    const actionsEl = document.getElementById('resultActions');
+    actionsEl.innerHTML = '';
+    buttons.forEach(btn => {
+      const b = document.createElement('button');
+      b.textContent = btn.label;
+      if (!btn.primary) b.classList.add('secondary');
+      b.addEventListener('click', () => {
+        SoundMgr.seClick();
+        overlay.classList.add('hidden');
+        btn.onClick();
+      });
+      actionsEl.appendChild(b);
+    });
+    overlay.classList.remove('hidden');
+  }
+
+  function handleLadderOutcome(result) {
+    if (result === 'draw') {
+      showResultOverlay({
+        title: K('引き分け', 'ひきわけ'),
+        message: `${currentChar.name} ${K('との勝負は引き分けに終わりました。', 'とのしょうぶはひきわけにおわりました。')}`,
+        portraitImg: currentChar.img,
+        portraitEmoji: currentChar.emoji,
+        buttons: [
+          { label: K('もう一度対戦する', 'もういちどたいせんする'), primary: true, onClick: () => initGame() },
+          { label: K('タイトルに戻る', 'タイトルにもどる'), onClick: goToTitle },
+        ],
+      });
+      return;
+    }
+
+    if (result === 'lose') {
+      showResultOverlay({
+        title: K('敗北……', 'はいぼく……'),
+        message: `LV.${currentChar.level} ${currentChar.name} ${K('に敗れました。', 'にやぶれました。')}\n${K('到達レベル', 'とうたつレベル')}: LV.${currentChar.level}`,
+        portraitImg: currentChar.img,
+        portraitEmoji: currentChar.emoji,
+        buttons: [
+          { label: K('このレベルに再挑戦する', 'このレベルにさいちょうせんする'), primary: true, onClick: () => startGame('cpu') },
+          { label: K('LV1からやり直す', 'LV1からやりなおす'), onClick: startLadder },
+          { label: K('タイトルに戻る', 'タイトルにもどる'), onClick: goToTitle },
+        ],
+      });
+      return;
+    }
+
+    // result === 'win'
+    if (ladderIndex >= CHARACTERS.length - 1) {
+      showEndingScreen();
+      return;
+    }
+
+    const beaten = currentChar;
+    const next = CHARACTERS[ladderIndex + 1];
+    showResultOverlay({
+      title: `LV.${beaten.level} ${beaten.name} ${K('撃破！', 'げきは！')}`,
+      message: `${K('次の刺客が現れた……', 'つぎのしかくがあらわれた……')}\nLV.${next.level} ${next.name}`,
+      portraitImg: next.img,
+      portraitEmoji: next.emoji,
+      buttons: [
+        { label: K('対戦開始', 'たいせんかいし'), primary: true, onClick: () => {
+            ladderIndex++;
+            currentChar = next;
+            startGame('cpu');
+          } },
+        { label: K('ここでやめる（タイトルへ）', 'ここでやめる（タイトルへ）'), onClick: goToTitle },
+      ],
+    });
+  }
+
+  // ---------- Core game ----------
+  function initGame() {
+    if (ladderOutcomeTimer) { clearTimeout(ladderOutcomeTimer); ladderOutcomeTimer = null; }
+    grid = newGrid();
+    gameOver = false;
+    resetBtn.disabled = false;
+    cpuThinking = false;
+    buildBoard();
+    hideBubble();
+    updateStatus(K('先攻・後攻を決めています…', 'せんこう・こうこうをきめています…'));
+    boardWrap.classList.add('locked');
+    decideStartingPlayer((starter) => {
+      currentPlayer = starter;
+      boardWrap.classList.remove('locked');
+      updateStatus();
+      if (mode === 'cpu' && currentPlayer === 2 && !gameOver) {
+        triggerCpuMove();
+      }
+    });
+  }
+
+  // Brief (~2s) coin-toss animation deciding who moves first, run before
+  // every match (fresh game, reset, and each new CPU ladder opponent).
+  function decideStartingPlayer(onDone, forcedStarter) {
+    const overlay = document.getElementById('turnDecideOverlay');
+    const coin = document.getElementById('turnCoin');
+    const textEl = document.getElementById('turnDecideText');
+    const starter = forcedStarter != null ? forcedStarter : (Math.random() < 0.5 ? 1 : 2);
+    const starterLabel = starter === 1 ? player1Label() : player2Label();
+
+    coin.classList.remove('settled');
+    coin.style.background = 'var(--p1)';
+    textEl.classList.remove('show');
+    textEl.textContent = K('先攻・後攻を決めています…', 'せんこう・こうこうをきめています…');
+    overlay.classList.remove('hidden');
+
+    let flip = 0;
+    const flickerTimer = setInterval(() => {
+      flip++;
+      coin.style.background = flip % 2 === 0 ? 'var(--p1)' : 'var(--p2)';
+    }, 110);
+
+    setTimeout(() => {
+      clearInterval(flickerTimer);
+      coin.style.background = starter === 1 ? 'var(--p1)' : 'var(--p2)';
+      coin.classList.add('settled');
+      SoundMgr.seDrop();
+      textEl.textContent = `${starterLabel}${K('の先攻です！', 'のせんこうです！')}`;
+      textEl.classList.add('show');
+    }, 1250);
+
+    setTimeout(() => {
+      overlay.classList.add('hidden');
+      onDone(starter);
+    }, 2000);
+  }
+
+  function buildBoard() {
+    pendingCell = -1;
+    if (Board3D.init(boardEl)) Board3D.reset();
+  }
+
+  // Player-1 side: PvP keeps the plain label (no single "you" when two
+  // people share a screen); CPU/online show the chosen player name instead
+  // — with no color suffix, since the turn indicator dot already conveys
+  // that everywhere this is used.
+  function player1Label() {
+    if (mode === 'pvp') return K('プレイヤー1（赤）', 'プレイヤー1（あか）');
+    if (mode === 'online') return online.myPlayer === 1 ? getPlayerName() : online.opponentName;
+    return getPlayerName();
+  }
+  function player2Label() {
+    if (mode === 'cpu') return currentChar ? currentChar.name : K('プレイヤー2（黄）', 'プレイヤー2（き）');
+    if (mode === 'online') return online.myPlayer === 2 ? getPlayerName() : online.opponentName;
+    return K('プレイヤー2（黄）', 'プレイヤー2（き）');
+  }
+
+  function updateStatus(message) {
+    if (message) {
+      statusEl.innerHTML = message;
+      return;
+    }
+    let indicator = `<span class="turn-indicator" style="background:var(--p1)"></span>`;
+    let name = player1Label();
+    if (currentPlayer === 2) {
+      name = player2Label();
+      indicator = (mode === 'cpu' && currentChar)
+        ? `<img class="turn-avatar" src="${currentChar.img}" alt="" onerror="this.outerHTML='<span class=&quot;turn-indicator&quot; style=&quot;background:var(--p2)&quot;></span>'">`
+        : `<span class="turn-indicator" style="background:var(--p2)"></span>`;
+    }
+    statusEl.innerHTML = `${indicator} ${escapeHtml(name)}${K('の番です', 'のばんです')}`;
+  }
+
+  function handleCellClick(idx) {
+    if (gameOver || cpuThinking) return;
+    if (mode === 'cpu' && currentPlayer === 2) return; // block manual clicks during CPU turn
+    dropPiece(idx, currentPlayer);
+  }
+
+  function dropPiece(idx, player) {
+    if (grid[idx] !== 0) return false;
+
+    pendingCell = -1;
+    Board3D.clearGhost();
+    grid[idx] = player;
+    Board3D.placeBall(idx, player);
+    SoundMgr.seDrop();
+
+    const winCells = winningLine(grid, idx, player);
+    if (winCells) {
+      gameOver = true;
+      Board3D.showWin(winCells);
+      scores[player]++;
+      updateScoreboard();
+      const name = player === 1 ? player1Label() : player2Label();
+      updateStatus(`🎉 ${escapeHtml(name)}${K('の勝利！', 'のしょうり！')}`);
+      if (mode === 'cpu' && currentChar) {
+        resetBtn.disabled = true; // re-enabled by initGame() once the next match actually starts
+        if (player === 2) SoundMgr.seLose(); else SoundMgr.seWin();
+        const spokenMs = speak(currentChar, player === 2 ? 'victory' : 'defeat');
+        ladderOutcomeTimer = setTimeout(() => handleLadderOutcome(player === 1 ? 'win' : 'lose'), Math.max(1800, spokenMs + 600));
+      } else {
+        SoundMgr.seWin();
+      }
+      return true;
+    }
+
+    if (isBoardFull(grid)) {
+      gameOver = true;
+      updateStatus(K('引き分けです！', 'ひきわけです！'));
+      hideBubble();
+      SoundMgr.seDraw();
+      if (mode === 'cpu' && currentChar) {
+        resetBtn.disabled = true; // re-enabled by initGame() once the next match actually starts
+        ladderOutcomeTimer = setTimeout(() => handleLadderOutcome('draw'), 1000);
+      }
+      return true;
+    }
+
+    currentPlayer = currentPlayer === 1 ? 2 : 1;
+    updateStatus();
+
+    if (mode === 'cpu' && player === 2 && currentChar) {
+      if (findImmediateWin(grid, 1) !== null) speak(currentChar, 'aboutToLose');
+      else if (findImmediateWin(grid, 2) !== null) speak(currentChar, 'aboutToWin');
+      else speak(currentChar, 'normal');
+    }
+
+    if (mode === 'cpu' && currentPlayer === 2 && !gameOver) {
+      triggerCpuMove();
+    }
+    return true;
+  }
+
+  // ---------- CPU speech bubble ----------
+  // Most characters speak a single line per category. LV5 (傀儡師) instead has
+  // multi-speaker conversations (master + 4 puppets) — see PUPPETS above.
+  // speak() returns how long (ms) the bubble will be showing, so callers can
+  // delay any follow-up (e.g. the ladder result overlay) until it's done.
+  let conversationTimer = null;
+
+  function lineDelay(text) {
+    return Math.max(1300, Math.min(2600, text.length * 110));
+  }
+
+  function showSingleLine(name, text) {
+    const bubble = document.getElementById('speechBubble');
+    document.getElementById('bubbleName').textContent = name;
+    document.getElementById('bubbleText').textContent = text;
+    bubble.classList.remove('show');
+    void bubble.offsetWidth; // restart the fade/slide animation
+    bubble.classList.add('show');
+    return lineDelay(text);
+  }
+
+  function playConversation(ch, convo) {
+    if (conversationTimer) { clearTimeout(conversationTimer); conversationTimer = null; }
+    let i = 0;
+    function step() {
+      const line = convo[i];
+      i++;
+      showSingleLine(speakerName(ch, line.speaker), line.text);
+      if (i < convo.length) {
+        conversationTimer = setTimeout(step, lineDelay(line.text));
+      }
+    }
+    step();
+    return convo.reduce((sum, line) => sum + lineDelay(line.text), 0);
+  }
+
+  function speak(ch, category) {
+    if (!ch || !ch.lines) return 0;
+    const lineSet = (kanaMode && ch.linesKana) ? ch.linesKana : ch.lines;
+    const data = lineSet[category];
+    if (!data) return 0;
+
+    if (category === 'victory' || category === 'defeat') {
+      return Array.isArray(data) && typeof data[0] === 'object'
+        ? playConversation(ch, data)
+        : showSingleLine(ch.name, data);
+    }
+
+    if (!data.length) return 0;
+    const picked = data[Math.floor(Math.random() * data.length)];
+    return Array.isArray(picked)
+      ? playConversation(ch, picked)
+      : showSingleLine(ch.name, picked);
+  }
+
+  function hideBubble() {
+    if (conversationTimer) { clearTimeout(conversationTimer); conversationTimer = null; }
+    document.getElementById('speechBubble').classList.remove('show');
+  }
+
+  function triggerCpuMove() {
+    cpuThinking = true;
+    boardWrap.classList.add('locked');
+    const thinkingAvatar = currentChar
+      ? `<img class="turn-avatar" src="${currentChar.img}" alt="" onerror="this.outerHTML='<span class=&quot;turn-indicator&quot; style=&quot;background:var(--p2)&quot;></span>'">`
+      : `<span class="turn-indicator" style="background:var(--p2)"></span>`;
+    updateStatus(`${thinkingAvatar} ${escapeHtml(player2Label())}${K('が考え中...', 'がかんがえちゅう...')}`);
+    setTimeout(() => {
+      const col = getCpuMove();
+      cpuThinking = false;
+      boardWrap.classList.remove('locked');
+      if (col !== null) dropPiece(col, 2);
+    }, 700); // long enough for the player's own ball to land before the (blocking) search runs
+  }
+
+  function updateScoreboard() {
+    score1El.textContent = `${player1Label()}: ${scores[1]}${K('勝', 'しょう')}`;
+    score2El.textContent = `${player2Label()}: ${scores[2]}${K('勝', 'しょう')}`;
+  }
+
+  resetBtn.addEventListener('click', () => { SoundMgr.seClick(); initGame(); });
+
+  // ---------- 4x4x4 free-placement board: pure game logic (no DOM) ----------
+  // A ball can go in ANY empty cell (no gravity). Cells are indexed
+  // idx = level*16 + y*4 + x (level 0 = bottom); `grid` is a flat array of 64
+  // (0 = empty, 1 / 2 = player).
+  const N3 = 4;
+  const CELL_COUNT = N3 * N3 * N3;
+
+  // All 76 winning lines: every straight run of 4 cells along the 13 distinct
+  // directions (3 axes, 6 face diagonals, 4 space diagonals). Cells are listed
+  // in order along the line.
+  const LINES = (() => {
+    const lines = [];
+    for (let dz = -1; dz <= 1; dz++) for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      if (dx === 0 && dy === 0 && dz === 0) continue;
+      const first = dx !== 0 ? dx : dy !== 0 ? dy : dz;
+      if (first < 0) continue; // one of each +/- pair
+      for (let z = 0; z < N3; z++) for (let y = 0; y < N3; y++) for (let x = 0; x < N3; x++) {
+        const ex = x + 3 * dx, ey = y + 3 * dy, ez = z + 3 * dz;
+        if (ex < 0 || ex >= N3 || ey < 0 || ey >= N3 || ez < 0 || ez >= N3) continue;
+        const cells = [];
+        for (let k = 0; k < 4; k++) cells.push((z + k * dz) * 16 + (y + k * dy) * 4 + (x + k * dx));
+        lines.push(cells);
+      }
+    }
+    return lines;
+  })();
+  const LINES_THROUGH = Array.from({ length: CELL_COUNT }, () => []);
+  LINES.forEach((cells, li) => cells.forEach((c) => LINES_THROUGH[c].push(li)));
+
+  function newGrid() { return new Array(CELL_COUNT).fill(0); }
+  function getEmptyCells(g) {
+    const cells = [];
+    for (let i = 0; i < CELL_COUNT; i++) if (g[i] === 0) cells.push(i);
+    return cells;
+  }
+  function isBoardFull(g) { return !g.includes(0); }
+
+  // The four cells of a winning line through `idx` for `player`, or null.
+  function winningLine(g, idx, player) {
+    for (const li of LINES_THROUGH[idx]) {
+      const cells = LINES[li];
+      if (g[cells[0]] === player && g[cells[1]] === player && g[cells[2]] === player && g[cells[3]] === player) return cells;
+    }
+    return null;
+  }
+
+  // A cell where `player` would win by placing a ball, or null.
+  function findImmediateWin(g, player) {
+    for (let i = 0; i < CELL_COUNT; i++) {
+      if (g[i] !== 0) continue;
+      g[i] = player;
+      const win = winningLine(g, i, player) !== null;
+      g[i] = 0;
+      if (win) return i;
+    }
+    return null;
+  }
+
+  // ---------- CPU AI: negamax + alpha-beta with incremental line counts ----------
+  // Each line is scored by how many balls one side has in it while the other
+  // side has none (a mixed line is dead). Counts and the running score are
+  // kept up to date on make/unmake, so a leaf evaluation is free. A move that
+  // completes a line is always played at once, and when the opponent has a
+  // single winning cell the only legal reply searched is blocking it (two or
+  // more such cells = lost) - that keeps the 64-way branching manageable.
+  const LINE_WEIGHT = [0, 1, 5, 30]; // by ball count 0-3 (4 = already won)
+  const WIN_SCORE = 100000;
+  const POS_WEIGHT = Array.from({ length: CELL_COUNT }, (_, i) => LINES_THROUGH[i].length * 0.15);
+  // Cells on the most lines (corners and the 8 inner cells) first: better pruning.
+  const CELL_ORDER = Array.from({ length: CELL_COUNT }, (_, i) => i)
+    .sort((a, b) => LINES_THROUGH[b].length - LINES_THROUGH[a].length);
+
+  function lineValue(c1, c2) {
+    if (c1 > 0 && c2 > 0) return 0;
+    if (c1 > 0) return LINE_WEIGHT[c1];
+    if (c2 > 0) return -LINE_WEIGHT[c2];
+    return 0;
+  }
+
+  // Picks a cell for `player` (1 or 2) searching `depth` plies; equally good
+  // cells are chosen at random so play isn't repetitive.
+  function chooseCpuCell(g, player, depth) {
+    const cnt = [null, new Array(LINES.length).fill(0), new Array(LINES.length).fill(0)];
+    const board = g.slice();
+    let score = 0; // from player 1's point of view
+    for (let i = 0; i < CELL_COUNT; i++) {
+      const v = board[i];
+      if (v) {
+        score += v === 1 ? POS_WEIGHT[i] : -POS_WEIGHT[i];
+        for (const li of LINES_THROUGH[i]) cnt[v][li]++;
+      }
+    }
+    for (let li = 0; li < LINES.length; li++) score += lineValue(cnt[1][li], cnt[2][li]);
+
+    function place(idx, s) {
+      score += (s === 1 ? POS_WEIGHT[idx] : -POS_WEIGHT[idx]);
+      for (const li of LINES_THROUGH[idx]) {
+        score -= lineValue(cnt[1][li], cnt[2][li]);
+        cnt[s][li]++;
+        score += lineValue(cnt[1][li], cnt[2][li]);
+      }
+      board[idx] = s;
+    }
+    function unplace(idx, s) {
+      score -= (s === 1 ? POS_WEIGHT[idx] : -POS_WEIGHT[idx]);
+      for (const li of LINES_THROUGH[idx]) {
+        score -= lineValue(cnt[1][li], cnt[2][li]);
+        cnt[s][li]--;
+        score += lineValue(cnt[1][li], cnt[2][li]);
+      }
+      board[idx] = 0;
+    }
+    // Would a ball of `s` in this (empty) cell complete a line?
+    function wins(idx, s) {
+      const c = cnt[s];
+      for (const li of LINES_THROUGH[idx]) if (c[li] === 3) return true;
+      return false;
+    }
+
+    function negamax(d, alpha, beta, s, ply) {
+      const o = 3 - s;
+      const moves = [];
+      let forced = -1, forcedCount = 0;
+      for (const i of CELL_ORDER) {
+        if (board[i]) continue;
+        if (wins(i, s)) return WIN_SCORE - ply; // I can win right now
+        if (wins(i, o)) { forced = i; forcedCount++; } // they would win here: I must block
+        moves.push(i);
+      }
+      if (moves.length === 0) return 0; // full board: draw
+      if (forcedCount >= 2) return -(WIN_SCORE - ply - 1); // can't stop both
+      if (d === 0) return s === 1 ? score : -score;
+      const list = forcedCount === 1 ? [forced] : moves;
+      let best = -Infinity;
+      for (const i of list) {
+        place(i, s);
+        const v = -negamax(d - 1, -beta, -alpha, o, ply + 1);
+        unplace(i, s);
+        if (v > best) best = v;
+        if (best > alpha) alpha = best;
+        if (alpha >= beta) break;
+      }
+      return best;
+    }
+
+    const rootMoves = CELL_ORDER.filter((i) => board[i] === 0);
+    if (rootMoves.length === 0) return null;
+    // Shuffle so equally-scored cells are picked at random.
+    for (let i = rootMoves.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [rootMoves[i], rootMoves[j]] = [rootMoves[j], rootMoves[i]];
+    }
+    const o = 3 - player;
+    let bestCell = rootMoves[0], bestVal = -Infinity;
+    for (const i of rootMoves) {
+      let v;
+      if (wins(i, player)) v = WIN_SCORE;
+      else {
+        place(i, player);
+        // window just under the best so far: exact values for ties, cheap cutoffs for worse moves
+        v = -negamax(Math.max(0, depth - 1), -Infinity, -(bestVal - 1), o, 1);
+        unplace(i, player);
+      }
+      if (v > bestVal) { bestVal = v; bestCell = i; }
+    }
+    return bestCell;
+  }
+
+  // ---------- 3D board (three.js) ----------
+  // Free-placement 4x4x4 lattice. Drag to orbit, wheel / pinch to zoom. A
+  // translucent "level plane" marks the height you are placing on (switch it
+  // with the level buttons); tapping the plane picks one cell with no depth
+  // ambiguity. Balls of the same colour that touch (any of the 26 neighbour
+  // directions) are fused with a bridge so the shapes read as solid structures.
+  // Purely presentation: game state lives in `grid`; this module draws it and
+  // reports which cell was picked.
+  const Board3D = (() => {
+    const SP = 1.5;          // distance between neighbouring cells
+    const BALL_R = 0.5;
+    const COLORS = { 1: 0xef4444, 2: 0xeab308 };
+    const PLANE_COLOR = 0x5fb4ff;
+    const OFF_LEVEL_OPACITY = 0.42;
+
+    let host = null, renderer = null, scene = null, camera = null, raycaster = null;
+    let ready = false, running = false, rafId = 0, resizeObs = null;
+    let level = 0;
+    const balls = new Map();    // cell idx -> { mesh, player }
+    const bridges = [];         // { mesh, a, b, player }
+    const markers = [];         // 64 small dots showing every cell
+    const falling = [];         // balls still dropping into view: { mesh, t0, from, to }
+    let ghost = null, hoverCell = -1;
+    let plane = null;
+    let winMeshes = [], winRod = null, dimmed = false;
+    let autoOrbit = false;   // after a win the camera drifts around so the winning line can be seen from the side
+    let tapCb = null, hoverCb = null, levelCb = null;
+    const cam = { theta: 0.62, phi: 0.95, dist: 20 };
+    const target = { x: 0, y: 3.3, z: 0 };
+
+    function cellXYZ(idx) {
+      const l = (idx / 16) | 0, y = ((idx % 16) / 4) | 0, x = idx % 4;
+      return new THREE.Vector3((x - 1.5) * SP, 0.8 + l * SP, (y - 1.5) * SP);
+    }
+    function levelY(l) { return 0.8 + l * SP; }
+
+    function applyCamera() {
+      cam.phi = Math.max(0.15, Math.min(1.5, cam.phi));
+      cam.dist = Math.max(8, Math.min(30, cam.dist));
+      const sp = Math.sin(cam.phi);
+      camera.position.set(
+        target.x + cam.dist * sp * Math.sin(cam.theta),
+        target.y + cam.dist * Math.cos(cam.phi),
+        target.z + cam.dist * sp * Math.cos(cam.theta)
+      );
+      camera.lookAt(target.x, target.y, target.z);
+    }
+
+    function ballMaterial(player) {
+      return new THREE.MeshStandardMaterial({
+        color: COLORS[player], roughness: 0.28, metalness: 0.25,
+        emissive: COLORS[player], emissiveIntensity: 0.12, transparent: true, opacity: 1,
+      });
+    }
+
+    function buildScene() {
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera(32, 1, 0.1, 100);
+      scene.add(new THREE.AmbientLight(0xffffff, 0.62));
+      const key = new THREE.DirectionalLight(0xffffff, 0.85);
+      key.position.set(6, 12, 8);
+      scene.add(key);
+      const rim = new THREE.DirectionalLight(0x9db8ff, 0.4);
+      rim.position.set(-8, 5, -7);
+      scene.add(rim);
+
+      // base plate and the cube frame that outlines the playing volume
+      const plate = new THREE.Mesh(
+        new THREE.BoxGeometry(SP * 4 + 1.2, 0.3, SP * 4 + 1.2),
+        new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.6, metalness: 0.2 })
+      );
+      plate.position.y = -0.15;
+      scene.add(plate);
+      const side = SP * 4 + 0.2;
+      const frame = new THREE.LineSegments(
+        new THREE.EdgesGeometry(new THREE.BoxGeometry(side, side, side)),
+        new THREE.LineBasicMaterial({ color: 0x64748b, transparent: true, opacity: 0.55 })
+      );
+      frame.position.y = 0.8 + 1.5 * SP;
+      scene.add(frame);
+
+      // a faint dot at every cell so the empty lattice is visible
+      for (let i = 0; i < 64; i++) {
+        const m = new THREE.Mesh(
+          new THREE.SphereGeometry(0.08, 8, 6),
+          new THREE.MeshBasicMaterial({ color: 0xcbd5e1, transparent: true, opacity: 0.3 })
+        );
+        m.position.copy(cellXYZ(i));
+        scene.add(m);
+        markers.push(m);
+      }
+
+      // the level plane: translucent slab + grid lines at the active height
+      plane = new THREE.Group();
+      const slab = new THREE.Mesh(
+        new THREE.PlaneGeometry(SP * 4, SP * 4),
+        new THREE.MeshBasicMaterial({ color: PLANE_COLOR, transparent: true, opacity: 0.13, side: THREE.DoubleSide, depthWrite: false })
+      );
+      slab.rotation.x = -Math.PI / 2;
+      plane.add(slab);
+      const grid = new THREE.GridHelper(SP * 4, 4, PLANE_COLOR, PLANE_COLOR);
+      grid.material.transparent = true;
+      grid.material.opacity = 0.5;
+      plane.add(grid);
+      scene.add(plane);
+
+      ghost = new THREE.Mesh(
+        new THREE.SphereGeometry(BALL_R, 24, 18),
+        new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.45, roughness: 0.4 })
+      );
+      ghost.visible = false;
+      scene.add(ghost);
+      raycaster = new THREE.Raycaster();
+    }
+
+    // Which cell of the ACTIVE level is under this screen point? The ray is
+    // intersected with the level plane itself, so there is exactly one answer.
+    function pickCell(clientX, clientY) {
+      const rect = renderer.domElement.getBoundingClientRect();
+      raycaster.setFromCamera(new THREE.Vector2(
+        ((clientX - rect.left) / rect.width) * 2 - 1,
+        -((clientY - rect.top) / rect.height) * 2 + 1
+      ), camera);
+      const o = raycaster.ray.origin, d = raycaster.ray.direction;
+      if (Math.abs(d.y) < 1e-4) return -1;
+      const t = (levelY(level) - o.y) / d.y;
+      if (t <= 0) return -1;
+      const cx = Math.round((o.x + d.x * t) / SP + 1.5);
+      const cz = Math.round((o.z + d.z * t) / SP + 1.5);
+      if (cx < 0 || cx > 3 || cz < 0 || cz > 3) return -1;
+      return level * 16 + cz * 4 + cx;
+    }
+
+    function setupInput(el) {
+      const pointers = new Map();
+      let down = null, pinch = null;
+      el.addEventListener('pointerdown', (e) => {
+        autoOrbit = false;
+        pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        try { el.setPointerCapture(e.pointerId); } catch (err) { /* pointer already gone - harmless */ }
+        if (pointers.size === 1) down = { x: e.clientX, y: e.clientY, t: performance.now(), moved: false };
+        else {
+          down = null;
+          const [a, b] = Array.from(pointers.values());
+          pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), dist: cam.dist };
+        }
+      });
+      el.addEventListener('pointermove', (e) => {
+        const p = pointers.get(e.pointerId);
+        if (!p) {
+          if (e.pointerType === 'mouse' && hoverCb) hoverCb(pickCell(e.clientX, e.clientY));
+          return;
+        }
+        const dx = e.clientX - p.x, dy = e.clientY - p.y;
+        p.x = e.clientX; p.y = e.clientY;
+        if (pointers.size >= 2 && pinch) {
+          const [a, b] = Array.from(pointers.values());
+          const d = Math.hypot(a.x - b.x, a.y - b.y);
+          if (d > 0) { cam.dist = pinch.dist * pinch.d / d; applyCamera(); }
+          return;
+        }
+        if (down) {
+          if (!down.moved && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 8) down.moved = true;
+          if (down.moved) {
+            cam.theta -= dx * 0.008;
+            cam.phi -= dy * 0.008;
+            applyCamera();
+          }
+        }
+      });
+      const end = (e) => {
+        const wasTap = down && !down.moved && pointers.size === 1 && performance.now() - down.t < 700 && e.type === 'pointerup';
+        pointers.delete(e.pointerId);
+        if (pointers.size < 2) pinch = null;
+        if (wasTap && tapCb) tapCb(pickCell(e.clientX, e.clientY), e.pointerType);
+        if (pointers.size === 0) down = null;
+      };
+      el.addEventListener('pointerup', end);
+      el.addEventListener('pointercancel', end);
+      el.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse' && hoverCb) hoverCb(-1); });
+      el.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        cam.dist *= e.deltaY > 0 ? 1.08 : 0.92;
+        applyCamera();
+      }, { passive: false });
+    }
+
+    function resize() {
+      if (!ready || !host) return;
+      const w = host.clientWidth, h = host.clientHeight;
+      if (!w || !h) return;
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+    }
+
+    // Re-apply everything that depends on the active level / occupancy.
+    function refreshView() {
+      plane.position.y = levelY(level);
+      markers.forEach((m, i) => {
+        const occupied = balls.has(i);
+        m.visible = !occupied;
+        const onLevel = ((i / 16) | 0) === level;
+        m.material.opacity = onLevel ? 0.85 : 0.22;
+        m.scale.setScalar(onLevel ? (i === hoverCell ? 2.6 : 1.5) : 1);
+      });
+      balls.forEach((b, idx) => {
+        const onLevel = ((idx / 16) | 0) === level;
+        const dim = dimmed ? 0.28 : (onLevel ? 1 : OFF_LEVEL_OPACITY);
+        if (!winMeshes.includes(b.mesh)) b.mesh.material.opacity = dim;
+      });
+      bridges.forEach((br) => {
+        if (br.win) return;
+        const both = ((br.a / 16) | 0) === level && ((br.b / 16) | 0) === level;
+        br.mesh.material.opacity = dimmed ? 0.2 : (both ? 1 : OFF_LEVEL_OPACITY);
+      });
+    }
+
+    function addBridge(a, b, player) {
+      const pa = cellXYZ(a), pb = cellXYZ(b);
+      const dir = pb.clone().sub(pa);
+      const len = dir.length();
+      const mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, len, 12, 1, true), ballMaterial(player));
+      mesh.position.copy(pa).add(pb).multiplyScalar(0.5);
+      mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
+      scene.add(mesh);
+      bridges.push({ mesh, a, b, player, win: false });
+    }
+
+    function init(hostEl) {
+      if (ready) return true;
+      if (typeof THREE === 'undefined') {
+        hostEl.textContent = '3Dの読み込みに失敗しました。通信状況を確認して、ページを再読み込みしてください。';
+        return false;
+      }
+      host = hostEl;
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.setClearColor(0x000000, 0);
+      host.innerHTML = '';
+      host.appendChild(renderer.domElement);
+      buildScene();
+      setupInput(renderer.domElement);
+      ready = true;
+      applyCamera();
+      refreshView();
+      resize();
+      if (window.ResizeObserver) { resizeObs = new ResizeObserver(resize); resizeObs.observe(host); }
+      else window.addEventListener('resize', resize);
+      return true;
+    }
+
+    // y of a ball dropping into its cell: gravity fall then a small bounce
+    function fallY(from, to, t) {
+      const H = from - to;
+      if (t < 0.62) { const k = t / 0.62; return from - H * k * k; }
+      if (t < 0.84) { const k = (t - 0.62) / 0.22; return to + H * 0.1 * 4 * k * (1 - k); }
+      return to;
+    }
+
+    function tick(now) {
+      if (!running) return;
+      rafId = requestAnimationFrame(tick);
+      for (let i = falling.length - 1; i >= 0; i--) {
+        const f = falling[i];
+        const t = Math.min(1, (now - f.t0) / 520);
+        f.mesh.position.y = fallY(f.from, f.to, t);
+        if (t >= 1) falling.splice(i, 1);
+      }
+      if (autoOrbit) { cam.theta += 0.006; applyCamera(); }
+      if (winMeshes.length) {
+        const s = Math.sin(now / 160);
+        winMeshes.forEach((m) => {
+          m.scale.setScalar(1.08 + 0.06 * s);
+          m.material.emissiveIntensity = 0.55 + 0.3 * s;
+        });
+        if (winRod) winRod.material.emissiveIntensity = 0.7 + 0.3 * s;
+      }
+      renderer.render(scene, camera);
+    }
+
+    return {
+      init,
+      onTap(fn) { tapCb = fn; },
+      onHover(fn) { hoverCb = fn; },
+      onLevelChange(fn) { levelCb = fn; },
+      getLevel() { return level; },
+      setLevel(l) {
+        level = Math.max(0, Math.min(3, l));
+        if (ready) refreshView();
+        if (levelCb) levelCb(level);
+      },
+      start() {
+        if (!ready || running) return;
+        running = true;
+        resize();
+        rafId = requestAnimationFrame(tick);
+      },
+      stop() { running = false; cancelAnimationFrame(rafId); },
+      reset() {
+        if (!ready) return;
+        balls.forEach((b) => { scene.remove(b.mesh); b.mesh.material.dispose(); });
+        balls.clear();
+        bridges.forEach((br) => { scene.remove(br.mesh); br.mesh.material.dispose(); });
+        bridges.length = 0;
+        falling.length = 0;
+        winMeshes = [];
+        dimmed = false;
+        autoOrbit = false;
+        if (winRod) { scene.remove(winRod); winRod.material.dispose(); winRod = null; }
+        hoverCell = -1;
+        ghost.visible = false;
+        cam.theta = 0.62; cam.phi = 0.95; cam.dist = 20;
+        level = 0;
+        if (levelCb) levelCb(level);
+        applyCamera();
+        refreshView();
+        resize();
+      },
+      placeBall(idx, player) {
+        if (!ready) return;
+        const to = cellXYZ(idx);
+        const mesh = new THREE.Mesh(new THREE.SphereGeometry(BALL_R, 28, 20), ballMaterial(player));
+        mesh.position.set(to.x, to.y + 2.4, to.z);
+        scene.add(mesh);
+        balls.set(idx, { mesh, player });
+        falling.push({ mesh, t0: performance.now(), from: to.y + 2.4, to: to.y });
+        // fuse with every touching ball of the same colour (all 26 directions)
+        const l = (idx / 16) | 0, y = ((idx % 16) / 4) | 0, x = idx % 4;
+        for (let dz = -1; dz <= 1; dz++) for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+          if (!dx && !dy && !dz) continue;
+          const nx = x + dx, ny = y + dy, nl = l + dz;
+          if (nx < 0 || nx > 3 || ny < 0 || ny > 3 || nl < 0 || nl > 3) continue;
+          const nIdx = nl * 16 + ny * 4 + nx;
+          const nb = balls.get(nIdx);
+          if (nb && nb.player === player) addBridge(idx, nIdx, player);
+        }
+        refreshView();
+      },
+      showWin(cells) {
+        if (!ready) return;
+        const set = new Set(cells);
+        dimmed = true;
+        winMeshes = cells.map((c) => balls.get(c).mesh);
+        winMeshes.forEach((m) => { m.material.opacity = 1; });
+        bridges.forEach((br) => {
+          // keep the bridges that run along the winning line bright
+          const i = cells.indexOf(br.a), j = cells.indexOf(br.b);
+          br.win = i >= 0 && j >= 0 && Math.abs(i - j) === 1;
+          br.mesh.material.opacity = br.win ? 1 : 0.2;
+        });
+        balls.forEach((b, idx) => { if (!set.has(idx)) b.mesh.material.opacity = 0.28; });
+        // a solid golden rod through the finished line
+        const a = cellXYZ(cells[0]), b = cellXYZ(cells[3]);
+        const dir = b.clone().sub(a);
+        winRod = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.1, 0.1, dir.length() + 1.0, 12),
+          new THREE.MeshStandardMaterial({ color: 0xfde68a, emissive: 0xfbbf24, emissiveIntensity: 0.8, roughness: 0.3, metalness: 0.4 })
+        );
+        winRod.position.copy(a).add(b).multiplyScalar(0.5);
+        winRod.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
+        scene.add(winRod);
+        autoOrbit = true;
+      },
+      // translucent preview ball at a cell (idx < 0 hides it)
+      setGhost(idx, player) {
+        if (!ready || !ghost) return;
+        hoverCell = idx;
+        if (idx < 0) { ghost.visible = false; refreshView(); return; }
+        ghost.position.copy(cellXYZ(idx));
+        ghost.material.color.setHex(COLORS[player]);
+        ghost.visible = true;
+        refreshView();
+      },
+      clearGhost() { if (ghost) { ghost.visible = false; hoverCell = -1; if (ready) refreshView(); } },
+    };
+  })();
+
+  // ---------- Input glue: taps / hover from the 3D view + level buttons ----------
+  // Touch needs two taps (the first previews the ball with a ghost, the second
+  // confirms) so a perspective-view mis-tap never costs a move; a mouse click
+  // places straight away, with the same preview on hover.
+  let pendingCell = -1;
+  function humanCanMove() {
+    return !gameOver && !cpuThinking && !(mode === 'cpu' && currentPlayer === 2)
+      && !boardWrap.classList.contains('locked');
+  }
+  Board3D.onTap((cell, pointerType) => {
+    if (cell < 0 || !humanCanMove() || grid[cell] !== 0) return;
+    if (pointerType === 'mouse' || pendingCell === cell) { handleCellClick(cell); return; }
+    pendingCell = cell;
+    Board3D.setGhost(cell, currentPlayer);
+  });
+  Board3D.onHover((cell) => {
+    if (pendingCell >= 0) return;
+    if (cell < 0 || !humanCanMove() || grid[cell] !== 0) { Board3D.setGhost(-1); return; }
+    Board3D.setGhost(cell, currentPlayer);
+  });
+
+  // 4 / 3 / 2 / 1 buttons (top to bottom) choose the height of the level plane.
+  const levelCtlEl = document.getElementById('levelCtl');
+  function chooseLevel(l) {
+    pendingCell = -1;
+    Board3D.clearGhost();
+    Board3D.setLevel(l);
+  }
+  [3, 2, 1, 0].forEach((l) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.dataset.level = l;
+    b.textContent = l + 1;
+    b.addEventListener('click', () => { SoundMgr.seClick(); chooseLevel(l); });
+    levelCtlEl.appendChild(b);
+  });
+  Board3D.onLevelChange((l) => {
+    levelCtlEl.querySelectorAll('button').forEach((b) => b.classList.toggle('active', +b.dataset.level === l));
+  });
+  document.addEventListener('keydown', (e) => {
+    if (gameScreen.classList.contains('hidden')) return;
+    if (e.key >= '1' && e.key <= '4') chooseLevel(+e.key - 1);
+    else if (e.key === 'ArrowUp' || e.key === 'PageUp') { e.preventDefault(); chooseLevel(Board3D.getLevel() + 1); }
+    else if (e.key === 'ArrowDown' || e.key === 'PageDown') { e.preventDefault(); chooseLevel(Board3D.getLevel() - 1); }
+  });
+
+  // `currentChar.depth` is the search depth in plies; `wildness` is the chance
+  // of dropping on a random cell instead. A winning cell is always taken.
+  function getCpuMove() {
+    const empty = getEmptyCells(grid);
+    if (empty.length === 0) return null;
+
+    const winCell = findImmediateWin(grid, 2);
+    if (winCell !== null) return winCell;
+
+    const wildness = currentChar ? currentChar.wildness : 0;
+    if (wildness > 0 && Math.random() < wildness) {
+      return empty[Math.floor(Math.random() * empty.length)];
+    }
+
+    let depth = currentChar ? currentChar.depth : 3;
+    // The opening has 60+ near-equal moves and no tactics to find: searching deep
+    // there only freezes the page (~2s at depth 5), so keep it shallow.
+    if (grid.filter((v) => v !== 0).length < 4) depth = Math.min(depth, 3);
+    const cell = chooseCpuCell(grid, 2, depth);
+    return cell === null ? empty[0] : cell;
+  }
+
+  applyKanaMode(); // render the title/online screens in the persisted mode
+})();
+</script>
+</body>
+</html>
