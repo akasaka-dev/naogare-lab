@@ -933,12 +933,13 @@ const AREA_NAMES = {
 const GERMS_PER_AREA = 3;       // 区画ごとの小バイ菌の数（これより多くは出ない）
 // 助けを呼ぶ声：まだ小バイ菌が出ていない区画の町人が、ひとつずつ助けを呼ぶ。そのときにその区画の小バイ菌が出てくる。
 //   同時に呼んでいるのは HELP_MAX 区画まで（町に出ている小バイ菌は最大 9 匹）。
-//   ふわおのまわりに、呼んでいる区画の小バイ菌の方向を 3D の矢印で出す。全部倒すと声は止む
+//   呼んでいる町人の頭の上に助けのアイコン（！）を出し、ふわおのまわりには、呼んでいる区画の小バイ菌の方向を
+//   3D の矢印で出す。全部倒すと声は止む
 const HELP_MAX = 3;
 const HELP_FIRST = 2;           // 遊び始めてから最初に呼ばれるまで（秒）
 const HELP_GAP = 6;             // 次の区画が呼ぶまでの間（秒）
 const HELP_COLORS = [0xe8463a, 0x3a8fe8, 0xb558d8];   // 矢印とメーターの印の色（呼んでいる枠ごと）
-const HELP_WORDS = ['たすけてー！ ばい菌が来たー！', 'だれかー！ ばい菌だー！', 'たすけてー！ 食べ物が腐っちゃう！'];
+const HELP_ICON_SIZE = 0.09;   // 助けを呼ぶアイコンの大きさ（画面の高さに対して。遠くても同じ大きさ）
 // 燃料の量は、いちばん大きくしたタンクの満タンを 1 とする
 const FUEL_MAX_START = 1 / 3;   // 最初のタンクの大きさ
 const FUEL_MAX_STEP = 1 / 6;    // トッピング 1 つで大きくなる分（4 つで最大）
@@ -1081,8 +1082,29 @@ function makeArrow(color) {
   scene.add(group);
   return group;
 }
-function residentName(r) {
-  return (TALKS[r.id] || TALKS[r.kindName])?.name || '町の人';
+// 助けを呼ぶアイコン（色の丸に「！」）。呼んでいる町人の頭の上（町人のいない区画は小バイ菌の上）に、いつも手前に出す
+function makeHelpIcon(color) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const x = c.getContext('2d');
+  x.beginPath();
+  x.arc(64, 60, 50, 0, Math.PI * 2);
+  x.moveTo(50, 104); x.lineTo(64, 124); x.lineTo(78, 104);   // 下のとがり（吹き出しのしっぽ）
+  x.fillStyle = `#${color.toString(16).padStart(6, '0')}`;
+  x.fill();
+  x.lineWidth = 7; x.strokeStyle = '#3a2a1e'; x.lineJoin = 'round';
+  x.stroke();
+  x.fillStyle = '#fffaf0';
+  x.font = 'bold 76px sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
+  x.fillText('!', 64, 63);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const icon = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, depthWrite: false, sizeAttenuation: false }));
+  icon.center.set(0.5, 0);
+  icon.renderOrder = 997;
+  icon.visible = false;
+  scene.add(icon);
+  return icon;
 }
 // まだ呼んでいない区画のうち、ふわおにいちばん近い区画が助けを呼ぶ
 // （目の前にいきなり出てこないよう、小バイ菌の場所が HELP_NEAR より近い区画は、ほかになければ選ぶ）
@@ -1105,11 +1127,8 @@ function startHelp() {
   }
   const used = helps.map((h) => h.slot);
   const slot = [0, 1, 2].find((s) => !used.includes(s));
-  helps.push({ area: best, slot, arrow: makeArrow(HELP_COLORS[slot]) });
-  const caller = gauge.residents[Math.floor(Math.random() * gauge.residents.length)];
-  const words = HELP_WORDS[Math.floor(Math.random() * HELP_WORDS.length)];
-  const name = AREA_NAMES[ruinAreas[best].name];
-  showToast(caller ? `${name}の${residentName(caller)}「${words}」` : `${name}から助けを呼ぶ声！「${words}」`);
+  const caller = gauge.residents[Math.floor(Math.random() * gauge.residents.length)] || null;
+  helps.push({ area: best, slot, caller, t: 0, arrow: makeArrow(HELP_COLORS[slot]), icon: makeHelpIcon(HELP_COLORS[slot]) });
   return true;
 }
 // 呼んでいる区画の、まだ倒していない小バイ菌のうち、いちばん近いもの
@@ -1127,8 +1146,10 @@ function updateHelps(dt, active) {
   for (let i = helps.length - 1; i >= 0; i--) {
     const h = helps[i];
     if (areaGauge[h.area].germs.some((g) => !germGone(g))) continue;
-    scene.remove(h.arrow);
+    scene.remove(h.arrow, h.icon);
     h.arrow.traverse((o) => { if (o.isMesh) o.material.dispose(); });
+    h.icon.material.map.dispose();
+    h.icon.material.dispose();
     helps.splice(i, 1);
     if (!areaGauge[h.area].done) showToast(`${AREA_NAMES[ruinAreas[h.area].name]}の小バイ菌をやっつけた！`);
     helpWait = Math.max(helpWait, HELP_GAP);
@@ -1147,6 +1168,18 @@ function updateHelps(dt, active) {
   for (const h of helps) {
     const g = helpTarget(h);
     h.arrow.visible = active && !!g;
+    // アイコン：出たときにぽんと大きくなって、あとはゆっくり上下する
+    h.t += dt;
+    const k = Math.min(1, h.t / 0.35) - 1;
+    const pop = 1 + 2.70158 * k * k * k + 1.70158 * k * k;   // 少し行き過ぎて戻る（easeOutBack）
+    const s = HELP_ICON_SIZE * Math.max(0.01, pop);
+    h.icon.scale.set(s, s, 1);
+    const who = h.caller && h.caller.root.visible ? h.caller.root : g?.root;
+    h.icon.visible = active && !!who;
+    if (who) {
+      const up = who === h.caller?.root ? h.caller.height + 0.35 : germBody + 1.2;
+      h.icon.position.set(who.position.x, who.position.y + up + Math.sin(h.t * 3 + h.slot) * 0.08, who.position.z);
+    }
     if (!g) continue;
     _hd.set(g.root.position.x, g.root.position.y + germBody, g.root.position.z).sub(_ha);
     h.dist = _hd.length();
