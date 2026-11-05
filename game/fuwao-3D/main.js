@@ -2015,13 +2015,15 @@ function updateOpening(dt, active) {
   roomChiefMixer.update(dt);
 
   const sl = o.phase === 'fadeout' ? o.shotLine : line;
-  if (o.phase === 'talk' || o.phase === 'fadeout') {
+  if (o.phase === 'talk' || (o.phase === 'fadeout' && sl)) {
     openingShot(sl?.who, jumping, sl?.shot);
   } else {
     // 入口から部屋の全体を広く見せ、少し止まってから、最初に話す町長のカメラへ寄っていく
     openingShot(null);
     _oc.y += 0.3;
-    const k = o.phase === 'intro' ? Math.min(1, Math.max(0, (o.t - OPENING_HOLD) / (OPENING_INTRO - OPENING_HOLD))) : 0;
+    // 寄っている途中でスキップしたら、暗転するあいだはそこで止めておく
+    const k = o.phase === 'intro' ? Math.min(1, Math.max(0, (o.t - OPENING_HOLD) / (OPENING_INTRO - OPENING_HOLD))) : (o.introK || 0);
+    o.introK = k;
     const e = k * k * (3 - 2 * k);
     if (e > 0) {
       openingShot('mayor');
@@ -2044,10 +2046,22 @@ function finishOpening() {
   opening.phase = 'fadeout';
   opening.t = 0;
   fadeEl.classList.add('on');
+  document.body.classList.add('opening-out');   // スキップのボタンを消す
 }
+// スキップ（⏭ ボタン、または S キー）：会話を閉じて、そのまま暗転して町へ
+function skipOpening() {
+  if (!opening || opening.phase === 'fadeout' || opening.phase === 'wait') return;
+  if (talk.active) talk.close();
+  finishOpening();
+}
+document.getElementById('skipOpening').addEventListener('pointerdown', (e) => {
+  e.stopPropagation();
+  e.preventDefault();
+  skipOpening();
+});
 function endOpening() {
   opening = null;
-  document.body.classList.remove('opening');
+  document.body.classList.remove('opening', 'opening-out');
   scene.remove(room, roomMayor, roomFuwao, roomChief, roomMecha);
   roomMayorMixer?.uncacheRoot(roomMayor);
   roomChiefMixer?.uncacheRoot(roomChief);
@@ -2236,6 +2250,7 @@ window.addEventListener('keydown', (e) => {
   if (dragLook && playing && e.code === 'Escape') { pause(); return; }
   if (playing && (talk.active || opening)) {   // 会話中とオープニング中は、会話を進めるキーだけ
     if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); if (!e.repeat) advanceTalk(); }
+    if (e.code === 'KeyS' && opening) skipOpening();
     return;
   }
   keys.add(e.code);
