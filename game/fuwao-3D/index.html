@@ -26,6 +26,38 @@
   #hud { position: fixed; left: 12px; bottom: 10px; color: rgba(255,255,255,0.75); font-size: 12px; pointer-events: none; text-shadow: 0 1px 2px #000; }
   canvas { touch-action: none; }
 
+  /* ---- 進行度のメーター（町の復興度・燃料・からだ）。紙に手描きしたような枠 ---- */
+  #meters { display: none; position: fixed; left: calc(12px + env(safe-area-inset-left)); top: calc(12px + env(safe-area-inset-top));
+    width: min(250px, 46vw); padding: 8px 12px 9px; box-sizing: border-box; pointer-events: none; user-select: none;
+    background: rgba(255, 250, 240, 0.88); border: 2.4px solid #3a2a1e; border-radius: 14px 18px 12px 16px / 16px 12px 18px 14px;
+    box-shadow: 0 3px 8px rgba(0,0,0,0.25); font-family: "Klee One", "Hiragino Maru Gothic ProN", "Yu Gothic UI", sans-serif; color: #3a2a1e; }
+  body.playing #meters { display: block; }
+  body.talking #meters, body.opening #meters { display: none; }
+  body.touch #meters { top: calc(64px + env(safe-area-inset-top)); }
+  #meters .meter { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600; line-height: 1.2; }
+  #meters .meter + .meter, #meters .meter-area + .meter { margin-top: 5px; }
+  #meters .label { flex: none; width: 4.6em; }
+  #meters .meter-town .label { width: auto; }
+  #meters .bar { position: relative; flex: 1; height: 11px; border: 1.8px solid #3a2a1e; border-radius: 7px 5px 6px 8px; background: #e9dcc6; overflow: hidden; }
+  #meters .fill { display: block; height: 100%; transform-origin: left; transition: transform 0.25s; }
+  #meters .meter-town .fill { background: #7cbf5a; }
+  #meters .meter-fuel .fill { background: #f08a3c; }
+  /* まだ大きくなっていないタンクの分（トッピングで広がる） */
+  #meters .cap { position: absolute; right: 0; top: 0; bottom: 0; border-left: 1.8px solid #3a2a1e;
+    background: repeating-linear-gradient(-45deg, #b9a88f 0 2px, #e9dcc6 2px 5px); transition: width 0.4s; }
+  #meters .meter-body .fill { background: #f2c45c; }
+  #meters .num { flex: none; width: 2.6em; text-align: right; font-size: 13px; }
+  #meters .meter-area { min-height: 1.2em; margin-top: 2px; font-size: 11.5px; color: #6b4f36; }
+  #meters .meter-area:empty { display: none; }
+  #meters .low .bar { animation: meter-low 0.6s ease-in-out infinite alternate; }
+  @keyframes meter-low { to { border-color: #d0402a; background: #f3c1b4; } }
+  /* 区画が元に戻ったときなどのお知らせ */
+  #toast { position: fixed; left: 50%; top: 18%; transform: translate(-50%, -10px); padding: 8px 22px 9px; pointer-events: none;
+    background: #fffaf0; border: 2.6px solid #3a2a1e; border-radius: 18px 22px 16px 20px / 20px 16px 22px 18px; box-shadow: 0 3px 8px rgba(0,0,0,0.3);
+    font-family: "Klee One", "Hiragino Maru Gothic ProN", "Yu Gothic UI", sans-serif; font-size: 20px; font-weight: 600; color: #3a2a1e;
+    opacity: 0; transition: opacity 0.3s, transform 0.3s; white-space: nowrap; }
+  #toast.on { opacity: 1; transform: translate(-50%, 0); }
+
   /* ---- スマホ用のタッチ操作（指で触る端末のときだけ、遊んでいる間に出す） ---- */
   #touchUI { display: none; position: fixed; inset: 0; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
   body.touch.playing #touchUI { display: block; }
@@ -154,6 +186,13 @@
 </div>
 <div id="talkHint">話す</div>
 <div id="crosshair"></div>
+<div id="meters">
+  <div class="meter meter-town"><span class="label">町の復興度</span><span class="bar"><span class="fill"></span></span><span class="num">0%</span></div>
+  <div class="meter-area"></div>
+  <div class="meter meter-fuel"><span class="label">燃料</span><span class="bar"><span class="fill"></span><span class="cap"></span></span></div>
+  <div class="meter meter-body"><span class="label">からだ</span><span class="bar"><span class="fill"></span></span></div>
+</div>
+<div id="toast"></div>
 <div id="fade"></div>
 <div id="hud"></div>
 <script type="module" src="main.js"></script>

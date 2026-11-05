@@ -442,7 +442,7 @@ function setupRuin(townRoot, ruinRoot) {
       name: node.name, ruin, hidden: hiddenMerged, toggles, boxIdx,
       ruinSolid: solidMerged.children.filter((m) => !isPassThrough(m.material)),
       townSolid: hiddenMerged.children.filter((m) => !isWater(m.material) && !isPassThrough(m.material)),
-      restored: false, fade: 0,
+      restored: false, fade: 0, boxes,
     });
   }
   return townMats;
@@ -571,7 +571,7 @@ function setupAnimations(clips) {
 }
 
 function fire() {
-  if (firing || !fireAction) return;   // 地上でも空中（ジャンプ・ジェット中）でも撃てる
+  if (firing || !fireAction || knockout) return;   // 地上でも空中（ジャンプ・ジェット中）でも撃てる
   firing = true;
   recoiled = false;
   shotSpawned = false;
@@ -611,6 +611,12 @@ if (new URLSearchParams(location.search).has('debug')) {
     get daytime() { return daytime; },
     get opening() { return opening; },
     get room() { return room; },
+    get meters() {
+      return { town: townProgress(), fuel, fuelMax, body, knockout,
+        areas: ruinAreas.map((a, i) => `${AREA_NAMES[a.name]} ${Math.round(areaProgress(i) * 100)}% (germs ${areaGauge[i].germs.length}, residents ${areaGauge[i].residents.length})`) };
+    },
+    setFuel(v) { fuel = v; }, setBody(v) { body = v; }, raiseFuelMax,
+    germSpots() { return germs.map((g) => [g.area, ...g.root.position.toArray().map((v) => +v.toFixed(1))]); },
     endOpening() { if (opening) endOpening(); },
     // 例: __fuwao.talk(3)（residents の番号の人と話す）
     talk(i) { startTalk(residents[i]); },
@@ -770,6 +776,7 @@ function collideBoss(dt) {
     // 勢いが RAM_PUSH_DAMP の割合で減っていくと、下がる距離は 勢い / RAM_PUSH_DAMP
     bossVel.addScaledVector(_rd, THREE.MathUtils.lerp(RAM_PUSH[0], RAM_PUSH[1], k) * RAM_PUSH_DAMP);
     bossStun = RAM_STUN;
+    useFuel(FUEL_RAM);
     bossWobble = 0.6 + 0.4 * k;
     bossWobbleTime = 0;
     // ロボははね返されて、噴射も止まる（もう一度 Space を押し直せば噴射できる）
@@ -909,6 +916,215 @@ function updateGerms(dt) {
     germs[i].mixer.uncacheRoot(germs[i].root);
     germs.splice(i, 1);
   }
+}
+
+// ---- 進行度（町の復興度・ジェット燃料・ふわおのからだ） ----
+// 町の復興度：廃墟の区画（10）ごとに「その区画の小バイ菌を倒す」「その区画の町人にパンを食べてもらう」で
+//   区画のゲージがたまり、満タンになると区画が元の町に戻る。復興度は全区画のゲージの平均。
+// 燃料：噴射している間と、ボスへの体当たりで減る。地面に立っている間にゆっくり戻り、パン工房の前では早く満タンになる。
+//   タンクの大きさ（上限）は最初は最大の 3 分の 1 で、トッピングで少しずつ大きくなる（raiseFuelMax）。
+// からだ：パンを撃つたびに自分の体（蒸しパン）が削れて減る。パン工房の前で焼き直してもらうと戻る。
+//   0 になったら暗転して、パン工房の前へ戻される（焼き直されて満タン）。町の復興度はそのまま
+const AREA_NAMES = {
+  RU_Plaza: '広場', RU_Main: '表通り', RU_Bakery: 'パン屋', RU_North: '上の通り', RU_East: '川の東',
+  RU_South: '南の家並み', RU_River: '川', RU_TerracesW: '奥の段（西）', RU_TerracesE: '奥の段（東）', RU_Hillside: '山の斜面の町',
+};
+const GERMS_PER_AREA = 3;       // 区画ごとに、これだけは小バイ菌を置く（足りない区画は、区画の中の地面に自動で置く）
+// 燃料の量は、いちばん大きくしたタンクの満タンを 1 とする
+const FUEL_MAX_START = 1 / 3;   // 最初のタンクの大きさ
+const FUEL_MAX_STEP = 1 / 6;    // トッピング 1 つで大きくなる分（4 つで最大）
+const FUEL_JET = 1 / 15;        // 噴射で減る燃料（1 秒あたり。最初のタンクで 5 秒、最大のタンクで 15 秒噴ける）
+const FUEL_RAM = 0.04;          // ボスに体当たりすると減る燃料
+const FUEL_REGEN = 1 / 30;      // 地面に立っている間に戻る燃料（1 秒あたり。最初のタンクなら空から満タンまで 10 秒）
+const FUEL_MIN_START = 0.02;    // これより少ないと噴射を始められない
+const BODY_PER_SHOT = 0.05;     // パン 1 個で削れるからだ（満タンで 20 発）
+const WORKSHOP_FRONT = new THREE.Vector3(-7.7, 12, -25.2);   // パン工房の扉（町の中、北の奥の段）の前
+const WORKSHOP_REFILL_R = 6;    // 扉の前のこの距離の中で地面にいると補給される
+const WORKSHOP_REFILL = 0.5;    // 補給の速さ（1 秒あたり、燃料とからだの両方）
+let fuelMax = FUEL_MAX_START, fuel = fuelMax, body = 1;
+let knockout = null;            // からだが 0 になって、パン工房へ戻されている途中 { t, moved }
+const areaGauge = [];           // 区画ごと { germs: [子バイ菌], residents: [町人], done }
+const metersEl = document.getElementById('meters');
+const toastEl = document.getElementById('toast');
+let toastTime = 0, refilling = false;
+
+// その場所の区画（範囲の長方形が重なるところは、小さい長方形のほうを優先）
+function areaAt(x, z) {
+  let best = -1, bestSize = Infinity;
+  ruinAreas.forEach((a, i) => {
+    for (const [x0, z0, x1, z1] of a.boxes) {
+      const size = (x1 - x0) * (z1 - z0);
+      if (x >= x0 && x <= x1 && z >= z0 && z <= z1 && size < bestSize) { best = i; bestSize = size; }
+    }
+  });
+  return best;
+}
+// 段ごとの地面の高さの目安（屋根や塀の上に小バイ菌を置かないため。メモの「地面の高さ」）
+function streetHeight(z) {
+  if (z > 20.5) return 0;
+  if (z > -5.5) return 3.5;
+  if (z > -22) return 7;
+  if (z > -44) return 11.5;
+  if (z > -63) return 16.5;
+  return null;   // 山の斜面の町は段が曲がっているので、高さでは調べない
+}
+// 区画の中の、歩ける地面の上の場所をさがす（毎回同じ場所になるように、決まった乱数で）
+function areaSpot(a, rand, avoid) {
+  const boxes = a.boxes, total = boxes.reduce((s, [x0, z0, x1, z1]) => s + (x1 - x0) * (z1 - z0), 0);
+  for (let tries = 0; tries < 300; tries++) {
+    let r = rand() * total, box = boxes[0];
+    for (const b of boxes) { r -= (b[2] - b[0]) * (b[3] - b[1]); if (r <= 0) { box = b; break; } }
+    const x = THREE.MathUtils.lerp(box[0] + 1.5, box[2] - 1.5, rand());
+    const z = THREE.MathUtils.lerp(box[1] + 1.5, box[3] - 1.5, rand());
+    if (x > WORKSHOP_BOX[0] && x < WORKSHOP_BOX[2] && z > WORKSHOP_BOX[1] && z < WORKSHOP_BOX[3]) continue;
+    _o.set(x, 400, z);
+    const hit = cast(_o, DOWN, 800);
+    if (!hit || hit.face.normal.y < 0.97) continue;                     // 平らな地面だけ
+    const y = hit.point.y, sy = streetHeight(z);
+    const west = x < 15 ? Math.max(0, 15 - x) * 0.06 : 0;              // 川の西は、離れるほど通りが上る
+    if (sy !== null && (y < sy - 1.5 || y > sy + west + 3)) continue;   // 屋根・塀の上、川底
+    if (sy === null && y < 18) continue;
+    _o.set(x, 400, z);
+    const wet = waterCollider && cast(_o, DOWN, 800, waterCollider);
+    if (wet && wet.point.y > y - 0.3) continue;                        // 水の上
+    // まわりが壁で囲まれているすき間はやめる
+    _o.set(x, y + 0.6, z);
+    let open = 0;
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { _d.set(dx, 0, dz); if (!cast(_o, _d, 1.2)) open++; }
+    if (open < 3) continue;
+    if (avoid.some((p) => Math.hypot(p.x - x, p.z - z) < 6)) continue;
+    return { x, z };
+  }
+  return null;
+}
+function setupProgress() {
+  let seed = 20261105;
+  const rand = () => {   // mulberry32
+    seed = (seed + 0x6D2B79F5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  ruinAreas.forEach(() => areaGauge.push({ germs: [], residents: [], done: false }));
+  for (const g of germs) {
+    g.area = areaAt(g.root.position.x, g.root.position.z);
+    if (g.area >= 0) areaGauge[g.area].germs.push(g);
+  }
+  ruinAreas.forEach((a, i) => {
+    const gauge = areaGauge[i];
+    const avoid = gauge.germs.map((g) => g.root.position);
+    while (gauge.germs.length < GERMS_PER_AREA) {
+      const p = areaSpot(a, rand, avoid);
+      if (!p) break;
+      const g = spawnGerm(p.x, p.z);
+      g.area = i;
+      gauge.germs.push(g);
+      avoid.push(g.root.position);
+    }
+  });
+  // パンを食べられる町人だけ（町長は食べない）。区画は家（いつもいる場所）で決める
+  for (const r of residents) {
+    if (!r.eat) continue;
+    const i = areaAt(r.home.x, r.home.z);
+    if (i >= 0) areaGauge[i].residents.push(r);
+  }
+}
+function germGone(g) { return g.state === 'defeat' || g.done; }
+function areaProgress(i) {
+  const g = areaGauge[i];
+  const total = g.germs.length + g.residents.length;
+  if (!total) return g.done ? 1 : 0;
+  return (g.germs.filter(germGone).length + g.residents.filter((r) => r.fed).length) / total;
+}
+function townProgress() {
+  return areaGauge.length ? areaGauge.reduce((s, _, i) => s + areaProgress(i), 0) / areaGauge.length : 0;
+}
+function showToast(text) {
+  toastEl.textContent = text;
+  toastEl.classList.add('on');
+  toastTime = 3;
+}
+
+function useFuel(amount) { fuel = Math.max(0, fuel - amount); }
+// トッピングを手に入れたときに呼ぶ。タンクが大きくなり、増えた分も満たす
+function raiseFuelMax(step = FUEL_MAX_STEP) {
+  const before = fuelMax;
+  fuelMax = Math.min(1, fuelMax + step);
+  fuel = Math.min(fuelMax, fuel + (fuelMax - before));
+}
+function shaveBody() {
+  body = Math.max(0, body - BODY_PER_SHOT);
+  if (body <= 0 && !knockout) knockout = { t: -0.8, moved: false };   // 撃ったパンが飛んでいくのを少し見せてから暗転
+}
+function updateProgress(dt, active) {
+  // 区画のゲージが満タンになったら、区画を元に戻す
+  areaGauge.forEach((g, i) => {
+    if (g.done || !(g.germs.length + g.residents.length) || areaProgress(i) < 1) return;
+    g.done = true;
+    restoreArea(ruinAreas[i].name);
+    showToast(`${AREA_NAMES[ruinAreas[i].name] || ruinAreas[i].name}が元に戻った！`);
+  });
+
+  if (active && !knockout) {
+    if (jetting) {
+      useFuel(FUEL_JET * dt);
+      if (fuel <= 0) { jetting = false; jetEndTime = 0; }
+    } else if (onGround) fuel = Math.min(fuelMax, fuel + FUEL_REGEN * dt);
+    // パン工房の前で補給（焼き直し）
+    refilling = onGround && Math.hypot(feet.x - WORKSHOP_FRONT.x, feet.z - WORKSHOP_FRONT.z) < WORKSHOP_REFILL_R
+      && Math.abs(feet.y - WORKSHOP_FRONT.y) < 3;
+    if (refilling) {
+      fuel = Math.min(fuelMax, fuel + WORKSHOP_REFILL * dt);
+      body = Math.min(1, body + WORKSHOP_REFILL * dt);
+    }
+  }
+
+  // からだが 0：暗転 → パン工房の前へ → 明るくなる
+  if (knockout) {
+    knockout.t += dt;
+    if (knockout.t >= 0) fadeEl.classList.add('on');
+    if (!knockout.moved && knockout.t > FADE_TIME) {
+      knockout.moved = true;
+      feet.copy(groundPoint(WORKSHOP_FRONT));
+      velY = 0; jetting = false; jetVel.set(0, 0, 0); recoilVel.set(0, 0, 0);
+      heading = 0;                     // 扉に背を向けて、町（+Z）のほうを向く
+      view.yaw = Math.PI;
+      view.pitch = view.thirdPerson ? 0.25 : 0;
+      snapToGround(true);
+      fuel = fuelMax; body = 1;
+      showToast('パン工房で焼き直してもらった！');
+    }
+    if (knockout.t > FADE_TIME + 0.6) { fadeEl.classList.remove('on'); knockout = null; }
+  }
+
+  if (toastTime > 0 && (toastTime -= dt) <= 0) toastEl.classList.remove('on');
+  drawMeters();
+}
+let drawnMeters = '';
+function drawMeters() {
+  const here = areaAt(feet.x, feet.z);
+  const town = townProgress();
+  const key = `${town.toFixed(3)}|${fuel.toFixed(3)}|${fuelMax}|${body.toFixed(3)}|${here}|${here >= 0 ? areaProgress(here).toFixed(3) : ''}|${refilling}`;
+  if (key === drawnMeters) return;
+  drawnMeters = key;
+  const set = (name, v) => { metersEl.querySelector(`.meter-${name} .fill`).style.transform = `scaleX(${v})`; };
+  set('town', town);
+  set('fuel', fuel);
+  set('body', body);
+  metersEl.querySelector('.meter-town .num').textContent = `${Math.round(town * 100)}%`;
+  // 燃料のバーは最大のタンクの長さで、まだ大きくなっていない分は斜線で埋めておく
+  metersEl.querySelector('.meter-fuel .cap').style.width = `${(1 - fuelMax) * 100}%`;
+  metersEl.querySelector('.meter-fuel').classList.toggle('low', fuel < fuelMax * 0.2);
+  metersEl.querySelector('.meter-body').classList.toggle('low', body < 0.2);
+  const areaEl = metersEl.querySelector('.meter-area');
+  if (refilling) areaEl.textContent = 'パン工房：補給中（燃料とからだが戻る）';
+  else if (here >= 0) {
+    const g = areaGauge[here], name = AREA_NAMES[ruinAreas[here].name];
+    const left = g.germs.filter((x) => !germGone(x)).length;
+    const hungry = g.residents.filter((r) => !r.fed).length;
+    const todo = [left && `小バイ菌 あと${left}`, hungry && `おなかをすかせた人 ${hungry}`].filter(Boolean).join('・');
+    areaEl.textContent = g.done ? `${name}：元どおり` : `${name}：${Math.round(areaProgress(here) * 100)}%${todo ? `（${todo}）` : ''}`;
+  } else areaEl.textContent = '';
 }
 
 // ---- ふわふわパン（発射の弾） ----
@@ -1424,6 +1640,7 @@ async function init() {
   setupBread(bread);
   placeResidents({ grandpa, girl, grandma, mayor });
   setupGerms(germmini);   // 町人のそばに置くので、町人のあと
+  setupProgress();        // 区画ごとの小バイ菌と町人を数える（足りない区画には小バイ菌を足す）
 
   // 夜にふわおのまわりを照らすランプ（昼は明るさ 0。ライトの数が変わると全部のシェーダーを作り直すので、出しっぱなしにする）
   const lamp = new THREE.PointLight(lin(1.0, 0.72, 0.42), 0, 14, 2);
@@ -2100,6 +2317,7 @@ function updatePlayer(dt) {
   if (firing && !shotSpawned && fireAction.time >= (muzzleFrame - 100) / ANIM_FPS) {
     shotSpawned = true;
     spawnBread();
+    shaveBody();   // 撃ったパンの分だけ、からだが削れる
   }
   _move.addScaledVector(recoilVel, dt);
   recoilVel.multiplyScalar(Math.exp(-(floating || !onGround ? RECOIL_DAMP_WATER : RECOIL_DAMP) * dt));
@@ -2133,7 +2351,7 @@ function updatePlayer(dt) {
   spaceHeld = space;
   if (!space) jumpLocked = false;
   if (onGround && !firing && space && !jumpLocked) { velY = JUMP_SPEED; onGround = false; }
-  else if (!onGround && spacePressed && !jetting) { jetting = true; jetTime = 0; jetSpeed = moveSpeed; }
+  else if (!onGround && spacePressed && !jetting && fuel > FUEL_MIN_START) { jetting = true; jetTime = 0; jetSpeed = moveSpeed; }
   if (jetting && !space) { jetting = false; jetEndTime = 0; }
 
   const prevY = feet.y;
@@ -2305,7 +2523,8 @@ function tick(dt, active) {
   updateResidents(dt);
   if (active) updateGerms(dt);
   updateTalk(dt);
-  if (active && !talk.active) { updatePlayer(dt); collideBoss(dt); }
+  updateProgress(dt, active && !talk.active);
+  if (active && !talk.active && !knockout) { updatePlayer(dt); collideBoss(dt); }
   else moveSpeed = 0;
   collidePeople(active);
   updateAnimation(dt);
