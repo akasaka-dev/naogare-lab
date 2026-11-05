@@ -214,7 +214,7 @@ const progressBar = document.querySelector('#progress div');
 const hud = document.getElementById('hud');
 const crosshair = document.getElementById('crosshair');
 
-const FILES = ['models/town.glb', 'models/distant.glb', 'models/pancannon.glb', 'models/germboss.glb', 'models/bread.glb', 'models/grandpa.glb', 'models/girl.glb', 'models/grandma.glb', 'models/town_ruin.glb', 'models/mayor.glb', 'models/germmini.glb', 'models/workshop.glb', 'models/chief.glb'];
+const FILES = ['models/town.glb', 'models/distant.glb', 'models/pancannon.glb', 'models/germboss.glb', 'models/bread.glb', 'models/grandpa.glb', 'models/girl.glb', 'models/grandma.glb', 'models/town_ruin.glb', 'models/mayor.glb', 'models/germmini.glb', 'models/workshop.glb', 'models/chief.glb', 'models/baker.glb'];
 const loaded = {}, total = {};
 // 公開版のモデルは meshopt で圧縮してある（25MB を超えるファイルは置けないため）
 const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
@@ -1464,6 +1464,8 @@ const RESIDENT_KINDS = {
   grandma: { speed: 0.31, eatPos: new THREE.Vector3(0.03, 1.04, 0.45), radius: 0.28, height: 1.5 },   // おじいちゃんと並んで歩ける速さ
   // 町長は世界に 1 人。パンは食べない（Eat がない）。立ち止まると、ときどき Think で考えこむ
   mayor: { speed: 0.5, radius: 0.32, height: 1.75, think: 0.4 },
+  // パン屋のお姉さんは店先に立ったまま（押されてずれたら戻る）。パンは食べない。話している間は Talk
+  baker: { speed: 0.55, radius: 0.28, height: 1.6, stay: true },
   girl: { speed: 0.46, eatPos: new THREE.Vector3(0, 0.78, 0.46), radius: 0.25, height: 1.2, hungry: true, smileAt: 32 },
 };
 // id は会話の台本（talks.js）を引く名前
@@ -1479,6 +1481,8 @@ const RESIDENTS = [
   { id: 'girl', kind: 'girl', home: new THREE.Vector3(19, 0, 6), radius: 3,          // 橋の上。帰りは橋を西へ渡る
     house: { door: GRANDMA_DOOR, way: [new THREE.Vector3(15, 0, 6.3), new THREE.Vector3(8, 0, 8.3)], out: [7, 18] } },
   { id: 'mayor', kind: 'mayor', home: new THREE.Vector3(-11, 0, 15), radius: 2.5 },   // 広場、噴水の東側
+  // パン屋の店先（扉の前、街灯の右）。軒の下なので、地面はこの高さから下を調べる。face は立つ向き
+  { id: 'baker', kind: 'baker', home: new THREE.Vector3(-1.2, 4.28, 3.45), radius: 0, face: 0.245, under: true },
 ];
 const RES_HOME_HURRY = 1.25;     // 家へ帰るときは少し急ぐ
 const RES_HURRY = 1.6;           // パンへ向かうときは少し急ぐ（速さもアニメもこの倍）
@@ -1491,16 +1495,16 @@ const residents = [];
 const _rd = new THREE.Vector3();
 const _rm = new THREE.Vector3();
 function placeResidents(models) {
-  for (const { id, kind, home, radius, house } of RESIDENTS) {
+  for (const { id, kind, home, radius, house, face, under } of RESIDENTS) {
     const gltf = models[kind], k = RESIDENT_KINDS[kind];
     const clip = (name) => THREE.AnimationClip.findByName(gltf.animations, name);
     const root = cloneSkinned(gltf.scene);
     root.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false; } });
-    _o.set(home.x, 400, home.z);
-    const hit = cast(_o, DOWN, 800);
+    _o.set(home.x, under ? home.y + 1 : 400, home.z);
+    const hit = cast(_o, DOWN, under ? 3 : 800);
     home.y = hit ? hit.point.y : home.y;
     root.position.copy(home);
-    root.rotation.y = Math.random() * Math.PI * 2;
+    root.rotation.y = face ?? Math.random() * Math.PI * 2;
     scene.add(root);
     const mixer = new THREE.AnimationMixer(root);
     const once = (name) => {
@@ -1522,7 +1526,9 @@ function placeResidents(models) {
       idle, walk: mixer.clipAction(clip('Walk')).play(), walkWeight: 0,
       eat: once('Eat'), joy: once('Joy'), think: once('Think'), oneShot: null,
       faces: { sad: once('Face_Sad'), smile: once('Face_Smile') }, face: null,
+      standFace: face ?? null, talkA: clip('Talk') ? mixer.clipAction(clip('Talk')) : null, talkWeight: 0,
     };
+    if (r.talkA) { r.talkA.play(); r.talkA.setEffectiveWeight(0); }
     // ふだんの待機。おなかがすいている間は Hungry
     if (k.hungry && clip('Hungry')) r.idle = mixer.clipAction(clip('Hungry'));
     r.idle.play();
@@ -1655,6 +1661,12 @@ function updateResidents(dt) {
         if (gy !== null && gy - pos.y < RES_STEP && pos.y - gy < 0.8) pos.set(nx, gy, nz);
         else { r.stuck += dt; speed = 0; }
       }
+    } else if (r.state === 'idle' && r.kind.stay) {
+      // 店先に立ったまま。押されてずれたら戻り、立つ向きに向き直る
+      if ((r.wait -= dt) <= 0 && Math.hypot(r.home.x - pos.x, r.home.z - pos.z) > 0.3) {
+        r.target.set(r.home.x, pos.y, r.home.z);
+        r.state = 'walk'; r.walkTime = 0;
+      } else if (r.standFace !== null) r.root.rotation.y = turnToward(r.root.rotation.y, r.standFace, 1 - Math.exp(-RES_TURN * 0.5 * dt));
     } else if (r.state === 'idle') {
       if ((r.wait -= dt) <= 0 && r.think && !r.oneShot && Math.random() < r.kind.think) {
         r.think.reset().play();
@@ -1730,8 +1742,10 @@ function updateResidents(dt) {
 
     const walking = speed > 0.01;
     r.walkWeight += ((walking ? 1 : 0) - r.walkWeight) * (1 - Math.exp(-8 * dt));
+    if (r.talkA) r.talkWeight += ((r.state === 'talk' ? 1 : 0) - r.talkWeight) * (1 - Math.exp(-6 * dt));
     r.walk.setEffectiveWeight(r.oneShot ? 0 : r.walkWeight);
-    r.idle.setEffectiveWeight(r.oneShot ? 0 : 1 - r.walkWeight);
+    r.idle.setEffectiveWeight(r.oneShot ? 0 : (1 - r.walkWeight) * (1 - r.talkWeight));
+    if (r.talkA) r.talkA.setEffectiveWeight(r.oneShot ? 0 : (1 - r.walkWeight) * r.talkWeight);
     r.walk.timeScale = walking ? speed / r.kind.speed : 1;
     // Eat で顔を上げる所から笑顔
     if (r.kind.smileAt && r.oneShot === r.eat && r.eat.time >= r.kind.smileAt / ANIM_FPS) setFace(r, 'smile');
@@ -1812,7 +1826,7 @@ function catchBread(b) {
 }
 
 async function init() {
-  const [town, distant, pancannon, germboss, bread, grandpa, girl, grandma, townRuin, mayor, germmini, workshop, chief] = await Promise.all(FILES.map(load));
+  const [town, distant, pancannon, germboss, bread, grandpa, girl, grandma, townRuin, mayor, germmini, workshop, chief, baker] = await Promise.all(FILES.map(load));
   statusEl.textContent = 'シーンを組み立て中…';
   await new Promise((r) => setTimeout(r, 0));
 
@@ -1846,7 +1860,7 @@ async function init() {
   placeBoss(germboss);
   setupBossMove();
   setupBread(bread);
-  placeResidents({ grandpa, girl, grandma, mayor });
+  placeResidents({ grandpa, girl, grandma, mayor, baker });
   setupGerms(germmini);   // 町人のそばに置くので、町人のあと
   setupProgress();        // 区画ごとの小バイ菌と町人を数える（足りない区画には小バイ菌を足す）
 

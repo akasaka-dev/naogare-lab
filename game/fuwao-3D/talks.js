@@ -48,6 +48,11 @@ export const TALKS = {
     portrait: null,
     lines: ['（まだ会話はありません）'],
   },
+  baker: {
+    name: 'パン屋のお姉さん',
+    portrait: null,
+    lines: ['いらっしゃい！ ……と言いたいところだけど、ばい菌のせいでお店はお休みなの。', 'ふわお君、町をよろしくね。'],
+  },
   girl: {
     name: '女の子',
     portrait: null,
