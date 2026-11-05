@@ -613,8 +613,9 @@ if (new URLSearchParams(location.search).has('debug')) {
     get room() { return room; },
     get meters() {
       return { town: townProgress(), fuel, fuelMax, body, knockout,
-        areas: ruinAreas.map((a, i) => `${AREA_NAMES[a.name]} ${Math.round(areaProgress(i) * 100)}% (germs ${areaGauge[i].germs.length}, residents ${areaGauge[i].residents.length})`) };
+        areas: ruinAreas.map((a, i) => `${AREA_NAMES[a.name]} ${Math.round(areaProgress(i) * 100)}% (spots ${areaGauge[i].spots.length}, out ${areaGauge[i].germs.length}, residents ${areaGauge[i].residents.length})`) };
     },
+    get helps() { return helps.map((h) => [AREA_NAMES[ruinAreas[h.area].name], Math.round(h.dist || 0)]); },
     setFuel(v) { fuel = v; }, setBody(v) { body = v; }, raiseFuelMax,
     germSpots() { return germs.map((g) => [g.area, ...g.root.position.toArray().map((v) => +v.toFixed(1))]); },
     endOpening() { if (opening) endOpening(); },
@@ -794,7 +795,7 @@ function collideBoss(dt) {
 // ---- 子バイ菌（町人の敵） ----
 // 町人を見つけて跳ねながら近づき、体にくっつく（くっついている間は待機。噛みつきのアニメは町人には使わない）。
 // ふわおのジェット体当たり（RAM_MIN_SPEED より速く飛んでいるとき）が当たると、やられアニメで縮んで消える。
-// 今はテスト用に、始めたときに GERM_TEST の場所（町のあちこちの通り）へ 1 匹ずつ置く。動き方はこれから調整する
+// 町人が助けを呼んだ区画に、その区画の場所（GERM_TEST の場所を優先し、足りない分は区画の中の地面）へ出てくる
 const GERM_SPEED = 1.1;        // 跳ねて進む速さ（m/秒）
 const GERM_SEE = 25;           // この距離の町人をねらう
 // 体の中心の高さ（GM_Body_Pivot）と体の半径（GM_Hurt_Body の radius）はモデルから読む。下は読めなかったときの値
@@ -820,7 +821,7 @@ function setupGerms(gltf) {
   if (pivot) germBody = pivot.position.y;
   if (hurt?.userData.radius) germRadius = hurt.userData.radius;
   germClips = clipsFromExtras(germTemplate.getObjectByName('GM_Root') || germTemplate, gltf.animations);
-  for (const [x, z] of GERM_TEST) spawnGerm(x, z);
+  // 始めたときには置かない。町人が助けを呼んだ区画にだけ出す（setupProgress / startHelp）
 }
 function spawnGerm(x, z) {
   const root = germTemplate.clone(true);
@@ -929,7 +930,15 @@ const AREA_NAMES = {
   RU_Plaza: '広場', RU_Main: '表通り', RU_Bakery: 'パン屋', RU_North: '上の通り', RU_East: '川の東',
   RU_South: '南の家並み', RU_River: '川', RU_TerracesW: '奥の段（西）', RU_TerracesE: '奥の段（東）', RU_Hillside: '山の斜面の町',
 };
-const GERMS_PER_AREA = 3;       // 区画ごとに、これだけは小バイ菌を置く（足りない区画は、区画の中の地面に自動で置く）
+const GERMS_PER_AREA = 3;       // 区画ごとの小バイ菌の数（これより多くは出ない）
+// 助けを呼ぶ声：まだ小バイ菌が出ていない区画の町人が、ひとつずつ助けを呼ぶ。そのときにその区画の小バイ菌が出てくる。
+//   同時に呼んでいるのは HELP_MAX 区画まで（町に出ている小バイ菌は最大 9 匹）。
+//   ふわおのまわりに、呼んでいる区画の小バイ菌の方向を 3D の矢印で出す。全部倒すと声は止む
+const HELP_MAX = 3;
+const HELP_FIRST = 2;           // 遊び始めてから最初に呼ばれるまで（秒）
+const HELP_GAP = 6;             // 次の区画が呼ぶまでの間（秒）
+const HELP_COLORS = [0xe8463a, 0x3a8fe8, 0xb558d8];   // 矢印とメーターの印の色（呼んでいる枠ごと）
+const HELP_WORDS = ['たすけてー！ ばい菌が来たー！', 'だれかー！ ばい菌だー！', 'たすけてー！ 食べ物が腐っちゃう！'];
 // 燃料の量は、いちばん大きくしたタンクの満タンを 1 とする
 const FUEL_MAX_START = 1 / 3;   // 最初のタンクの大きさ
 const FUEL_MAX_STEP = 1 / 6;    // トッピング 1 つで大きくなる分（4 つで最大）
@@ -943,7 +952,9 @@ const WORKSHOP_REFILL_R = 6;    // 扉の前のこの距離の中で地面にい
 const WORKSHOP_REFILL = 0.5;    // 補給の速さ（1 秒あたり、燃料とからだの両方）
 let fuelMax = FUEL_MAX_START, fuel = fuelMax, body = 1;
 let knockout = null;            // からだが 0 になって、パン工房へ戻されている途中 { t, moved }
-const areaGauge = [];           // 区画ごと { germs: [子バイ菌], residents: [町人], done }
+const areaGauge = [];           // 区画ごと { spots: [小バイ菌の出る場所], germs: [出てきた小バイ菌], residents: [町人], called, done }
+const helps = [];               // 助けを呼んでいる区画 { area, slot, arrow }
+let helpWait = HELP_FIRST;
 const metersEl = document.getElementById('meters');
 const toastEl = document.getElementById('toast');
 let toastTime = 0, refilling = false;
@@ -1005,21 +1016,17 @@ function setupProgress() {
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
-  ruinAreas.forEach(() => areaGauge.push({ germs: [], residents: [], done: false }));
-  for (const g of germs) {
-    g.area = areaAt(g.root.position.x, g.root.position.z);
-    if (g.area >= 0) areaGauge[g.area].germs.push(g);
+  ruinAreas.forEach(() => areaGauge.push({ spots: [], germs: [], residents: [], called: false, done: false }));
+  for (const [x, z] of GERM_TEST) {
+    const i = areaAt(x, z);
+    if (i >= 0 && areaGauge[i].spots.length < GERMS_PER_AREA) areaGauge[i].spots.push({ x, z });
   }
   ruinAreas.forEach((a, i) => {
-    const gauge = areaGauge[i];
-    const avoid = gauge.germs.map((g) => g.root.position);
-    while (gauge.germs.length < GERMS_PER_AREA) {
-      const p = areaSpot(a, rand, avoid);
+    const spots = areaGauge[i].spots;
+    while (spots.length < GERMS_PER_AREA) {
+      const p = areaSpot(a, rand, spots);
       if (!p) break;
-      const g = spawnGerm(p.x, p.z);
-      g.area = i;
-      gauge.germs.push(g);
-      avoid.push(g.root.position);
+      spots.push(p);
     }
   });
   // パンを食べられる町人だけ（町長は食べない）。区画は家（いつもいる場所）で決める
@@ -1032,7 +1039,7 @@ function setupProgress() {
 function germGone(g) { return g.state === 'defeat' || g.done; }
 function areaProgress(i) {
   const g = areaGauge[i];
-  const total = g.germs.length + g.residents.length;
+  const total = g.spots.length + g.residents.length;   // まだ出ていない小バイ菌も数に入れる
   if (!total) return g.done ? 1 : 0;
   return (g.germs.filter(germGone).length + g.residents.filter((r) => r.fed).length) / total;
 }
@@ -1043,6 +1050,111 @@ function showToast(text) {
   toastEl.textContent = text;
   toastEl.classList.add('on');
   toastTime = 3;
+}
+
+// ---- 助けを呼ぶ声と、その方向の 3D の矢印 ----
+const ARROW_LIFT = 0.9;         // 矢印の輪の高さ（ロボの頭の上から）
+const ARROW_RING = 1.0;         // ロボの真上から、呼んでいる方向へずらす距離
+const ARROW_SIZE = 0.65;        // 矢印の大きさ（1 で長さ 0.86m）
+const _ha = new THREE.Vector3(), _hd = new THREE.Vector3(), _hf = new THREE.Vector3();
+const _hy = new THREE.Vector3(0, 1, 0);
+// 矢印（+Y 向き）。いつも手前に見えるように、奥行きを気にせず最後に描く。濃い茶色のふちどり付き
+function makeArrow(color) {
+  const group = new THREE.Group();
+  const shaft = new THREE.CylinderGeometry(0.07, 0.07, 0.5, 10).translate(0, 0.25, 0);
+  const head = new THREE.ConeGeometry(0.2, 0.36, 14).translate(0, 0.68, 0);
+  const add = (mat, order, s) => {
+    for (const geo of [shaft, head]) {
+      const m = new THREE.Mesh(geo, mat);
+      m.renderOrder = order;
+      m.scale.setScalar(s);
+      m.frustumCulled = false;
+      group.add(m);
+    }
+  };
+  add(new THREE.MeshBasicMaterial({ color: 0x3a2a1e, side: THREE.BackSide, depthTest: false, depthWrite: false, transparent: true }), 998, 1.22);
+  // 少しだけ陰影をつけて、向こう向きのときも立体に見えるように
+  add(new THREE.MeshLambertMaterial({ color, emissive: color, emissiveIntensity: 0.45, depthTest: false, depthWrite: false, transparent: true }), 999, 1);
+  group.children.filter((m, k) => k < 2).forEach((m) => m.position.y = -0.05);   // ふちどりを根元側にも少し出す
+  group.scale.setScalar(ARROW_SIZE);
+  group.visible = false;
+  scene.add(group);
+  return group;
+}
+function residentName(r) {
+  return (TALKS[r.id] || TALKS[r.kindName])?.name || '町の人';
+}
+// まだ呼んでいない区画のうち、ふわおにいちばん近い区画が助けを呼ぶ
+// （目の前にいきなり出てこないよう、小バイ菌の場所が HELP_NEAR より近い区画は、ほかになければ選ぶ）
+const HELP_NEAR = 12;
+function startHelp() {
+  let best = -1, bestD = Infinity;
+  areaGauge.forEach((g, i) => {
+    if (g.called || g.done || !g.spots.length) return;
+    const near = Math.min(...g.spots.map((p) => Math.hypot(p.x - feet.x, p.z - feet.z)));
+    const d = near < HELP_NEAR ? near + 1000 : near;
+    if (d < bestD) { best = i; bestD = d; }
+  });
+  if (best < 0) return false;
+  const gauge = areaGauge[best];
+  gauge.called = true;
+  for (const p of gauge.spots) {
+    const g = spawnGerm(p.x, p.z);
+    g.area = best;
+    gauge.germs.push(g);
+  }
+  const used = helps.map((h) => h.slot);
+  const slot = [0, 1, 2].find((s) => !used.includes(s));
+  helps.push({ area: best, slot, arrow: makeArrow(HELP_COLORS[slot]) });
+  const caller = gauge.residents[Math.floor(Math.random() * gauge.residents.length)];
+  const words = HELP_WORDS[Math.floor(Math.random() * HELP_WORDS.length)];
+  const name = AREA_NAMES[ruinAreas[best].name];
+  showToast(caller ? `${name}の${residentName(caller)}「${words}」` : `${name}から助けを呼ぶ声！「${words}」`);
+  return true;
+}
+// 呼んでいる区画の、まだ倒していない小バイ菌のうち、いちばん近いもの
+function helpTarget(h) {
+  let best = null, bestD = Infinity;
+  for (const g of areaGauge[h.area].germs) {
+    if (germGone(g)) continue;
+    const d = g.root.position.distanceToSquared(feet);
+    if (d < bestD) { best = g; bestD = d; }
+  }
+  return best;
+}
+function updateHelps(dt, active) {
+  // 全部倒した区画の声は止む
+  for (let i = helps.length - 1; i >= 0; i--) {
+    const h = helps[i];
+    if (areaGauge[h.area].germs.some((g) => !germGone(g))) continue;
+    scene.remove(h.arrow);
+    h.arrow.traverse((o) => { if (o.isMesh) o.material.dispose(); });
+    helps.splice(i, 1);
+    if (!areaGauge[h.area].done) showToast(`${AREA_NAMES[ruinAreas[h.area].name]}の小バイ菌をやっつけた！`);
+    helpWait = Math.max(helpWait, HELP_GAP);
+  }
+  if (active && helps.length < HELP_MAX && (helpWait -= dt) <= 0) {
+    if (startHelp()) helpWait = HELP_GAP;
+  }
+  // 矢印：ふわおの頭の上（一人称のときは目の前の少し下）から、小バイ菌のほうへ向ける
+  if (view.thirdPerson) _ha.set(feet.x, feet.y + ROBOT_HEIGHT + ARROW_LIFT, feet.z);
+  else {
+    camera.getWorldDirection(_hf);
+    _ha.copy(camera.position).addScaledVector(_hf, 2.6);
+    _ha.y -= 0.7;
+  }
+  const bob = Math.sin(performance.now() / 1000 * 4) * 0.06;
+  for (const h of helps) {
+    const g = helpTarget(h);
+    h.arrow.visible = active && !!g;
+    if (!g) continue;
+    _hd.set(g.root.position.x, g.root.position.y + germBody, g.root.position.z).sub(_ha);
+    h.dist = _hd.length();
+    _hd.divideScalar(h.dist || 1);
+    const flat = Math.hypot(_hd.x, _hd.z) || 1;
+    h.arrow.position.set(_ha.x + _hd.x / flat * ARROW_RING, _ha.y + bob, _ha.z + _hd.z / flat * ARROW_RING);
+    h.arrow.quaternion.setFromUnitVectors(_hy, _hd);
+  }
 }
 
 function useFuel(amount) { fuel = Math.max(0, fuel - amount); }
@@ -1059,7 +1171,7 @@ function shaveBody() {
 function updateProgress(dt, active) {
   // 区画のゲージが満タンになったら、区画を元に戻す
   areaGauge.forEach((g, i) => {
-    if (g.done || !(g.germs.length + g.residents.length) || areaProgress(i) < 1) return;
+    if (g.done || !(g.spots.length + g.residents.length) || areaProgress(i) < 1) return;
     g.done = true;
     restoreArea(ruinAreas[i].name);
     showToast(`${AREA_NAMES[ruinAreas[i].name] || ruinAreas[i].name}が元に戻った！`);
@@ -1097,6 +1209,7 @@ function updateProgress(dt, active) {
     if (knockout.t > FADE_TIME + 0.6) { fadeEl.classList.remove('on'); knockout = null; }
   }
 
+  updateHelps(dt, active);
   if (toastTime > 0 && (toastTime -= dt) <= 0) toastEl.classList.remove('on');
   drawMeters();
 }
@@ -1104,7 +1217,8 @@ let drawnMeters = '';
 function drawMeters() {
   const here = areaAt(feet.x, feet.z);
   const town = townProgress();
-  const key = `${town.toFixed(3)}|${fuel.toFixed(3)}|${fuelMax}|${body.toFixed(3)}|${here}|${here >= 0 ? areaProgress(here).toFixed(3) : ''}|${refilling}`;
+  const helpText = helps.map((h) => `${h.slot}:${h.area}:${Math.round((h.dist || 0) / 5) * 5}`).join(',');
+  const key = `${town.toFixed(3)}|${fuel.toFixed(3)}|${fuelMax}|${body.toFixed(3)}|${here}|${here >= 0 ? areaProgress(here).toFixed(3) : ''}|${refilling}|${helpText}`;
   if (key === drawnMeters) return;
   drawnMeters = key;
   const set = (name, v) => { metersEl.querySelector(`.meter-${name} .fill`).style.transform = `scaleX(${v})`; };
@@ -1120,11 +1234,21 @@ function drawMeters() {
   if (refilling) areaEl.textContent = 'パン工房：補給中（燃料とからだが戻る）';
   else if (here >= 0) {
     const g = areaGauge[here], name = AREA_NAMES[ruinAreas[here].name];
-    const left = g.germs.filter((x) => !germGone(x)).length;
+    const left = g.spots.length - g.germs.filter(germGone).length;
     const hungry = g.residents.filter((r) => !r.fed).length;
     const todo = [left && `小バイ菌 あと${left}`, hungry && `おなかをすかせた人 ${hungry}`].filter(Boolean).join('・');
     areaEl.textContent = g.done ? `${name}：元どおり` : `${name}：${Math.round(areaProgress(here) * 100)}%${todo ? `（${todo}）` : ''}`;
   } else areaEl.textContent = '';
+  // 助けを呼んでいる区画（矢印と同じ色の印と、だいたいの距離）
+  const helpsEl = metersEl.querySelector('.meter-helps');
+  helpsEl.replaceChildren(...helps.map((h) => {
+    const row = document.createElement('div');
+    const dot = document.createElement('span');
+    dot.className = 'dot';
+    dot.style.background = `#${HELP_COLORS[h.slot].toString(16).padStart(6, '0')}`;
+    row.append(dot, `${AREA_NAMES[ruinAreas[h.area].name]}　${Math.round((h.dist || 0) / 5) * 5}m`);
+    return row;
+  }));
 }
 
 // ---- ふわふわパン（発射の弾） ----
