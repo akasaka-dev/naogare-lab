@@ -2306,7 +2306,13 @@ window.addEventListener('blur', releaseAll);
 window.addEventListener('focus', releaseAll);
 document.addEventListener('visibilitychange', () => { if (document.hidden) releaseAll(); });
 // 右クリックや長押しのメニューが開くと、その間に離したキーが届かない（blur も起きない）
-window.addEventListener('contextmenu', (e) => { if (playing) e.preventDefault(); releaseAll(); });
+window.addEventListener('contextmenu', (e) => { if (playing || IS_TOUCH_DEVICE) e.preventDefault(); releaseAll(); });
+// スマホのブラウザの拡大（ピンチ・ダブルタップ）と文字の選択を止める。iOS の Safari は viewport の
+// user-scalable=no を無視するので、ジェスチャーのイベントも止める（操作は pointer イベントなので影響しない）
+for (const type of ['gesturestart', 'gesturechange', 'gestureend', 'dblclick', 'selectstart']) {
+  document.addEventListener(type, (e) => e.preventDefault(), { passive: false });
+}
+document.addEventListener('touchmove', (e) => { if (e.touches.length > 1 || e.scale && e.scale !== 1) e.preventDefault(); }, { passive: false });
 
 // ---- プレイヤー ----
 const feet = new THREE.Vector3();
