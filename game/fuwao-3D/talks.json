@@ -1,0 +1,37 @@
+{
+  "3-1": {
+    "name": "パン屋のお姉さん",
+    "portrait": null,
+    "talks": [
+      { "once": true, "lines": ["あら、ふわお君！ 来てくれたのね。"] },
+      { "town": [0, 99], "lines": ["いらっしゃい！ ……と言いたいところだけど、ばい菌のせいでお店はお休みなの。", "ふわお君、町をよろしくね。"] },
+      { "areaTown": [100, 100], "lines": ["お店のまわりがきれいになったわ。ありがとう！"] },
+      { "lines": ["焼きたてのパンの香り、また町じゅうに届けたいな。"] }
+    ]
+  },
+  "chief": {
+    "name": "工場長",
+    "portrait": null,
+    "talks": [{ "lines": ["（まだ会話はありません）"] }]
+  },
+  "mayor": {
+    "name": "町長",
+    "portrait": null,
+    "talks": [{ "lines": ["（まだ会話はありません）"] }]
+  },
+  "grandpa": {
+    "name": "おじいちゃん",
+    "portrait": null,
+    "talks": [{ "lines": ["（まだ会話はありません）"] }]
+  },
+  "grandma": {
+    "name": "おばあちゃん",
+    "portrait": null,
+    "talks": [{ "lines": ["（まだ会話はありません）"] }]
+  },
+  "girl": {
+    "name": "女の子",
+    "portrait": null,
+    "talks": [{ "lines": ["（まだ会話はありません）"] }]
+  }
+}

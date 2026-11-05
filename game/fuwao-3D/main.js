@@ -619,6 +619,9 @@ if (new URLSearchParams(location.search).has('debug')) {
         areas: ruinAreas.map((a, i) => `${AREA_NAMES[a.name]} ${Math.round(areaProgress(i) * 100)}% (spots ${areaGauge[i].spots.length}, out ${areaGauge[i].germs.length}, residents ${areaGauge[i].residents.length})`) };
     },
     buriedAt(x, y, z) { return buriedAt(new THREE.Vector3(x, y, z)); },
+    get stage() { return storyStage; }, set stage(v) { storyStage = v; },
+    talkScript(i) { return talkScript(residents[i]); },
+    get residentAreas() { return residents.map((r) => `${r.id} ${r.kindName} → 区画${areaNumber(areaAt(r.home.x, r.home.z))}`); },
     get spots() { return ruinAreas.map((a, i) => [AREA_NAMES[a.name], areaGauge[i].spots.map((p) => [+p.x.toFixed(1), +p.z.toFixed(1)])]); },
     get helps() { return helps.map((h) => [AREA_NAMES[ruinAreas[h.area].name], Math.round(h.dist || 0)]); },
     setFuel(v) { fuel = v; }, setBody(v) { body = v; }, raiseFuelMax,
@@ -1469,21 +1472,21 @@ const RESIDENT_KINDS = {
   baker: { speed: 0.55, radius: 0.28, height: 1.6, stay: true },
   girl: { speed: 0.46, eatPos: new THREE.Vector3(0, 0.78, 0.46), radius: 0.25, height: 1.2, hungry: true, smileAt: 32 },
 };
-// id は会話の台本（talks.js）を引く名前
+// id は会話の台本（talks.js）を引く名前。「区画の番号-その区画の何人目」（区画の番号は AREA_NAMES の順、パン工房は 0）
 // house があれば、夜はその家に帰る：out の時刻（[出てくる, 帰る]）になったら way を通って戸口 door まで歩き、
 // 家に入って見えなくなる。朝は戸口から出てきて、way を逆にたどって home へ戻る
 // おばあちゃんと女の子は、表通りの TH_House_10（バルコニーの家）に一緒に住んでいる
 const GRANDMA_DOOR = new THREE.Vector3(6.05, 0, 9.45);
 const RESIDENTS = [
-  { id: 'grandpa_east', kind: 'grandpa', home: new THREE.Vector3(15, 0, 7.5), radius: 5 },   // スタート地点の西、表通り
-  { id: 'grandpa_west', kind: 'grandpa', home: new THREE.Vector3(2, 0, 6), radius: 5 },
-  { id: 'grandma', kind: 'grandma', home: new THREE.Vector3(5, 0, 7), radius: 5,     // 西のおじいちゃんの近く
+  { id: '7-1', kind: 'grandpa', home: new THREE.Vector3(15, 0, 7.5), radius: 5 },   // スタート地点の西、表通り
+  { id: '2-1', kind: 'grandpa', home: new THREE.Vector3(2, 0, 6), radius: 5 },
+  { id: '2-2', kind: 'grandma', home: new THREE.Vector3(5, 0, 7), radius: 5,     // 西のおじいちゃんの近く
     house: { door: GRANDMA_DOOR, way: [], out: [6.5, 18.5] } },
-  { id: 'girl', kind: 'girl', home: new THREE.Vector3(19, 0, 6), radius: 3,          // 橋の上。帰りは橋を西へ渡る
+  { id: '7-2', kind: 'girl', home: new THREE.Vector3(19, 0, 6), radius: 3,          // 橋の上。帰りは橋を西へ渡る
     house: { door: GRANDMA_DOOR, way: [new THREE.Vector3(15, 0, 6.3), new THREE.Vector3(8, 0, 8.3)], out: [7, 18] } },
-  { id: 'mayor', kind: 'mayor', home: new THREE.Vector3(-11, 0, 15), radius: 2.5 },   // 広場、噴水の東側
+  { id: '1-1', kind: 'mayor', home: new THREE.Vector3(-11, 0, 15), radius: 2.5 },   // 広場、噴水の東側
   // パン屋の店先（扉の前、街灯の右）。軒の下なので、地面はこの高さから下を調べる。face は立つ向き
-  { id: 'baker', kind: 'baker', home: new THREE.Vector3(-1.2, 4.28, 3.45), radius: 0, face: 0.245, under: true },
+  { id: '3-1', kind: 'baker', home: new THREE.Vector3(-1.2, 4.28, 3.45), radius: 0, face: 0.245, under: true },
 ];
 const RES_HOME_HURRY = 1.25;     // 家へ帰るときは少し急ぐ
 const RES_HURRY = 1.6;           // パンへ向かうときは少し急ぐ（速さもアニメもこの倍）
@@ -1827,7 +1830,9 @@ function catchBread(b) {
 }
 
 async function init() {
+  const talksLoaded = loadTalks();   // 模型と同時に読む
   const [town, distant, pancannon, germboss, bread, grandpa, girl, grandma, townRuin, mayor, germmini, workshop, chief, baker] = await Promise.all(FILES.map(load));
+  await talksLoaded;
   statusEl.textContent = 'シーンを組み立て中…';
   await new Promise((r) => setTimeout(r, 0));
 
@@ -2194,9 +2199,102 @@ function talkTarget() {
   }
   return best;
 }
+// ---- 町人のセリフを選ぶ（台本は talks.json。書き方は docs/talks-spec.md） ----
+// talks.json を読んで TALKS に足す。docs/talks.schema.json と同じ決まりで確かめ、
+// 合わないまとまりはコンソールに警告を出して使わない（キャラクターごと使えないときもある）
+const TALK_KEY = /^((10|[0-9])-[1-9][0-9]?|grandpa|grandma|girl|mayor|baker|chief)$/;
+const TALK_PNG = /^[A-Za-z0-9_-]+\.png$/;
+const TALK_LINE_MAX = 60, TALK_LINES_MAX = 5;
+const isInt = (v, lo, hi) => Number.isInteger(v) && v >= lo && (hi === undefined || v <= hi);
+const isRange = (v, lo, hi) => Array.isArray(v) && v.length === 2 && isInt(v[0], lo, hi) && isInt(v[1], lo, hi) && v[0] <= v[1];
+const TALK_CHECKS = {
+  stage: (v) => isInt(v, 1) || isRange(v, 1),
+  town: (v) => isRange(v, 0, 100),
+  areaTown: (v) => isRange(v, 0, 100),
+  area: (v) => isInt(v, 0, 10) || (Array.isArray(v) && v.length > 0 && v.every((a) => isInt(a, 0, 10)) && new Set(v).size === v.length),
+  weight: (v) => typeof v === 'number' && v > 0 && v <= 10,
+  once: (v) => typeof v === 'boolean',
+  lines: (v) => Array.isArray(v) && v.length >= 1 && v.length <= TALK_LINES_MAX && v.every((l) => {
+    if (typeof l === 'string') return l.length >= 1 && l.length <= TALK_LINE_MAX;
+    return l && typeof l === 'object' && Object.keys(l).every((k) => k === 'text' || k === 'portrait')
+      && typeof l.text === 'string' && l.text.length >= 1 && l.text.length <= TALK_LINE_MAX
+      && (l.portrait === undefined || TALK_PNG.test(l.portrait));
+  }),
+};
+const TALK_CONDITIONS = ['stage', 'town', 'area', 'areaTown', 'once'];
+function talkProblems(t) {
+  if (!t || typeof t !== 'object') return ['まとまりがオブジェクトではない'];
+  const bad = Object.keys(t).filter((k) => !TALK_CHECKS[k]).map((k) => `知らない項目 ${k}`);
+  if (t.lines === undefined) bad.push('lines がない');
+  for (const [k, ok] of Object.entries(TALK_CHECKS)) if (t[k] !== undefined && !ok(t[k])) bad.push(`${k} の値がおかしい`);
+  return bad;
+}
+async function loadTalks() {
+  let book;
+  try {
+    const res = await fetch('talks.json', { cache: 'no-cache' });
+    book = await res.json();
+  } catch (e) {
+    console.error('talks.json を読めませんでした', e);
+    return;
+  }
+  for (const [key, c] of Object.entries(book)) {
+    const warn = (msg) => console.warn(`talks.json "${key}": ${msg}`);
+    if (!TALK_KEY.test(key)) { warn('キーの形がおかしいので使いません'); continue; }
+    if (!c || typeof c !== 'object' || !Array.isArray(c.talks)) { warn('talks がないので使いません'); continue; }
+    const extra = Object.keys(c).filter((k) => !['name', 'portrait', 'talks'].includes(k));
+    if (extra.length) warn(`知らない項目 ${extra.join(', ')}`);
+    if (typeof c.name !== 'string' || !c.name || c.name.length > 12) warn('name がおかしい');
+    if (c.portrait != null && !TALK_PNG.test(c.portrait)) warn('portrait がおかしい');
+    const talks = c.talks.filter((t, i) => {
+      const bad = talkProblems(t);
+      if (bad.length) warn(`talks[${i}] を使いません（${bad.join(' / ')}）`);
+      return !bad.length;
+    });
+    if (!talks.length) { warn('使えるまとまりがないので使いません'); continue; }
+    if (!talks.some((t) => TALK_CONDITIONS.every((k) => t[k] === undefined))) warn('条件なしのまとまりがありません（何も話さない場面ができます）');
+    TALKS[key] = { ...c, talks };
+  }
+}
+let storyStage = 1;   // メインストーリーのステージ（まだ進める仕組みはないので、ずっと 1）
+// 区画の番号（1〜10）は AREA_NAMES に書いた順。パン工房は 0
+const AREA_ORDER = Object.keys(AREA_NAMES);
+function areaNumber(i) { return i >= 0 ? AREA_ORDER.indexOf(ruinAreas[i].name) + 1 : 0; }
+const inRange = (v, c) => c === undefined || (Array.isArray(c) ? v >= c[0] && v <= c[c.length - 1] : v === c);
+const inList = (v, c) => c === undefined || (Array.isArray(c) ? c.includes(v) : v === c);
+function talkFits(t, r, used) {
+  if (t.once && used.has(t)) return false;
+  const ai = areaAt(r.home.x, r.home.z);
+  return inRange(storyStage, t.stage)
+    && inRange(Math.round(townProgress() * 100), t.town)
+    && inList(areaNumber(ai), t.area)
+    && (t.areaTown === undefined || (ai >= 0 && inRange(ruinAreas[ai].restored ? 100 : Math.round(areaProgress(ai) * 100), t.areaTown)));
+}
+function pickTalk(list, r) {
+  const used = r.talked || (r.talked = new Set());
+  let cands = list.filter((t) => talkFits(t, r, used));
+  if (cands.length > 1) cands = cands.filter((t) => t !== r.lastTalk);   // 続けて同じ話はしない
+  if (!cands.length) return null;
+  let w = cands.reduce((s, t) => s + (t.weight ?? 1), 0) * Math.random();
+  for (const t of cands) if ((w -= t.weight ?? 1) <= 0) return t;
+  return cands[cands.length - 1];
+}
+// その人の id の台本 → 種類（grandpa など）の台本、の順で、条件に合うセリフを選ぶ
+function talkScript(r) {
+  for (const book of [TALKS[r.id], TALKS[r.kindName]]) {
+    if (!book) continue;
+    if (!book.talks) return book.lines ? book : null;   // 昔の書き方（lines だけ）
+    const t = pickTalk(book.talks, r);
+    if (!t) continue;
+    r.lastTalk = t;
+    r.talked.add(t);
+    return { name: t.name || book.name, portrait: t.portrait || book.portrait, lines: t.lines };
+  }
+  return null;
+}
 function startTalk(r) {
   if (!r || opening || talk.active || !onGround || floating || jetting) return;
-  const script = TALKS[r.id] || TALKS[r.kindName];
+  const script = talkScript(r);
   if (!script) return;
   if (r.bread) { r.bread.claimedBy = null; r.bread = null; }
   r.route = r.afterRoute = null;   // 家へ帰る途中なら、話し終わってから帰り直す
