@@ -2467,13 +2467,15 @@ function updateTrap(dt) {
   trapWait = TRAP_CHECK;
   if (!enclosedAt(feet)) {
     trappedTime = 0;
-    if (onGround) { lastFree.copy(feet); lastFreeSet = true; }
+    // 戻る先は、頭の上が空いている（家の中や地面の下ではない）ところだけ覚える
+    _o.set(feet.x, feet.y + 0.5, feet.z);
+    if (onGround && !cast(_o, UP, 40)) { lastFree.copy(feet); lastFreeSet = true; }
     return;
   }
   trappedTime += TRAP_CHECK;
-  if (trappedTime < TRAP_TIME || !lastFreeSet) return;
+  if (trappedTime < TRAP_TIME) return;
   trappedTime = 0;
-  feet.copy(lastFree);
+  feet.copy(lastFreeSet ? lastFree : START_POS);   // 覚えた場所がなければスタート地点へ
   velY = 0; jetting = false; jetEndTime = 0; jetVel.set(0, 0, 0); recoilVel.set(0, 0, 0);
   snapToGround(true);
   showToast('外に戻った！');
@@ -2536,6 +2538,24 @@ function crossedWall(from, to) {
     if (hit && hitNormal(hit, _d)) return true;
   }
   return false;
+}
+
+// 体（頭の高さまで）が、屋根の裏やひさしなどの斜めの面にめり込むか。
+// 斜めの面は壁として扱わないので、低空のジェットで屋根の下へもぐりこみ、家の中に落ちてしまうことがある
+const HEAD_FROM = STEP_HEIGHT + 0.1, HEAD_TOP = 1.5;
+function headBlocked(p) {
+  _o.set(p.x, p.y + HEAD_FROM, p.z);
+  return !!cast(_o, UP, HEAD_TOP - HEAD_FROM);
+}
+
+// 石垣の上から、下の段の家の屋根の下へ落ちこむ動きか（地面が急に DROP_LIMIT より低くなり、すぐ上に屋根の裏がある）。
+// 石垣に背中をつけて建っている家は、石垣の上と軒の間に壁がないことがあり、そこから家の中へ落ちてしまう
+const DROP_LIMIT = 1.0, DROP_ROOF = 3;
+function dropUnderRoof(fromGround, toGround) {
+  if (fromGround === null || toGround > fromGround - DROP_LIMIT) return false;
+  _o.set(feet.x, feet.y + 0.5, feet.z);
+  const hit = cast(_o, UP, DROP_ROOF);
+  return !!hit && hit.face.normal.y < -0.3;
 }
 
 // 角などでめり込んだときに押し戻す
@@ -2635,14 +2655,16 @@ function updatePlayer(dt) {
   // 1 フレームで斜面が STEP_HEIGHT 以上高くなり、地面の下（山の中）へもぐってしまう
   const subN = Math.max(1, Math.ceil(_move.length() / MOVE_SUBSTEP));
   _sub.copy(_move).divideScalar(subN);
+  let subG = groundBelow(feet);
   for (let i = 0; i < subN; i++) {
     _subPrev.copy(feet);
     _subMove.copy(_sub);
     moveHorizontal(_subMove);
     pushOut();
-    if (crossedWall(_subPrev, feet)) { feet.x = _subPrev.x; feet.z = _subPrev.z; break; }
+    if (crossedWall(_subPrev, feet) || (headBlocked(feet) && !headBlocked(_subPrev))) { feet.x = _subPrev.x; feet.z = _subPrev.z; break; }
     const g = groundBelow(feet);
-    if (g === null) { feet.x = _subPrev.x; feet.z = _subPrev.z; break; }
+    if (g === null || dropUnderRoof(subG, g)) { feet.x = _subPrev.x; feet.z = _subPrev.z; break; }
+    subG = g;
     if (g > feet.y) feet.y = g;   // 上り坂・段差を登る
   }
 
