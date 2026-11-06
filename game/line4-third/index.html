@@ -167,23 +167,15 @@
        via object-fit:cover, faded out before it reaches the board — so it
        shows through behind the status text without the two fighting for the
        same space. */
-    #charBgWrap { justify-content: center; align-items: flex-start; }
-    #charBgImg {
-      width: 100vw;
-      max-width: 100vw;
-      height: 36vh;
-      max-height: 36vh;
-      object-fit: cover;
-      object-position: top center;
-      opacity: 0.5;
-      -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,0.95) 55%, rgba(0,0,0,0) 100%);
-      mask-image: linear-gradient(to bottom, rgba(0,0,0,0.95) 55%, rgba(0,0,0,0) 100%);
-    }
-    #charBgOverlay {
-      background: linear-gradient(to bottom,
-        rgba(10, 15, 30, 0.35) 0%,
-        rgba(10, 15, 30, 0.08) 30%,
-        rgba(10, 15, 30, 0) 45%);
+    /* Same staging as the desktop layout: the full-length figure stands at the
+       bottom right, large, behind the (translucent) board. */
+    #charBgImg { max-width: 100vw; height: 92vh; }
+    /* During a match, sit the whole play area at the bottom of the screen
+       (just above the round buttons at the bottom right) so the character's
+       face in the header band stays clear of the board. */
+    body:has(#gameScreen:not(.hidden)) {
+      justify-content: flex-end;
+      padding-bottom: calc(max(10px, env(safe-area-inset-bottom)) + 48px);
     }
   }
 
