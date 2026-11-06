@@ -71,6 +71,15 @@
     font-family: "Klee One", "Hiragino Maru Gothic ProN", "Yu Gothic UI", sans-serif; font-size: 20px; font-weight: 600; color: #3a2a1e;
     opacity: 0; transition: opacity 0.3s, transform 0.3s; white-space: nowrap; }
   #toast.on { opacity: 1; transform: translate(-50%, 0); }
+  /* ボスが撤退するときのカットイン（上下の黒い帯と字幕） */
+  #cutin .bar { position: fixed; z-index: 6; left: 0; right: 0; height: 13vh; background: #14100c; pointer-events: none;
+    transform: scaleY(0); transition: transform 0.5s ease; }
+  #cutin .top { top: 0; transform-origin: top; }
+  #cutin .bottom { bottom: 0; transform-origin: bottom; display: flex; align-items: center; justify-content: center; }
+  #cutin .caption { font-family: "Klee One", "Hiragino Maru Gothic ProN", "Yu Gothic UI", sans-serif; font-size: clamp(16px, 4.2vw, 24px);
+    font-weight: 600; color: #fff4e0; letter-spacing: 0.08em; opacity: 0; transition: opacity 0.6s 0.3s; }
+  body.cutin #cutin .bar { transform: scaleY(1); }
+  body.cutin #cutin .caption { opacity: 1; }
 
   /* ---- スマホ用のタッチ操作（指で触る端末のときだけ、遊んでいる間に出す） ---- */
   #touchUI { display: none; position: fixed; inset: 0; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
@@ -219,6 +228,7 @@
   <div class="meter-helps"></div>
 </div>
 <div id="toast"></div>
+<div id="cutin"><div class="bar top"></div><div class="bar bottom"><span class="caption"></span></div></div>
 <div id="skipOpening">スキップ ⏭<span class="key">S</span></div>
 <div id="fade"></div>
 <div id="hud"></div>

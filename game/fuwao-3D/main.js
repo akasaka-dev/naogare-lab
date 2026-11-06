@@ -574,7 +574,7 @@ function setupAnimations(clips) {
 }
 
 function fire() {
-  if (firing || !fireAction || knockout) return;   // 地上でも空中（ジャンプ・ジェット中）でも撃てる
+  if (firing || !fireAction || knockout || retreat) return;   // 地上でも空中（ジャンプ・ジェット中）でも撃てる
   firing = true;
   recoiled = false;
   shotSpawned = false;
@@ -622,6 +622,8 @@ if (new URLSearchParams(location.search).has('debug')) {
     get stage() { return storyStage; }, set stage(v) { storyStage = v; },
     talkScript(i) { return talkScript(residents[i]); },
     get residentAreas() { return residents.map((r) => `${r.id} ${r.kindName} → 区画${areaNumber(areaAt(r.home.x, r.home.z))}`); },
+    retreat() { if (!retreat && !bossGone) startRetreat(); },
+    get retreating() { return !!retreat; }, get bossGone() { return bossGone; },
     get spots() { return ruinAreas.map((a, i) => [AREA_NAMES[a.name], areaGauge[i].spots.map((p) => [+p.x.toFixed(1), +p.z.toFixed(1)])]); },
     get helps() { return helps.map((h) => [AREA_NAMES[ruinAreas[h.area].name], Math.round(h.dist || 0)]); },
     setFuel(v) { fuel = v; }, setBody(v) { body = v; }, raiseFuelMax,
@@ -698,7 +700,7 @@ function placeBoss(gltf) {
 }
 function updateBoss(dt) {
   if (!bossMixer) return;
-  if (bossActions && !bossAttack && (bossIdleTime += dt) > BOSS_IDLE_TIME) {
+  if (bossActions && !bossAttack && !retreat && (bossIdleTime += dt) > BOSS_IDLE_TIME) {
     const next = bossActions[bossNext];
     if (next) {
       bossAttack = next;
@@ -734,12 +736,186 @@ function setupBossMove() {
   bossSpikes = boss.getObjectByName('GB_Hit_Spikes');
   if (bossSpikes?.userData.radius) bossSpikeRadius = bossSpikes.userData.radius;
 }
+// ---- 撤退ライン ----
+// 町の真ん中（BOSS_TARGET）から BOSS_RETREAT の距離に、地面に沿った赤白の線を引く（ボスをここまで押し戻すと撤退する目安）。
+// 線の高さは地形（町の外の地面・町の地面・山の斜面）だけで決める。木や家の屋根には乗らない
+const BOSS_RETREAT = BOSS_FAR;
+const RETREAT_WIDTH = 0.9;      // 線の幅（m）
+const RETREAT_DASH = 3;         // 赤と白の 1 組の長さ（m）
+const RETREAT_LIFT = 0.12;      // 地面から浮かせる高さ（ちらつき防止）
+const TERRAIN_NAMES = /^(DS_Terrain|AP_Apron|TW_Ground|MT_Slope)/;
+let retreatLine = null;
+function setupRetreatLine(groups) {
+  const terrain = groups.flatMap((g) => g.children).filter((m) => m.userData.sourceNames?.some((n) => TERRAIN_NAMES.test(n)));
+  if (!terrain.length) return;
+  const ground = bvhMesh(terrain);
+  const N = Math.ceil(BOSS_RETREAT * Math.PI * 2 / 0.6);   // 0.6m ごとに地面の高さを拾う
+  const pos = [], uv = [], idx = [];
+  for (let i = 0; i <= N; i++) {
+    const a = i / N * Math.PI * 2, cx = Math.cos(a), cz = Math.sin(a);
+    for (const side of [-1, 1]) {
+      const r = BOSS_RETREAT + side * RETREAT_WIDTH / 2;
+      const x = BOSS_TARGET.x + cx * r, z = BOSS_TARGET.z + cz * r;
+      _o.set(x, 600, z);
+      const t = cast(_o, DOWN, 1200, ground);
+      let y = t ? t.point.y : 0;
+      // 地面にじかに置かれた道や橋（地形のすぐ上）には乗る
+      const top = cast(_o, DOWN, 1200);
+      if (top && top.point.y > y && top.point.y - y < 0.8) y = top.point.y;
+      pos.push(x, y + RETREAT_LIFT, z);
+      uv.push(i / N * BOSS_RETREAT * Math.PI * 2 / RETREAT_DASH, side < 0 ? 0 : 1);
+    }
+    if (i < N) { const k = i * 2; idx.push(k, k + 1, k + 2, k + 1, k + 3, k + 2); }
+  }
+  ground.geometry.disposeBoundsTree?.();
+  ground.geometry.dispose();
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.setIndex(idx);
+  // 赤と白のしま模様（縁は少し暗い赤）
+  const c = document.createElement('canvas');
+  c.width = 64; c.height = 16;
+  const g = c.getContext('2d');
+  g.fillStyle = '#d8342c'; g.fillRect(0, 0, 64, 16);
+  g.fillStyle = '#fff4e0'; g.fillRect(32, 3, 32, 10);
+  g.fillStyle = '#d8342c'; g.fillRect(0, 3, 32, 10);
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  const line = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+    map: tex, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+  }));
+  line.name = 'RetreatLine';
+  line.renderOrder = 1;
+  scene.add(line);
+  retreatLine = line;
+}
+
+// ---- ボスの撤退 ----
+// 撤退ライン（BOSS_RETREAT）まで押し戻すと、カットイン（上下の黒い帯）になって：
+//   考える（「…」の吹き出しを出して、首をかしげるように揺れる）→ 町と反対へ 180° 向きを変える → 去っていく
+//   → 暗転して、ふわおはスタート地点へ戻る。ボスはいなくなり、撤退ラインも消える。
+//   このボスは一回きりの登場で、二度と戻ってこない（あとで、ある段階から現れ、撤退したら次のボスが出るようにする予定）
+const RETREAT_THINK = 2.4;      // 考えている時間（秒）
+const RETREAT_TURN = 1.8;       // 向きを変える時間（秒）
+const RETREAT_LEAVE = 4.2;      // 去っていく時間（秒）。最後の FADE_TIME で暗転する
+const RETREAT_SPEED = 12;       // 去っていく速さ（m/秒）
+let retreat = null;             // { t, yaw0, out: 町から外への向き, top, bubble, cam, look, faded }
+let bossGone = false;
+const cutinEl = document.getElementById('cutin');
+const _rc = new THREE.Vector3();
+function thinkBubble() {
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 160;
+  const g = c.getContext('2d');
+  const cloud = () => {
+    g.fillStyle = '#fffaf0'; g.strokeStyle = '#3a2a1e'; g.lineWidth = 7;
+    g.clearRect(0, 0, 256, 160);
+    g.beginPath(); g.ellipse(128, 66, 112, 56, 0, 0, Math.PI * 2); g.fill(); g.stroke();
+    for (const [x, y, r] of [[64, 128, 14], [36, 148, 8]]) { g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill(); g.stroke(); }
+  };
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
+  sprite.renderOrder = 999;
+  sprite.userData.draw = (dots) => {   // 「…」の点を 1 つずつ出す
+    cloud();
+    g.fillStyle = '#3a2a1e';
+    for (let i = 0; i < dots; i++) { g.beginPath(); g.arc(86 + i * 42, 70, 11, 0, Math.PI * 2); g.fill(); }
+    tex.needsUpdate = true;
+  };
+  sprite.userData.draw(0);
+  return sprite;
+}
+function startRetreat() {
+  // 体のてっぺん（トゲの球の上）。腕は振り上げることがあるので、大きさには入れない
+  bossSpikes.getWorldPosition(_rc);
+  const top = _rc.y + bossSpikeRadius;
+  _rd.set(boss.position.x - BOSS_TARGET.x, 0, boss.position.z - BOSS_TARGET.z).normalize();
+  retreat = { t: 0, yaw0: boss.rotation.y, out: _rd.clone(), top, bubble: thinkBubble(), cam: new THREE.Vector3(), look: new THREE.Vector3(), faded: false, dots: -1 };
+  retreat.bubble.scale.set(0.01, 0.01, 1);
+  scene.add(retreat.bubble);
+  bossVel.set(0, 0, 0);
+  boss.scale.setScalar(1);
+  // 攻撃の途中なら待機へ戻す（考えている間は攻撃しない）
+  if (bossAttack) {
+    bossActions.idle.reset().play();
+    bossAttack.crossFadeTo(bossActions.idle, 0.4, false);
+    bossAttack = null;
+  }
+  // ロボはその場で止まる（噴射も止める）
+  jetting = false; jetEndTime = 0; jetSpeed = 0; jetVel.set(0, 0, 0); recoilVel.set(0, 0, 0);
+  releaseAll();
+  // カメラ：ボスの町側の斜め前から、ボスと遠ざかる先が入るように
+  _rm.set(-retreat.out.z, 0, retreat.out.x);   // 横向き
+  // ボスの大きさに合わせて引き、頭の上の「…」まで入るようにする
+  const h = top - boss.position.y;
+  retreat.lookUp = h * 0.6;
+  retreat.cam.copy(boss.position).addScaledVector(retreat.out, -(h * 1.5 + 22)).addScaledVector(_rm, h * 0.6 + 10);
+  _o.set(retreat.cam.x, 400, retreat.cam.z);
+  const g = cast(_o, DOWN, 800);
+  retreat.cam.y = Math.max(g ? g.point.y : boss.position.y, boss.position.y) + h * 0.45 + 4;
+  retreat.look.copy(boss.position).setY(boss.position.y + retreat.lookUp);
+  cutinEl.querySelector('.caption').textContent = 'ボスが撤退していく……';
+  document.body.classList.add('cutin');
+}
+function updateRetreat(dt) {
+  const r = retreat, pos = boss.position;
+  r.t += dt;
+  const t1 = RETREAT_THINK, t2 = t1 + RETREAT_TURN, t3 = t2 + RETREAT_LEAVE;
+  // 考える：首をかしげるように左右へゆっくり揺れ、「…」が 1 つずつ出る
+  boss.rotation.z = r.t < t1 ? Math.sin(r.t * 2.2) * 0.06 * Math.min(1, r.t * 2) : boss.rotation.z * Math.exp(-6 * dt);
+  r.bubble.visible = r.t < t1 + 0.3;
+  if (r.bubble.visible) {
+    const dots = Math.min(3, Math.floor(r.t / 0.5));
+    if (dots !== r.dots) { r.dots = dots; r.bubble.userData.draw(dots); }
+    r.bubble.position.set(pos.x, r.top + 3.5, pos.z);
+    const pop = Math.min(1, r.t * 3);
+    r.bubble.scale.set(11 * pop, 6.9 * pop, 1);
+  }
+  // 向きを変える（町と反対へ 180°）
+  if (r.t >= t1) boss.rotation.y = r.yaw0 + Math.PI * THREE.MathUtils.smootherstep(r.t, t1, t2);
+  // 去っていく（だんだん速く）
+  if (r.t >= t2) {
+    pos.addScaledVector(r.out, RETREAT_SPEED * THREE.MathUtils.smoothstep(r.t, t2, t2 + 1) * dt);
+    _o.set(pos.x, 400, pos.z);
+    const hit = cast(_o, DOWN, 800);
+    if (hit) pos.y += (hit.point.y - pos.y) * (1 - Math.exp(-4 * dt));
+  }
+  // 暗転して、ふわおをスタート地点へ戻す
+  if (!r.faded && r.t >= t3 - FADE_TIME) { r.faded = true; fadeEl.classList.add('on'); }
+  if (r.t >= t3) {
+    scene.remove(r.bubble);
+    r.bubble.material.map.dispose();
+    r.bubble.material.dispose();
+    boss.visible = false;
+    boss.rotation.z = 0;
+    if (retreatLine) retreatLine.visible = false;
+    bossGone = true;
+    respawn();
+    document.body.classList.remove('cutin');
+    retreat = null;
+    setTimeout(() => fadeEl.classList.remove('on'), 300);
+    showToast('ボスが撤退した！');
+  }
+}
+// カットインのカメラ：決めた位置から、ボスを追って見る
+function retreatCamera(dt) {
+  _rc.copy(boss.position).setY(boss.position.y + retreat.lookUp);
+  retreat.look.lerp(_rc, 1 - Math.exp(-3 * dt));
+  camera.position.copy(retreat.cam);
+  camera.lookAt(retreat.look);
+  model.visible = true;
+}
+
 // 町の真ん中からボスまでの水平距離
 function bossDistance() {
   return Math.hypot(boss.position.x - BOSS_TARGET.x, boss.position.z - BOSS_TARGET.z);
 }
 function moveBoss(dt) {
-  if (!boss) return;
+  if (!boss || bossGone || retreat) return;
   const pos = boss.position;
   _bd.set(BOSS_TARGET.x - pos.x, 0, BOSS_TARGET.z - pos.z);
   const dist = _bd.length();
@@ -751,6 +927,7 @@ function moveBoss(dt) {
   // 押し戻せる範囲
   const d = bossDistance();
   if (d > BOSS_FAR) { pos.x = BOSS_TARGET.x + (pos.x - BOSS_TARGET.x) * BOSS_FAR / d; pos.z = BOSS_TARGET.z + (pos.z - BOSS_TARGET.z) * BOSS_FAR / d; }
+  if (d >= BOSS_RETREAT - 0.01) startRetreat();
   // 地面の高さに合わせる（斜面を上り下りする）
   _o.set(pos.x, 400, pos.z);
   const hit = cast(_o, DOWN, 800);
@@ -766,7 +943,7 @@ function moveBoss(dt) {
 }
 // ロボとボスのトゲ：ぶつかったら押し出す。噴射で速く飛んでいたら体当たり
 function collideBoss(dt) {
-  if (!bossSpikes) return;
+  if (!bossSpikes || bossGone || retreat) return;
   ramCooldown -= dt;
   bossSpikes.getWorldPosition(_bc);
   // 体は地面から浮いているので、球を地面まで縦にのばした形（カプセル）にして、低く飛んでも当たるようにする
@@ -1855,6 +2032,7 @@ async function init() {
   scene.add(townMerged, distantMerged);
   buildCollider([townMerged, distantMerged], ruinAreas.flatMap((a) => a.hidden.children));
   rebuildRuinCollider();
+  setupRetreatLine([townMerged, distantMerged]);
 
   // 既定シーン（PanCannon）のみ。glb 内の Bakery シーンは distant の重複なので使わない
   model = pancannon.scene;
@@ -2293,7 +2471,7 @@ function talkScript(r) {
   return null;
 }
 function startTalk(r) {
-  if (!r || opening || talk.active || !onGround || floating || jetting) return;
+  if (!r || opening || retreat || talk.active || !onGround || floating || jetting) return;
   const script = talkScript(r);
   if (!script) return;
   if (r.bread) { r.bread.claimedBy = null; r.bread = null; }
@@ -2969,12 +3147,14 @@ function tick(dt, active) {
   if (active) updateGerms(dt);
   updateTalk(dt);
   updateProgress(dt, active && !talk.active);
+  if (retreat && active) { updateRetreat(dt); releaseAll(); }   // カットインの間は操作できない（ロボは着地まで落ちる）
   if (active && !talk.active && !knockout) { updatePlayer(dt); collideBoss(dt); updateTrap(dt); }
   else moveSpeed = 0;
   collidePeople(active);
   updateAnimation(dt);
   updateRecenter(dt);
   updateCamera();
+  if (retreat) retreatCamera(dt);
 }
 
 // ---- ループ ----
@@ -2987,7 +3167,7 @@ renderer.setAnimationLoop(() => {
 
   fpsAcc += dt; fpsFrames++;
   if (fpsAcc > 0.5) {
-    hud.textContent = ready ? `${daytime.clock}  ·  ${Math.round(fpsFrames / fpsAcc)} fps  ·  ボスまで ${Math.round(bossDistance())}m  ·  ${style.enabled ? 'アニメ調' : '元の見た目'}  ·  x ${feet.x.toFixed(1)}  y ${feet.y.toFixed(2)}  z ${feet.z.toFixed(1)}` : '';
+    hud.textContent = ready ? `${daytime.clock}  ·  ${Math.round(fpsFrames / fpsAcc)} fps  ·  ${style.enabled ? 'アニメ調' : '元の見た目'}  ·  x ${feet.x.toFixed(1)}  y ${feet.y.toFixed(2)}  z ${feet.z.toFixed(1)}` : '';
     fpsAcc = 0; fpsFrames = 0;
   }
 });
