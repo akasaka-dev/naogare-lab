@@ -45,6 +45,10 @@ const JET_RISE_TIME = 2.5;    // そこから最大の上昇になるまで（�
 const JET_RISE_MAX = 3.5;     // あおりによる上昇の最大（m/秒、最高速のとき）
 const JET_TILT = 0.3;         // あおりで機首が上がる角度（rad、最大）
 const JET_MAX_ALT = 25;       // 足元の地面からこれ以上は上がらない
+const JET_CLIMB_FROM = 5;     // これより長く噴かし続けると、さらに上昇していく（秒）。最初のタンクではちょうど燃料が切れるころ
+const JET_CLIMB_TIME = 1.5;   // そこから最大の上昇になるまで（秒）
+const JET_CLIMB_MAX = 4;      // 長く噴かしたときに足される上昇（m/秒、最高速のとき）
+const JET_CLIMB_TILT = 0.15;  // そのとき、さらに機首が上がる角度（rad）
 const JET_START_UP = 1.0;     // 噴射を始めたら、ジャンプの上昇はこの速さ（m/秒）までに抑える（跳んですぐ噴けば低く飛べる）
 const JET_HOVER = 0.9;        // 低空では足元の地面からこの高さより下がらない（沈みで地面についてしまわないように）
 const JET_HOVER_PULL = 5;     // その高さより下にいるときに戻す強さ（1/秒）
@@ -2008,6 +2012,7 @@ function catchBread(b) {
 
 async function init() {
   const talksLoaded = loadTalks();   // 模型と同時に読む
+  preloadPortraits();
   const [town, distant, pancannon, germboss, bread, grandpa, girl, grandma, townRuin, mayor, germmini, workshop, chief, baker] = await Promise.all(FILES.map(load));
   await talksLoaded;
   statusEl.textContent = 'シーンを組み立て中…';
@@ -2084,6 +2089,10 @@ async function init() {
 // 部屋は町とは別の場所（WORKSHOP_POS、町の地面のずっと下）に置き、終わったら片づける。
 // 明かりは夜用のランプを部屋の天井へ移して使う（ライトを増やすと、町の全部のシェーダーを作り直すことになるため）。
 // ?skip で飛ばせる
+// オープニングのせりふに人物画をつける（who が町長・工場長のとき。表情は face、省略すると喜）
+function openingScript() {
+  return { ...TALKS.opening, lines: TALKS.opening.lines.map((l) => ({ ...l, portrait: portraitSrc(l.who, l.face) })) };
+}
 const WORKSHOP_POS = new THREE.Vector3(0, -400, 0);
 const LAMP_POS = new THREE.Vector3(0, 2.6, 0.5);   // ふだんのランプの位置（ロボの上）
 const OPENING_FOV = 40;         // 部屋の中のカメラの画角（メモの目安）
@@ -2236,7 +2245,7 @@ function updateOpening(dt, active) {
   playerLamp.intensity = OPENING_LAMP;
 
   if (active && o.phase === 'wait') { o.phase = 'intro'; o.t = 0; }
-  if (o.phase === 'intro' && o.t > OPENING_INTRO) { o.phase = 'talk'; talk.open(TALKS.opening); }
+  if (o.phase === 'intro' && o.t > OPENING_INTRO) { o.phase = 'talk'; talk.open(openingScript()); }
   const line = talk.active ? talk.line : null;
   const who = line && typeof line === 'object' ? line.who : null;
   // 町長が話し始めたら、あごに手を当てて考える
@@ -2381,7 +2390,16 @@ function talkTarget() {
 // talks.json を読んで TALKS に足す。docs/talks.schema.json と同じ決まりで確かめ、
 // 合わないまとまりはコンソールに警告を出して使わない（キャラクターごと使えないときもある）
 const TALK_KEY = /^((10|[0-9])-[1-9][0-9]?|grandpa|grandma|girl|mayor|baker|chief)$/;
-const TALK_PNG = /^[A-Za-z0-9_-]+\.png$/;
+// セリフの人物画は portraits/<組>_<表情>.webp。組はキャラクターの portrait、表情は face（喜・怒・哀・楽。省略すると喜）
+const PORTRAIT_SETS = ['baker', 'mayor', 'chief'];
+const FACES = ['joy', 'angry', 'sad', 'fun'];
+const portraitSrc = (set, face) => (PORTRAIT_SETS.includes(set) ? `portraits/${set}_${FACES.includes(face) ? face : 'joy'}.webp` : null);
+function preloadPortraits() {
+  for (const set of PORTRAIT_SETS) for (const face of FACES) new Image().src = portraitSrc(set, face);
+}
+// refill：話し終わったときに満タンにするもの。body からだ / fuel 燃料 / all 両方
+const REFILLS = ['body', 'fuel', 'all'];
+const needsRefill = (v) => (v === 'body' || v === 'all') && body < 1 || (v === 'fuel' || v === 'all') && fuel < fuelMax;
 const TALK_LINE_MAX = 60, TALK_LINES_MAX = 5;
 const isInt = (v, lo, hi) => Number.isInteger(v) && v >= lo && (hi === undefined || v <= hi);
 const isRange = (v, lo, hi) => Array.isArray(v) && v.length === 2 && isInt(v[0], lo, hi) && isInt(v[1], lo, hi) && v[0] <= v[1];
@@ -2392,11 +2410,13 @@ const TALK_CHECKS = {
   area: (v) => isInt(v, 0, 10) || (Array.isArray(v) && v.length > 0 && v.every((a) => isInt(a, 0, 10)) && new Set(v).size === v.length),
   weight: (v) => typeof v === 'number' && v > 0 && v <= 10,
   once: (v) => typeof v === 'boolean',
+  face: (v) => FACES.includes(v),
+  refill: (v) => REFILLS.includes(v),
   lines: (v) => Array.isArray(v) && v.length >= 1 && v.length <= TALK_LINES_MAX && v.every((l) => {
     if (typeof l === 'string') return l.length >= 1 && l.length <= TALK_LINE_MAX;
-    return l && typeof l === 'object' && Object.keys(l).every((k) => k === 'text' || k === 'portrait')
+    return l && typeof l === 'object' && Object.keys(l).every((k) => k === 'text' || k === 'face')
       && typeof l.text === 'string' && l.text.length >= 1 && l.text.length <= TALK_LINE_MAX
-      && (l.portrait === undefined || TALK_PNG.test(l.portrait));
+      && (l.face === undefined || FACES.includes(l.face));
   }),
 };
 const TALK_CONDITIONS = ['stage', 'town', 'area', 'areaTown', 'once'];
@@ -2423,7 +2443,7 @@ async function loadTalks() {
     const extra = Object.keys(c).filter((k) => !['name', 'portrait', 'talks'].includes(k));
     if (extra.length) warn(`知らない項目 ${extra.join(', ')}`);
     if (typeof c.name !== 'string' || !c.name || c.name.length > 12) warn('name がおかしい');
-    if (c.portrait != null && !TALK_PNG.test(c.portrait)) warn('portrait がおかしい');
+    if (c.portrait != null && !PORTRAIT_SETS.includes(c.portrait)) warn(`portrait は ${PORTRAIT_SETS.join(' / ')} か null`);
     const talks = c.talks.filter((t, i) => {
       const bad = talkProblems(t);
       if (bad.length) warn(`talks[${i}] を使いません（${bad.join(' / ')}）`);
@@ -2451,7 +2471,10 @@ function talkFits(t, r, used) {
 function pickTalk(list, r) {
   const used = r.talked || (r.talked = new Set());
   let cands = list.filter((t) => talkFits(t, r, used));
-  if (cands.length > 1) cands = cands.filter((t) => t !== r.lastTalk);   // 続けて同じ話はしない
+  // 補充が要るときは、補充してくれるまとまりを必ず選ぶ（続けて同じでもよい）
+  const refills = cands.filter((t) => t.refill && needsRefill(t.refill));
+  if (refills.length) cands = refills;
+  else if (cands.length > 1) cands = cands.filter((t) => t !== r.lastTalk);   // 続けて同じ話はしない
   if (!cands.length) return null;
   let w = cands.reduce((s, t) => s + (t.weight ?? 1), 0) * Math.random();
   for (const t of cands) if ((w -= t.weight ?? 1) <= 0) return t;
@@ -2466,7 +2489,12 @@ function talkScript(r) {
     if (!t) continue;
     r.lastTalk = t;
     r.talked.add(t);
-    return { name: t.name || book.name, portrait: t.portrait || book.portrait, lines: t.lines };
+    // 人物画は、セリフごとの face → まとまりの face → 喜 の順で表情を決める
+    const lines = t.lines.map((l) => {
+      const text = typeof l === 'string' ? l : l.text;
+      return { text, portrait: portraitSrc(book.portrait, (typeof l === 'object' && l.face) || t.face) };
+    });
+    return { name: t.name || book.name, portrait: null, lines, refill: t.refill };
   }
   return null;
 }
@@ -2480,11 +2508,20 @@ function startTalk(r) {
   talkWith = r;
   keys.clear();
   touch.reset();
+  talkRefill = script.refill;
   talk.open(script);
 }
+let talkRefill = null;
 function advanceTalk() {
   if (!talk.advance()) return;
   if (opening) { finishOpening(); return; }
+  if (talkRefill) {
+    const v = talkRefill;
+    talkRefill = null;
+    if (v === 'body' || v === 'all') body = 1;
+    if (v === 'fuel' || v === 'all') fuel = fuelMax;
+    showToast(v === 'body' ? 'からだが満タンになった！' : v === 'fuel' ? '燃料が満タンになった！' : 'からだと燃料が満タンになった！');
+  }
   talkWith.state = 'idle';
   talkWith.wait = RES_IDLE[0];
   talkWith = null;
@@ -2973,17 +3010,19 @@ function updatePlayer(dt) {
 
   const prevY = feet.y;
   if (jetting) {
-    // 噴射の推力でほぼ水平に飛ぶ。長く噴かして速くなるほど、あおられて上昇していく
+    // 噴射の推力でほぼ水平に飛ぶ。長く噴かして速くなるほど、あおられて上昇していく。5 秒を過ぎるとさらに上昇する
     jetTime += dt;
     const t = THREE.MathUtils.smoothstep(jetTime, JET_RISE_DELAY, JET_RISE_DELAY + JET_RISE_TIME);
     const lift = t * JET_RISE_MAX * (jetSpeed / JET_SPEED);
+    // JET_CLIMB_FROM 秒より長く噴かすと、さらに上がっていく（タンクが大きくなると、高いボスにも届く）
+    const climb = THREE.MathUtils.smoothstep(jetTime, JET_CLIMB_FROM, JET_CLIMB_FROM + JET_CLIMB_TIME) * JET_CLIMB_MAX * (jetSpeed / JET_SPEED);
     const tooHigh = ground !== null && feet.y - ground > JET_MAX_ALT;
-    const target = tooHigh ? 0 : lift - JET_SINK * (1 - t);
+    const target = tooHigh ? 0 : lift + climb - JET_SINK * (1 - t);
     velY += (target - velY) * (1 - Math.exp(-3 * dt));
     // 低空では沈まず、地面すれすれ（JET_HOVER）の高さを保つ
     const alt = ground !== null ? feet.y - ground : Infinity;
     if (alt < JET_HOVER) velY = Math.max(velY, (JET_HOVER - alt) * JET_HOVER_PULL);
-    jetTilt = JET_TILT * (tooHigh ? 0 : lift / JET_RISE_MAX);
+    jetTilt = tooHigh ? 0 : JET_TILT * lift / JET_RISE_MAX + JET_CLIMB_TILT * climb / JET_CLIMB_MAX;
   } else {
     jetTilt = 0;
     velY -= GRAVITY * dt;

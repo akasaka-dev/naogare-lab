@@ -1,22 +1,23 @@
 {
   "3-1": {
     "name": "パン屋のお姉さん",
-    "portrait": null,
+    "portrait": "baker",
     "talks": [
-      { "once": true, "lines": ["あら、ふわお君！ 来てくれたのね。"] },
-      { "town": [0, 99], "lines": ["いらっしゃい！ ……と言いたいところだけど、ばい菌のせいでお店はお休みなの。", "ふわお君、町をよろしくね。"] },
+      { "once": true, "face": "fun", "lines": ["あら、ふわお君！ 来てくれたのね。"] },
+      { "town": [0, 99], "lines": [{ "text": "いらっしゃい！ ……と言いたいところだけど、ばい菌のせいでお店はお休みなの。", "face": "sad" }, "ふわお君、町をよろしくね。"] },
       { "areaTown": [100, 100], "lines": ["お店のまわりがきれいになったわ。ありがとう！"] },
+      { "areaTown": [100, 100], "face": "fun", "refill": "body", "lines": ["ありがとう、パンの補充よ！ 頑張ってね！"] },
       { "lines": ["焼きたてのパンの香り、また町じゅうに届けたいな。"] }
     ]
   },
   "chief": {
     "name": "工場長",
-    "portrait": null,
+    "portrait": "chief",
     "talks": [{ "lines": ["（まだ会話はありません）"] }]
   },
   "mayor": {
     "name": "町長",
-    "portrait": null,
+    "portrait": "mayor",
     "talks": [{ "lines": ["（まだ会話はありません）"] }]
   },
   "grandpa": {

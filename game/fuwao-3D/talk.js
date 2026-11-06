@@ -119,16 +119,24 @@ export function createTalk() {
 
   let entry = null, line = 0, chars = [], shown = 0, wait = 0;
   let boil = 0, phase = [0, 0], phase2 = [0, 0], start2 = 0, drawnKey = '';
-  let portraitOk = false;
-
-  portrait.addEventListener('load', () => { portraitOk = true; portrait.style.display = 'block'; });
-  portrait.addEventListener('error', () => { portraitOk = false; portrait.style.display = 'none'; });
+  // 人物画は裏で読んでから差し替える（表情を変えるときは、読み終わるまで前の絵を出したまま）。
+  // 人物画を出すせりふで、まだ 1 枚も出ていないあいだは吹き出しを隠す（人物画なしの置き場所に一瞬出ないように）
+  let portraitOk = false, portraitWant = null, portraitWait = 0;
+  const PORTRAIT_WAIT_MAX = 1.5;   // これより長く読めないときは、人物画なしで吹き出しを出す（秒）
   function setPortrait(src) {
+    portraitWant = src || null;
     if (!src) { portraitOk = false; portrait.style.display = 'none'; portrait.removeAttribute('src'); return; }
     if (portrait.getAttribute('src') === src) return;
-    portraitOk = false;
-    portrait.style.display = 'none';
-    portrait.src = src;
+    const img = new Image();
+    img.onload = () => {
+      if (portraitWant !== src) return;
+      portrait.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`;   // 置き場所をすぐ測れるように
+      portrait.src = src;
+      portrait.style.display = 'block';
+      portraitOk = true;
+    };
+    img.onerror = () => { if (portraitWant === src) setPortrait(null); };
+    img.src = src;
   }
 
   function showLine() {
@@ -145,6 +153,7 @@ export function createTalk() {
   }
   function close() {
     entry = null;
+    bubble.style.visibility = 'hidden';
     document.body.classList.remove('talking');
     setPortrait(null);
   }
@@ -156,6 +165,8 @@ export function createTalk() {
     open(e) {
       entry = e;
       line = 0;
+      portraitWait = 0;
+      bubble.style.visibility = 'hidden';   // 最初の置き場所が決まるまで出さない
       document.body.classList.add('talking');
       hintEl.style.display = 'none';
       drawnKey = '';
@@ -178,6 +189,9 @@ export function createTalk() {
     // head は話している人の頭の画面上の位置 { x, y, visible }
     update(dt, head) {
       if (!entry) return;
+      // 人物画を読んでいるあいだは待つ（文字も送らない）
+      if (portraitWant && !portraitOk && (portraitWait += dt) < PORTRAIT_WAIT_MAX) { bubble.style.visibility = 'hidden'; return; }
+      bubble.style.visibility = '';
       // 文字を送る
       if (shown < chars.length) {
         wait -= dt;
