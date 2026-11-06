@@ -727,7 +727,6 @@ const RAM_PUSH_DAMP = 0.8;    // 押し戻す勢いの減り方（大きいほ�
 const RAM_STUN = 4;           // 体当たりされたあと、また近づき始めるまで（秒）
 const RAM_BOUNCE = 8;         // ロボがはね返される速さ（m/秒）
 const RAM_COOLDOWN = 0.5;     // 続けて体当たりにならない時間（秒）
-const BOSS_HIT_RADIUS = 7.5;  // 当たり判定の球の半径（m）。体は約 6m、トゲの先は約 10m（トゲはまばらなので先までは含めない）
 let bossSpikes = null, bossSpikeRadius = 9;
 const bossVel = new THREE.Vector3();
 let bossStun = 0, ramCooldown = 0, bossWobble = 0, bossWobbleTime = 0;
@@ -947,9 +946,10 @@ function collideBoss(dt) {
   if (!bossSpikes || bossGone || retreat) return;
   ramCooldown -= dt;
   bossSpikes.getWorldPosition(_bc);
-  // 見た目の体（トゲの根もと＋少し）に合わせた球。体は地面から浮いているので、真下を通るときは当たらない
+  // トゲのあたりまでの球（GB_Hit_Spikes の radius、約 9m。体は約 6m、トゲの先は約 10m）。
+  // 体は地面から浮いているので、真下を通るときは当たらない
   _bd.set(feet.x - _bc.x, feet.y + ROBOT_HEIGHT / 2 - _bc.y, feet.z - _bc.z);
-  const d = _bd.length(), reach = BOSS_HIT_RADIUS + RADIUS;
+  const d = _bd.length(), reach = bossSpikeRadius + RADIUS;
   if (d >= reach) return;
   _bd.divideScalar(d || 1);
   // 体当たりの強さは、ボスへ向かう速さ
