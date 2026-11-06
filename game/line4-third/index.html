@@ -52,8 +52,8 @@
   /* ---- Audio toggles (always visible, above every screen) ---- */
   #audioControls {
     position: fixed;
-    top: max(10px, env(safe-area-inset-top));
-    left: max(10px, env(safe-area-inset-left));
+    bottom: max(10px, env(safe-area-inset-bottom));
+    right: max(10px, env(safe-area-inset-right));
     z-index: 20;
     display: flex;
     gap: 8px;
@@ -873,13 +873,6 @@
   }
   #board:active { cursor: grabbing; }
   #board canvas { display: block; width: 100%; height: 100%; touch-action: none; }
-  .board-hint {
-    margin: 8px 0 0;
-    font-size: 0.78rem;
-    opacity: 0.65;
-    text-align: center;
-    max-width: calc(100vw - 24px);
-  }
   .title-3d {
     font-size: 0.62em;
     letter-spacing: 0.12em;
@@ -928,11 +921,6 @@
   .col-hitzone:hover .cell:not(.p1):not(.p2) {
     background: #1e293b;
   }
-  #controls {
-    margin-top: 18px;
-    display: flex;
-    gap: 12px;
-  }
   button {
     background: var(--accent);
     color: #0f172a;
@@ -952,24 +940,15 @@
     filter: none;
     pointer-events: none;
   }
-  #titleBtn {
-    background: transparent;
-    border: 2px solid #475569;
-    color: var(--text);
-  }
-  #score {
-    margin-top: 14px;
-    display: flex;
-    gap: 20px;
-    font-size: 0.95rem;
-    opacity: 0.85;
-  }
 </style>
 </head>
 <body>
 
   <!-- Always-on-top audio toggles — visible through every screen (splash, title, game, results) -->
   <div id="audioControls">
+    <button id="titleBtn" class="audio-btn hidden" type="button" aria-label="タイトルに戻る">
+      <span class="audio-icon">🏠</span>
+    </button>
     <button id="bgmToggle" class="audio-btn" type="button" aria-label="BGMのオン/オフ" aria-pressed="true">
       <span class="audio-icon">🎵</span><span class="audio-label">BGM</span>
     </button>
@@ -1056,7 +1035,6 @@
     <div id="board-wrap">
       <div id="board"></div>
     </div>
-    <p class="board-hint" id="boardHint"></p>
     <div id="onlineEmoteBar" class="hidden">
       <div id="emoteScroller">
         <button class="emote-icon-btn" data-emote="icon21_bubble_sweat"><img src="emotes/icon21_bubble_sweat.webp" alt="" draggable="false"></button>
@@ -1082,14 +1060,6 @@
         <button class="emote-icon-btn" data-emote="icon19_pet_mouse"><img src="emotes/icon19_pet_mouse.webp" alt="" draggable="false"></button>
         <button class="emote-icon-btn" data-emote="icon20_hand_wave"><img src="emotes/icon20_hand_wave.webp" alt="" draggable="false"></button>
       </div>
-    </div>
-    <div id="controls">
-      <button id="resetBtn">最初からやり直す</button>
-      <button id="titleBtn">タイトルに戻る</button>
-    </div>
-    <div id="score">
-      <span id="score1">プレイヤー1（ピンク）: 0勝</span>
-      <span id="score2">プレイヤー2（ミント）: 0勝</span>
     </div>
   </div>
 
@@ -1409,7 +1379,6 @@
   // time they run — but if a match is already in progress we also nudge the
   // couple of screens that only render once at match start.
   function applyKanaMode() {
-    document.getElementById('boardHint').textContent = K('ドラッグで角度を変更・ピンチで拡大 ／ マスをタップすると光が仮置き（縦の線と両端の輪で位置を確認）、もう一度タップで点灯', 'ドラッグでかくどをかえる・ピンチでかくだい ／ マスをタップするとひかりがかりおき（たての線とりょうはしのわでいちをかくにん）、もういちどタップでてんとう');
     document.getElementById('titlePrefix').textContent = K('黄昏のフォー・イン・ア・', 'たそがれのフォー・イン・ア・');
     document.getElementById('titleSubtitle').textContent = K('遊び方を選んでください', 'あそびかたをえらんでください');
     document.getElementById('playerNameLabel').textContent = K('プレイヤー名', 'プレイヤーめい');
@@ -1442,8 +1411,7 @@
     renderJoinConfirmText();
     document.getElementById('endingHint').textContent = K('ドラッグで読み返せます／クリックでタイトルへ', 'ドラッグでよみかえせます／クリックでタイトルへ');
 
-    resetBtn.textContent = K('最初からやり直す', 'さいしょからやりなおす');
-    titleBtn.textContent = K('タイトルに戻る', 'タイトルにもどる');
+    titleBtn.setAttribute('aria-label', K('タイトルに戻る', 'タイトルにもどる'));
 
     // If a match is already up, refresh what's currently on screen too.
     if (!gameScreen.classList.contains('hidden')) {
@@ -1453,7 +1421,6 @@
         modeLabelEl.textContent = `${K('オンライン対戦', 'オンラインたいせん')}（${K('部屋', 'へや')}: ${online.code}） ／ ${K('あなたは', 'あなたは')}${online.myPlayer === 1 ? K('ピンク', 'ぴんく') : K('ミント', 'みんと')}`;
       }
       if (typeof currentPlayer !== 'undefined' && !gameOver) updateStatus();
-      updateScoreboard();
     }
   }
 
@@ -1485,10 +1452,7 @@
 
   const boardEl = document.getElementById('board');
   const statusEl = document.getElementById('status');
-  const resetBtn = document.getElementById('resetBtn');
   const titleBtn = document.getElementById('titleBtn');
-  const score1El = document.getElementById('score1');
-  const score2El = document.getElementById('score2');
   const boardWrap = document.getElementById('board-wrap');
   const modeLabelEl = document.getElementById('modeLabel');
 
@@ -2196,6 +2160,7 @@
       online.awaitingRematch = true;
       const myStreak = online.myPlayer === 1 ? res.state.p1Streak : res.state.p2Streak;
       gameScreen.classList.add('hidden');
+      titleBtn.classList.add('hidden');
       onlineScreenEl.classList.remove('hidden');
       onlineMenuEl.classList.add('hidden');
       onlineWaitingEl.classList.remove('hidden');
@@ -2334,9 +2299,8 @@
     onlineScreenEl.classList.add('hidden');
     titleScreen.classList.add('hidden');
     gameScreen.classList.remove('hidden');
+    titleBtn.classList.remove('hidden');
     document.getElementById('speechBubble').classList.add('hidden');
-    document.getElementById('score').classList.add('hidden');
-    resetBtn.classList.add('hidden');
     restoreEmoteBarPosition();
     document.getElementById('onlineEmoteBar').classList.remove('hidden', 'postgame');
     document.getElementById('resultNote').textContent = '';
@@ -2423,11 +2387,10 @@
       online.wonLastMatch = iWon; // read by leavePostGameRoom() to notify the server
       const isDraw = state.winner === 'draw';
       if (isDraw) {
-        updateStatus(K('引き分けです！', 'ひきわけです！'));
+        statusEl.innerHTML = '';
         SoundMgr.seDraw();
       } else {
-        const winnerLabel = state.winner === '1' ? player1Label() : player2Label();
-        updateStatus(`🎉 ${escapeHtml(winnerLabel)}${K('の勝利！', 'のしょうり！')}`);
+        statusEl.innerHTML = '';
         if (iWon) SoundMgr.seWin(); else SoundMgr.seLose();
       }
       const myStreak = online.myPlayer === 1 ? state.p1Streak : state.p2Streak;
@@ -2512,8 +2475,7 @@
     mode = selectedMode;
     titleScreen.classList.add('hidden');
     gameScreen.classList.remove('hidden');
-    resetBtn.classList.remove('hidden');
-    document.getElementById('score').classList.remove('hidden');
+    titleBtn.classList.remove('hidden');
     const speechBubbleEl = document.getElementById('speechBubble');
     if (mode === 'cpu' && currentChar) {
       SoundMgr.playLevelTrack(currentChar.level);
@@ -2530,7 +2492,6 @@
       speechBubbleEl.classList.add('hidden');
     }
     scores = { 1: 0, 2: 0 };
-    updateScoreboard();
     initGame();
     Board3D.start(); // after initGame(), which is what creates the 3D view the first time
   }
@@ -2563,6 +2524,7 @@
     stopOnlinePolling();
     online = null;
     gameScreen.classList.add('hidden');
+    titleBtn.classList.add('hidden');
     onlineScreenEl.classList.add('hidden');
     titleScreen.classList.remove('hidden');
     restoreEmoteBarPosition();
@@ -2990,7 +2952,6 @@
     if (ladderOutcomeTimer) { clearTimeout(ladderOutcomeTimer); ladderOutcomeTimer = null; }
     grid = newGrid();
     gameOver = false;
-    resetBtn.disabled = false;
     cpuThinking = false;
     buildBoard();
     hideBubble();
@@ -3098,11 +3059,8 @@
       gameOver = true;
       Board3D.showWin(winCells);
       scores[player]++;
-      updateScoreboard();
-      const name = player === 1 ? player1Label() : player2Label();
-      updateStatus(`🎉 ${escapeHtml(name)}${K('の勝利！', 'のしょうり！')}`);
+      statusEl.innerHTML = '';
       if (mode === 'cpu' && currentChar) {
-        resetBtn.disabled = true; // re-enabled by initGame() once the next match actually starts
         if (player === 2) SoundMgr.seLose(); else SoundMgr.seWin();
         const spokenMs = speak(currentChar, player === 2 ? 'victory' : 'defeat');
         ladderOutcomeTimer = setTimeout(() => handleLadderOutcome(player === 1 ? 'win' : 'lose'), Math.max(1800, spokenMs + 600));
@@ -3114,11 +3072,10 @@
 
     if (isBoardFull(grid)) {
       gameOver = true;
-      updateStatus(K('引き分けです！', 'ひきわけです！'));
+      statusEl.innerHTML = '';
       hideBubble();
       SoundMgr.seDraw();
       if (mode === 'cpu' && currentChar) {
-        resetBtn.disabled = true; // re-enabled by initGame() once the next match actually starts
         ladderOutcomeTimer = setTimeout(() => handleLadderOutcome('draw'), 1000);
       }
       return true;
@@ -3214,12 +3171,6 @@
     }, 700); // long enough for the player's own ball to land before the (blocking) search runs
   }
 
-  function updateScoreboard() {
-    score1El.textContent = `${player1Label()}: ${scores[1]}${K('勝', 'しょう')}`;
-    score2El.textContent = `${player2Label()}: ${scores[2]}${K('勝', 'しょう')}`;
-  }
-
-  resetBtn.addEventListener('click', () => { SoundMgr.seClick(); initGame(); });
 
   // ---------- 4x4x4 free-placement board: pure game logic (no DOM) ----------
   // A ball can go in ANY empty cell (no gravity). Cells are indexed
