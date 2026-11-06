@@ -863,8 +863,8 @@
   #board-wrap.locked { opacity: 0.92; }
   #board {
     position: relative;
-    width: min(92vw, 540px, 62vh);
-    height: min(92vw, 540px, 62vh);
+    width: min(calc(100vw - 24px), 720px, 68vh);
+    height: min(calc(100vw - 24px), 720px, 68vh);
     min-width: 260px;
     min-height: 260px;
     touch-action: none;   /* drags orbit the camera instead of scrolling the page */
@@ -878,7 +878,7 @@
     font-size: 0.78rem;
     opacity: 0.65;
     text-align: center;
-    max-width: 92vw;
+    max-width: calc(100vw - 24px);
   }
   .title-3d {
     font-size: 0.62em;
@@ -1409,7 +1409,7 @@
   // time they run — but if a match is already in progress we also nudge the
   // couple of screens that only render once at match start.
   function applyKanaMode() {
-    document.getElementById('boardHint').textContent = K('ドラッグで角度を変更 ／ 段をタップすると引き出されるので、マスをタップして置く（スマホは2回タップで確定）。外をタップで戻る', 'ドラッグでかくどをかえる ／ だんをタップするとひきだされるので、マスをタップしておく（スマホは2かいタップでかくてい）。そとをタップでもどる');
+    document.getElementById('boardHint').textContent = K('ドラッグで角度を変更・ピンチで拡大 ／ マスをタップすると光が仮置き（縦の線と床の輪で位置を確認）、もう一度タップで点灯', 'ドラッグでかくどをかえる・ピンチでかくだい ／ マスをタップするとひかりがかりおき（たての線とゆかのわでいちをかくにん）、もういちどタップでてんとう');
     document.getElementById('titlePrefix').textContent = K('黄昏のフォー・イン・ア・', 'たそがれのフォー・イン・ア・');
     document.getElementById('titleSubtitle').textContent = K('遊び方を選んでください', 'あそびかたをえらんでください');
     document.getElementById('playerNameLabel').textContent = K('プレイヤー名', 'プレイヤーめい');
@@ -3390,195 +3390,262 @@
   }
 
   // ---------- 3D board (three.js) ----------
-  // Free-placement 4x4x4 lattice, drawn as four stacked layers. Drag to orbit,
-  // wheel / pinch to zoom. Tapping near a layer's cells pulls that layer out
-  // like a chest drawer: it slides straight out of the chest's front, level,
-  // its links to balls in the other layers stretching thin like elastic,
-  // so nothing hides its 4x4 cells and they can be picked with no depth
-  // ambiguity. Placing a ball, or
-  // tapping anywhere off the drawer, slides it straight back in. Balls of the
-  // same colour that touch (any of the 26 neighbour directions) are fused with
-  // a bridge so the shapes read as solid structures.
+  // A 4x4x4 block of glass cells, like a Rubik's cube pulled apart a little.
+  // Every cell is a faint glass cube with glowing edges; a move lights the cell
+  // up from the inside (a bright core, a soft halo, the glass tinted) and
+  // sparks of light run around its edges. Touching lights of the same colour
+  // are joined by a fizzing stream of light particles flowing between them.
+  // Drag to orbit, wheel / pinch to zoom. A tap picks the EMPTY cell nearest to
+  // it on screen (the nearer one wins when two overlap), shown as a pulsing
+  // ghost light. To make its depth readable the ghost has a vertical guide down
+  // to the floor with a ring there, its cell's edges blaze, and its layer
+  // brightens while the lights in the other layers fade back.
   // Purely presentation: game state lives in `grid`; this module draws it and
-  // reports what was tapped.
+  // reports which cell was picked.
   const Board3D = (() => {
-    const SP = 1.5;          // distance between neighbouring cells within a layer
-    const LAYER_GAP = 1.1;   // height between layers (tighter, so slanted lines read as lines)
-    const BALL_R = 0.45;
-    const COLORS = { 1: 0xef4444, 2: 0xeab308 };
-    const PLANE_COLOR = 0x5fb4ff;
-    const PULL = SP * 4 + 0.8;  // a drawer slides fully clear of the chest
-    const PICK_RADIUS = 46;     // px: how near a tap must be to a cell to pull out its layer
+    const SP = 1.35;         // pitch between neighbouring cells (all three axes)
+    const CELL = 1.1;        // size of one glass cube
+    const COLORS = { 1: 0xff4d5a, 2: 0xffd23f };
+    const EDGE_BASE = 0x8fb4ff;
+    const PICK_RADIUS = 0.1;    // of the view width: how near a tap must be to a cell
 
-    let host = null, renderer = null, scene = null, camera = null, raycaster = null;
+    let host = null, renderer = null, scene = null, camera = null;
     let ready = false, running = false, rafId = 0, resizeObs = null;
-    const layers = [];          // one THREE.Group per layer: plate, markers, balls, in-layer bridges
-    const plates = [];          // { slab, grid } per layer
-    const balls = new Map();    // cell idx -> { mesh, player }
-    const bridges = [];         // { mesh, a, b, la, lb, player, win }
-    const markers = [];         // 64 small dots showing every cell
-    const falling = [];         // balls still dropping into place: { mesh, t0 }
-    let ghost = null, hoverCell = -1;
-    let pulled = -1;            // the layer pulled out, or -1 (everything in the stack)
-    const pullT = [0, 0, 0, 0]; // animated 0 (in the stack) .. 1 (fully out)
-    let hoverLayer = -1;        // mouse only: the layer a click would pull out
-    let collapsed = false;      // after a win nothing can be pulled out
-    let lastT = 0;
-    let winMeshes = [], winRod = null, dimmed = false;
+    const cells = [];           // 64 x { faceMat, edgeMat, edgeBase, core, glow, runners, player, t0, win, m }
+    const bridges = [];         // { a, b, player, win, bright }
+    const flows = {};           // particle streams: flows[1], flows[2] (per player) and flows.gold (the winning line)
+    const occupied = new Set();
+    let ghostCell = -1, ghostPlayer = 1;
+    let ghostCore = null, ghostGlow = null, ghostRunners = null, guide = null, ring = null;
+    let glowTex = null;
+    let dimmed = false;
+    // one closed walk along 8 of a cube's 12 edges; sparks of light run around it
+    const CYC = [[-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1], [-1, 1, 1], [1, 1, 1], [1, -1, 1], [-1, -1, 1]];
+    const RUN_SCALE = [0.6, 0.42, 0.28], RUN_FADE = [1, 0.55, 0.25];
     let autoOrbit = false;   // after a win the camera drifts around so the winning line can be seen from the side
-    let tapCb = null, hoverCb = null, layerCb = null, releaseCb = null;
-    const cam = { theta: 0.62, phi: 0.95, dist: 22 };
-    const BASE_TARGET = { x: 0, y: 2.2, z: 0 };
-    const target = { x: BASE_TARGET.x, y: BASE_TARGET.y, z: BASE_TARGET.z };
-    const drawerDir = { x: 0, z: 1 };   // the chest's front the drawer slides out of
-    let camShift = 0;                   // how far the view has followed the drawer (0..1)
-    // scratch objects, created once THREE is known to be loaded
-    let tA, tB, upVec, qIdentity, invM, lRay;
+    let tapCb = null, hoverCb = null;
+    const cam = { theta: 0.62, phi: 0.95, dist: 17 };
+    const target = { x: 0, y: 2.8, z: 0 };
+    let tA, upVec, tmpColor, white;   // scratch objects, created once THREE is known to be loaded
+    const cellPosArr = [];            // 64 cell centres, built once
 
-    function levelY(l) { return 0.8 + l * LAYER_GAP; }
+    function levelY(l) { return 0.8 + l * SP; }
     function layerOf(idx) { return (idx / 16) | 0; }
-    // position inside its layer's group
-    function localXYZ(idx) {
-      const y = ((idx % 16) / 4) | 0, x = idx % 4;
-      return new THREE.Vector3((x - 1.5) * SP, 0, (y - 1.5) * SP);
-    }
-    // world position with every layer in the stack
     function cellXYZ(idx) {
-      const v = localXYZ(idx);
-      v.y = levelY(layerOf(idx));
-      return v;
+      const y = ((idx % 16) / 4) | 0, x = idx % 4;
+      return new THREE.Vector3((x - 1.5) * SP, levelY(layerOf(idx)), (y - 1.5) * SP);
+    }
+    // a light's colour: the player's colour pushed toward white
+    function lightColor(player, mix) {
+      return tmpColor.setHex(COLORS[player]).lerp(white, mix);
     }
 
     function applyCamera() {
       cam.phi = Math.max(0.15, Math.min(1.5, cam.phi));
       cam.dist = Math.max(8, Math.min(30, cam.dist));
       const sp = Math.sin(cam.phi);
-      const dist = cam.dist + 3.5 * camShift;   // step back a little while a drawer is out
       camera.position.set(
-        target.x + dist * sp * Math.sin(cam.theta),
-        target.y + dist * Math.cos(cam.phi),
-        target.z + dist * sp * Math.cos(cam.theta)
+        target.x + cam.dist * sp * Math.sin(cam.theta),
+        target.y + cam.dist * Math.cos(cam.phi),
+        target.z + cam.dist * sp * Math.cos(cam.theta)
       );
       camera.lookAt(target.x, target.y, target.z);
     }
 
-    function ballMaterial(player) {
-      return new THREE.MeshStandardMaterial({
-        color: COLORS[player], roughness: 0.28, metalness: 0.25,
-        emissive: COLORS[player], emissiveIntensity: 0.12, transparent: true, opacity: 1,
-      });
+    // soft round glow used by every halo
+    function makeGlowTexture() {
+      const c = document.createElement('canvas');
+      c.width = c.height = 128;
+      const g = c.getContext('2d');
+      const grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+      grad.addColorStop(0, 'rgba(255,255,255,1)');
+      grad.addColorStop(0.22, 'rgba(255,255,255,0.55)');
+      grad.addColorStop(0.55, 'rgba(255,255,255,0.14)');
+      grad.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = grad;
+      g.fillRect(0, 0, 128, 128);
+      return new THREE.CanvasTexture(c);
+    }
+    function makeGlow() {
+      const s = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: glowTex, color: 0xffffff, transparent: true, opacity: 1,
+        blending: THREE.AdditiveBlending, depthWrite: false,
+      }));
+      s.visible = false;
+      s.scale.setScalar(0.001);
+      return s;
+    }
+
+    // a spark of light with a short fading tail: 3 sprites
+    function makeRunner() {
+      const r = [];
+      for (let j = 0; j < 3; j++) { const s = makeGlow(); scene.add(s); r.push(s); }
+      return r;
+    }
+    function setRunnersColor(runners, color) { runners.forEach((set) => set.forEach((s) => s.material.color.copy(color))); }
+    function setRunnersVisible(runners, v) { runners.forEach((set) => set.forEach((s) => { s.visible = v; })); }
+    // put a runner at position u (in edges) along the cube walk around `center`
+    function placeRunner(set, center, u, op) {
+      const h = CELL / 2;
+      for (let j = 0; j < 3; j++) {
+        const uu = (((u - j * 0.2) % 8) + 8) % 8;
+        const seg = Math.floor(uu), f = uu - seg;
+        const v0 = CYC[seg], v1 = CYC[(seg + 1) % 8];
+        const s = set[j];
+        s.position.set(
+          center.x + (v0[0] + (v1[0] - v0[0]) * f) * h,
+          center.y + (v0[1] + (v1[1] - v0[1]) * f) * h,
+          center.z + (v0[2] + (v1[2] - v0[2]) * f) * h
+        );
+        s.scale.setScalar(RUN_SCALE[j]);
+        s.material.opacity = op * RUN_FADE[j];
+      }
+    }
+
+    // a merged particle system (one draw call) for every stream of one colour
+    function makeFlow(size, cap) {
+      const geo = new THREE.BufferGeometry();
+      const pos = new Float32Array(cap * 3), col = new Float32Array(cap * 3);
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+      geo.setDrawRange(0, 0);
+      const pts = new THREE.Points(geo, new THREE.PointsMaterial({
+        size, map: glowTex, vertexColors: true, transparent: true,
+        blending: THREE.AdditiveBlending, depthWrite: false,
+      }));
+      pts.frustumCulled = false;
+      scene.add(pts);
+      return { pts, geo, pos, col, cap, defs: [] };
+    }
+    // `n` particles drifting from a to b (world points), each wobbling around the line
+    function addStream(flow, a, b, n, color, owner, wobble, speed) {
+      const d = b.clone().sub(a), len = d.length();
+      const dir = d.clone().normalize();
+      const ref = Math.abs(dir.y) > 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
+      const p1 = new THREE.Vector3().crossVectors(dir, ref).normalize();
+      const p2 = new THREE.Vector3().crossVectors(dir, p1).normalize();
+      for (let k = 0; k < n && flow.defs.length < flow.cap; k++) {
+        flow.defs.push({
+          a, d, p1, p2, owner,
+          r: color.r, g: color.g, b: color.b,
+          phase: (k + Math.random() * 0.8) / n,
+          speed: speed * (0.75 + Math.random() * 0.5),
+          wob: wobble * (0.4 + Math.random() * 0.9),
+          w1: Math.random() * 6.28, w2: 2 + Math.random() * 3,
+        });
+      }
+      flow.geo.setDrawRange(0, flow.defs.length);
+    }
+    function updateFlow(flow, now) {
+      const t = now / 1000;
+      for (let i = 0; i < flow.defs.length; i++) {
+        const q = flow.defs[i];
+        const u = (q.phase + t * q.speed) % 1;
+        const env = Math.sin(u * Math.PI);                  // fade in at the source, out at the target
+        const w = q.wob * (0.35 + env);
+        const s1 = Math.sin(t * q.w2 + q.w1) * w, s2 = Math.cos(t * q.w2 * 0.8 + q.w1) * w;
+        const k = i * 3;
+        flow.pos[k] = q.a.x + q.d.x * u + q.p1.x * s1 + q.p2.x * s2;
+        flow.pos[k + 1] = q.a.y + q.d.y * u + q.p1.y * s1 + q.p2.y * s2;
+        flow.pos[k + 2] = q.a.z + q.d.z * u + q.p1.z * s1 + q.p2.z * s2;
+        const tw = (0.55 + 0.45 * Math.sin(t * 9 + q.w1 * 3)) * Math.sqrt(env) * q.owner.bright;
+        flow.col[k] = q.r * tw; flow.col[k + 1] = q.g * tw; flow.col[k + 2] = q.b * tw;
+      }
+      flow.geo.attributes.position.needsUpdate = true;
+      flow.geo.attributes.color.needsUpdate = true;
     }
 
     function buildScene() {
       scene = new THREE.Scene();
       camera = new THREE.PerspectiveCamera(32, 1, 0.1, 100);
-      scene.add(new THREE.AmbientLight(0xffffff, 0.62));
-      const key = new THREE.DirectionalLight(0xffffff, 0.85);
-      key.position.set(6, 12, 8);
-      scene.add(key);
-      const rim = new THREE.DirectionalLight(0x9db8ff, 0.4);
-      rim.position.set(-8, 5, -7);
-      scene.add(rim);
-      tA = new THREE.Vector3(); tB = new THREE.Vector3(); upVec = new THREE.Vector3(0, 1, 0);
-      qIdentity = new THREE.Quaternion();
-      invM = new THREE.Matrix4(); lRay = new THREE.Ray();
+      tA = new THREE.Vector3(); upVec = new THREE.Vector3(0, 1, 0);
+      tmpColor = new THREE.Color(); white = new THREE.Color(0xffffff);
+      glowTex = makeGlowTexture();
 
-      // base plate under the stack
+      // dark base under the block, with a faint pool of light
       const base = new THREE.Mesh(
-        new THREE.BoxGeometry(SP * 4 + 1.2, 0.3, SP * 4 + 1.2),
-        new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.6, metalness: 0.2 })
+        new THREE.BoxGeometry(SP * 4 + 1.0, 0.3, SP * 4 + 1.0),
+        new THREE.MeshBasicMaterial({ color: 0x0f172a })
       );
-      base.position.y = -0.15;
+      base.position.y = -0.1;
       scene.add(base);
+      const pool = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: glowTex, color: 0x4f7bd9, transparent: true, opacity: 0.35,
+        blending: THREE.AdditiveBlending, depthWrite: false,
+      }));
+      pool.position.set(0, 0.12, 0);
+      pool.scale.setScalar(SP * 7);
+      scene.add(pool);
 
-      for (let l = 0; l < 4; l++) {
-        const g = new THREE.Group();
-        g.position.y = levelY(l);
-        // translucent plate + grid lines
-        const slab = new THREE.Mesh(
-          new THREE.PlaneGeometry(SP * 4, SP * 4),
-          new THREE.MeshBasicMaterial({ color: PLANE_COLOR, transparent: true, opacity: 0.04, side: THREE.DoubleSide, depthWrite: false })
-        );
-        slab.rotation.x = -Math.PI / 2;
-        g.add(slab);
-        const grid = new THREE.GridHelper(SP * 4, 4, PLANE_COLOR, PLANE_COLOR);
-        grid.material.transparent = true;
-        grid.material.opacity = 0.15;
-        g.add(grid);
-        plates.push({ slab, grid });
-        scene.add(g);
-        layers.push(g);
-      }
-      // a faint dot at every cell so the empty lattice is visible
+      const boxGeo = new THREE.BoxGeometry(CELL, CELL, CELL);
+      const edgeGeo = new THREE.EdgesGeometry(boxGeo);
+      const coreGeo = new THREE.SphereGeometry(0.2, 16, 12);
       for (let i = 0; i < 64; i++) {
-        const m = new THREE.Mesh(
-          new THREE.SphereGeometry(0.08, 8, 6),
-          new THREE.MeshBasicMaterial({ color: 0xcbd5e1, transparent: true, opacity: 0.3 })
-        );
-        m.position.copy(localXYZ(i));
-        layers[layerOf(i)].add(m);
-        markers.push(m);
+        const p = cellXYZ(i);
+        cellPosArr.push(p);
+        const faceMat =new THREE.MeshBasicMaterial({ color: EDGE_BASE, transparent: true, opacity: 0.035, depthWrite: false });
+        const box = new THREE.Mesh(boxGeo, faceMat);
+        box.position.copy(p);
+        scene.add(box);
+        const edgeMat = new THREE.LineBasicMaterial({ color: EDGE_BASE, transparent: true, opacity: 0.22 });
+        const edges = new THREE.LineSegments(edgeGeo, edgeMat);
+        edges.position.copy(p);
+        scene.add(edges);
+        const core = new THREE.Mesh(coreGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 1 }));
+        core.position.copy(p);
+        core.visible = false;
+        scene.add(core);
+        const glow = makeGlow();
+        glow.position.copy(p);
+        scene.add(glow);
+        const runners = [makeRunner(), makeRunner()];
+        setRunnersVisible(runners, false);
+        cells.push({ faceMat, edgeMat, edgeBase: 0.22, core, glow, runners, player: 0, t0: 0, win: false, m: 1 });
       }
+      flows[1] = makeFlow(0.8, 8000);
+      flows[2] = makeFlow(0.8, 8000);
+      flows.gold = makeFlow(0.95, 400);
+      ghostRunners = [makeRunner(), makeRunner()];
+      setRunnersVisible(ghostRunners, false);
 
-      ghost = new THREE.Mesh(
-        new THREE.SphereGeometry(BALL_R, 24, 18),
-        new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.45, roughness: 0.4 })
+      // the ghost: a pulsing light in the cell about to be played
+      ghostCore = new THREE.Mesh(coreGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9 }));
+      ghostCore.visible = false;
+      scene.add(ghostCore);
+      ghostGlow = makeGlow();
+      scene.add(ghostGlow);
+      // depth guide: a thin vertical line of light from the floor up to the ghost, and a ring on the floor
+      guide = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.03, 0.03, 1, 8),
+        new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false })
       );
-      ghost.visible = false;
-      scene.add(ghost);
-      raycaster = new THREE.Raycaster();
+      guide.visible = false;
+      scene.add(guide);
+      ring = new THREE.Mesh(
+        new THREE.RingGeometry(0.4, 0.55, 32),
+        new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false })
+      );
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.y = 0.06;
+      ring.visible = false;
+      scene.add(ring);
     }
 
-    // The chest's "front" is whichever of its four sides faces the camera most;
-    // drawers slide straight out of that side, staying level.
-    function pickDrawerDir() {
-      const sx = Math.sin(cam.theta), cz = Math.cos(cam.theta);
-      if (Math.abs(sx) > Math.abs(cz)) { drawerDir.x = Math.sign(sx); drawerDir.z = 0; }
-      else { drawerDir.x = 0; drawerDir.z = Math.sign(cz); }
-    }
-
-    function setRay(clientX, clientY) {
-      const rect = renderer.domElement.getBoundingClientRect();
-      raycaster.setFromCamera(new THREE.Vector2(
-        ((clientX - rect.left) / rect.width) * 2 - 1,
-        -((clientY - rect.top) / rect.height) * 2 + 1
-      ), camera);
-      return rect;
-    }
-    // Tap on the pulled-out drawer: { cell, inside } (inside = on the plate at all).
-    function drawerHit(clientX, clientY) {
-      if (pulled < 0 || collapsed) return null;
-      setRay(clientX, clientY);
-      const g = layers[pulled];
-      g.updateMatrixWorld();
-      invM.copy(g.matrixWorld).invert();
-      lRay.copy(raycaster.ray).applyMatrix4(invM);
-      const o = lRay.origin, d = lRay.direction;
-      if (Math.abs(d.y) < 1e-6) return null;
-      const t = -o.y / d.y;
-      if (t <= 0) return null;
-      const px = o.x + d.x * t, pz = o.z + d.z * t;
-      const lim = 2 * SP + 0.3;
-      if (Math.abs(px) > lim || Math.abs(pz) > lim) return { cell: -1, inside: false };
-      const cx = Math.max(0, Math.min(3, Math.round(px / SP + 1.5)));
-      const cz = Math.max(0, Math.min(3, Math.round(pz / SP + 1.5)));
-      return { cell: pulled * 16 + cz * 4 + cx, inside: true };
-    }
-    // With everything stacked: the layer of the cell (empty or not) drawn
-    // nearest to the tap on screen, or -1 if no cell is close.
-    function pickLayer(clientX, clientY) {
-      if (collapsed) return -1;
+    // The EMPTY cell nearest to this screen point (within PICK_RADIUS of the view
+    // width), or -1. When two cells sit nearly on top of each other on screen the
+    // one nearer the camera wins.
+    function pickCell(clientX, clientY) {
       const rect = renderer.domElement.getBoundingClientRect();
       const mx = clientX - rect.left, my = clientY - rect.top;
-      scene.updateMatrixWorld();
-      let best = -1, bestD = PICK_RADIUS;
+      const maxD = PICK_RADIUS * rect.width;
+      camera.updateMatrixWorld();
+      let best = -1, bestD = Infinity, bestZ = Infinity;
       for (let i = 0; i < 64; i++) {
-        tB.copy(localXYZ(i));
-        layers[layerOf(i)].localToWorld(tB);
-        tB.project(camera);
-        const sx = (tB.x + 1) / 2 * rect.width, sy = (1 - tB.y) / 2 * rect.height;
-        const dd = Math.hypot(sx - mx, sy - my);
-        if (dd < bestD) { bestD = dd; best = layerOf(i); }
+        if (occupied.has(i)) continue;
+        tA.copy(cellXYZ(i)).project(camera);
+        const dd = Math.hypot((tA.x + 1) / 2 * rect.width - mx, (1 - tA.y) / 2 * rect.height - my);
+        if (dd > maxD) continue;
+        if (dd < bestD - 8 || (dd < bestD + 8 && tA.z < bestZ)) { best = i; bestD = dd; bestZ = tA.z; }
       }
       return best;
     }
@@ -3604,7 +3671,7 @@
       el.addEventListener('pointermove', (e) => {
         const p = pointers.get(e.pointerId);
         if (!p) {
-          if (e.pointerType === 'mouse') hover(e.clientX, e.clientY);
+          if (e.pointerType === 'mouse' && hoverCb) hoverCb(pickCell(e.clientX, e.clientY));
           return;
         }
         const dx = e.clientX - p.x, dy = e.clientY - p.y;
@@ -3628,40 +3695,17 @@
         const wasTap = down && !down.moved && pointers.size === 1 && performance.now() - down.t < 700 && e.type === 'pointerup';
         pointers.delete(e.pointerId);
         if (pointers.size < 2) pinch = null;
-        if (wasTap && !collapsed) {
-          if (pulled >= 0) {
-            const h = drawerHit(e.clientX, e.clientY);
-            if (h && h.inside) { if (tapCb) tapCb(h.cell, e.pointerType); }
-            else if (releaseCb) releaseCb();          // tapped off the drawer: slide it back
-          } else {
-            const l = pickLayer(e.clientX, e.clientY);
-            if (l >= 0 && layerCb) layerCb(l);
-          }
-        }
+        if (wasTap && tapCb) tapCb(pickCell(e.clientX, e.clientY), e.pointerType);
         if (pointers.size === 0) down = null;
       };
       el.addEventListener('pointerup', end);
       el.addEventListener('pointercancel', end);
-      el.addEventListener('pointerleave', (e) => {
-        if (e.pointerType !== 'mouse') return;
-        if (hoverCb) hoverCb(-1);
-        if (hoverLayer !== -1) { hoverLayer = -1; refreshView(); }
-      });
+      el.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse' && hoverCb) hoverCb(-1); });
       el.addEventListener('wheel', (e) => {
         e.preventDefault();
         cam.dist *= e.deltaY > 0 ? 1.08 : 0.92;
         applyCamera();
       }, { passive: false });
-    }
-    // mouse hover: preview a cell on the drawer, or light up the layer a click would pull out
-    function hover(clientX, clientY) {
-      if (pulled >= 0) {
-        const h = drawerHit(clientX, clientY);
-        if (hoverCb) hoverCb(h && h.inside ? h.cell : -1);
-        return;
-      }
-      const l = pickLayer(clientX, clientY);
-      if (l !== hoverLayer) { hoverLayer = l; refreshView(); }
     }
 
     function resize() {
@@ -3673,88 +3717,42 @@
       camera.updateProjectionMatrix();
     }
 
-    // Re-apply everything that depends on the pulled-out layer / occupancy.
+    // Re-apply everything that depends on the ghost / occupancy / win state.
     function refreshView() {
-      plates.forEach((p, l) => {
-        p.slab.visible = p.grid.visible = !collapsed;
-        let slab, grid;
-        if (l === pulled) { slab = 0.2; grid = 0.75; }
-        else if (pulled < 0) { slab = l === hoverLayer ? 0.12 : 0.04; grid = l === hoverLayer ? 0.5 : 0.15; }
-        else { slab = 0.03; grid = 0.1; }
-        p.slab.material.opacity = slab;
-        p.grid.material.opacity = grid;
-      });
-      markers.forEach((m, i) => {
-        m.visible = !balls.has(i);
-        const l = layerOf(i);
-        if (pulled < 0) { m.material.opacity = 0.35; m.scale.setScalar(1); }
-        else if (l === pulled) { m.material.opacity = 0.9; m.scale.setScalar(i === hoverCell ? 2.6 : 1.6); }
-        else { m.material.opacity = 0.15; m.scale.setScalar(1); }
-      });
-      balls.forEach((b, idx) => {
-        if (winMeshes.includes(b.mesh)) return;
-        b.mesh.material.opacity = dimmed ? 0.28 : (pulled < 0 || layerOf(idx) === pulled ? 1 : 0.4);
-      });
+      const gl = ghostCell >= 0 ? layerOf(ghostCell) : -1;
+      for (let i = 0; i < 64; i++) {
+        const c = cells[i];
+        const inGl = gl >= 0 && layerOf(i) === gl;
+        const lit = c.player !== 0;
+        let edgeOp = inGl ? 0.5 : 0.2, faceOp = inGl ? 0.07 : 0.03;
+        let edgeCol = EDGE_BASE;
+        if (lit) {
+          edgeCol = lightColor(c.player, 0.1).getHex();
+          edgeOp = 0.85; faceOp = 0.2;
+        }
+        if (i === ghostCell) { edgeCol = lightColor(ghostPlayer, 0.2).getHex(); edgeOp = 1; faceOp = 0.18; }
+        c.edgeMat.color.setHex(edgeCol);
+        c.edgeMat.opacity = c.edgeBase = edgeOp;
+        c.faceMat.color.setHex(lit || i === ghostCell ? edgeCol : EDGE_BASE);
+        c.faceMat.opacity = faceOp;
+        // how bright this light burns: dimmed after a win, faded when another layer is being aimed at
+        c.m = dimmed ? (c.win ? 1 : 0.22) : (gl < 0 || inGl ? 1 : 0.5);
+        c.core.visible = c.glow.visible = lit;
+        setRunnersVisible(c.runners, lit);
+      }
       bridges.forEach((br) => {
-        if (br.win) return;
-        const on = pulled < 0 || (br.la === pulled && br.lb === pulled);
-        const stretched = !on && (br.la === pulled || br.lb === pulled);   // elastic link to the drawer
-        br.mesh.material.opacity = dimmed ? 0.2 : (on ? 1 : stretched ? 0.6 : 0.35);
+        const bothIn = gl < 0 || (layerOf(br.a) === gl && layerOf(br.b) === gl);
+        br.bright = br.win ? 1 : dimmed ? 0.15 : (bothIn ? 1 : 0.4);
       });
     }
 
+    // a fizzing stream of light particles between two lit cells of the same colour
     function addBridge(a, b, player) {
-      const la = layerOf(a), lb = layerOf(b);
-      const same = la === lb;
-      // same-layer bridges ride along with the layer; the others live in the
-      // scene and stretch (thin, like elastic) while either end is pulled out
-      if (same) {
-        const pa = localXYZ(a), pb = localXYZ(b);
-        const dir = pb.clone().sub(pa);
-        const mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, dir.length(), 12, 1, true), ballMaterial(player));
-        mesh.position.copy(pa).add(pb).multiplyScalar(0.5);
-        mesh.quaternion.setFromUnitVectors(upVec, dir.normalize());
-        layers[la].add(mesh);
-        bridges.push({ mesh, a, b, la, lb, player, win: false });
-        return;
-      }
-      const mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, 1, 12, 1, true), ballMaterial(player));
-      scene.add(mesh);
-      const br = { mesh, a, b, la, lb, player, win: false };
+      const br = { a, b, player, win: false, bright: 1 };
       bridges.push(br);
-      stretchBridge(br);
-    }
-    // a cross-layer bridge spans its two balls wherever their layers are now
-    function stretchBridge(br) {
-      tA.copy(localXYZ(br.a)).add(layers[br.la].position);
-      tB.copy(localXYZ(br.b)).add(layers[br.lb].position);
-      const e = Math.max(pullT[br.la], pullT[br.lb]);
-      br.mesh.position.addVectors(tA, tB).multiplyScalar(0.5);
-      tB.sub(tA);
-      const len = tB.length();
-      br.mesh.quaternion.setFromUnitVectors(upVec, tB.normalize());
-      const r = 1 - 0.6 * e;   // thins to 40% when fully stretched
-      br.mesh.scale.set(r, len, r);
-    }
-
-    // slide each layer between its place in the chest and fully pulled out;
-    // the view pans a little with the drawer so chest and drawer both stay in frame
-    function poseLayers() {
-      let out = 0;
-      for (let l = 0; l < 4; l++) {
-        const e = pullT[l];
-        layers[l].position.set(drawerDir.x * PULL * e, levelY(l), drawerDir.z * PULL * e);
-        if (e > out) out = e;
-      }
-      for (const br of bridges) {
-        if (br.la !== br.lb) stretchBridge(br);
-      }
-      if (out !== camShift) {
-        camShift = out;
-        target.x = BASE_TARGET.x + drawerDir.x * PULL * 0.55 * out;
-        target.z = BASE_TARGET.z + drawerDir.z * PULL * 0.55 * out;
-        if (camera) applyCamera();
-      }
+      const pa = cellXYZ(a), pb = cellXYZ(b);
+      const n = Math.max(10, Math.round(pa.distanceTo(pb) * 16));
+      addStream(flows[player], pa, pb, n, lightColor(player, 0.35).clone(), br, 0.07, 0.42);
     }
 
     function init(hostEl) {
@@ -3780,62 +3778,65 @@
       return true;
     }
 
-    // y of a ball dropping into its cell: gravity fall then a small bounce
-    function fallY(from, to, t) {
-      const H = from - to;
-      if (t < 0.62) { const k = t / 0.62; return from - H * k * k; }
-      if (t < 0.84) { const k = (t - 0.62) / 0.22; return to + H * 0.1 * 4 * k * (1 - k); }
-      return to;
-    }
-
     function tick(now) {
       if (!running) return;
       rafId = requestAnimationFrame(tick);
-      const dt = Math.min(0.05, Math.max(0.001, (now - lastT) / 1000));
-      lastT = now;
-      const kk = 1 - Math.exp(-dt / 0.045);   // the drawer moves in / out in about 0.15 s
-      for (let l = 0; l < 4; l++) {
-        const goal = (!collapsed && l === pulled) ? 1 : 0;
-        if (pullT[l] !== goal) {
-          pullT[l] += (goal - pullT[l]) * kk;
-          if (Math.abs(goal - pullT[l]) < 0.003) pullT[l] = goal;
-        }
+      for (let i = 0; i < 64; i++) {
+        const c = cells[i];
+        if (!c.player) continue;
+        // ignite: a quick flash that settles into a gentle breathing glow
+        const k = Math.min(1, (now - c.t0) / 520);
+        const ease = 1 - Math.pow(1 - k, 3);
+        const flash = k < 1 ? Math.sin(k * Math.PI) * 1.1 : 0;
+        const breathe = 1 + 0.06 * Math.sin(now / 520 + i);
+        const win = c.win ? 1.35 + 0.25 * Math.sin(now / 170) : 1;
+        c.glow.scale.setScalar(2.5 * (ease + flash) * breathe * win + 0.001);
+        c.glow.material.opacity = Math.min(1, c.m * (0.8 + 0.2 * flash));
+        c.core.scale.setScalar((ease + flash * 0.6) * breathe * (c.win ? 1.25 : 1) + 0.001);
+        c.core.material.opacity = c.m;
+        // sparks running around the cell's edges (faster for the winning line, and while igniting)
+        const rate = c.win ? 4.5 : (k < 1 ? 3.5 : 1.4);
+        const u = now / 1000 * rate + i * 0.37;
+        const sp = c.m * 0.95;
+        placeRunner(c.runners[0], cellPosArr[i], u, sp);
+        placeRunner(c.runners[1], cellPosArr[i], u + 4, sp);
       }
-      poseLayers();
-      for (let i = falling.length - 1; i >= 0; i--) {
-        const f = falling[i];
-        const t = Math.min(1, (now - f.t0) / 520);
-        f.mesh.position.y = fallY(2.4, 0, t);
-        if (t >= 1) falling.splice(i, 1);
+      // the unlit lattice shimmers: a slow wave of brightness rises through the edges
+      for (let i = 0; i < 64; i++) {
+        const c = cells[i];
+        if (c.player || i === ghostCell) continue;
+        const wave = 0.5 + 0.5 * Math.sin(now / 1100 - layerOf(i) * 1.1 - (i % 4) * 0.5 - ((i % 16) >> 2) * 0.35);
+        c.edgeMat.opacity = c.edgeBase * (0.7 + 0.8 * wave * wave);
       }
+      if (ghostCell >= 0) {
+        const s = 1 + 0.14 * Math.sin(now / 200);
+        ghostGlow.scale.setScalar(2.2 * s);
+        ghostGlow.material.opacity = 0.55 + 0.25 * Math.sin(now / 200);
+        ghostCore.scale.setScalar(s);
+        const u = now / 1000 * 3;
+        placeRunner(ghostRunners[0], cellPosArr[ghostCell], u, 1);
+        placeRunner(ghostRunners[1], cellPosArr[ghostCell], u + 4, 1);
+      }
+      updateFlow(flows[1], now);
+      updateFlow(flows[2], now);
+      if (flows.gold.defs.length) updateFlow(flows.gold, now);
       if (autoOrbit) { cam.theta += 0.006; applyCamera(); }
-      if (winMeshes.length) {
-        const s = Math.sin(now / 160);
-        winMeshes.forEach((m) => {
-          m.scale.setScalar(1.08 + 0.06 * s);
-          m.material.emissiveIntensity = 0.55 + 0.3 * s;
-        });
-        if (winRod) winRod.material.emissiveIntensity = 0.7 + 0.3 * s;
-      }
       renderer.render(scene, camera);
     }
 
-    function setPulled(l) {
-      if (l >= 0 && pullT.every((v) => v === 0)) pickDrawerDir();   // fix the front while every drawer is shut
-      pulled = l;
-      hoverLayer = -1;
-      if (ready) refreshView();
+    function hideGhost() {
+      ghostCell = -1;
+      if (ghostCore) {
+        ghostCore.visible = ghostGlow.visible = guide.visible = ring.visible = false;
+        setRunnersVisible(ghostRunners, false);
+      }
     }
+    function clearFlow(flow) { flow.defs.length = 0; flow.geo.setDrawRange(0, 0); }
 
     return {
       init,
       onTap(fn) { tapCb = fn; },
       onHover(fn) { hoverCb = fn; },
-      onLayerTap(fn) { layerCb = fn; },
-      onRelease(fn) { releaseCb = fn; },
-      getPulled() { return pulled; },
-      pull(l) { if (!collapsed && l >= 0 && l <= 3) setPulled(l); },
-      release() { if (pulled >= 0) setPulled(-1); },
       start() {
         if (!ready || running) return;
         running = true;
@@ -3845,101 +3846,95 @@
       stop() { running = false; cancelAnimationFrame(rafId); },
       reset() {
         if (!ready) return;
-        balls.forEach((b) => { b.mesh.parent.remove(b.mesh); b.mesh.material.dispose(); });
-        balls.clear();
-        bridges.forEach((br) => { br.mesh.parent.remove(br.mesh); br.mesh.material.dispose(); });
+        occupied.clear();
+        cells.forEach((c) => {
+          c.player = 0; c.win = false; c.m = 1; c.core.visible = c.glow.visible = false;
+          setRunnersVisible(c.runners, false);
+        });
         bridges.length = 0;
-        falling.length = 0;
-        winMeshes = [];
+        clearFlow(flows[1]); clearFlow(flows[2]); clearFlow(flows.gold);
         dimmed = false;
         autoOrbit = false;
-        if (winRod) { scene.remove(winRod); winRod.material.dispose(); winRod = null; }
-        hoverCell = -1;
-        ghost.visible = false;
-        scene.add(ghost);
-        cam.theta = 0.62; cam.phi = 0.95; cam.dist = 22;
-        collapsed = false;
-        pulled = -1;
-        hoverLayer = -1;
-        pullT.fill(0);
+        hideGhost();
+        cam.theta = 0.62; cam.phi = 0.95; cam.dist = 17;
         applyCamera();
-        poseLayers();
         refreshView();
         resize();
       },
+      // light up a cell for `player`
       placeBall(idx, player) {
         if (!ready) return;
-        const mesh = new THREE.Mesh(new THREE.SphereGeometry(BALL_R, 28, 20), ballMaterial(player));
-        mesh.position.copy(localXYZ(idx));
-        mesh.position.y = 2.4;
-        layers[layerOf(idx)].add(mesh);
-        balls.set(idx, { mesh, player });
-        falling.push({ mesh, t0: performance.now() });
-        // fuse with every touching ball of the same colour (all 26 directions)
+        const c = cells[idx];
+        c.player = player;
+        c.t0 = performance.now();
+        c.glow.material.color.copy(lightColor(player, 0.0));
+        c.core.material.color.copy(lightColor(player, 0.6));
+        setRunnersColor(c.runners, lightColor(player, 0.55));
+        occupied.add(idx);
+        // join every touching light of the same colour (all 26 directions)
         const l = layerOf(idx), y = ((idx % 16) / 4) | 0, x = idx % 4;
         for (let dz = -1; dz <= 1; dz++) for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
           if (!dx && !dy && !dz) continue;
           const nx = x + dx, ny = y + dy, nl = l + dz;
           if (nx < 0 || nx > 3 || ny < 0 || ny > 3 || nl < 0 || nl > 3) continue;
           const nIdx = nl * 16 + ny * 4 + nx;
-          const nb = balls.get(nIdx);
-          if (nb && nb.player === player) addBridge(idx, nIdx, player);
+          if (cells[nIdx].player === player) addBridge(idx, nIdx, player);
         }
-        poseLayers();
         refreshView();
       },
-      showWin(cells) {
+      showWin(winCells) {
         if (!ready) return;
-        const set = new Set(cells);
-        // everything goes back into the stack so the line reads true
-        collapsed = true;
-        pulled = -1;
-        hoverLayer = -1;
-        pullT.fill(0);
-        poseLayers();
+        const set = new Set(winCells);
         dimmed = true;
-        refreshView();
-        winMeshes = cells.map((c) => balls.get(c).mesh);
-        winMeshes.forEach((m) => { m.material.opacity = 1; });
+        hideGhost();
+        cells.forEach((c, i) => { c.win = set.has(i); });
         bridges.forEach((br) => {
-          // keep the bridges that run along the winning line bright
-          const i = cells.indexOf(br.a), j = cells.indexOf(br.b);
+          // keep the beams that run along the winning line bright
+          const i = winCells.indexOf(br.a), j = winCells.indexOf(br.b);
           br.win = i >= 0 && j >= 0 && Math.abs(i - j) === 1;
-          br.mesh.material.opacity = br.win ? 1 : 0.2;
         });
-        balls.forEach((b, idx) => { if (!set.has(idx)) b.mesh.material.opacity = 0.28; });
-        // a solid golden rod through the finished line
-        const a = cellXYZ(cells[0]), b = cellXYZ(cells[3]);
-        const dir = b.clone().sub(a);
-        winRod = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.1, 0.1, dir.length() + 1.0, 12),
-          new THREE.MeshStandardMaterial({ color: 0xfde68a, emissive: 0xfbbf24, emissiveIntensity: 0.8, roughness: 0.3, metalness: 0.4 })
-        );
-        winRod.position.copy(a).add(b).multiplyScalar(0.5);
-        winRod.quaternion.setFromUnitVectors(upVec, dir.normalize());
-        scene.add(winRod);
+        refreshView();
+        // a dense golden stream of light pouring along the finished line
+        const a = cellXYZ(winCells[0]), b = cellXYZ(winCells[3]);
+        const dir = b.clone().sub(a).normalize();
+        a.addScaledVector(dir, -0.7); b.addScaledVector(dir, 0.7);
+        clearFlow(flows.gold);
+        addStream(flows.gold, a, b, 90, new THREE.Color(0xfff1b0), { bright: 1 }, 0.12, 0.55);
         autoOrbit = true;
       },
-      // translucent preview ball at a cell (idx < 0 hides it); it rides along with its layer
+      // the pulsing ghost light in a cell, with its depth guide (idx < 0 hides it)
       setGhost(idx, player) {
-        if (!ready || !ghost) return;
-        hoverCell = idx;
-        if (idx < 0) { ghost.visible = false; refreshView(); return; }
-        layers[layerOf(idx)].add(ghost);
-        ghost.position.copy(localXYZ(idx));
-        ghost.material.color.setHex(COLORS[player]);
-        ghost.visible = true;
+        if (!ready || !ghostCore) return;
+        if (idx < 0) { hideGhost(); refreshView(); return; }
+        ghostCell = idx;
+        ghostPlayer = player;
+        const p = cellXYZ(idx);
+        ghostCore.position.copy(p);
+        ghostGlow.position.copy(p);
+        ghostCore.material.color.copy(lightColor(player, 0.6));
+        ghostGlow.material.color.copy(lightColor(player, 0.0));
+        ghostCore.visible = ghostGlow.visible = true;
+        setRunnersColor(ghostRunners, lightColor(player, 0.55));
+        setRunnersVisible(ghostRunners, true);
+        guide.material.color.copy(lightColor(player, 0.3));
+        guide.position.set(p.x, p.y / 2, p.z);
+        guide.scale.set(1, p.y, 1);
+        guide.visible = true;
+        ring.material.color.copy(lightColor(player, 0.3));
+        ring.position.x = p.x; ring.position.z = p.z;
+        ring.visible = true;
         refreshView();
       },
-      clearGhost() { if (ghost) { ghost.visible = false; hoverCell = -1; if (ready) refreshView(); } },
+      clearGhost() { if (ghostCore) { hideGhost(); if (ready) refreshView(); } },
     };
   })();
 
   // ---------- Input glue: taps / hover from the 3D view ----------
-  // Tap a layer to pull it out as a drawer, then tap a cell on it. Touch needs
-  // two taps on the cell (the first previews the ball with a ghost, the second
-  // confirms); a mouse click places straight away, with the same preview on
-  // hover. Placing a ball or tapping off the drawer slides it back in.
+  // Touch needs two taps (the first previews the light with a ghost and depth
+  // guide, the second on the same ghost confirms; tapping elsewhere moves the
+  // ghost, tapping empty space drops it) so a perspective-view mis-tap never
+  // costs a move. A mouse click places straight away, with the same preview
+  // on hover.
   // Block the browser's own gestures (iOS ignores user-scalable=no): pinch-zoom, double-tap zoom,
   // long-press menu and text selection - everywhere except real text inputs.
   ['gesturestart', 'gesturechange', 'gestureend'].forEach((t) => document.addEventListener(t, (e) => e.preventDefault()));
@@ -3952,19 +3947,10 @@
     return !gameOver && !cpuThinking && !(mode === 'cpu' && currentPlayer === 2)
       && !boardWrap.classList.contains('locked');
   }
-  function pullLayer(l) {
-    pendingCell = -1;
-    Board3D.clearGhost();
-    Board3D.pull(l);
-  }
-  function releaseDrawer() {
-    pendingCell = -1;
-    Board3D.clearGhost();
-    Board3D.release();
-  }
   Board3D.onTap((cell, pointerType) => {
-    if (cell < 0 || !humanCanMove() || grid[cell] !== 0) return;
-    if (pointerType === 'mouse' || pendingCell === cell) { handleCellClick(cell); releaseDrawer(); return; }
+    if (!humanCanMove()) return;
+    if (cell < 0 || grid[cell] !== 0) { pendingCell = -1; Board3D.clearGhost(); return; }
+    if (pointerType === 'mouse' || pendingCell === cell) { handleCellClick(cell); return; }
     pendingCell = cell;
     Board3D.setGhost(cell, currentPlayer);
   });
@@ -3972,16 +3958,6 @@
     if (pendingCell >= 0) return;
     if (cell < 0 || !humanCanMove() || grid[cell] !== 0) { Board3D.setGhost(-1); return; }
     Board3D.setGhost(cell, currentPlayer);
-  });
-  Board3D.onLayerTap((l) => { SoundMgr.seClick(); pullLayer(l); });
-  Board3D.onRelease(releaseDrawer);
-  // desktop: 1-4 pull out that layer (again = push it back), Esc pushes it back
-  document.addEventListener('keydown', (e) => {
-    if (gameScreen.classList.contains('hidden')) return;
-    if (e.key >= '1' && e.key <= '4') {
-      const l = +e.key - 1;
-      if (Board3D.getPulled() === l) releaseDrawer(); else pullLayer(l);
-    } else if (e.key === 'Escape') releaseDrawer();
   });
 
   // `currentChar.depth` is the search depth in plies; `wildness` is the chance
