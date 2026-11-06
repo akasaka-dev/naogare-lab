@@ -3702,8 +3702,15 @@
       el.addEventListener('selectstart', (e) => e.preventDefault());
       el.addEventListener('dragstart', (e) => e.preventDefault());
       let down = null, pinch = null;
+      // A lost pointerup/pointercancel (system gesture, notification pull-down,
+      // app switch...) would leave a "ghost finger" in `pointers`: every later
+      // single touch would then count as a pinch (zoom only, no orbit, no tap).
+      // So: forget everything whenever it cannot possibly still be true.
+      const resetPointers = () => { pointers.clear(); down = null; pinch = null; };
       el.addEventListener('pointerdown', (e) => {
         autoOrbit = false;
+        // a primary pointer starts a fresh gesture: no other finger can be down
+        if (e.isPrimary) resetPointers();
         pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
         try { el.setPointerCapture(e.pointerId); } catch (err) { /* pointer already gone - harmless */ }
         if (pointers.size === 1) down = { x: e.clientX, y: e.clientY, t: performance.now(), moved: false };
@@ -3745,6 +3752,13 @@
       };
       el.addEventListener('pointerup', end);
       el.addEventListener('pointercancel', end);
+      el.addEventListener('lostpointercapture', (e) => { if (pointers.has(e.pointerId)) end(e); });
+      // no finger left on the screen at all -> nothing can be pressed any more
+      const noTouches = (e) => { if (!e.touches || e.touches.length === 0) resetPointers(); };
+      document.addEventListener('touchend', noTouches, { passive: true });
+      document.addEventListener('touchcancel', noTouches, { passive: true });
+      window.addEventListener('blur', resetPointers);
+      document.addEventListener('visibilitychange', resetPointers);
       el.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse' && hoverCb) hoverCb(-1); });
       el.addEventListener('wheel', (e) => {
         e.preventDefault();
