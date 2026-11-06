@@ -24,8 +24,8 @@
     --bg: #1e293b;
     --board: #2563eb;
     --slot: #0f172a;
-    --p1: #ef4444;
-    --p2: #eab308;
+    --p1: #ff4fa3;
+    --p2: #3df2d8;
     --text: #f1f5f9;
     --accent: #38bdf8;
   }
@@ -899,8 +899,8 @@
     position: relative;
     transition: transform 0.15s ease;
   }
-  .cell.p1 { background: var(--p1); box-shadow: 0 0 10px rgba(239,68,68,0.7); }
-  .cell.p2 { background: var(--p2); box-shadow: 0 0 10px rgba(234,179,8,0.7); }
+  .cell.p1 { background: var(--p1); box-shadow: 0 0 10px rgba(255,79,163,0.7); }
+  .cell.p2 { background: var(--p2); box-shadow: 0 0 10px rgba(61,242,216,0.7); }
   .cell.drop {
     /* Purely cosmetic — game state already updates instantly on click,
        so this playing out slowly never blocks the next move. */
@@ -1088,8 +1088,8 @@
       <button id="titleBtn">タイトルに戻る</button>
     </div>
     <div id="score">
-      <span id="score1">プレイヤー1（赤）: 0勝</span>
-      <span id="score2">プレイヤー2（黄）: 0勝</span>
+      <span id="score1">プレイヤー1（ピンク）: 0勝</span>
+      <span id="score2">プレイヤー2（ミント）: 0勝</span>
     </div>
   </div>
 
@@ -1409,7 +1409,7 @@
   // time they run — but if a match is already in progress we also nudge the
   // couple of screens that only render once at match start.
   function applyKanaMode() {
-    document.getElementById('boardHint').textContent = K('ドラッグで角度を変更・ピンチで拡大 ／ マスをタップすると光が仮置き（縦の線と床の輪で位置を確認）、もう一度タップで点灯', 'ドラッグでかくどをかえる・ピンチでかくだい ／ マスをタップするとひかりがかりおき（たての線とゆかのわでいちをかくにん）、もういちどタップでてんとう');
+    document.getElementById('boardHint').textContent = K('ドラッグで角度を変更・ピンチで拡大 ／ マスをタップすると光が仮置き（縦の線と両端の輪で位置を確認）、もう一度タップで点灯', 'ドラッグでかくどをかえる・ピンチでかくだい ／ マスをタップするとひかりがかりおき（たての線とりょうはしのわでいちをかくにん）、もういちどタップでてんとう');
     document.getElementById('titlePrefix').textContent = K('黄昏のフォー・イン・ア・', 'たそがれのフォー・イン・ア・');
     document.getElementById('titleSubtitle').textContent = K('遊び方を選んでください', 'あそびかたをえらんでください');
     document.getElementById('playerNameLabel').textContent = K('プレイヤー名', 'プレイヤーめい');
@@ -1450,7 +1450,7 @@
       if (mode === 'pvp') {
         modeLabelEl.textContent = K('対人戦モード', 'たいじんせんモード');
       } else if (mode === 'online' && online) {
-        modeLabelEl.textContent = `${K('オンライン対戦', 'オンラインたいせん')}（${K('部屋', 'へや')}: ${online.code}） ／ ${K('あなたは', 'あなたは')}${online.myPlayer === 1 ? K('赤', 'あか') : K('黄', 'き')}`;
+        modeLabelEl.textContent = `${K('オンライン対戦', 'オンラインたいせん')}（${K('部屋', 'へや')}: ${online.code}） ／ ${K('あなたは', 'あなたは')}${online.myPlayer === 1 ? K('ピンク', 'ぴんく') : K('ミント', 'みんと')}`;
       }
       if (typeof currentPlayer !== 'undefined' && !gameOver) updateStatus();
       updateScoreboard();
@@ -2342,7 +2342,7 @@
     document.getElementById('resultNote').textContent = '';
     setCharBackground(null);
     SoundMgr.playTrack('game');
-    modeLabelEl.textContent = `${K('オンライン対戦', 'オンラインたいせん')}（${K('部屋', 'へや')}: ${online.code}） ／ ${K('あなたは', 'あなたは')}${online.myPlayer === 1 ? K('赤', 'あか') : K('黄', 'き')}`
+    modeLabelEl.textContent = `${K('オンライン対戦', 'オンラインたいせん')}（${K('部屋', 'へや')}: ${online.code}） ／ ${K('あなたは', 'あなたは')}${online.myPlayer === 1 ? K('ピンク', 'ぴんく') : K('ミント', 'みんと')}`
       + (opponentStreak > 0 ? `（${K('相手は', 'あいては')}${opponentStreak}${K('連勝中', 'れんしょうちゅう')}）` : '');
 
     grid = state.grid;
@@ -2520,7 +2520,7 @@
       modeLabelEl.innerHTML = `
         <img id="opponentAvatar" src="${currentChar.img}" alt=""
              onerror="this.style.display='none'">
-        LV.${currentChar.level}/5 ${currentChar.name}（${starString(currentChar.stars)}） ／ ${K('あなたは赤', 'あなたはあか')}`;
+        LV.${currentChar.level}/5 ${currentChar.name}（${starString(currentChar.stars)}） ／ ${K('あなたはピンク', 'あなたはぴんく')}`;
       setCharBackground(currentChar);
       speechBubbleEl.classList.remove('hidden');
     } else {
@@ -3052,14 +3052,14 @@
   // — with no color suffix, since the turn indicator dot already conveys
   // that everywhere this is used.
   function player1Label() {
-    if (mode === 'pvp') return K('プレイヤー1（赤）', 'プレイヤー1（あか）');
+    if (mode === 'pvp') return K('プレイヤー1（ピンク）', 'プレイヤー1（ぴんく）');
     if (mode === 'online') return online.myPlayer === 1 ? getPlayerName() : online.opponentName;
     return getPlayerName();
   }
   function player2Label() {
-    if (mode === 'cpu') return currentChar ? currentChar.name : K('プレイヤー2（黄）', 'プレイヤー2（き）');
+    if (mode === 'cpu') return currentChar ? currentChar.name : K('プレイヤー2（ミント）', 'プレイヤー2（みんと）');
     if (mode === 'online') return online.myPlayer === 2 ? getPlayerName() : online.opponentName;
-    return K('プレイヤー2（黄）', 'プレイヤー2（き）');
+    return K('プレイヤー2（ミント）', 'プレイヤー2（みんと）');
   }
 
   function updateStatus(message) {
@@ -3392,40 +3392,47 @@
   // ---------- 3D board (three.js) ----------
   // A 4x4x4 block of glass cells, like a Rubik's cube pulled apart a little.
   // Every cell is a faint glass cube with glowing edges; a move lights the cell
-  // up from the inside (a bright core, a soft halo, the glass tinted) and
+  // up from the inside (a flickering flame, a soft halo, the glass tinted) and
   // sparks of light run around its edges. Touching lights of the same colour
   // are joined by a fizzing stream of light particles flowing between them.
   // Drag to orbit, wheel / pinch to zoom. A tap picks the EMPTY cell nearest to
   // it on screen (the nearer one wins when two overlap), shown as a pulsing
-  // ghost light. To make its depth readable the ghost has a vertical guide down
-  // to the floor with a ring there, its cell's edges blaze, and its layer
+  // ghost light. To make its depth readable the ghost has a vertical guide
+  // through its whole column with a ring at each end, its cell's edges blaze, and its layer
   // brightens while the lights in the other layers fade back.
   // Purely presentation: game state lives in `grid`; this module draws it and
   // reports which cell was picked.
   const Board3D = (() => {
     const SP = 1.35;         // pitch between neighbouring cells (all three axes)
     const CELL = 1.1;        // size of one glass cube
-    const COLORS = { 1: 0xff4d5a, 2: 0xffd23f };
+    const COLORS = { 1: 0xff4fa3, 2: 0x3df2d8 };   // pink and mint
     const EDGE_BASE = 0x8fb4ff;
     const PICK_RADIUS = 0.1;    // of the view width: how near a tap must be to a cell
 
     let host = null, renderer = null, scene = null, camera = null;
     let ready = false, running = false, rafId = 0, resizeObs = null;
-    const cells = [];           // 64 x { faceMat, edgeMat, edgeBase, core, glow, runners, player, t0, win, m }
+    const cells = [];           // 64 x { faceMat, edgeMat, edgeBase, flame, glow, runners, player, t0, win, m }
     const bridges = [];         // { a, b, player, win, bright }
     const flows = {};           // particle streams: flows[1], flows[2] (per player) and flows.gold (the winning line)
     const occupied = new Set();
     let ghostCell = -1, ghostPlayer = 1;
-    let ghostCore = null, ghostGlow = null, ghostRunners = null, guide = null, ring = null;
-    let glowTex = null;
+    let ghostFlame = null, ghostGlow = null, ghostRunners = null, guide = null, rings = null;
+    let glowTex = null, flameTex = null;
     let dimmed = false;
     // one closed walk along 8 of a cube's 12 edges; sparks of light run around it
     const CYC = [[-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1], [-1, 1, 1], [1, 1, 1], [1, -1, 1], [-1, -1, 1]];
-    const RUN_SCALE = [0.6, 0.42, 0.28], RUN_FADE = [1, 0.55, 0.25];
+    // a thin, slow spark with a long fading tail of 6 tiny glows
+    const RUN_SCALE = [0.34, 0.27, 0.21, 0.16, 0.12, 0.09], RUN_FADE = [1, 0.7, 0.48, 0.3, 0.17, 0.08], RUN_STEP = 0.13;
+    // the flame: three stacked tongues, wide and dim outside, narrow and white-hot inside
+    const FLAME = [
+      { w: 0.68, h: 0.72, mix: 0.0, op: 0.8 },
+      { w: 0.44, h: 0.54, mix: 0.4, op: 0.9 },
+      { w: 0.24, h: 0.33, mix: 0.85, op: 1 },
+    ];
     let autoOrbit = false;   // after a win the camera drifts around so the winning line can be seen from the side
     let tapCb = null, hoverCb = null;
     const cam = { theta: 0.62, phi: 0.95, dist: 17 };
-    const target = { x: 0, y: 2.8, z: 0 };
+    const target = { x: 0, y: 0.8 + 1.5 * SP, z: 0 };   // the middle of the block
     let tA, upVec, tmpColor, white;   // scratch objects, created once THREE is known to be loaded
     const cellPosArr = [];            // 64 cell centres, built once
 
@@ -3441,7 +3448,8 @@
     }
 
     function applyCamera() {
-      cam.phi = Math.max(0.15, Math.min(1.5, cam.phi));
+      // full sphere of viewpoints: round the side, over the top, and underneath
+      cam.phi = Math.max(0.06, Math.min(Math.PI - 0.06, cam.phi));
       cam.dist = Math.max(8, Math.min(30, cam.dist));
       const sp = Math.sin(cam.phi);
       camera.position.set(
@@ -3476,10 +3484,117 @@
       return s;
     }
 
+    // a soft teardrop (round at the bottom, pointed at the top), white, tinted per use
+    function makeFlameTexture() {
+      const W = 96, H = 160;
+      const c = document.createElement('canvas');
+      c.width = W; c.height = H;
+      const g = c.getContext('2d');
+      const img = g.createImageData(W, H);
+      for (let py = 0; py < H; py++) {
+        const v = 1 - (py + 0.5) / H;                       // 0 at the bottom, 1 at the tip
+        const hw = 0.46 * Math.pow(1 - v, 0.85) * Math.min(1, Math.sqrt(v) * 4);
+        for (let px = 0; px < W; px++) {
+          const x = (px + 0.5) / W - 0.5;
+          const dx = hw > 0 ? Math.abs(x) / hw : 2;
+          let a = 0;
+          if (dx < 1) a = Math.pow(1 - dx * dx, 1.4) * (1 - Math.pow(v, 2.2)) * (0.55 + 0.45 * (1 - v));
+          const i = (py * W + px) * 4;
+          img.data[i] = img.data[i + 1] = img.data[i + 2] = 255;
+          img.data[i + 3] = Math.round(255 * Math.min(1, a));
+        }
+      }
+      g.putImageData(img, 0, 0);
+      return new THREE.CanvasTexture(c);
+    }
+    function makeFlame() {
+      return FLAME.map(() => {
+        const s = new THREE.Sprite(new THREE.SpriteMaterial({
+          map: flameTex, color: 0xffffff, transparent: true, opacity: 1,
+          blending: THREE.AdditiveBlending, depthWrite: false,
+        }));
+        s.visible = false;
+        scene.add(s);
+        return s;
+      });
+    }
+    function setFlameColor(flame, player) {
+      flame.forEach((s, j) => s.material.color.copy(lightColor(player, FLAME[j].mix)));
+    }
+    function setFlameVisible(flame, v) { flame.forEach((s) => { s.visible = v; }); }
+    // flicker one flame: size `k`, brightness `op`, time `t`, a per-flame phase `ph`
+    function animateFlame(flame, center, t, ph, k, op) {
+      const baseY = center.y - 0.26;
+      for (let j = 0; j < FLAME.length; j++) {
+        const L = FLAME[j], s = flame[j];
+        const h = L.h * k * (1 + 0.1 * Math.sin(t * 8.3 + ph + j) + 0.06 * Math.sin(t * 13.1 + ph * 1.7 + j * 2));
+        const w = L.w * k * (1 - 0.07 * Math.sin(t * 6.1 + ph * 0.6 + j));
+        s.scale.set(w + 0.001, h + 0.001, 1);
+        s.position.set(center.x, baseY + h / 2, center.z);
+        s.material.rotation = 0.06 * Math.sin(t * 4.7 + ph + j * 1.3);
+        s.material.opacity = op * L.op;
+      }
+    }
+
+    // sparks flying off the flames: a pool of tiny glowing points that drift up, sway and fade
+    const EMBER_CAP = 360;
+    let embers = null;
+    function makeEmbers() {
+      const geo = new THREE.BufferGeometry();
+      const e = {
+        pos: new Float32Array(EMBER_CAP * 3), col: new Float32Array(EMBER_CAP * 3),
+        vel: new Float32Array(EMBER_CAP * 3), rgb: new Float32Array(EMBER_CAP * 3),
+        life: new Float32Array(EMBER_CAP), max: new Float32Array(EMBER_CAP), seed: new Float32Array(EMBER_CAP),
+        next: 0, geo,
+      };
+      geo.setAttribute('position', new THREE.BufferAttribute(e.pos, 3));
+      geo.setAttribute('color', new THREE.BufferAttribute(e.col, 3));
+      const pts = new THREE.Points(geo, new THREE.PointsMaterial({
+        size: 0.62, map: glowTex, vertexColors: true, transparent: true,
+        blending: THREE.AdditiveBlending, depthWrite: false,
+      }));
+      pts.frustumCulled = false;
+      scene.add(pts);
+      return e;
+    }
+    function spawnEmber(center, player) {
+      const e = embers, i = e.next, k = i * 3;
+      e.next = (e.next + 1) % EMBER_CAP;
+      const a = Math.random() * 6.283, r = Math.random() * 0.16;
+      e.pos[k] = center.x + Math.cos(a) * r;
+      e.pos[k + 1] = center.y - 0.05 + Math.random() * 0.25;
+      e.pos[k + 2] = center.z + Math.sin(a) * r;
+      e.vel[k] = (Math.random() - 0.5) * 0.4;
+      e.vel[k + 1] = 0.8 + Math.random() * 1.0;
+      e.vel[k + 2] = (Math.random() - 0.5) * 0.4;
+      const c = lightColor(player, 0.5 + Math.random() * 0.4);
+      e.rgb[k] = c.r; e.rgb[k + 1] = c.g; e.rgb[k + 2] = c.b;
+      e.max[i] = e.life[i] = 1.4 + Math.random() * 1.4;
+      e.seed[i] = Math.random() * 6.283;
+    }
+    function updateEmbers(dts, now) {
+      const e = embers, t = now / 1000;
+      for (let i = 0; i < EMBER_CAP; i++) {
+        const k = i * 3;
+        if (e.life[i] <= 0) { e.col[k] = e.col[k + 1] = e.col[k + 2] = 0; continue; }
+        e.life[i] -= dts;
+        if (e.life[i] <= 0) { e.col[k] = e.col[k + 1] = e.col[k + 2] = 0; continue; }
+        const u = e.life[i] / e.max[i];                      // 1 when born, 0 when it dies
+        e.vel[k + 1] *= 1 - dts * 0.45;                      // rising slows down
+        e.pos[k] += (e.vel[k] + Math.sin(t * 2.3 + e.seed[i]) * 0.22) * dts;
+        e.pos[k + 1] += e.vel[k + 1] * dts;
+        e.pos[k + 2] += (e.vel[k + 2] + Math.cos(t * 2.0 + e.seed[i]) * 0.22) * dts;
+        const b = Math.pow(u, 0.7) * (0.65 + 0.35 * Math.sin(t * 24 + e.seed[i] * 5));
+        e.col[k] = e.rgb[k] * b; e.col[k + 1] = e.rgb[k + 1] * b; e.col[k + 2] = e.rgb[k + 2] * b;
+      }
+      e.geo.attributes.position.needsUpdate = true;
+      e.geo.attributes.color.needsUpdate = true;
+    }
+
     // a spark of light with a short fading tail: 3 sprites
     function makeRunner() {
       const r = [];
-      for (let j = 0; j < 3; j++) { const s = makeGlow(); scene.add(s); r.push(s); }
+      for (let j = 0; j < RUN_SCALE.length; j++) { const s = makeGlow(); scene.add(s); r.push(s); }
       return r;
     }
     function setRunnersColor(runners, color) { runners.forEach((set) => set.forEach((s) => s.material.color.copy(color))); }
@@ -3487,8 +3602,8 @@
     // put a runner at position u (in edges) along the cube walk around `center`
     function placeRunner(set, center, u, op) {
       const h = CELL / 2;
-      for (let j = 0; j < 3; j++) {
-        const uu = (((u - j * 0.2) % 8) + 8) % 8;
+      for (let j = 0; j < RUN_SCALE.length; j++) {
+        const uu = (((u - j * RUN_STEP) % 8) + 8) % 8;
         const seg = Math.floor(uu), f = uu - seg;
         const v0 = CYC[seg], v1 = CYC[(seg + 1) % 8];
         const s = set[j];
@@ -3561,25 +3676,12 @@
       tA = new THREE.Vector3(); upVec = new THREE.Vector3(0, 1, 0);
       tmpColor = new THREE.Color(); white = new THREE.Color(0xffffff);
       glowTex = makeGlowTexture();
+      flameTex = makeFlameTexture();
 
-      // dark base under the block, with a faint pool of light
-      const base = new THREE.Mesh(
-        new THREE.BoxGeometry(SP * 4 + 1.0, 0.3, SP * 4 + 1.0),
-        new THREE.MeshBasicMaterial({ color: 0x0f172a })
-      );
-      base.position.y = -0.1;
-      scene.add(base);
-      const pool = new THREE.Sprite(new THREE.SpriteMaterial({
-        map: glowTex, color: 0x4f7bd9, transparent: true, opacity: 0.35,
-        blending: THREE.AdditiveBlending, depthWrite: false,
-      }));
-      pool.position.set(0, 0.12, 0);
-      pool.scale.setScalar(SP * 7);
-      scene.add(pool);
+      // no floor: the block floats, so it can be turned and looked at from any side
 
       const boxGeo = new THREE.BoxGeometry(CELL, CELL, CELL);
       const edgeGeo = new THREE.EdgesGeometry(boxGeo);
-      const coreGeo = new THREE.SphereGeometry(0.2, 16, 12);
       for (let i = 0; i < 64; i++) {
         const p = cellXYZ(i);
         cellPosArr.push(p);
@@ -3591,44 +3693,44 @@
         const edges = new THREE.LineSegments(edgeGeo, edgeMat);
         edges.position.copy(p);
         scene.add(edges);
-        const core = new THREE.Mesh(coreGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 1 }));
-        core.position.copy(p);
-        core.visible = false;
-        scene.add(core);
+        const flame = makeFlame();
         const glow = makeGlow();
         glow.position.copy(p);
         scene.add(glow);
         const runners = [makeRunner(), makeRunner()];
         setRunnersVisible(runners, false);
-        cells.push({ faceMat, edgeMat, edgeBase: 0.22, core, glow, runners, player: 0, t0: 0, win: false, m: 1 });
+        cells.push({ faceMat, edgeMat, edgeBase: 0.22, flame, glow, runners, player: 0, t0: 0, win: false, m: 1, ph: 0, em: 0 });
       }
       flows[1] = makeFlow(0.8, 8000);
       flows[2] = makeFlow(0.8, 8000);
       flows.gold = makeFlow(0.95, 400);
+      embers = makeEmbers();
       ghostRunners = [makeRunner(), makeRunner()];
       setRunnersVisible(ghostRunners, false);
 
       // the ghost: a pulsing light in the cell about to be played
-      ghostCore = new THREE.Mesh(coreGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9 }));
-      ghostCore.visible = false;
-      scene.add(ghostCore);
+      ghostFlame = makeFlame();
       ghostGlow = makeGlow();
       scene.add(ghostGlow);
-      // depth guide: a thin vertical line of light from the floor up to the ghost, and a ring on the floor
+      // depth guide: a thin vertical line of light through the ghost's whole column,
+      // with a ring at each end of it
       guide = new THREE.Mesh(
         new THREE.CylinderGeometry(0.03, 0.03, 1, 8),
         new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false })
       );
       guide.visible = false;
       scene.add(guide);
-      ring = new THREE.Mesh(
-        new THREE.RingGeometry(0.4, 0.55, 32),
-        new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false })
-      );
-      ring.rotation.x = -Math.PI / 2;
-      ring.position.y = 0.06;
-      ring.visible = false;
-      scene.add(ring);
+      rings = [];
+      for (let k = 0; k < 2; k++) {
+        const r = new THREE.Mesh(
+          new THREE.RingGeometry(0.4, 0.55, 32),
+          new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false })
+        );
+        r.rotation.x = -Math.PI / 2;
+        r.visible = false;
+        scene.add(r);
+        rings.push(r);
+      }
     }
 
     // The EMPTY cell nearest to this screen point (within PICK_RADIUS of the view
@@ -3728,7 +3830,7 @@
         let edgeCol = EDGE_BASE;
         if (lit) {
           edgeCol = lightColor(c.player, 0.1).getHex();
-          edgeOp = 0.85; faceOp = 0.2;
+          edgeOp = 1; faceOp = 0.22;
         }
         if (i === ghostCell) { edgeCol = lightColor(ghostPlayer, 0.2).getHex(); edgeOp = 1; faceOp = 0.18; }
         c.edgeMat.color.setHex(edgeCol);
@@ -3737,7 +3839,8 @@
         c.faceMat.opacity = faceOp;
         // how bright this light burns: dimmed after a win, faded when another layer is being aimed at
         c.m = dimmed ? (c.win ? 1 : 0.22) : (gl < 0 || inGl ? 1 : 0.5);
-        c.core.visible = c.glow.visible = lit;
+        setFlameVisible(c.flame, lit);
+        c.glow.visible = lit;
         setRunnersVisible(c.runners, lit);
       }
       bridges.forEach((br) => {
@@ -3778,9 +3881,12 @@
       return true;
     }
 
+    let lastTick = 0, ghostPh = 0;
     function tick(now) {
       if (!running) return;
       rafId = requestAnimationFrame(tick);
+      const dts = Math.min(0.05, Math.max(0, (now - lastTick) / 1000));
+      lastTick = now;
       for (let i = 0; i < 64; i++) {
         const c = cells[i];
         if (!c.player) continue;
@@ -3790,14 +3896,19 @@
         const flash = k < 1 ? Math.sin(k * Math.PI) * 1.1 : 0;
         const breathe = 1 + 0.06 * Math.sin(now / 520 + i);
         const win = c.win ? 1.35 + 0.25 * Math.sin(now / 170) : 1;
-        c.glow.scale.setScalar(2.5 * (ease + flash) * breathe * win + 0.001);
-        c.glow.material.opacity = Math.min(1, c.m * (0.8 + 0.2 * flash));
-        c.core.scale.setScalar((ease + flash * 0.6) * breathe * (c.win ? 1.25 : 1) + 0.001);
-        c.core.material.opacity = c.m;
+        c.glow.scale.setScalar(2.9 * (ease + flash) * breathe * win + 0.001);
+        c.glow.material.opacity = Math.min(1, c.m * (0.85 + 0.2 * flash));
+        // the flame leaps up when lit, then flickers; a winning flame burns higher and faster
+        animateFlame(c.flame, cellPosArr[i], now / 1000 * (c.win ? 1.7 : 1), i * 1.3,
+          (ease + flash * 0.5) * (c.win ? 1.25 : 0.95), c.m);
         // sparks running around the cell's edges (faster for the winning line, and while igniting)
-        const rate = c.win ? 4.5 : (k < 1 ? 3.5 : 1.4);
-        const u = now / 1000 * rate + i * 0.37;
-        const sp = c.m * 0.95;
+        const rate = c.win ? 1.6 : (k < 1 ? 1.2 : 0.5);
+        c.ph += dts * rate;   // accumulate, so a change of speed never makes the spark jump
+        // now and then a spark flies off (a steady shower from the winning line)
+        c.em += dts * (c.win ? 4 : 0.45) * c.m;
+        while (c.em >= 1) { c.em -= 1; spawnEmber(cellPosArr[i], c.player); }
+        const u = c.ph + i * 0.37;
+        const sp = c.m;
         placeRunner(c.runners[0], cellPosArr[i], u, sp);
         placeRunner(c.runners[1], cellPosArr[i], u + 4, sp);
       }
@@ -3810,13 +3921,15 @@
       }
       if (ghostCell >= 0) {
         const s = 1 + 0.14 * Math.sin(now / 200);
-        ghostGlow.scale.setScalar(2.2 * s);
-        ghostGlow.material.opacity = 0.55 + 0.25 * Math.sin(now / 200);
-        ghostCore.scale.setScalar(s);
-        const u = now / 1000 * 3;
+        ghostGlow.scale.setScalar(2.5 * s);
+        ghostGlow.material.opacity = 0.6 + 0.25 * Math.sin(now / 200);
+        animateFlame(ghostFlame, cellPosArr[ghostCell], now / 1000, 0.7, 0.8 * s, 0.75);
+        ghostPh += dts * 1.0;
+        const u = ghostPh;
         placeRunner(ghostRunners[0], cellPosArr[ghostCell], u, 1);
         placeRunner(ghostRunners[1], cellPosArr[ghostCell], u + 4, 1);
       }
+      updateEmbers(dts, now);
       updateFlow(flows[1], now);
       updateFlow(flows[2], now);
       if (flows.gold.defs.length) updateFlow(flows.gold, now);
@@ -3826,8 +3939,10 @@
 
     function hideGhost() {
       ghostCell = -1;
-      if (ghostCore) {
-        ghostCore.visible = ghostGlow.visible = guide.visible = ring.visible = false;
+      if (ghostFlame) {
+        setFlameVisible(ghostFlame, false);
+        ghostGlow.visible = guide.visible = false;
+        rings.forEach((r) => { r.visible = false; });
         setRunnersVisible(ghostRunners, false);
       }
     }
@@ -3848,11 +3963,12 @@
         if (!ready) return;
         occupied.clear();
         cells.forEach((c) => {
-          c.player = 0; c.win = false; c.m = 1; c.core.visible = c.glow.visible = false;
+          c.player = 0; c.win = false; c.m = 1; setFlameVisible(c.flame, false); c.glow.visible = false;
           setRunnersVisible(c.runners, false);
         });
         bridges.length = 0;
         clearFlow(flows[1]); clearFlow(flows[2]); clearFlow(flows.gold);
+        embers.life.fill(0);
         dimmed = false;
         autoOrbit = false;
         hideGhost();
@@ -3868,8 +3984,10 @@
         c.player = player;
         c.t0 = performance.now();
         c.glow.material.color.copy(lightColor(player, 0.0));
-        c.core.material.color.copy(lightColor(player, 0.6));
+        setFlameColor(c.flame, player);
         setRunnersColor(c.runners, lightColor(player, 0.55));
+        c.em = Math.random();
+        for (let n = 0; n < 16; n++) spawnEmber(cellPosArr[idx], player);   // a burst of sparks as it ignites
         occupied.add(idx);
         // join every touching light of the same colour (all 26 directions)
         const l = layerOf(idx), y = ((idx % 16) / 4) | 0, x = idx % 4;
@@ -3904,28 +4022,32 @@
       },
       // the pulsing ghost light in a cell, with its depth guide (idx < 0 hides it)
       setGhost(idx, player) {
-        if (!ready || !ghostCore) return;
+        if (!ready || !ghostFlame) return;
         if (idx < 0) { hideGhost(); refreshView(); return; }
         ghostCell = idx;
         ghostPlayer = player;
         const p = cellXYZ(idx);
-        ghostCore.position.copy(p);
         ghostGlow.position.copy(p);
-        ghostCore.material.color.copy(lightColor(player, 0.6));
+        setFlameColor(ghostFlame, player);
         ghostGlow.material.color.copy(lightColor(player, 0.0));
-        ghostCore.visible = ghostGlow.visible = true;
+        setFlameVisible(ghostFlame, true);
+        ghostGlow.visible = true;
         setRunnersColor(ghostRunners, lightColor(player, 0.55));
         setRunnersVisible(ghostRunners, true);
         guide.material.color.copy(lightColor(player, 0.3));
-        guide.position.set(p.x, p.y / 2, p.z);
-        guide.scale.set(1, p.y, 1);
+        // the whole column through this cell: from just below its lowest cell to just above its highest
+        const yLo = levelY(0) - CELL / 2 - 0.1, yHi = levelY(3) + CELL / 2 + 0.1;
+        guide.position.set(p.x, (yLo + yHi) / 2, p.z);
+        guide.scale.set(1, yHi - yLo, 1);
         guide.visible = true;
-        ring.material.color.copy(lightColor(player, 0.3));
-        ring.position.x = p.x; ring.position.z = p.z;
-        ring.visible = true;
+        rings.forEach((r, k) => {
+          r.material.color.copy(lightColor(player, 0.3));
+          r.position.set(p.x, k === 0 ? yLo : yHi, p.z);
+          r.visible = true;
+        });
         refreshView();
       },
-      clearGhost() { if (ghostCore) { hideGhost(); if (ready) refreshView(); } },
+      clearGhost() { if (ghostFlame) { hideGhost(); if (ready) refreshView(); } },
     };
   })();
 
