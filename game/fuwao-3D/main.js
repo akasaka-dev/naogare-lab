@@ -628,6 +628,7 @@ if (new URLSearchParams(location.search).has('debug')) {
     get residentAreas() { return residents.map((r) => `${r.id} ${r.kindName} → 区画${areaNumber(areaAt(r.home.x, r.home.z))}`); },
     retreat() { if (!retreat && !bossGone) startRetreat(); },
     get retreating() { return !!retreat; }, get bossGone() { return bossGone; },
+    attackTown, get quake() { return quake; },
     get spots() { return ruinAreas.map((a, i) => [AREA_NAMES[a.name], areaGauge[i].spots.map((p) => [+p.x.toFixed(1), +p.z.toFixed(1)])]); },
     get helps() { return helps.map((h) => [AREA_NAMES[ruinAreas[h.area].name], Math.round(h.dist || 0)]); },
     setFuel(v) { fuel = v; }, setBody(v) { body = v; }, raiseFuelMax,
@@ -702,7 +703,7 @@ function placeBoss(gltf) {
     bossIdleTime = 0;
   });
 }
-function updateBoss(dt) {
+function updateBoss(dt, active) {
   if (!bossMixer) return;
   if (bossActions && !bossAttack && !retreat && (bossIdleTime += dt) > BOSS_IDLE_TIME) {
     const next = bossActions[bossNext];
@@ -712,12 +713,55 @@ function updateBoss(dt) {
       bossActions.idle.crossFadeTo(next, BOSS_FADE, false);
     }
     bossNext = bossNext === 'attack_slam' ? 'attack_drill' : 'attack_slam';
+    bossHitDone = false;
   }
   bossMixer.update(dt);
+  // 町に着いているときは、攻撃が当たった瞬間に町が攻撃される
+  if (bossAttack && !bossHitDone && bossAttack.time >= bossAttack.getClip().duration * BOSS_HIT_AT) {
+    bossHitDone = true;
+    if (active && boss && !bossGone && !retreat && !talk.active && bossDistance() <= BOSS_STOP + 1) attackTown();
+  }
+  quake *= Math.exp(-QUAKE_DAMP * dt);
+}
+
+// ---- ボスが町を攻撃する ----
+// 画面がゆれて、ふちが赤く光り、倒した小バイ菌が 1 匹よみがえる（町の復興度が下がる）。
+// よみがえるのは、まだ元に戻っていない区画で倒した小バイ菌のうち、ボスにいちばん近いもの。元に戻った区画はそのまま
+const BOSS_HIT_AT = 0.45;      // 攻撃のアニメーションのこの割合のところで当たる
+const QUAKE_SHAKE = 0.35;      // 町が攻撃されたときのカメラのゆれ（m）
+const QUAKE_DAMP = 2.5;        // ゆれがおさまる速さ
+let bossHitDone = true, quake = 0;
+const hurtEl = document.getElementById('hurt');
+function attackTown() {
+  quake = 1;
+  hurtEl.classList.remove('on');
+  void hurtEl.offsetWidth;   // アニメーションを最初から
+  hurtEl.classList.add('on');
+  const area = reviveGerm();
+  showToast(area >= 0 ? `ボスの攻撃！ ${AREA_NAMES[ruinAreas[area].name]}の小バイ菌がよみがえった` : 'ボスが町を攻撃した！');
+}
+function reviveGerm() {
+  let best = null, bestD = Infinity;
+  areaGauge.forEach((gauge, i) => {
+    if (gauge.done) return;
+    gauge.germs.forEach((g, k) => {
+      if (!germGone(g)) return;
+      const d = Math.hypot(g.spot.x - boss.position.x, g.spot.z - boss.position.z);
+      if (d < bestD) { best = [i, k]; bestD = d; }
+    });
+  });
+  if (!best) return -1;
+  const [i, k] = best, gauge = areaGauge[i], old = gauge.germs[k];
+  const g = spawnGerm(old.spot.x, old.spot.z);
+  g.area = i;
+  g.spot = old.spot;
+  gauge.germs[k] = g;
+  if (!helps.some((h) => h.area === i) && helps.length < HELP_MAX) addHelp(i);
+  return i;
 }
 
 // ---- ボスが町へ近づく・ジェットで体当たりして押し戻す ----
-// ボスは町（BOSS_TARGET）へ向かって少しずつ進み、BOSS_STOP まで来たらそこで止まる（今は着いても何も起きない）。
+// ボスは町（BOSS_TARGET）へ向かって少しずつ進み、BOSS_STOP まで来たらそこで止まり、攻撃のたびに町を攻撃する（attackTown）。
 // ジェット噴射中に速い勢いでトゲの球（GB_Hit_Spikes）にぶつかると体当たり：ボスを町と反対へ押し戻し、
 // ロボははね返される。ゆっくりぶつかったときや歩いているときは、ボスを通り抜けないように押し出すだけ
 const BOSS_TARGET = new THREE.Vector3(0, 0, 12);   // 町の真ん中（広場のあたり）
@@ -1354,13 +1398,18 @@ function startHelp() {
   for (const p of gauge.spots) {
     const g = spawnGerm(p.x, p.z);
     g.area = best;
+    g.spot = p;
     gauge.germs.push(g);
   }
+  addHelp(best);
+  return true;
+}
+function addHelp(best) {
+  const gauge = areaGauge[best];
   const used = helps.map((h) => h.slot);
   const slot = [0, 1, 2].find((s) => !used.includes(s));
   const caller = gauge.residents[Math.floor(Math.random() * gauge.residents.length)] || null;
   helps.push({ area: best, slot, caller, t: 0, arrow: makeArrow(HELP_COLORS[slot]), icon: makeHelpIcon(HELP_COLORS[slot]) });
-  return true;
 }
 // 呼んでいる区画の、まだ倒していない小バイ菌のうち、いちばん近いもの
 function helpTarget(h) {
@@ -3166,6 +3215,13 @@ function updateCamera() {
     camera.position.x += Math.sin(t * 1.7) * RECOIL_SHAKE * shake;
     camera.position.y += Math.sin(t * 2.3 + 1) * RECOIL_SHAKE * shake;
   }
+  // ボスが町を攻撃したときの大きなゆれ
+  if (quake > 0.01) {
+    const t = time.value * 60;
+    camera.position.x += Math.sin(t * 1.3) * QUAKE_SHAKE * quake;
+    camera.position.y += Math.sin(t * 1.9 + 2) * QUAKE_SHAKE * quake;
+    camera.position.z += Math.sin(t * 1.1 + 4) * QUAKE_SHAKE * quake * 0.6;
+  }
   sky.position.copy(camera.position);
   followShadow(feet);
 }
@@ -3179,7 +3235,7 @@ function tick(dt, active) {
   daytime.update(active ? dt : 0, active && keys.has('KeyN'));
   if (windmill) windmill.rotation.z += WINDMILL_SPEED * dt;
   updateRuin(dt);
-  updateBoss(dt);
+  updateBoss(dt, active);
   if (active) moveBoss(dt);   // 一時停止中は近づかない
   updateBreads(dt);
   updateResidents(dt);
