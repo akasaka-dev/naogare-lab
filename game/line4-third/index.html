@@ -15,7 +15,7 @@
   Created by naogare — https://www.youtube.com/@NMLabo
 -->
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="author" content="naogare">
 <title>LineUp4 3D - 立体4個並べ対戦ゲーム</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -30,6 +30,10 @@
     --accent: #38bdf8;
   }
   * { box-sizing: border-box; }
+  /* Game UI: no text selection, no long-press callout/search, no double-tap or pinch page zoom. */
+  html, body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-text-size-adjust: 100%; touch-action: manipulation; overscroll-behavior: none; }
+  input, textarea { -webkit-user-select: text; user-select: text; }
+  img, canvas { -webkit-user-drag: none; -webkit-touch-callout: none; }
   body {
     margin: 0;
     min-height: 100vh;
@@ -869,30 +873,6 @@
   }
   #board:active { cursor: grabbing; }
   #board canvas { display: block; width: 100%; height: 100%; touch-action: none; }
-  /* height selector for the level plane (right edge of the 3D view) */
-  #levelCtl {
-    position: absolute;
-    right: 8px;
-    top: 50%;
-    transform: translateY(-50%);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 6px;
-    z-index: 2;
-  }
-  #levelCtl .lvl-label { font-size: 0.65rem; opacity: 0.75; margin-bottom: 2px; }
-  #levelCtl button {
-    width: 36px;
-    height: 36px;
-    padding: 0;
-    border-radius: 50%;
-    background: rgba(15, 23, 42, 0.78);
-    color: #cbd5e1;
-    border: 1.5px solid rgba(148, 163, 184, 0.55);
-    font-size: 1rem;
-  }
-  #levelCtl button.active { background: #5fb4ff; color: #0f172a; border-color: #5fb4ff; }
   .board-hint {
     margin: 8px 0 0;
     font-size: 0.78rem;
@@ -1075,7 +1055,6 @@
     <div id="turnTimeoutWarning" class="hidden"></div>
     <div id="board-wrap">
       <div id="board"></div>
-      <div id="levelCtl"><span class="lvl-label" id="levelLabel"></span></div>
     </div>
     <p class="board-hint" id="boardHint"></p>
     <div id="onlineEmoteBar" class="hidden">
@@ -1430,8 +1409,7 @@
   // time they run — but if a match is already in progress we also nudge the
   // couple of screens that only render once at match start.
   function applyKanaMode() {
-    document.getElementById('boardHint').textContent = K('ドラッグで角度を変更 ／ 右の数字で高さを選び、青い面のマスをタップして置く（スマホは2回タップで確定）', 'ドラッグでかくどをかえる ／ みぎのすうじでたかさをえらび、あおいめんのマスをタップしておく（スマホは2かいタップでかくてい）');
-    document.getElementById('levelLabel').textContent = K('高さ', 'たかさ');
+    document.getElementById('boardHint').textContent = K('ドラッグで角度を変更 ／ 板をタップすると引き出され、その板のマスをタップして置く（スマホは2回タップで確定）', 'ドラッグでかくどをかえる ／ いたをタップするとひきだされ、そのいたのマスをタップしておく（スマホは2かいタップでかくてい）');
     document.getElementById('titlePrefix').textContent = K('黄昏のフォー・イン・ア・', 'たそがれのフォー・イン・ア・');
     document.getElementById('titleSubtitle').textContent = K('遊び方を選んでください', 'あそびかたをえらんでください');
     document.getElementById('playerNameLabel').textContent = K('プレイヤー名', 'プレイヤーめい');
@@ -3412,10 +3390,11 @@
   }
 
   // ---------- 3D board (three.js) ----------
-  // Free-placement 4x4x4 lattice. Drag to orbit, wheel / pinch to zoom. A
-  // translucent "level plane" marks the height you are placing on (switch it
-  // with the level buttons); tapping the plane picks one cell with no depth
-  // ambiguity. Balls of the same colour that touch (any of the 26 neighbour
+  // Free-placement 4x4x4 lattice. Drag to orbit, wheel / pinch to zoom. The
+  // board is four stacked layers; the active layer is pulled out toward the
+  // viewer ("drawer") and the layers above it lift away, so its 4x4 cells are
+  // in the clear. Tapping another layer pulls that one out instead; tapping a
+  // cell of the active layer picks it with no depth ambiguity. Balls of the same colour that touch (any of the 26 neighbour
   // directions) are fused with a bridge so the shapes read as solid structures.
   // Purely presentation: game state lives in `grid`; this module draws it and
   // reports which cell was picked.
@@ -3425,6 +3404,8 @@
     const COLORS = { 1: 0xef4444, 2: 0xeab308 };
     const PLANE_COLOR = 0x5fb4ff;
     const OFF_LEVEL_OPACITY = 0.42;
+    const LIFT = 1.7;        // layers above the active one rise by this much
+    const SLIDE = 1.4;       // the active layer slides out toward the camera by this much
 
     let host = null, renderer = null, scene = null, camera = null, raycaster = null;
     let ready = false, running = false, rafId = 0, resizeObs = null;
@@ -3432,13 +3413,18 @@
     const balls = new Map();    // cell idx -> { mesh, player }
     const bridges = [];         // { mesh, a, b, player }
     const markers = [];         // 64 small dots showing every cell
-    const falling = [];         // balls still dropping into view: { mesh, t0, from, to }
+    const falling = [];         // balls still dropping into view: { ball, t0 }
     let ghost = null, hoverCell = -1;
-    let plane = null;
+    const planes = [];          // one translucent plate (slab + grid) per layer
+    const lift = [0, 0, 0, 0], slide = [0, 0, 0, 0];   // animated layer offsets
+    let collapsed = false;      // after a win every layer goes back into the stack
+    let layoutDirty = true, lastTheta = null, lastT = 0;
+    let ghostCell = -1;
+    let tA = null, tB = null, tC = null, upVec = null;   // scratch vectors (THREE may not be loaded yet)
     let winMeshes = [], winRod = null, dimmed = false;
     let autoOrbit = false;   // after a win the camera drifts around so the winning line can be seen from the side
-    let tapCb = null, hoverCb = null, levelCb = null;
-    const cam = { theta: 0.62, phi: 0.95, dist: 20 };
+    let tapCb = null, hoverCb = null, levelCb = null, layerCb = null;
+    const cam = { theta: 0.62, phi: 0.95, dist: 23 };
     const target = { x: 0, y: 3.3, z: 0 };
 
     function cellXYZ(idx) {
@@ -3446,6 +3432,27 @@
       return new THREE.Vector3((x - 1.5) * SP, 0.8 + l * SP, (y - 1.5) * SP);
     }
     function levelY(l) { return 0.8 + l * SP; }
+    // current offset of layer l (lift + the slide toward the camera)
+    function layerOff(l, out) {
+      const sl = slide[l] * SLIDE;
+      return out.set(Math.sin(cam.theta) * sl, lift[l], Math.cos(cam.theta) * sl);
+    }
+    // where cell idx is drawn right now
+    function cellPos(idx, out) {
+      const l = (idx / 16) | 0, y = ((idx % 16) / 4) | 0, x = idx % 4;
+      layerOff(l, out);
+      out.x += (x - 1.5) * SP;
+      out.y += levelY(l);
+      out.z += (y - 1.5) * SP;
+      return out;
+    }
+    function snapLayers() {
+      for (let l = 0; l < 4; l++) {
+        lift[l] = (!collapsed && l > level) ? LIFT : 0;
+        slide[l] = (!collapsed && l === level) ? 1 : 0;
+      }
+      layoutDirty = true;
+    }
 
     function applyCamera() {
       cam.phi = Math.max(0.15, Math.min(1.5, cam.phi));
@@ -3484,13 +3491,7 @@
       );
       plate.position.y = -0.15;
       scene.add(plate);
-      const side = SP * 4 + 0.2;
-      const frame = new THREE.LineSegments(
-        new THREE.EdgesGeometry(new THREE.BoxGeometry(side, side, side)),
-        new THREE.LineBasicMaterial({ color: 0x64748b, transparent: true, opacity: 0.55 })
-      );
-      frame.position.y = 0.8 + 1.5 * SP;
-      scene.add(frame);
+      tA = new THREE.Vector3(); tB = new THREE.Vector3(); tC = new THREE.Vector3(); upVec = new THREE.Vector3(0, 1, 0);
 
       // a faint dot at every cell so the empty lattice is visible
       for (let i = 0; i < 64; i++) {
@@ -3503,19 +3504,23 @@
         markers.push(m);
       }
 
-      // the level plane: translucent slab + grid lines at the active height
-      plane = new THREE.Group();
-      const slab = new THREE.Mesh(
-        new THREE.PlaneGeometry(SP * 4, SP * 4),
-        new THREE.MeshBasicMaterial({ color: PLANE_COLOR, transparent: true, opacity: 0.13, side: THREE.DoubleSide, depthWrite: false })
-      );
-      slab.rotation.x = -Math.PI / 2;
-      plane.add(slab);
-      const grid = new THREE.GridHelper(SP * 4, 4, PLANE_COLOR, PLANE_COLOR);
-      grid.material.transparent = true;
-      grid.material.opacity = 0.5;
-      plane.add(grid);
-      scene.add(plane);
+      // one translucent plate per layer (the active one is drawn brighter)
+      for (let l = 0; l < 4; l++) {
+        const g = new THREE.Group();
+        const slab = new THREE.Mesh(
+          new THREE.PlaneGeometry(SP * 4, SP * 4),
+          new THREE.MeshBasicMaterial({ color: PLANE_COLOR, transparent: true, opacity: 0.06, side: THREE.DoubleSide, depthWrite: false })
+        );
+        slab.rotation.x = -Math.PI / 2;
+        g.add(slab);
+        const grid = new THREE.GridHelper(SP * 4, 4, PLANE_COLOR, PLANE_COLOR);
+        grid.material.transparent = true;
+        grid.material.opacity = 0.25;
+        g.add(grid);
+        g.userData = { slab, grid };
+        scene.add(g);
+        planes.push(g);
+      }
 
       ghost = new THREE.Mesh(
         new THREE.SphereGeometry(BALL_R, 24, 18),
@@ -3526,26 +3531,48 @@
       raycaster = new THREE.Raycaster();
     }
 
-    // Which cell of the ACTIVE level is under this screen point? The ray is
-    // intersected with the level plane itself, so there is exactly one answer.
-    function pickCell(clientX, clientY) {
+    // The ray under a screen point, intersected with layer l's plate (where the
+    // plate currently is, drawer offset included): { t, px, pz } in plate coordinates.
+    function plateHit(l, clientX, clientY) {
       const rect = renderer.domElement.getBoundingClientRect();
       raycaster.setFromCamera(new THREE.Vector2(
         ((clientX - rect.left) / rect.width) * 2 - 1,
         -((clientY - rect.top) / rect.height) * 2 + 1
       ), camera);
       const o = raycaster.ray.origin, d = raycaster.ray.direction;
-      if (Math.abs(d.y) < 1e-4) return -1;
-      const t = (levelY(level) - o.y) / d.y;
-      if (t <= 0) return -1;
-      const cx = Math.round((o.x + d.x * t) / SP + 1.5);
-      const cz = Math.round((o.z + d.z * t) / SP + 1.5);
+      if (Math.abs(d.y) < 1e-4) return null;
+      layerOff(l, tA);
+      const t = (levelY(l) + tA.y - o.y) / d.y;
+      if (t <= 0) return null;
+      return { t, px: o.x + d.x * t - tA.x, pz: o.z + d.z * t - tA.z };
+    }
+    // Which cell of the ACTIVE layer is under this screen point? Exactly one answer.
+    function pickCell(clientX, clientY) {
+      if (collapsed) return -1;
+      const h = plateHit(level, clientX, clientY);
+      if (!h) return -1;
+      const cx = Math.round(h.px / SP + 1.5), cz = Math.round(h.pz / SP + 1.5);
       if (cx < 0 || cx > 3 || cz < 0 || cz > 3) return -1;
       return level * 16 + cz * 4 + cx;
+    }
+    // Which OTHER layer's plate is under this screen point (the nearest one)? -1 if none.
+    function pickLayer(clientX, clientY) {
+      if (collapsed) return -1;
+      let best = -1, bestT = Infinity;
+      for (let l = 0; l < 4; l++) {
+        if (l === level) continue;
+        const h = plateHit(l, clientX, clientY);
+        if (h && Math.abs(h.px) <= 2 * SP && Math.abs(h.pz) <= 2 * SP && h.t < bestT) { best = l; bestT = h.t; }
+      }
+      return best;
     }
 
     function setupInput(el) {
       const pointers = new Map();
+      // long-press menu / text selection must never open on the 3D view
+      el.addEventListener('contextmenu', (e) => e.preventDefault());
+      el.addEventListener('selectstart', (e) => e.preventDefault());
+      el.addEventListener('dragstart', (e) => e.preventDefault());
       let down = null, pinch = null;
       el.addEventListener('pointerdown', (e) => {
         autoOrbit = false;
@@ -3585,7 +3612,15 @@
         const wasTap = down && !down.moved && pointers.size === 1 && performance.now() - down.t < 700 && e.type === 'pointerup';
         pointers.delete(e.pointerId);
         if (pointers.size < 2) pinch = null;
-        if (wasTap && tapCb) tapCb(pickCell(e.clientX, e.clientY), e.pointerType);
+        if (wasTap) {
+          const c = pickCell(e.clientX, e.clientY);
+          if (c >= 0) { if (tapCb) tapCb(c, e.pointerType); }
+          else {
+            const l = pickLayer(e.clientX, e.clientY);
+            if (l >= 0) { if (layerCb) layerCb(l); }
+            else if (tapCb) tapCb(-1, e.pointerType);
+          }
+        }
         if (pointers.size === 0) down = null;
       };
       el.addEventListener('pointerup', end);
@@ -3609,7 +3644,13 @@
 
     // Re-apply everything that depends on the active level / occupancy.
     function refreshView() {
-      plane.position.y = levelY(level);
+      layoutDirty = true;
+      planes.forEach((g, l) => {
+        const on = l === level;
+        g.visible = !collapsed;
+        g.userData.slab.material.opacity = on ? 0.16 : 0.06;
+        g.userData.grid.material.opacity = on ? 0.6 : 0.25;
+      });
       markers.forEach((m, i) => {
         const occupied = balls.has(i);
         m.visible = !occupied;
@@ -3629,15 +3670,31 @@
       });
     }
 
+    // bridges are unit-length cylinders stretched between the two balls' current positions
+    function updateBridge(br) {
+      cellPos(br.a, tA); cellPos(br.b, tB);
+      tC.subVectors(tB, tA);
+      const len = tC.length();
+      br.mesh.position.addVectors(tA, tB).multiplyScalar(0.5);
+      br.mesh.quaternion.setFromUnitVectors(upVec, tC.normalize());
+      br.mesh.scale.y = len;
+    }
     function addBridge(a, b, player) {
-      const pa = cellXYZ(a), pb = cellXYZ(b);
-      const dir = pb.clone().sub(pa);
-      const len = dir.length();
-      const mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, len, 12, 1, true), ballMaterial(player));
-      mesh.position.copy(pa).add(pb).multiplyScalar(0.5);
-      mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
+      const mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, 1, 12, 1, true), ballMaterial(player));
       scene.add(mesh);
-      bridges.push({ mesh, a, b, player, win: false });
+      const br = { mesh, a, b, player, win: false };
+      bridges.push(br);
+      updateBridge(br);
+    }
+
+    // put everything where the current layer offsets say it belongs
+    function relayout() {
+      layoutDirty = false;
+      for (let i = 0; i < 64; i++) markers[i].position.copy(cellPos(i, tA));
+      balls.forEach((b, idx) => { cellPos(idx, tA); b.mesh.position.set(tA.x, tA.y + b.dy, tA.z); });
+      for (const br of bridges) updateBridge(br);
+      for (let l = 0; l < 4; l++) { layerOff(l, tA); planes[l].position.set(tA.x, levelY(l) + tA.y, tA.z); }
+      if (ghost && ghost.visible && ghostCell >= 0) ghost.position.copy(cellPos(ghostCell, tA));
     }
 
     function init(hostEl) {
@@ -3656,7 +3713,9 @@
       setupInput(renderer.domElement);
       ready = true;
       applyCamera();
+      snapLayers();
       refreshView();
+      relayout();
       resize();
       if (window.ResizeObserver) { resizeObs = new ResizeObserver(resize); resizeObs.observe(host); }
       else window.addEventListener('resize', resize);
@@ -3674,12 +3733,24 @@
     function tick(now) {
       if (!running) return;
       rafId = requestAnimationFrame(tick);
+      const dt = Math.min(0.05, Math.max(0.001, (now - lastT) / 1000));
+      lastT = now;
+      const kk = 1 - Math.exp(-dt / 0.05);   // layers settle in about 0.15 s
+      for (let l = 0; l < 4; l++) {
+        const tl = (!collapsed && l > level) ? LIFT : 0;
+        const ts = (!collapsed && l === level) ? 1 : 0;
+        if (lift[l] !== tl) { lift[l] += (tl - lift[l]) * kk; if (Math.abs(tl - lift[l]) < 0.004) lift[l] = tl; layoutDirty = true; }
+        if (slide[l] !== ts) { slide[l] += (ts - slide[l]) * kk; if (Math.abs(ts - slide[l]) < 0.004) slide[l] = ts; layoutDirty = true; }
+      }
+      if (cam.theta !== lastTheta) { lastTheta = cam.theta; if (slide.some((v) => v > 0)) layoutDirty = true; }
       for (let i = falling.length - 1; i >= 0; i--) {
         const f = falling[i];
         const t = Math.min(1, (now - f.t0) / 520);
-        f.mesh.position.y = fallY(f.from, f.to, t);
-        if (t >= 1) falling.splice(i, 1);
+        f.ball.dy = fallY(2.4, 0, t);
+        layoutDirty = true;
+        if (t >= 1) { f.ball.dy = 0; falling.splice(i, 1); }
       }
+      if (layoutDirty) relayout();
       if (autoOrbit) { cam.theta += 0.006; applyCamera(); }
       if (winMeshes.length) {
         const s = Math.sin(now / 160);
@@ -3697,6 +3768,7 @@
       onTap(fn) { tapCb = fn; },
       onHover(fn) { hoverCb = fn; },
       onLevelChange(fn) { levelCb = fn; },
+      onLayerTap(fn) { layerCb = fn; },
       getLevel() { return level; },
       setLevel(l) {
         level = Math.max(0, Math.min(3, l));
@@ -3722,22 +3794,25 @@
         autoOrbit = false;
         if (winRod) { scene.remove(winRod); winRod.material.dispose(); winRod = null; }
         hoverCell = -1;
+        ghostCell = -1;
         ghost.visible = false;
-        cam.theta = 0.62; cam.phi = 0.95; cam.dist = 20;
+        cam.theta = 0.62; cam.phi = 0.95; cam.dist = 23;
         level = 0;
+        collapsed = false;
         if (levelCb) levelCb(level);
         applyCamera();
+        snapLayers();
         refreshView();
+        relayout();
         resize();
       },
       placeBall(idx, player) {
         if (!ready) return;
-        const to = cellXYZ(idx);
         const mesh = new THREE.Mesh(new THREE.SphereGeometry(BALL_R, 28, 20), ballMaterial(player));
-        mesh.position.set(to.x, to.y + 2.4, to.z);
         scene.add(mesh);
-        balls.set(idx, { mesh, player });
-        falling.push({ mesh, t0: performance.now(), from: to.y + 2.4, to: to.y });
+        const ball = { mesh, player, dy: 2.4 };   // dy = height above its cell while dropping in
+        balls.set(idx, ball);
+        falling.push({ ball, t0: performance.now() });
         // fuse with every touching ball of the same colour (all 26 directions)
         const l = (idx / 16) | 0, y = ((idx % 16) / 4) | 0, x = idx % 4;
         for (let dz = -1; dz <= 1; dz++) for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
@@ -3749,11 +3824,16 @@
           if (nb && nb.player === player) addBridge(idx, nIdx, player);
         }
         refreshView();
+        relayout();
       },
       showWin(cells) {
         if (!ready) return;
         const set = new Set(cells);
         dimmed = true;
+        collapsed = true;      // push every layer back into the stack so the line reads true
+        snapLayers();
+        refreshView();
+        relayout();
         winMeshes = cells.map((c) => balls.get(c).mesh);
         winMeshes.forEach((m) => { m.material.opacity = 1; });
         bridges.forEach((br) => {
@@ -3779,13 +3859,14 @@
       setGhost(idx, player) {
         if (!ready || !ghost) return;
         hoverCell = idx;
+        ghostCell = idx;
         if (idx < 0) { ghost.visible = false; refreshView(); return; }
-        ghost.position.copy(cellXYZ(idx));
+        ghost.position.copy(cellPos(idx, tA));
         ghost.material.color.setHex(COLORS[player]);
         ghost.visible = true;
         refreshView();
       },
-      clearGhost() { if (ghost) { ghost.visible = false; hoverCell = -1; if (ready) refreshView(); } },
+      clearGhost() { if (ghost) { ghost.visible = false; hoverCell = -1; ghostCell = -1; if (ready) refreshView(); } },
     };
   })();
 
@@ -3793,6 +3874,13 @@
   // Touch needs two taps (the first previews the ball with a ghost, the second
   // confirms) so a perspective-view mis-tap never costs a move; a mouse click
   // places straight away, with the same preview on hover.
+  // Block the browser's own gestures (iOS ignores user-scalable=no): pinch-zoom, double-tap zoom,
+  // long-press menu and text selection - everywhere except real text inputs.
+  ['gesturestart', 'gesturechange', 'gestureend'].forEach((t) => document.addEventListener(t, (e) => e.preventDefault()));
+  document.addEventListener('touchmove', (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+  const isTextField = (e) => e.target.closest && e.target.closest('input, textarea');
+  document.addEventListener('contextmenu', (e) => { if (!isTextField(e)) e.preventDefault(); });
+  document.addEventListener('selectstart', (e) => { if (!isTextField(e)) e.preventDefault(); });
   let pendingCell = -1;
   function humanCanMove() {
     return !gameOver && !cpuThinking && !(mode === 'cpu' && currentPlayer === 2)
@@ -3810,24 +3898,14 @@
     Board3D.setGhost(cell, currentPlayer);
   });
 
-  // 4 / 3 / 2 / 1 buttons (top to bottom) choose the height of the level plane.
-  const levelCtlEl = document.getElementById('levelCtl');
+  // Tapping a layer pulls it out (the drawer); keyboard 1-4 / arrows do the same on desktop.
   function chooseLevel(l) {
+    if (l < 0 || l > 3 || l === Board3D.getLevel()) return;
     pendingCell = -1;
     Board3D.clearGhost();
     Board3D.setLevel(l);
   }
-  [3, 2, 1, 0].forEach((l) => {
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.dataset.level = l;
-    b.textContent = l + 1;
-    b.addEventListener('click', () => { SoundMgr.seClick(); chooseLevel(l); });
-    levelCtlEl.appendChild(b);
-  });
-  Board3D.onLevelChange((l) => {
-    levelCtlEl.querySelectorAll('button').forEach((b) => b.classList.toggle('active', +b.dataset.level === l));
-  });
+  Board3D.onLayerTap((l) => { SoundMgr.seClick(); chooseLevel(l); });
   document.addEventListener('keydown', (e) => {
     if (gameScreen.classList.contains('hidden')) return;
     if (e.key >= '1' && e.key <= '4') chooseLevel(+e.key - 1);
