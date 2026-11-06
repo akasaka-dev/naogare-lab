@@ -727,6 +727,7 @@ const RAM_PUSH_DAMP = 0.8;    // 押し戻す勢いの減り方（大きいほ�
 const RAM_STUN = 4;           // 体当たりされたあと、また近づき始めるまで（秒）
 const RAM_BOUNCE = 8;         // ロボがはね返される速さ（m/秒）
 const RAM_COOLDOWN = 0.5;     // 続けて体当たりにならない時間（秒）
+const BOSS_HIT_RADIUS = 7.5;  // 当たり判定の球の半径（m）。体は約 6m、トゲの先は約 10m（トゲはまばらなので先までは含めない）
 let bossSpikes = null, bossSpikeRadius = 9;
 const bossVel = new THREE.Vector3();
 let bossStun = 0, ramCooldown = 0, bossWobble = 0, bossWobbleTime = 0;
@@ -946,11 +947,9 @@ function collideBoss(dt) {
   if (!bossSpikes || bossGone || retreat) return;
   ramCooldown -= dt;
   bossSpikes.getWorldPosition(_bc);
-  // 体は地面から浮いているので、球を地面まで縦にのばした形（カプセル）にして、低く飛んでも当たるようにする
-  const low = boss.position.y;
-  if (_bc.y > low) _bc.y = THREE.MathUtils.clamp(feet.y + ROBOT_HEIGHT / 2, low, _bc.y);
+  // 見た目の体（トゲの根もと＋少し）に合わせた球。体は地面から浮いているので、真下を通るときは当たらない
   _bd.set(feet.x - _bc.x, feet.y + ROBOT_HEIGHT / 2 - _bc.y, feet.z - _bc.z);
-  const d = _bd.length(), reach = bossSpikeRadius + RADIUS;
+  const d = _bd.length(), reach = BOSS_HIT_RADIUS + RADIUS;
   if (d >= reach) return;
   _bd.divideScalar(d || 1);
   // 体当たりの強さは、ボスへ向かう速さ
@@ -1521,8 +1520,8 @@ function drawMeters() {
 // 放物線で飛び、地面・壁・水面に当たったらその場に浮かぶ。しばらくしたら煙になって消える
 const BREAD_SCALE = 2;        // 元は直径 0.3m。ロボに合わせて大きくする
 const BREAD_SPEED = 14;       // 飛び出す速さ（m/秒）
-const BREAD_LIFT = 3;         // 砲身はほぼ水平なので、少し上向きに打ち出して山なりに飛ばす（m/秒）
-const BREAD_GRAVITY = 6;      // ふわふわなので弱めの重力
+const BREAD_LIFT = 0.8;       // 少しだけ上向きに打ち出す（m/秒）。大きいと山なりになって人の頭を越えてしまう
+const BREAD_GRAVITY = 3;      // ふわふわなので弱めの重力。低めにまっすぐ飛んで、遠くでゆっくり落ちる
 const BREAD_HOVER = 0.5;      // 着地したところから浮かぶ高さ
 const BREAD_LIFE = 10;        // 着地してから消えるまで（秒）
 const BREAD_MAX_FLIGHT = 6;   // 何にも当たらなかったときに消えるまで（秒）
@@ -1560,10 +1559,11 @@ function spawnBread() {
   scene.add(root);
   const mixer = new THREE.AnimationMixer(root);
   // PC_Muzzle のローカル +Y が砲口の向き（2026-11-01 20:37 より前の書き出しでは後ろ向きだった）
-  const dir = new THREE.Vector3(0, 1, 0).applyQuaternion(_bq);
+  // 砲口の上下の傾き（撃つアニメで少し上を向く）は使わず、水平に打ち出して BREAD_LIFT だけ上向きにする
+  const dir = new THREE.Vector3(0, 1, 0).applyQuaternion(_bq).setY(0).normalize();
   const b = {
     root, mixer, state: 'fly', time: 0,
-    vel: dir.multiplyScalar(BREAD_SPEED).setY(dir.y + BREAD_LIFT),
+    vel: dir.multiplyScalar(BREAD_SPEED).setY(BREAD_LIFT),
     float: mixer.clipAction(breadClips.float),
   };
   const appear = breadClips.appear && mixer.clipAction(breadClips.appear);
