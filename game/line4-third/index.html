@@ -175,7 +175,22 @@
        face in the header band stays clear of the board. */
     body:has(#gameScreen:not(.hidden)) {
       justify-content: flex-end;
-      padding-bottom: calc(max(10px, env(safe-area-inset-bottom)) + 48px);
+      padding: 8px 8px calc(max(10px, env(safe-area-inset-bottom)) + 48px);
+      /* 100vh is taller than what a phone actually shows (URL bar etc.), which made
+         the page scrollable; dvh is the real visible height. Lock the page in place
+         during a match — the board takes drags, so nothing should scroll. */
+      height: 100vh;
+      height: 100dvh;
+      min-height: 0;
+      overflow: hidden;
+    }
+    html:has(#gameScreen:not(.hidden)) { overflow: hidden; height: 100%; }
+    body:has(#gameScreen:not(.hidden)) #speechBubble { margin-bottom: 8px; }
+    body:has(#gameScreen:not(.hidden)) #status { margin-bottom: 6px; }
+    #board-wrap #board {
+      /* also capped by what's left under the bubble/labels, so short screens shrink the board instead of clipping the bubble */
+      width: min(calc(100vw - 16px), 68vh, 68dvh, calc(100dvh - 250px));
+      height: min(calc(100vw - 16px), 68vh, 68dvh, calc(100dvh - 250px));
     }
   }
 
@@ -1237,8 +1252,9 @@
       const start = bgmEl.volume;
       const t0 = performance.now();
       function step(now) {
-        const t = Math.min(1, (now - t0) / duration);
-        bgmEl.volume = start + (target - start) * t;
+        // rAF's timestamp can be slightly earlier than t0 -> keep t (and the volume) inside 0..1
+        const t = Math.max(0, Math.min(1, (now - t0) / duration));
+        bgmEl.volume = Math.max(0, Math.min(1, start + (target - start) * t));
         if (t < 1) requestAnimationFrame(step);
       }
       requestAnimationFrame(step);
@@ -3559,7 +3575,9 @@
     ];
     let autoOrbit = false;   // after a win the camera drifts around so the winning line can be seen from the side
     let tapCb = null, hoverCb = null;
-    const cam = { theta: 0.62, phi: 0.95, dist: 17 };
+    // Phones: pull the camera in so the cube fills more of the square view.
+    const defaultDist = () => (window.innerWidth <= 640 ? 15 : 17);
+    const cam = { theta: 0.62, phi: 0.95, dist: defaultDist() };
     const target = { x: 0, y: 0.8 + 1.5 * SP, z: 0 };   // the middle of the block
     let tA, upVec, tmpColor, white;   // scratch objects, created once THREE is known to be loaded
     const cellPosArr = [];            // 64 cell centres, built once
@@ -4114,7 +4132,7 @@
         dimmed = false;
         autoOrbit = false;
         hideGhost();
-        cam.theta = 0.62; cam.phi = 0.95; cam.dist = 17;
+        cam.theta = 0.62; cam.phi = 0.95; cam.dist = defaultDist();
         applyCamera();
         refreshView();
         resize();
