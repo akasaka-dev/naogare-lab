@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>ふわおの世界 3D</title>
+<title>たすけあいヒーロー ふわお 3D</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Klee+One:wght@400;600&display=swap" rel="stylesheet">
@@ -21,6 +21,27 @@
   #overlay h1 { font-size: 44px; margin: 0 0 8px; letter-spacing: 0.08em; text-shadow: 0 3px 0 rgba(0,0,0,0.35); }
   #overlay .start { font-size: 20px; margin: 18px 0; padding: 10px 28px; border-radius: 999px; background: #e8973c; color: #fff; }
   #overlay .start.disabled { background: #7a6a5a; }
+  /* タイトルのメニュー（はじめから / つづきから） */
+  #titleMenu { display: none; flex-direction: column; align-items: center; gap: 4px; margin: 10px 0; }
+  #titleMenu .start { margin: 4px 0; min-width: 220px; text-align: center; cursor: pointer; }
+  #titleMenu .start:hover { filter: brightness(1.08); }
+  #titleMenu #continueGame { background: #5d9a4e; }
+  #titleMenu small { display: block; font-size: 12px; opacity: 0.9; margin-top: 2px; }
+  /* タイトル画面（はじめる前）：タイトル画像を全面に。メニューと読み込みの表示は下に並べる。操作の説明は一時停止のときだけ */
+  #overlay.title { justify-content: flex-end; padding-bottom: calc(3vh + env(safe-area-inset-bottom)); cursor: default;
+    background: #2a1c12 url(title.webp) center 38% / cover no-repeat; }
+  #overlay.title::before { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 28%; pointer-events: none;
+    background: linear-gradient(rgba(30, 20, 12, 0), rgba(30, 20, 12, 0.55)); }
+  #overlay.title > * { position: relative; }
+  #overlay.title h1, #overlay.title table, #overlay.title .touch-help { display: none !important; }
+  #overlay.title #titleMenu { flex-direction: row; flex-wrap: wrap; justify-content: center; gap: 0 14px; margin: 0; }
+  #overlay.title .start { box-shadow: 0 3px 0 rgba(60, 30, 10, 0.45), 0 6px 16px rgba(0, 0, 0, 0.3); }
+  #overlay.title #status { text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8); }
+  /* 縦長の画面では、画像を切らずに上へ寄せる */
+  @media (max-aspect-ratio: 1/1) {
+    #overlay.title { justify-content: flex-start; padding-top: calc(100vw * 1072 / 1920 + 28px); background-size: 100% auto; background-position: center top; }
+    #overlay.title::before { display: none; }
+  }
   #overlay table { margin-top: 10px; font-size: 15px; border-spacing: 14px 4px; }
   #overlay td:first-child { text-align: right; color: #ffd9a0; }
   #progress { width: 260px; height: 8px; border-radius: 4px; background: rgba(255,255,255,0.2); overflow: hidden; margin-top: 6px; }
@@ -172,11 +193,12 @@
 </script>
 </head>
 <body>
-<div id="overlay">
-  <h1>ふわおの世界</h1>
+<div id="overlay" class="title">
+  <h1>たすけあいヒーロー ふわお 3D</h1>
   <div id="progress"><div></div></div>
   <div id="status">読み込み中…</div>
   <div class="start disabled" id="startLabel">読み込み中</div>
+  <div id="titleMenu"><div class="start" id="newGame">はじめる</div><div class="start" id="continueGame">つづきから</div></div>
   <table>
     <tr><td>WASD / 矢印</td><td>歩く</td></tr>
     <tr><td>マウス</td><td>カメラを回す</td></tr>

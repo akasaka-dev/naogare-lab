@@ -633,7 +633,7 @@ if (new URLSearchParams(location.search).has('debug')) {
     get residentAreas() { return residents.map((r) => `${r.id} ${r.kindName} → 区画${areaNumber(areaAt(r.home.x, r.home.z))}`); },
     retreat() { if (!retreat && !bossGone) startRetreat(); },
     appear() { if (!bossAppeared && !bossIntro) startBossIntro(); }, useBoss, get bossIndex() { return bossIndex; },
-    get items() { return [...items]; }, giveItem(k) { items.add(k); }, noon: makeHungry, enterWorkshop, get visit() { return visit; }, get hungry() { return residents.filter((r) => r.hungry).map((r) => r.id); }, get intro() { return bossIntro; }, get appeared() { return bossAppeared; },
+    get items() { return [...items]; }, giveItem(k) { items.add(k); }, noon: makeHungry, enterWorkshop, saveGame, readSave, clearSave, startGame, get visit() { return visit; }, get hungry() { return residents.filter((r) => r.hungry).map((r) => r.id); }, get intro() { return bossIntro; }, get appeared() { return bossAppeared; },
     get retreating() { return !!retreat; }, get bossGone() { return bossGone; },
     attackTown, get quake() { return quake; },
     get spots() { return ruinAreas.map((a, i) => [AREA_NAMES[a.name], areaGauge[i].spots.map((p) => [+p.x.toFixed(1), +p.z.toFixed(1)])]); },
@@ -1067,6 +1067,7 @@ function updateRetreat(dt) {
     retreat = null;
     setTimeout(() => fadeEl.classList.remove('on'), 300);
     showToast('ボスが撤退した！');
+    saveGame();
   }
 }
 // 吐き出した小バイ菌（飛んでいる間は、くるくる回るだけの見た目）
@@ -1252,6 +1253,7 @@ function updateBossIntro(dt) {
     document.body.classList.remove('cutin');
     setTimeout(() => fadeEl.classList.remove('on'), 300);
     showToast(`${bossCfg.name}が現れた！ ジェットで体当たりして、町から追い返そう`);
+    saveGame();
   }
 }
 // 出現のカメラ。カットを切り替えながら、ボスの体を追って見る
@@ -1830,6 +1832,7 @@ function updateProgress(dt, active) {
     if (g.done || !(g.spots.length + g.residents.length) || areaProgress(i) < 1) return;
     g.done = true;
     restoreArea(ruinAreas[i].name);
+    setTimeout(saveGame, 0);
     showToast(`${AREA_NAMES[ruinAreas[i].name] || ruinAreas[i].name}が元に戻った！`);
   });
 
@@ -2112,6 +2115,7 @@ function placeResidents(models) {
     if (r.talkA) { r.talkA.play(); r.talkA.setEffectiveWeight(0); }
     // ふだんの待機。おなかがすいている間は Hungry
     r.hungryIdle = clip('Hungry') ? mixer.clipAction(clip('Hungry')) : null;
+    r.baseIdleClip = idle.getClip();
     if (k.hungry && r.hungryIdle) r.idle = r.hungryIdle;
     r.idle.play();
     r.idle.time = Math.random() * r.idle.getClip().duration;
@@ -2205,15 +2209,18 @@ function updateHouse(r) {
 const HUNGER_HOUR = 12;
 const HUNGER_COLOR = 0xf08a24;
 let lastHour = null;
+function setHungry(r) {
+  r.hungry = true;
+  r.hungerIcon ||= makeHelpIcon(HUNGER_COLOR);
+  setFace(r, 'sad');
+  if (r.hungryIdle && r.idle !== r.hungryIdle && !r.oneShot) { r.idle.stop(); r.idle = r.hungryIdle.play(); }
+}
 function makeHungry() {
   let n = 0;
   for (const r of residents) {
     if (!r.eat || r.hungry) continue;
-    r.hungry = true;
+    setHungry(r);
     n++;
-    r.hungerIcon ||= makeHelpIcon(HUNGER_COLOR);
-    setFace(r, 'sad');
-    if (r.hungryIdle && r.idle !== r.hungryIdle && !r.oneShot) { r.idle.stop(); r.idle = r.hungryIdle.play(); }
   }
   if (n) showToast('お昼になった！ おなかをすかせた町人が、パンを待っている');
 }
@@ -2511,9 +2518,99 @@ async function init() {
   else { opening = { phase: 'wait', t: 0, line: null }; updateOpening(0, false); }
   statusEl.textContent = '';
   document.getElementById('progress').style.display = 'none';
-  startLabel.textContent = `${TAP}してはじめる`;
-  startLabel.classList.remove('disabled');
   ready = true;
+  showTitleMenu();
+}
+
+// ---- 進み具合の保存（ブラウザの localStorage） ----
+// 節目（区画が戻った・ボスを追い出した・道具をもらった・工房から出た・ボスが現れた）と 30 秒ごと、タブを閉じるときに保存する。
+// 出現シーン・撤退・工房の中・オープニングの間は保存しない（つづきは、その前の状態から）。
+// つづきは、いつもパン工房の扉の前から始める（位置は保存しない）。
+// naogare-lab のゲームはみな同じオリジンなので、キーは fuwao3d: で始める。?debug のときは別のキーにして、遊んでいるデータを上書きしない
+const SAVE_KEY = new URLSearchParams(location.search).has('debug') ? 'fuwao3d:save:debug' : 'fuwao3d:save';
+const SAVE_VERSION = 1;
+const SAVE_EVERY = 30;          // 自動保存の間（秒）
+let saveWait = SAVE_EVERY, savingOn = false;
+function readSave() {
+  try {
+    const d = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null');
+    return d && d.v === SAVE_VERSION ? d : null;
+  } catch { return null; }
+}
+function clearSave() { try { localStorage.removeItem(SAVE_KEY); } catch { /* 保存できない環境 */ } }
+function talkIndex(r, t) {
+  for (const key of [r.id, r.kindName]) {
+    const i = TALKS[key]?.talks?.indexOf(t);
+    if (i >= 0) return [key, i];
+  }
+  return null;
+}
+function saveGame() {
+  if (!savingOn || opening || visit || bossIntro || retreat || knockout) return false;
+  const d = {
+    v: SAVE_VERSION, at: Date.now(),
+    stage: storyStage, boss: bossIndex, bossAppeared, bossGone,
+    bossPos: boss ? [+boss.position.x.toFixed(2), +boss.position.z.toFixed(2)] : null,
+    items: [...items], fuelMax, fuel: +fuel.toFixed(3), body: +body.toFixed(3), hour: +daytime.hour.toFixed(3),
+    areas: areaGauge.map((g) => ({ called: g.called, done: g.done, gone: g.germs.map((x) => (germGone(x) ? 1 : 0)) })),
+    residents: Object.fromEntries(residents.map((r) => [r.id, {
+      fed: !!r.fed, hungry: !!r.hungry,
+      once: [...(r.talked || [])].filter((t) => t.once).map((t) => talkIndex(r, t)).filter(Boolean),
+    }])),
+  };
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(d)); return true; } catch { return false; }
+}
+function updateSave(dt, active) {
+  if (active && (saveWait -= dt) <= 0) { saveWait = SAVE_EVERY; saveGame(); }
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveGame(); });
+window.addEventListener('pagehide', () => saveGame());
+// 保存したデータで町を組み立て直す（「つづきから」。オープニングは飛ばす）
+function loadGame(d) {
+  storyStage = d.stage;
+  if (bossModels[d.boss]) useBoss(d.boss);
+  if (d.bossGone) bossGone = true;
+  else if (d.bossAppeared) {
+    // ボスが町に来ている途中だった：出現シーンなしで、その場所に出す
+    if (d.bossPos) { boss.position.x = d.bossPos[0]; boss.position.z = d.bossPos[1]; boss.position.y = introGroundY(d.bossPos[0], d.bossPos[1], boss.position.y); }
+    boss.rotation.y = Math.atan2(BOSS_TARGET.x - boss.position.x, BOSS_TARGET.z - boss.position.z);
+    boss.visible = true;
+    bossAppeared = true;
+    if (retreatLine) retreatLine.visible = true;
+  }
+  for (const k of d.items || []) if (k in ITEMS) items.add(k);
+  if (d.fuelMax) fuelMax = d.fuelMax;
+  fuel = Math.min(fuelMax, d.fuel ?? fuelMax);
+  body = d.body ?? 1;
+  if (Number.isFinite(d.hour)) daytime.set(d.hour);
+  (d.areas || []).forEach((a, i) => {
+    const g = areaGauge[i];
+    if (!g) return;
+    g.called = !!a.called;
+    if (g.called) {
+      g.spots.forEach((p, k) => {
+        if (a.gone?.[k]) { g.germs.push({ spot: p, area: i, state: 'defeat', done: true }); return; }   // 倒したもの（目には見えない）
+        const x = spawnGerm(p.x, p.z);
+        x.area = i;
+        x.spot = p;
+        g.germs.push(x);
+      });
+      if (g.germs.some((x) => !germGone(x)) && helps.length < HELP_MAX) addHelp(i);
+    }
+    if (a.done) { g.done = true; restoreArea(ruinAreas[i].name); }
+  });
+  updateRuin(1e3);   // 元に戻った区画は、すぐに戻った見た目に
+  for (const r of residents) {
+    const x = d.residents?.[r.id];
+    if (!x) continue;
+    r.fed = !!x.fed;
+    if (r.fed && !r.kind.hungry) setFace(r, 'smile');
+    if (r.fed && r.kind.hungry) { setFace(r, 'smile'); if (r.idle === r.hungryIdle) { r.idle.stop(); r.idle = r.mixer.clipAction(r.baseIdleClip).play(); } }
+    if (x.hungry) setHungry(r);
+    r.talked = new Set();
+    for (const [key, i] of x.once || []) { const t = TALKS[key]?.talks?.[i]; if (t) r.talked.add(t); }
+  }
+  respawn();
 }
 
 // ---- オープニング（パン工房の中で、ロボに乗っていないふわおと町長が話す） ----
@@ -2830,6 +2927,7 @@ function endVisit() {
   respawn();   // 扉の前に出て、町のほうを向く
   visit = null;
   document.body.classList.remove('visiting');
+  saveGame();   // 道具をもらったあとなど
   setTimeout(() => fadeEl.classList.remove('on'), 200);
 }
 function updateVisit(dt, active) {
@@ -3161,8 +3259,51 @@ function pause() {
   touch.reset();
 }
 
-overlay.addEventListener('click', () => {
+// タイトルのメニュー：はじめから / つづきから（保存があるときだけ）。一度始めたあとは、画面のどこを押しても再開
+let started = false;
+const menuEl = document.getElementById('titleMenu');
+const newBtn = document.getElementById('newGame'), contBtn = document.getElementById('continueGame');
+let confirmNew = false;
+function showTitleMenu() {
+  const d = readSave();
+  startLabel.style.display = 'none';
+  menuEl.style.display = 'flex';
+  contBtn.style.display = d ? '' : 'none';
+  newBtn.textContent = d ? 'はじめから' : 'はじめる';
+  if (d) {
+    const t = new Date(d.at);
+    contBtn.innerHTML = `つづきから<small>ステージ ${d.stage}・${t.getMonth() + 1}/${t.getDate()} ${t.getHours()}:${String(t.getMinutes()).padStart(2, '0')} に保存</small>`;
+  }
+}
+function startGame(cont) {
+  started = true;
+  savingOn = true;
+  menuEl.style.display = 'none';
+  overlay.classList.remove('title');   // ここからは、一時停止の画面（操作の説明つき）
+  startLabel.style.display = '';
+  startLabel.classList.remove('disabled');
+  if (cont) {
+    if (opening) endOpening();
+    loadGame(readSave());
+  }
+  enterPlay();
+}
+newBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
   if (!ready) return;
+  // つづきがあるときは、もう一度押してもらう（つづきは、最初の自動保存で消える）
+  if (readSave() && !confirmNew) { confirmNew = true; newBtn.innerHTML = 'はじめから<small>いまの つづきは消えます。もう一度押すと はじめる</small>'; return; }
+  startGame(false);
+});
+contBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (ready && readSave()) startGame(true);
+});
+overlay.addEventListener('click', () => {
+  if (!ready || !started) return;
+  enterPlay();
+});
+function enterPlay() {
   if (dragLook) { play(); return; }
   try { document.body.requestPointerLock()?.catch?.(() => {}); } catch { /* 非対応 */ }
   setTimeout(() => {
@@ -3170,7 +3311,7 @@ overlay.addEventListener('click', () => {
     dragLook = true;
     play();
   }, 300);
-});
+}
 document.addEventListener('pointerlockchange', () => {
   if (document.pointerLockElement) play();
   else if (!dragLook) pause();
@@ -3793,6 +3934,7 @@ function tick(dt, active) {
   updateProgress(dt, active && !talk.active);
   updateHunger(dt, active);
   updateDoor(dt, active);
+  updateSave(dt, active);
   // 工場長は、ステージ 2 までは工房の中（町にはいない）
   const chiefRes = residents.find((r) => r.id === '0-1');
   if (chiefRes) chiefRes.root.visible = storyStage >= CHIEF_OUT_STAGE;
