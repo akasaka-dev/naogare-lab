@@ -15,6 +15,10 @@ const lin = (r, g, b) => new THREE.Color().setRGB(r, g, b, THREE.LinearSRGBColor
 
 const START_POS = new THREE.Vector3(-7.7, 12, -22.6); // パン工房の扉の前（北の奥の段）。高さは地面に合わせる
 const START_YAW = Math.PI;                            // 南（+Z）を向く → 町を見下ろす
+// 「はじめから」のときだけ：パン工房の通り（北の奥の段）の東の入口。西を向くと、通りの先にお城が見える
+// （つづきから・R・ボスの撤退のあとは、START_POS の工房の扉の前）
+const NEW_START_POS = new THREE.Vector3(18, 12, -25);
+const NEW_START_YAW = Math.PI / 2;
 const EYE_HEIGHT = 1.55;      // 一人称のときの目の高さ（ふわおの操縦席）
 const RADIUS = 0.4;           // ロボの太さ
 const STEP_HEIGHT = 0.45;     // これ以下の段差は登れる
@@ -3285,7 +3289,7 @@ function startGame(cont) {
   if (cont) {
     if (opening) endOpening();
     loadGame(readSave());
-  }
+  } else respawn(NEW_START_POS, NEW_START_YAW);
   enterPlay();
 }
 newBtn.addEventListener('click', (e) => {
@@ -3456,14 +3460,14 @@ let shake = 0;          // カメラのゆれの強さ
 let jetEndTime = 1;     // 噴射をやめてからの時間（炎が消えるまで）
 let landTime = 1;       // 着地してからの時間
 
-function respawn() {
-  feet.copy(START_POS);
+function respawn(pos = START_POS, yaw = START_YAW) {
+  feet.copy(pos);
   velY = 0;
   jetting = false;
   jetVel.set(0, 0, 0);
-  view.yaw = START_YAW;
+  view.yaw = yaw;
   view.pitch = view.thirdPerson ? 0.25 : 0;
-  heading = START_YAW + Math.PI;
+  heading = yaw + Math.PI;
   snapToGround(true);
 }
 
