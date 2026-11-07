@@ -2004,6 +2004,7 @@ function collideBoss(dt) {
 // ふわおのジェット体当たり（RAM_MIN_SPEED より速く飛んでいるとき）が当たると、やられアニメで縮んで消える。
 // 町人が助けを呼んだ区画に、その区画の場所（GERM_TEST の場所を優先し、足りない分は区画の中の地面）へ出てくる
 const GERM_SPEED = 1.1;        // 跳ねて進む速さ（m/秒）
+const GERM_DROP = 1.0;         // これより低い段差へは降りない（川の岸から川へ落ちないように）
 const GERM_SEE = 25;           // この距離の町人をねらう
 // 体の中心の高さ（GM_Body_Pivot）と体の半径（GM_Hurt_Body の radius）はモデルから読む。下は読めなかったときの値
 let germBody = 0.8, germRadius = 0.4;
@@ -2069,7 +2070,25 @@ function germTarget(g) {
   }
   return best;
 }
+// 水の底に沈んだ・座標がおかしくなった小バイ菌は、出てきた場所へ戻す（見つけられなくなって、区画が元に戻らないため）
+let germCheckWait = 0;
+function rescueGerms(dt) {
+  if ((germCheckWait -= dt) > 0) return;
+  germCheckWait = 1;
+  for (const g of germs) {
+    if (g.state === 'defeat' || g.state === 'stuck') continue;
+    const pos = g.root.position;
+    const lost = !Number.isFinite(pos.x + pos.y + pos.z);
+    const gy = lost ? null : groundBelow(pos, 1);
+    if (!lost && !(gy !== null && waterLevel(pos, gy) > pos.y + 0.3)) continue;
+    const home = g.spot || EVAC_FROM;   // 出てきた場所（なければ町の西の外れ）
+    pos.copy(groundPoint(_gp.set(home.x, 0, home.z)));
+    g.target = null;
+    g.state = 'seek';
+  }
+}
 function updateGerms(dt) {
+  rescueGerms(dt);
   for (const g of germs) {
     const pos = g.root.position;
     if (g.state === 'defeat') { g.mixer.update(dt); continue; }
@@ -2092,16 +2111,20 @@ function updateGerms(dt) {
         }
         g.lift = 0.45 + Math.random() * 0.3;
         playGerm(g, 'idle');
-      } else {
+      } else if (dist > 1e-3) {   // 真下・真上（橋の上と下など）のときは向きが決まらないので動かない
         g.root.rotation.y = turnToward(g.root.rotation.y, Math.atan2(_rd.x, _rd.z), 1 - Math.exp(-6 * dt));
         _rd.divideScalar(dist);
         // 壁や石垣があれば、その手前で跳ねたまま止まる（道をさがすのはこれから）
         _o.set(pos.x, pos.y + germBody, pos.z);
         const wall = cast(_o, _rd, germRadius + 0.2);
         if (!wall || !hitNormal(wall, _rd)) {
-          pos.addScaledVector(_rd, Math.min(GERM_SPEED * dt, dist));
-          const gy = groundBelow(pos, 1);   // 跳ねるので、少しの段差なら越える
-          if (gy !== null) pos.y += (gy - pos.y) * (1 - Math.exp(-10 * dt));
+          // 川の中と、大きな段差の下へは行かない（水の底に沈んだり、岸に上がれなくなったりするため）
+          _gp.copy(pos).addScaledVector(_rd, Math.min(GERM_SPEED * dt, dist));
+          const gy = groundBelow(_gp, 1);   // 跳ねるので、少しの段差なら越える
+          if (gy !== null && gy > pos.y - GERM_DROP && !waterLevel(_gp, gy)) {
+            pos.x = _gp.x; pos.z = _gp.z;
+            pos.y += (gy - pos.y) * (1 - Math.exp(-10 * dt));
+          }
         }
       }
     } else if (g.state === 'stuck') {
@@ -2333,7 +2356,41 @@ function makeArrow(color) {
   return group;
 }
 // 助けを呼ぶアイコン（色の丸に「！」）。呼んでいる町人の頭の上（町人のいない区画は小バイ菌の上）に、いつも手前に出す
-function makeHelpIcon(color) {
+// 頭の上の吹き出し。kind：'germ'（小バイ菌が出て助けを呼んでいる。区画の色）/ 'bread'（おなかがすいている）
+const ICON_INK = '#3a2a1e';
+function drawGermIcon(x) {
+  // トゲトゲの丸い体に、つり目
+  x.fillStyle = '#6a5288'; x.strokeStyle = ICON_INK; x.lineWidth = 4; x.lineJoin = 'round';
+  x.beginPath();
+  for (let i = 0; i < 20; i++) {
+    const a = i / 20 * Math.PI * 2, r = i % 2 ? 22 : 31;
+    x.lineTo(64 + Math.cos(a) * r, 60 + Math.sin(a) * r);
+  }
+  x.closePath(); x.fill(); x.stroke();
+  for (const sx of [-1, 1]) {
+    x.fillStyle = '#fffaf0';
+    x.beginPath(); x.ellipse(64 + sx * 8, 60, 6, 7, 0, 0, Math.PI * 2); x.fill();
+    x.fillStyle = ICON_INK;
+    x.beginPath(); x.arc(64 + sx * 7, 61, 3, 0, Math.PI * 2); x.fill();
+    x.lineWidth = 3.5;
+    x.beginPath(); x.moveTo(64 + sx * 15, 49); x.lineTo(64 + sx * 3, 53); x.stroke();   // 怒りまゆ
+  }
+}
+function drawBreadIcon(x) {
+  // ふっくらした山形のパン（切れ目入り）
+  x.strokeStyle = ICON_INK; x.lineWidth = 4; x.lineJoin = 'round';
+  x.fillStyle = '#d68a3e';
+  x.beginPath();
+  x.moveTo(30, 74);
+  x.bezierCurveTo(28, 40, 100, 40, 98, 74);
+  x.quadraticCurveTo(64, 82, 30, 74);
+  x.closePath(); x.fill(); x.stroke();
+  x.fillStyle = '#f2c27c';
+  x.beginPath(); x.ellipse(56, 54, 16, 6, -0.2, 0, Math.PI * 2); x.fill();   // てかり
+  x.strokeStyle = '#9a5a22'; x.lineWidth = 3.5; x.lineCap = 'round';
+  for (const dx of [-16, 0, 16]) { x.beginPath(); x.moveTo(64 + dx - 5, 66); x.lineTo(64 + dx + 5, 52); x.stroke(); }
+}
+function makeHelpIcon(color, kind = 'germ') {
   const c = document.createElement('canvas');
   c.width = c.height = 128;
   const x = c.getContext('2d');
@@ -2342,11 +2399,12 @@ function makeHelpIcon(color) {
   x.moveTo(50, 104); x.lineTo(64, 124); x.lineTo(78, 104);   // 下のとがり（吹き出しのしっぽ）
   x.fillStyle = `#${color.toString(16).padStart(6, '0')}`;
   x.fill();
-  x.lineWidth = 7; x.strokeStyle = '#3a2a1e'; x.lineJoin = 'round';
+  x.lineWidth = 7; x.strokeStyle = ICON_INK; x.lineJoin = 'round';
   x.stroke();
+  // 色の上でも絵が見えるように、白い丸の上に描く
   x.fillStyle = '#fffaf0';
-  x.font = 'bold 76px sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
-  x.fillText('!', 64, 63);
+  x.beginPath(); x.arc(64, 60, 40, 0, Math.PI * 2); x.fill();
+  if (kind === 'bread') drawBreadIcon(x); else drawGermIcon(x);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   const icon = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, depthWrite: false, sizeAttenuation: false }));
@@ -2863,7 +2921,7 @@ const HUNGER_COLOR = 0xf08a24;
 let lastHour = null;
 function setHungry(r) {
   r.hungry = true;
-  r.hungerIcon ||= makeHelpIcon(HUNGER_COLOR);
+  r.hungerIcon ||= makeHelpIcon(HUNGER_COLOR, 'bread');
   setFace(r, 'sad');
   if (r.hungryIdle && r.idle !== r.hungryIdle && !r.oneShot) { r.idle.stop(); r.idle = r.hungryIdle.play(); }
 }
