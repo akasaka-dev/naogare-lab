@@ -3245,6 +3245,7 @@ const view = { yaw: START_YAW, pitch: 0.25, distance: CAM_DISTANCE, thirdPerson:
 
 function play() {
   playing = true;
+  overlay.classList.remove('title', 'help');   // ここからの overlay は、一時停止の画面（操作の説明つき）
   document.body.classList.add('playing');
   overlay.style.display = 'none';
   crosshair.style.display = view.thirdPerson ? 'none' : 'block';
@@ -3255,6 +3256,7 @@ function pause() {
   overlay.style.display = 'flex';
   crosshair.style.display = 'none';
   startLabel.textContent = `${TAP}してつづける`;
+  startLabel.style.display = '';
   keys.clear();
   touch.reset();
 }
@@ -3272,15 +3274,13 @@ function showTitleMenu() {
   newBtn.textContent = d ? 'はじめから' : 'はじめる';
   if (d) {
     const t = new Date(d.at);
-    contBtn.innerHTML = `つづきから<small>ステージ ${d.stage}・${t.getMonth() + 1}/${t.getDate()} ${t.getHours()}:${String(t.getMinutes()).padStart(2, '0')} に保存</small>`;
+    contBtn.innerHTML = `つづきから<small>ステージ${d.stage}・${t.getMonth() + 1}/${t.getDate()} ${t.getHours()}:${String(t.getMinutes()).padStart(2, '0')}</small>`;
   }
 }
 function startGame(cont) {
   started = true;
   savingOn = true;
   menuEl.style.display = 'none';
-  overlay.classList.remove('title');   // ここからは、一時停止の画面（操作の説明つき）
-  startLabel.style.display = '';
   startLabel.classList.remove('disabled');
   if (cont) {
     if (opening) endOpening();
@@ -3292,8 +3292,15 @@ newBtn.addEventListener('click', (e) => {
   e.stopPropagation();
   if (!ready) return;
   // つづきがあるときは、もう一度押してもらう（つづきは、最初の自動保存で消える）
-  if (readSave() && !confirmNew) { confirmNew = true; newBtn.innerHTML = 'はじめから<small>いまの つづきは消えます。もう一度押すと はじめる</small>'; return; }
+  if (readSave() && !confirmNew) { confirmNew = true; newBtn.innerHTML = 'はじめから<small>つづきが消えます。もう一度押す</small>'; return; }
   startGame(false);
+});
+// 操作説明：タイトルの上に操作の表を出す。「もどる」かどこかを押すとメニューへ
+document.getElementById('helpBtn').addEventListener('click', (e) => { e.stopPropagation(); overlay.classList.add('help'); });
+document.getElementById('helpPanel').addEventListener('click', (e) => {
+  if (!overlay.classList.contains('title')) return;
+  e.stopPropagation();
+  overlay.classList.remove('help');
 });
 contBtn.addEventListener('click', (e) => {
   e.stopPropagation();

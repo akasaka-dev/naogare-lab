@@ -33,14 +33,24 @@
   #overlay.title::before { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 28%; pointer-events: none;
     background: linear-gradient(rgba(30, 20, 12, 0), rgba(30, 20, 12, 0.55)); }
   #overlay.title > * { position: relative; }
-  #overlay.title h1, #overlay.title table, #overlay.title .touch-help { display: none !important; }
-  #overlay.title #titleMenu { flex-direction: row; flex-wrap: wrap; justify-content: center; gap: 0 14px; margin: 0; }
+  #overlay.title h1, #overlay.title:not(.help) #helpPanel { display: none !important; }
+  #helpBack, #overlay.title.help #titleMenu { display: none !important; }
+  /* タイトルの「操作説明」：画像の上に暗い板を重ねて、操作の表を出す */
+  #overlay.title.help { justify-content: center; padding-bottom: 0; }
+  #overlay.title.help #helpPanel { background: rgba(30, 20, 12, 0.82); border-radius: 16px; padding: 14px 22px 4px; max-height: 92vh; overflow: auto; }
+  #overlay.title.help #helpBack { display: inline-block !important; cursor: pointer; }
+  #titleMenu #helpBtn { background: #6a7f9a; }
+  #overlay.title #titleMenu { flex-direction: row; flex-wrap: nowrap; justify-content: center; gap: 0 14px; margin: 0; }
+  #overlay.title #titleMenu .start { min-width: 170px; }
   #overlay.title .start { box-shadow: 0 3px 0 rgba(60, 30, 10, 0.45), 0 6px 16px rgba(0, 0, 0, 0.3); }
   #overlay.title #status { text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8); }
-  /* 縦長の画面では、画像を切らずに上へ寄せる */
-  @media (max-aspect-ratio: 1/1) {
-    #overlay.title { justify-content: flex-start; padding-top: calc(100vw * 1072 / 1920 + 28px); background-size: 100% auto; background-position: center top; }
-    #overlay.title::before { display: none; }
+  /* 縦長の画面では、縦長のタイトル画像（titlev.webp）
+  /* （3:4 より縦長のときだけ。正方形に近い画面は横長の画像のほうが副題までよく収まる）。ボタンは横に並べて、高さを使わない */
+  @media (max-aspect-ratio: 3/4) {
+    #overlay.title { background-image: url(titlev.webp); background-position: center 25%; padding-bottom: calc(3vh + env(safe-area-inset-bottom)); }
+    #overlay.title #titleMenu { flex-wrap: nowrap; gap: 0 8px; padding: 0 10px; width: 100%; box-sizing: border-box; }
+    #overlay.title #titleMenu .start { flex: 1 1 0; min-width: 0; max-width: 170px; font-size: 16px; padding: 10px 6px; }
+    #overlay.title #titleMenu small { font-size: 10px; }
   }
   #overlay table { margin-top: 10px; font-size: 15px; border-spacing: 14px 4px; }
   #overlay td:first-child { text-align: right; color: #ffd9a0; }
@@ -198,7 +208,8 @@
   <div id="progress"><div></div></div>
   <div id="status">読み込み中…</div>
   <div class="start disabled" id="startLabel">読み込み中</div>
-  <div id="titleMenu"><div class="start" id="newGame">はじめる</div><div class="start" id="continueGame">つづきから</div></div>
+  <div id="titleMenu"><div class="start" id="newGame">はじめる</div><div class="start" id="continueGame">つづきから</div><div class="start" id="helpBtn">操作説明</div></div>
+  <div id="helpPanel">
   <table>
     <tr><td>WASD / 矢印</td><td>歩く</td></tr>
     <tr><td>マウス</td><td>カメラを回す</td></tr>
@@ -223,6 +234,8 @@
     人をタップ：話す（もう一度タップで次へ）<br>
     前：カメラをふわおの正面の向きへ<br>
     時：押している間、時間を早送り
+  </div>
+  <div class="start" id="helpBack">もどる</div>
   </div>
 </div>
 <div id="touchUI">
