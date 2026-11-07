@@ -41,7 +41,7 @@
   #meters .meter + .meter.meter-town { margin-top: 8px; padding-top: 6px; border-top: 1.5px dashed #b9a88f; }
   #meters.show .meter-town, #meters.show .meter-area, #meters.show .meter-helps { animation: meter-in 0.35s ease-out; }
   @keyframes meter-in { from { opacity: 0; } }
-  body.talking #meters, body.opening #meters { display: none; }
+  body.talking #meters, body.opening #meters, body.visiting #meters { display: none; }
   body.touch #meters { top: calc(64px + env(safe-area-inset-top)); }
   #meters .meter { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600; line-height: 1.2; }
   #meters .meter + .meter, #meters .meter-area + .meter { margin-top: 5px; }
