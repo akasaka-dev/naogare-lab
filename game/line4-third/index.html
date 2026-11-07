@@ -932,6 +932,54 @@
     filter: none;
     pointer-events: none;
   }
+
+  /* ---- Prologue before a CPU run: black screen, white text, tap for the next line ---- */
+  #storyOverlay {
+    position: fixed;
+    inset: 0;
+    z-index: 15;
+    background: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 24px;
+    cursor: pointer;
+  }
+  #storyOverlay.hidden { display: none; }
+  #storyText {
+    color: #fff;
+    font-family: "Hiragino Mincho ProN", "Yu Mincho", YuMincho, "MS PMincho", serif;
+    font-size: 1.05rem;
+    line-height: 2.1;
+    white-space: pre-line;
+    max-width: 480px;
+    text-align: left;
+    opacity: 0;
+    transition: opacity 0.4s ease;
+  }
+  #storyText.show { opacity: 1; }
+  #storySkipBtn {
+    position: absolute;
+    top: max(12px, env(safe-area-inset-top));
+    right: max(12px, env(safe-area-inset-right));
+    background: rgba(15, 23, 42, 0.72);
+    border: 1.5px solid rgba(148, 163, 184, 0.5);
+    color: rgba(255, 255, 255, 0.85);
+    border-radius: 999px;
+    padding: 7px 16px;
+    font-size: 0.85rem;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  #storySkipBtn:hover { background: rgba(30, 41, 59, 0.9); color: #fff; }
+  /* bottom-left: the round sound / kana buttons live at the bottom right */
+  #storyHint {
+    position: absolute;
+    bottom: max(20px, env(safe-area-inset-bottom));
+    left: max(20px, env(safe-area-inset-left));
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 0.8rem;
+  }
 </style>
 </head>
 <body>
@@ -1058,6 +1106,13 @@
   </div>
 
   <!-- Ladder result overlay: shown after each CPU match (advance / game over / all-clear / draw) -->
+  <!-- Prologue shown when a CPU run begins: tap anywhere to advance line by line. See maybeShowStory(). -->
+  <div id="storyOverlay" class="hidden">
+    <div id="storyText"></div>
+    <div id="storyHint">タップして進む</div>
+    <button id="storySkipBtn" type="button">スキップ ≫</button>
+  </div>
+
   <div id="resultOverlay" class="hidden">
     <div class="result-card">
       <div class="result-portrait" id="resultPortrait"></div>
@@ -1401,6 +1456,8 @@
     document.getElementById('onlineJoinConfirmBtn').textContent = K('開始する', 'かいしする');
     document.getElementById('onlineJoinCancelBtn').textContent = 'キャンセル';
     renderJoinConfirmText();
+    document.getElementById('storyHint').textContent = K('タップして進む', 'タップですすむ');
+    document.getElementById('storySkipBtn').textContent = K('スキップ ≫', 'スキップ ≫');
     document.getElementById('endingHint').textContent = K('ドラッグで読み返せます／クリックでタイトルへ', 'ドラッグでよみかえせます／クリックでタイトルへ');
 
     titleBtn.setAttribute('aria-label', K('タイトルに戻る', 'タイトルにもどる'));
@@ -1830,7 +1887,135 @@
   function startLadder() {
     ladderIndex = 0;
     currentChar = CHARACTERS[0];
-    startGame('cpu');
+    maybeShowStory(() => startGame('cpu'));
+  }
+
+  // Prologue, shown every time a fresh CPU run begins (before LV1's match):
+  // tap anywhere to advance one line; startGame() only runs after the last
+  // line, or straight away via the skip button.
+  const PROLOGUE_LINES = [
+    '「……また、外れか。」',
+    '塔の外に降る雨の音だけが聞こえている。',
+    'この子供じみた玉並べのゲームが、私のすべてになって、いったいどれくらいの時が過ぎただろう。',
+    '塔の守り人となってから、数えきれないほどの季節が巡った。',
+    'いつか、このゲームの呪いを勝ち抜き、私を解放してくれる者が現れる。',
+    'そう信じていた。',
+    'けれど、最後に勝ち抜いたあの人間は、塔を解放することなく去っていった。',
+    'あれから、もう五十年。',
+    'そういえば、仮面の守り人も自ら呪いを解き、この塔を去っていった。',
+    '……結局、誰も私を連れ出してはくれなかった。',
+    'そのときだった。',
+    '雨音が急に激しくなる。',
+    '雷鳴。',
+    '塔全体が大きく揺れ、古びた壁に不気味な光が走った。',
+    '「これは……？」',
+    '目の前に、白い服を着た少女が浮かび上がっている。',
+    'その姿は、半ば朽ちかけたゲーム盤の上に、ぼんやりと映し出されていた。',
+    '「……誰？」',
+    '見覚えのない少女。',
+    'けれど、確かにこの塔の中にいる。',
+    'そして、その表情はまるで……助けを求めているようだった。',
+    'その瞬間、古びた盤面が光を放った。',
+    '四つ並べの盤面が崩れ、立方体へと姿を変えていく。',
+    '「新しいゲーム……？」',
+    '私は、光に包まれた盤面を見つめた。',
+    '「これを使って、あなたを探せというの……？」',
+    '久しく忘れていた感覚が、胸の奥に蘇る。',
+    '期待。',
+    'それとも、恐怖だろうか。',
+    '「……いいわ。今度こそ、見つけてあげる。」',
+    '黒薔薇が、静かに揺れた。',
+  ];
+  // Hiragana version, line-for-line parallel to PROLOGUE_LINES (used in kana mode).
+  const PROLOGUE_LINES_KANA = [
+    '「……また、はずれか。」',
+    'とうのそとにふるあめのおとだけがきこえている。',
+    'このこどもじみたたまならべのゲームが、わたしのすべてになって、いったいどれくらいのときがすぎただろう。',
+    'とうのもりびとになってから、かぞえきれないほどのきせつがめぐった。',
+    'いつか、このゲームののろいをかちぬき、わたしをかいほうしてくれるものがあらわれる。',
+    'そうしんじていた。',
+    'けれど、さいごにかちぬいたあのにんげんは、とうをかいほうすることなくさっていった。',
+    'あれから、もうごじゅうねん。',
+    'そういえば、かめんのもりびともみずからのろいをとき、このとうをさっていった。',
+    '……けっきょく、だれもわたしをつれだしてはくれなかった。',
+    'そのときだった。',
+    'あまおとがきゅうにはげしくなる。',
+    'らいめい。',
+    'とうぜんたいがおおきくゆれ、ふるびたかべにぶきみなひかりがはしった。',
+    '「これは……？」',
+    'めのまえに、しろいふくをきたしょうじょがうかびあがっている。',
+    'そのすがたは、なかばくちかけたゲームばんのうえに、ぼんやりとうつしだされていた。',
+    '「……だれ？」',
+    'みおぼえのないしょうじょ。',
+    'けれど、たしかにこのとうのなかにいる。',
+    'そして、そのひょうじょうはまるで……たすけをもとめているようだった。',
+    'そのしゅんかん、ふるびたばんめんがひかりをはなった。',
+    'よっつならべのばんめんがくずれ、りっぽうたいへとすがたをかえていく。',
+    '「あたらしいゲーム……？」',
+    'わたしは、ひかりにつつまれたばんめんをみつめた。',
+    '「これをつかって、あなたをさがせというの……？」',
+    'ひさしくわすれていたかんかくが、むねのおくによみがえる。',
+    'きたい。',
+    'それとも、きょうふだろうか。',
+    '「……いいわ。こんどこそ、みつけてあげる。」',
+    'くろばらが、しずかにゆれた。',
+  ];
+  let storyLineIndex = 0;
+  let storyTransitioning = false;
+  const STORY_FADE_MS = 400; // must match #storyText's transition duration
+  // Double rAF: makes the browser register opacity:0 as a real paint before
+  // the class is added, otherwise the fade can silently never play.
+  function fadeStoryTextIn(textEl) {
+    requestAnimationFrame(() => requestAnimationFrame(() => textEl.classList.add('show')));
+  }
+  // A brand-new element per line: reusing one left stale pixels of the
+  // previous line on some phones (GPU-composited opacity layer).
+  function freshStoryTextEl(text) {
+    const old = document.getElementById('storyText');
+    const el = old.cloneNode(false);
+    el.classList.remove('show');
+    el.textContent = text;
+    old.replaceWith(el);
+    return el;
+  }
+  function maybeShowStory(onDone) {
+    const lines = kanaMode ? PROLOGUE_LINES_KANA : PROLOGUE_LINES;
+    const overlay = document.getElementById('storyOverlay');
+    storyLineIndex = 0;
+    storyTransitioning = false;
+    const firstEl = freshStoryTextEl(lines[0]);
+    overlay.classList.remove('hidden');
+    fadeStoryTextIn(firstEl);
+    // One-shot exit shared by "last line dismissed" and the skip button.
+    let finished = false;
+    const skipBtn = document.getElementById('storySkipBtn');
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      overlay.classList.add('hidden');
+      overlay.onclick = null;
+      skipBtn.onclick = null;
+      onDone();
+    };
+    skipBtn.onclick = (e) => {
+      e.stopPropagation();
+      SoundMgr.seClick();
+      finish();
+    };
+    overlay.onclick = () => {
+      if (storyTransitioning) return; // ignore taps mid-fade
+      SoundMgr.seClick();
+      storyTransitioning = true;
+      document.getElementById('storyText').classList.remove('show');
+      setTimeout(() => {
+        if (finished) return;
+        storyLineIndex++;
+        if (storyLineIndex >= lines.length) { finish(); return; }
+        const nextEl = freshStoryTextEl(lines[storyLineIndex]);
+        storyTransitioning = false;
+        fadeStoryTextIn(nextEl);
+      }, STORY_FADE_MS);
+    };
   }
 
   // NOTE (line4-third): everything in this online section is inherited from line4 and
