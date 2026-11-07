@@ -186,11 +186,14 @@ function makeWater(mat) {
     shader.uniforms.uTime = waterUniforms.uTime;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vWPos;')
-      .replace('#include <project_vertex>', '#include <project_vertex>\nvWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+      .replace('#include <common>', '#include <common>\nvarying vec3 vWNrm;')
+      .replace('#include <project_vertex>', '#include <project_vertex>\nvWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;\nvWNrm = normalize(mat3(modelMatrix) * objectNormal);');
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', /* glsl */`#include <common>
         uniform float uTime;
         varying vec3 vWPos;
+        varying vec3 vWNrm;
+        ${FOAM_GLSL}
         // 川は Z 方向に流れる
         float wave(vec2 p) {
           vec2 q = p * vec2(0.9, 0.35) + vec2(0.0, -uTime * 0.8);
@@ -201,9 +204,18 @@ function makeWater(mat) {
         }`)
       .replace('#include <color_fragment>', /* glsl */`#include <color_fragment>
         float wv = wave(vWPos.xz);
-        diffuseColor.rgb *= 0.88 + 0.2 * wv;`)
+        float fall = 1.0 - smoothstep(0.35, 0.6, abs(vWNrm.y));   // 滝（立っている水の面）
+        diffuseColor.rgb *= mix(0.88 + 0.2 * wv, 1.0, fall);
+        if (fall > 0.0) {
+          // 流れ落ちる白い筋
+          float h = dot(vWPos.xz, normalize(vec2(-vWNrm.z, vWNrm.x) + 1e-4));
+          float y = vWPos.y + uTime * 3.2;
+          float s = foamNoise(vec2(h * 3.0, y * 0.35)) * 0.6 + foamNoise(vec2(h * 7.0 + 4.0, y * 0.8)) * 0.4;
+          float streak = smoothstep(0.55, 0.85, s);
+          diffuseColor.rgb = mix(diffuseColor.rgb * 1.08, vec3(0.93, 0.98, 1.0), streak * 0.65 * fall);
+        }`)
       .replace('#include <normal_fragment_maps>', /* glsl */`#include <normal_fragment_maps>
-        {
+        if (abs(vWNrm.y) > 0.5) {
           float e = 0.08;
           float dx = wave(vWPos.xz + vec2(e, 0.0)) - wv;
           float dz = wave(vWPos.xz + vec2(0.0, e)) - wv;
@@ -213,6 +225,152 @@ function makeWater(mat) {
   };
   mat.needsUpdate = true;
 }
+
+// ---- 滝の下の泡としぶき ----
+// town.glb の泡（SL_Foam_*。白い板）は隠して、そこに流れていく泡の模様と、跳ね上がるしぶきを置く。
+// 滝は川上（-Z）側にあり、泡は滝の足元から川下（+Z）へ流れて消えていく
+const FOAM_TRAIL = 2.5;         // 泡の板の先へ、泡がうすれながら流れていく長さ（m）
+const FOAM_GLSL = /* glsl */`
+  vec2 foamHash(vec2 p) { p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3))); return fract(sin(p) * 43758.5453); }
+  float foamNoise(vec2 p) {
+    vec2 i = floor(p), f = fract(p), u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(foamHash(i).x, foamHash(i + vec2(1, 0)).x, u.x), mix(foamHash(i + vec2(0, 1)).x, foamHash(i + vec2(1, 1)).x, u.x), u.y);
+  }
+  // 泡つぶ：セルの中心ほど 0（泡の穴）、ふちほど 1。セルの中心がゆらゆら動く
+  float foamCells(vec2 x, float t) {
+    vec2 n = floor(x), f = fract(x);
+    float m = 8.0;
+    for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
+      vec2 g = vec2(float(i), float(j));
+      vec2 o = foamHash(n + g);
+      o = 0.5 + 0.4 * sin(t + 6.2831 * o);
+      vec2 r = g + o - f;
+      m = min(m, dot(r, r));
+    }
+    return sqrt(m);
+  }`;
+function makeFoamMaterial(padFrac) {
+  const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0x141c20, transparent: true, depthWrite: false });
+  mat.name = 'fuwao_foam';
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uTime = waterUniforms.uTime;
+    shader.uniforms.uPad = { value: padFrac };
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vWPos;\nvarying vec2 vFoamUv;')
+      .replace('#include <project_vertex>', '#include <project_vertex>\nvWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;\nvFoamUv = uv;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+        uniform float uTime, uPad;
+        varying vec3 vWPos;
+        varying vec2 vFoamUv;
+        ${FOAM_GLSL}`)
+      .replace('#include <color_fragment>', /* glsl */`#include <color_fragment>
+        {
+          float t = uTime;
+          vec2 p = vWPos.xz;
+          float v = 1.0 - vFoamUv.y;   // 0：滝の足元、1：流れていく先
+          float side = smoothstep(0.0, 0.1, vFoamUv.x) * smoothstep(1.0, 0.9, vFoamUv.x);
+          // 滝の足元で一番こく、川下へ行くほどうすくなる
+          float dens = 1.0 - smoothstep(uPad * 0.3, 1.0, v);
+          vec2 q = p + vec2(0.0, -t * 1.3);
+          float big = foamNoise(q * 0.9) * 0.65 + foamNoise(q * 2.3 + 3.1) * 0.35;
+          float c1 = foamCells(q * 2.6, t * 1.7);
+          float c2 = foamCells(q * 5.5 + 11.0, t * 2.3);
+          float rim = smoothstep(0.18, 0.5, c1) * 0.6 + smoothstep(0.15, 0.45, c2) * 0.4;
+          // 滝の足元のわき立つ泡（ふくらんだり、しぼんだり）
+          float boil = (1.0 - smoothstep(0.0, 0.35, v)) * (0.25 + 0.25 * sin(t * 5.0 + p.x * 2.7 + foamNoise(p * 1.7) * 6.0));
+          float f = dens * (0.3 + 0.95 * big) + boil + rim * 0.25 - (1.0 - side) * 0.9;
+          float a = smoothstep(0.42, 0.62, f);
+          // 泡のふちは白く、すき間は水の色が少し透ける
+          vec3 deep = vec3(0.55, 0.78, 0.86), white = vec3(1.0, 0.99, 0.97);
+          diffuseColor.rgb = mix(deep, white, 0.35 + 0.65 * rim * smoothstep(0.4, 0.8, f));
+          diffuseColor.a = a * (0.6 + 0.4 * rim);
+        }`);
+  };
+  return mat;
+}
+// しぶき：滝の足元から跳ね上がって落ちる粒（頂点シェーダーで動かす。色は空の明るさに合わせる）
+const sprayColor = { value: new THREE.Color(1, 1, 1) };
+const sprayScale = { value: 400 };   // 1m の粒が、1m 先で何ピクセルか（画面の高さと画角から）
+function makeSpray({ origin, width, power, count, size, opacity, life, spread }) {
+  const g = new THREE.BufferGeometry();
+  const seed = new Float32Array(count * 4);
+  for (let i = 0; i < seed.length; i++) seed[i] = Math.random();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(count * 3), 3));
+  g.setAttribute('aSeed', new THREE.BufferAttribute(seed, 4));
+  const mat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false,
+    uniforms: {
+      uTime: waterUniforms.uTime, uColor: sprayColor,
+      uOrigin: { value: origin }, uWidth: { value: width }, uPower: { value: power }, uSpread: { value: spread },
+      uSize: { value: size }, uScale: sprayScale, uOpacity: { value: opacity }, uLife: { value: life },
+    },
+    vertexShader: /* glsl */`
+      attribute vec4 aSeed;
+      uniform float uTime, uWidth, uPower, uSize, uScale, uLife, uSpread;
+      uniform vec3 uOrigin;
+      varying float vAlpha;
+      void main() {
+        float life = uLife * (0.7 + 0.6 * aSeed.z);
+        float ph = fract(uTime / life + aSeed.y);
+        float t = ph * life;
+        vec3 vel = vec3((aSeed.w - 0.5) * uSpread, uPower * (0.6 + 0.8 * fract(aSeed.x * 13.7)), uSpread * (0.4 + fract(aSeed.z * 5.3)));
+        vec3 pos = uOrigin + vec3((aSeed.x - 0.5) * uWidth, 0.0, 0.0) + vel * t;
+        pos.y -= 4.9 * t * t;
+        vAlpha = smoothstep(0.0, 0.12, ph) * (1.0 - smoothstep(0.55, 1.0, ph)) * step(uOrigin.y - 0.2, pos.y);
+        vec4 mv = modelViewMatrix * vec4(pos, 1.0);
+        gl_Position = projectionMatrix * mv;
+        gl_PointSize = uSize * uScale * (0.6 + 0.8 * ph) / max(0.5, -mv.z);
+      }`,
+    fragmentShader: /* glsl */`
+      uniform vec3 uColor;
+      uniform float uOpacity;
+      varying float vAlpha;
+      void main() {
+        float d = length(gl_PointCoord - 0.5);
+        float a = smoothstep(0.5, 0.0, d) * vAlpha * uOpacity;
+        if (a < 0.01) discard;
+        gl_FragColor = vec4(uColor, a);
+      }`,
+  });
+  const pts = new THREE.Points(g, mat);
+  pts.frustumCulled = false;
+  pts.renderOrder = 3;
+  return pts;
+}
+// 泡の板（滝ごとに 1 枚）の場所から、泡としぶきを作る。merged：町を材質ごとにまとめたもの（元の白い板を隠す）
+function setupFoam(townScene, merged) {
+  const pads = [];
+  townScene.updateMatrixWorld(true);
+  townScene.traverse((o) => { if (o.isMesh && /foam/i.test(o.material.name)) pads.push(new THREE.Box3().setFromObject(o)); });
+  for (const m of merged.children) if (/foam/i.test(m.material.name)) m.visible = false;
+  for (const b of pads) {
+    const w = b.max.x - b.min.x, d = b.max.z - b.min.z, cx = (b.min.x + b.max.x) / 2, y = b.max.y + 0.02;
+    const len = d + FOAM_TRAIL;
+    const foam = new THREE.Mesh(new THREE.PlaneGeometry(w + 0.4, len), makeFoamMaterial(d / len));
+    foam.rotation.x = -Math.PI / 2;
+    foam.position.set(cx, y, b.min.z + len / 2);
+    foam.receiveShadow = true;
+    foam.renderOrder = 2;
+    scene.add(foam);
+    foamObjs.push(foam);
+    // 滝の高さ（川上の水面との差）で、しぶきの勢いを変える
+    _o.set(cx, y + 60, b.min.z - 1.2);
+    const up = waterCollider && cast(_o, DOWN, 120, waterCollider);
+    const drop = THREE.MathUtils.clamp(up ? up.point.y - y : 1, 0.6, 5);
+    const origin = new THREE.Vector3(cx, y, b.min.z + 0.25);
+    foamObjs.push(...[makeSpray({ origin, width: w * 0.9, power: 1.6 + drop * 0.7, count: Math.round(w * 20), size: 0.1, opacity: 0.8, life: 0.9, spread: 1.4 }),
+    // 細かい霧（大きく、うすく、ゆっくり）
+      makeSpray({ origin, width: w, power: 0.8 + drop * 0.35, count: Math.round(w * 5), size: 0.9 + drop * 0.25, opacity: 0.18, life: 2.2, spread: 0.9 })].map((o) => { scene.add(o); return o; }));
+  }
+}
+// 空の明るさ（朝・昼・夕方・夜）に合わせて、しぶきの色を変える
+function updateSpray() {
+  sprayScale.value = renderer.domElement.height / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
+  const c = hemi.color, k = Math.min(1.1, hemi.intensity / 0.7) / Math.max(c.r, c.g, c.b, 1e-3);
+  sprayColor.value.setRGB(c.r * k, c.g * k, c.b * k).lerp(_sprayWhite, 0.25).multiplyScalar(Math.min(1, 0.3 + hemi.intensity / 0.7));
+}
+const _sprayWhite = new THREE.Color(1, 1, 1);
 
 // ---- 読み込み ----
 const overlay = document.getElementById('overlay');
@@ -225,7 +383,7 @@ const crosshair = document.getElementById('crosshair');
 // ?collapsed：ボス3の後の倒壊した町（town_collapsed.glb）に差し替えて見る（テスト用）。
 // 廃墟の部品（ヘドロ・ガレキ）は重ねず、区画の分け方とくすみだけ使う
 const COLLAPSED = new URLSearchParams(location.search).has('collapsed');
-const FILES = [COLLAPSED ? 'models/town_collapsed.glb' : 'models/town.glb', 'models/distant.glb', 'models/pancannon.glb', 'models/germboss.glb', 'models/bread.glb', 'models/grandpa.glb', 'models/girl.glb', 'models/grandma.glb', 'models/town_ruin.glb', 'models/mayor.glb', 'models/germmini.glb', 'models/workshop.glb', 'models/chief.glb', 'models/baker.glb', 'models/sludgeboss.glb'];
+const FILES = [COLLAPSED ? 'models/town_collapsed.glb' : 'models/town.glb', 'models/distant.glb', 'models/pancannon.glb', 'models/germboss.glb', 'models/bread.glb', 'models/grandpa.glb', 'models/girl.glb', 'models/grandma.glb', 'models/town_ruin.glb', 'models/mayor.glb', 'models/germmini.glb', 'models/workshop.glb', 'models/chief.glb', 'models/baker.glb', 'models/sludgeboss.glb', 'models/rockboss.glb', 'models/choco.glb', 'models/choco_tank.glb', 'models/yeast.glb', 'models/yeast_cannon.glb'];
 const loaded = {}, total = {};
 // 公開版のモデルは meshopt で圧縮してある（25MB を超えるファイルは置けないため）
 const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
@@ -328,10 +486,30 @@ function bvhMesh(meshes) {
   mesh.updateMatrixWorld();
   return mesh;
 }
+// 広場の出店（PZ_Stall_N_*）は、地面から屋根の上までを 1 つの箱として当たる。
+// 台（高さ 0.9m）の上から屋根までは 1.3m しかなく、ロボが台に乗ると屋根につかえて動けなくなるため。屋根の上には乗れる
+function stallBlocks(root) {
+  const boxes = new Map();
+  root.updateMatrixWorld(true);
+  root.traverse((o) => {
+    const m = o.isMesh && /^PZ_Stall_(\d+)_/.exec(o.name);
+    if (!m) return;
+    if (!boxes.has(m[1])) boxes.set(m[1], { base: new THREE.Box3(), top: -Infinity });
+    const b = boxes.get(m[1]), box = new THREE.Box3().setFromObject(o);
+    if (/awning/i.test(o.material.name)) b.top = Math.max(b.top, box.max.y);
+    else b.base.union(box);   // 柱と台（屋根のひさしは含めない）
+  });
+  return [...boxes.values()].filter((b) => b.top > -Infinity).map(({ base, top }) => {
+    const g = new THREE.BoxGeometry(base.max.x - base.min.x, top - base.min.y, base.max.z - base.min.z);
+    g.translate((base.min.x + base.max.x) / 2, (base.min.y + top) / 2, (base.min.z + base.max.z) / 2);
+    return new THREE.Mesh(g);
+  });
+}
 // extraWater: 廃墟の間は隠している噴水の水など（入れない場所なのは変わらない）
-function buildCollider(groups, extraWater = []) {
+// extraSolid: 見えない当たりの箱（出店など）
+function buildCollider(groups, extraWater = [], extraSolid = []) {
   const all = groups.flatMap((g) => g.children);
-  collider = bvhMesh(all.filter((m) => !isWater(m.material) && !isPassThrough(m.material)));
+  collider = bvhMesh([...all.filter((m) => !isWater(m.material) && !isPassThrough(m.material)), ...extraSolid]);
   waterCollider = bvhMesh([...all, ...extraWater].filter((m) => isWater(m.material)));
   colliders = [collider];
   const leaves = all.filter((m) => /leaf/i.test(m.material.name));
@@ -477,6 +655,7 @@ function restoreArea(name) {
   const a = ruinAreas.find((x) => x.name === name || x.name === `RU_${name}`);
   if (!a || a.restored) return false;
   a.restored = true;
+  a.back = undefined;   // 廃墟に戻っていく途中なら、そこでやめる
   a.hidden.visible = true;
   a.toggles.forEach((o) => { o.visible = true; });
   a.ruin.traverse((o) => {
@@ -487,8 +666,38 @@ function restoreArea(name) {
   return true;
 }
 
+// 元に戻した区画を、また廃墟にする（脅威の攻撃で崩れたとき）。部品はすっと現れ、色もくすんでいく
+const RUIN_BACK = 1.2;        // 廃墟の部品が現れるまで・色がくすむまで（秒）
+function unrestoreArea(i) {
+  const a = ruinAreas[i];
+  if (!a || !a.restored) return false;
+  a.restored = false;
+  a.back = 0;
+  a.backFrom = 1 - Math.min(1, a.fade / RUIN_TINT_FADE);   // 色が戻りきる前に崩れたときは、その途中から
+  a.fade = 0;
+  a.hidden.visible = false;
+  a.toggles.forEach((o) => { o.visible = false; });
+  if (!a.ruin.parent) scene.add(a.ruin);
+  a.ruin.visible = true;
+  rebuildRuinCollider();
+  return true;
+}
 function updateRuin(dt) {
   for (const a of ruinAreas) {
+    // 廃墟に戻っていくところ
+    if (!a.restored && a.back !== undefined && a.back < 1) {
+      a.back = Math.min(1, a.back + dt / RUIN_BACK);
+      for (const i of a.boxIdx) ruinUniforms.uRuinAmt.value[i] = Math.max(a.backFrom, a.back);
+      a.ruin.traverse((o) => {
+        if (!o.isMesh) return;
+        for (const m of new Set([o.material, o.userData.pbrMaterial])) {
+          if (!m) continue;
+          m.opacity = a.back;
+          if (a.back >= 1) { m.transparent = false; m.depthWrite = true; m.opacity = 1; }
+        }
+      });
+      continue;
+    }
     if (!a.restored || a.fade >= RUIN_TINT_FADE) continue;
     a.fade = Math.min(RUIN_TINT_FADE, a.fade + dt);
     for (const i of a.boxIdx) ruinUniforms.uRuinAmt.value[i] = 1 - a.fade / RUIN_TINT_FADE;
@@ -497,10 +706,7 @@ function updateRuin(dt) {
     a.ruin.traverse((o) => {
       if (o.isMesh) for (const m of new Set([o.material, o.userData.pbrMaterial])) if (m) m.opacity = 1 - k;
     });
-    if (k >= 1) {
-      scene.remove(a.ruin);
-      a.ruin.traverse((o) => { if (o.isMesh) o.geometry.dispose(); });
-    }
+    if (k >= 1) scene.remove(a.ruin);   // 部品は捨てずに取っておく（脅威の攻撃で、また崩れることがある）
   }
 }
 
@@ -636,7 +842,8 @@ if (new URLSearchParams(location.search).has('debug')) {
     talkScript(i) { return talkScript(residents[i]); },
     get residentAreas() { return residents.map((r) => `${r.id} ${r.kindName} → 区画${areaNumber(areaAt(r.home.x, r.home.z))}`); },
     retreat() { if (!retreat && !bossGone) startRetreat(); },
-    appear() { if (!bossAppeared && !bossIntro) startBossIntro(); }, useBoss, get bossIndex() { return bossIndex; },
+    appear() { if (!bossAppeared && !bossIntro) startBossIntro(); },
+    get collapse() { return collapse; }, get townCollapsed() { return townCollapsed; }, useBoss, get bossIndex() { return bossIndex; },
     get items() { return [...items]; }, giveItem(k) { items.add(k); }, noon: makeHungry, enterWorkshop, saveGame, readSave, clearSave, startGame, get visit() { return visit; }, get hungry() { return residents.filter((r) => r.hungry).map((r) => r.id); }, get intro() { return bossIntro; }, get appeared() { return bossAppeared; },
     get retreating() { return !!retreat; }, get bossGone() { return bossGone; },
     attackTown, get quake() { return quake; },
@@ -673,7 +880,8 @@ function takeWindmillRotor(root) {
 // glb の 1 本のタイムラインを、ルートの extras.clips（{"名前": [始め, 終わり]}）で切り分ける
 function clipsFromExtras(root, clips) {
   const all = new THREE.AnimationClip('all', -1, clips.flatMap((c) => c.tracks));
-  const ranges = JSON.parse(root.userData.clips || '{}');
+  const c = root.userData.clips;
+  const ranges = typeof c === 'string' ? JSON.parse(c) : c || {};
   const out = {};
   for (const [name, [a, b]] of Object.entries(ranges)) out[name] = THREE.AnimationUtils.subclip(all, name, a, b, ANIM_FPS);
   return out;
@@ -687,11 +895,21 @@ function clipsFromExtras(root, clips) {
 //   attacks：[クリップ名, 当たるフレーム]。bodyY：体の中心の高さ（根元から）。sink：落ちてきたときにめりこむ深さ
 //   rain：撤退するときに小バイ菌を町へふらせ、町の復興度をこれまで下げる
 //   needs：この道具（ITEMS）がないと、体当たりしてもすり抜けてしまう。道具があれば、ぶつかった所が固まって押し戻せる
+//   summon：復興度では現れず、talks.json の summon のセリフを話し終わったときに現れる（ボス3 は、復興度 100% のあと町長と話すと）
+//   roll：転がって町へ来る（clip：転がるアニメ、start：転がり始め、speed：m/秒、loop：アニメ 1 回で進む距離 m）
+//   hard：体当たりしても押し戻せない（はね返されるだけ。撤退ラインも出さない）
+//   intro：出現シーンの最後に威嚇でするアニメ（ないときは attacks の最初）。camScale：出現シーンのカメラの引き（大きいボス用）
+//   roam：次のステージ（next）では、倒されるまで町の中を転げまわる（speed：m/秒、radius：町の真ん中から転がる範囲 m）。
+//         転がっているときにふわおにぶつかると、つぶしてからだを 1/4 減らす
+// name は画面に出す名前（どのボスも「脅威」）。BOSSES の順に、バイ菌ボス・ヘドロボス・ロックボス
 const BOSSES = [
-  { name: 'バイ菌ボス', root: 'GB_Root', hit: 'GB_Hit_Spikes', stage: 1, appearAt: 0.8, next: 2,
+  { name: '脅威', root: 'GB_Root', hit: 'GB_Hit_Spikes', stage: 1, appearAt: 0.8, next: 2,
     attacks: [['attack_slam', 92], ['attack_drill', 171]], bodyY: 14, sink: 8, rain: 0.3 },
-  { name: 'ヘドロボス', root: 'SB_Root', hit: 'SB_Hit_Body', stage: 2, appearAt: 0.6, next: 3,
+  { name: '脅威', root: 'SB_Root', hit: 'SB_Hit_Body', stage: 2, appearAt: 0.6, next: 3,
     attacks: [['attack_slam', 92], ['attack_wave', 160]], bodyY: 7, sink: 0, needs: 'solidifier' },
+  { name: '脅威', root: 'RB_Root', hit: 'RB_Hit_Body', stage: 3, summon: true, next: 4,
+    attacks: [], bodyY: 21, sink: 0, roll: { clip: 'roll', start: 'roll_start', speed: 2.5, loop: 131.95 },
+    hard: true, intro: 'roll_start', camScale: 2.1, roam: { speed: 6, radius: 34 } },
 ];
 const BOSS_IDLE_TIME = 6;   // 攻撃と攻撃のあいだの待機（秒）
 const BOSS_FADE = 0.25;
@@ -700,7 +918,10 @@ let bossIdleTime = 0, bossAttack = null, bossNext = 0, bossHitTimes = {}, bossMa
 const SOLID_TIME = 2.5;                      // 固形化パンで体当たりしたとき、固まっている時間（秒）
 const SOLID_COLOR = new THREE.Color(0x9a9088);   // 固まった色（乾いた土）
 // ふわおが手に入れた道具。solidifier：固形化パン（パン工房の工場長がくれる。ヘドロボスを固めて体当たりできる）
-const ITEMS = { solidifier: '固形化パン' };
+// choco：板チョコ（ステージ 1 をクリアすると工房の展示台に並び、工場長がメカの背中にチョコ燃料タンクとして取り付けてくれる。燃料の最大が CHOCO_FUEL_MAX に）
+// yeast：魔法のパン種（町が崩壊したあと、パン工房の前の工場長が砲台に付けてくれる。脅威3 を倒す最後の武器）
+const ITEMS = { solidifier: '固形化パン', choco: '板チョコ', yeast: '魔法のパン種' };
+const CHOCO_FUEL_MAX = 0.5;
 const items = new Set();
 let passToast = 0;   // すり抜けたときのお知らせを出してからの時間
 // 固まる：今のボスの材質（見た目の切り替え用の材質も）の元の色を覚えて、固まった色にする
@@ -736,13 +957,19 @@ function prepareBoss(gltf, cfg) {
   const actions = {}, hitTimes = {};
   for (const [name, clip] of Object.entries(clips)) {
     const a = mixer.clipAction(clip);
-    if (name !== 'idle') { a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = true; }
+    if (name !== 'idle' && name !== cfg.roll?.clip) { a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = true; }
     actions[name] = a;
   }
   for (const [name, frame] of cfg.attacks) if (ranges[name]) hitTimes[name] = (frame - ranges[name][0]) / ANIM_FPS;
   actions.idle?.play();
   // 攻撃が終わったら待機へ戻す。ドリルの終わりは体が 3 回転した値だが、見た目は元の姿勢なのでそのままつなぐ
   mixer.addEventListener('finished', (e) => {
+    if (cfg.roll && e.action === actions[cfg.roll.start] && rolling === 1 && bossModels[bossIndex]?.mixer === mixer) {
+      rolling = 2;
+      actions[cfg.roll.clip].reset().play();
+      e.action.crossFadeTo(actions[cfg.roll.clip], BOSS_FADE, false);
+      return;
+    }
     if (e.action !== bossAttack) return;
     actions.idle.reset().play();
     bossAttack.crossFadeTo(actions.idle, BOSS_FADE, false);
@@ -772,6 +999,9 @@ function useBoss(i) {
   bossGone = false;
   bossAppeared = false;
   bossAppearWait = 0;
+  bossSummoned = false;
+  attackCount = 0;
+  rolling = 0;
   bossVel.set(0, 0, 0);
   boss.visible = false;
   if (retreatLine) retreatLine.visible = false;
@@ -786,7 +1016,7 @@ function startBossAttack(name) {
 }
 function updateBoss(dt, active) {
   if (!bossMixer) return;
-  if (bossActions && bossAppeared && !bossAttack && !retreat && (bossIdleTime += dt) > BOSS_IDLE_TIME) {
+  if (bossActions && bossAppeared && !bossAttack && !retreat && bossCfg.attacks.length && (bossIdleTime += dt) > BOSS_IDLE_TIME) {
     startBossAttack(bossCfg.attacks[bossNext][0]);
     bossNext = (bossNext + 1) % bossCfg.attacks.length;
     bossHitDone = false;
@@ -805,6 +1035,11 @@ function updateBoss(dt, active) {
     if (active && bossAppeared && boss && !bossGone && !retreat && !talk.active && bossDistance() <= BOSS_STOP + 1) attackTown();
   }
   quake *= Math.exp(-QUAKE_DAMP * dt);
+  // 町を転げまわっているときは、近いほど地面がゆれる
+  if (active && bossRoaming() && rolling > 0) {
+    const d = Math.hypot(boss.position.x - feet.x, boss.position.z - feet.z);
+    quake = Math.max(quake, 0.35 * THREE.MathUtils.clamp(1 - (d - 20) / 60, 0, 1));
+  }
 }
 
 // ---- ボスが町を攻撃する ----
@@ -814,13 +1049,29 @@ const QUAKE_SHAKE = 0.35;      // 町が攻撃されたときのカメラのゆ�
 const QUAKE_DAMP = 2.5;        // ゆれがおさまる速さ
 let bossHitDone = true, quake = 0;
 const hurtEl = document.getElementById('hurt');
+// ATTACK_RUIN_EVERY 回に 1 回は、元に戻った区画をランダムに 1 つ廃墟に戻す（区画の小バイ菌も全部よみがえる）。
+// ほかの攻撃と、元に戻った区画がないときは、小バイ菌が 1 匹よみがえる
+const ATTACK_RUIN_EVERY = 3;
+let attackCount = 0;
 function attackTown() {
   quake = 1;
   hurtEl.classList.remove('on');
   void hurtEl.offsetWidth;   // アニメーションを最初から
   hurtEl.classList.add('on');
-  const area = reviveGerm();
-  showToast(area >= 0 ? `ボスの攻撃！ ${AREA_NAMES[ruinAreas[area].name]}の小バイ菌がよみがえった` : 'ボスが町を攻撃した！');
+  if (++attackCount % ATTACK_RUIN_EVERY !== 0 || !ruinRandomArea()) reviveGerm();
+  showToast('脅威が町を攻撃した！');
+}
+function ruinRandomArea() {
+  const done = areaGauge.map((g, i) => i).filter((i) => areaGauge[i].done && ruinAreas[i].restored);
+  if (!done.length) return false;
+  const i = done[Math.floor(Math.random() * done.length)];
+  unrestoreArea(i);
+  const g = areaGauge[i];
+  g.done = false;
+  g.germs.forEach((x, k) => { if (germGone(x)) reviveGermAt(i, k); });
+  quake = 1.6;
+  setTimeout(saveGame, 0);
+  return true;
 }
 function reviveGerm() {
   let best = null, bestD = Infinity;
@@ -1010,7 +1261,7 @@ function startRetreat() {
   const g = cast(_o, DOWN, 800);
   retreat.cam.y = Math.max(g ? g.point.y : boss.position.y, boss.position.y) + h * 0.45 + 4;
   retreat.look.copy(boss.position).setY(boss.position.y + retreat.lookUp);
-  cutinEl.querySelector('.caption').textContent = 'ボスが撤退していく……';
+  cutinEl.querySelector('.caption').textContent = '脅威が撤退していく……';
   document.body.classList.add('cutin');
 }
 function updateRetreat(dt) {
@@ -1030,7 +1281,7 @@ function updateRetreat(dt) {
   // 小バイ菌を空へ吐き出す：体をふるわせ、てっぺんから次々に打ち上げる。町の倒した小バイ菌の場所へ落ちて、よみがえる
   if (r.spew && r.t >= t1 && r.t < ts) {
     const u = (r.t - t1) / r.spew;
-    if (!r.spewing) { r.spewing = true; cutinEl.querySelector('.caption').textContent = 'ボスが小バイ菌を空へまき散らした！'; }
+    if (!r.spewing) { r.spewing = true; cutinEl.querySelector('.caption').textContent = '脅威が小バイ菌を空へまき散らした！'; }
     const w = Math.sin(r.t * 30) * 0.05 * Math.sin(Math.PI * u);
     boss.scale.set(1 + w, 1 - w, 1 + w);
     const want = Math.min(r.rain.length, Math.ceil(r.rain.length * u / 0.7));
@@ -1038,7 +1289,7 @@ function updateRetreat(dt) {
   } else if (r.spewing && r.t >= ts) {
     r.spewing = false;
     boss.scale.setScalar(1);
-    cutinEl.querySelector('.caption').textContent = 'ボスが撤退していく……';
+    cutinEl.querySelector('.caption').textContent = '脅威が撤退していく……';
   }
   r.lookExtra += ((r.spew && r.t >= t1 && r.t < ts + 0.8 ? 1 : 0) - r.lookExtra) * (1 - Math.exp(-2.5 * dt));
   updateRain(r, dt);
@@ -1070,7 +1321,7 @@ function updateRetreat(dt) {
     document.body.classList.remove('cutin');
     retreat = null;
     setTimeout(() => fadeEl.classList.remove('on'), 300);
-    showToast('ボスが撤退した！');
+    showToast('脅威が撤退した！');
     saveGame();
   }
 }
@@ -1121,7 +1372,10 @@ const INTRO_FALL_H = 170;         // 落ち始める高さ（いつもの位置�
 const INTRO_RISE = [5.2, 7.6];    // 浮かび上がる時刻
 const INTRO_SLAM = 7.7;           // 爪をたたきつけ始める時刻（当たるのは約 0.9 秒後）
 const INTRO_END = 10.4;           // 終わり（最後の FADE_TIME で暗転する）
-let bossAppeared = false, bossIntro = null, bossAppearWait = 0;
+// 転がるボス（BOSSES の roll）は空から落ちず、町の外の遠くから地ひびきを立てて転がってきて、いつもの位置でドンと止まる
+const ROLL_IN_DIST = 110;         // 転がり始める所（いつもの位置から、町と反対へ m）
+const ROLL_IN_TIME = 5.0;         // いつもの位置に着く時刻（秒）。ここで画面が大きくゆれる
+let bossAppeared = false, bossIntro = null, bossAppearWait = 0, bossSummoned = false;
 const _ic = new THREE.Vector3(), _il = new THREE.Vector3();
 function introGroundY(x, z, fallback) {
   _o.set(x, 400, z);
@@ -1151,7 +1405,9 @@ function startBossIntro() {
   const side = new THREE.Vector3(-out.z, 0, out.x);
   // カメラの位置（町の側から。地面より上に）。木や家でボスの体が隠れるときは、横へずらした位置をさがす
   const _d = new THREE.Vector3();
+  const k = bossCfg.camScale || 1;
   const shot = (back, s0, up, bodyY) => {
+    back *= k; s0 *= k; up *= k;
     let first = null;
     // 好みの位置から順に、横・前後・高さを少しずつ変えてさがす（町の外は木が多い）
     const tries = [];
@@ -1162,6 +1418,7 @@ function startBossIntro() {
       first ||= p;
       // 体の真ん中と、左右・上の端（トゲのあたり）が見えるか。木の葉も見る
       const blocked = [[0, 0], [-9, 0], [9, 0], [0, 9], [-6, -4], [6, -4]].some(([sx, sy]) => {
+        sx *= k; sy *= k;
         _d.set(home.x, home.y + bodyY + sy, home.z).addScaledVector(side, sx).sub(p);
         const len = _d.length();
         return cast(p, _d.normalize(), len - 3, leafCollider ? [...colliders, leafCollider] : colliders);
@@ -1173,7 +1430,9 @@ function startBossIntro() {
   const cy = bossCfg.bodyY;
   bossIntro = {
     t: 0, home, out, side, faded: false, landed: false, slammed: false, slamHit: false, dust: [],
-    camA: shot(48, 22, 2.5, cy),                   // 落ちてくるところを低い位置から見上げる
+    rollIn: !!bossCfg.roll, land: bossCfg.roll ? ROLL_IN_TIME : INTRO_LAND,
+    // 落ちてくるところを低い位置から見上げる。転がってくるボスは、通り道の横の低い位置から
+    camA: bossCfg.roll ? shot(-10, 42, 2, cy) : shot(48, 22, 2.5, cy),
     camB: shot(38, -12, 1.2, cy - bossCfg.sink),   // ぶつかったあと：近くの低い位置から、ゆっくり寄る
     camC: shot(34, 3, 1.5, cy),                    // たたきつけ：正面の低い位置から見上げる
     look: home.clone().setY(home.y + INTRO_FALL_H * 0.6),
@@ -1181,6 +1440,16 @@ function startBossIntro() {
   boss.visible = true;
   boss.position.set(home.x, home.y + INTRO_FALL_H, home.z);
   boss.rotation.y = Math.atan2(-out.x, -out.z);   // 町のほうを向く
+  if (bossIntro.rollIn) {
+    // 遠くから転がってくる（転がるアニメを流しておく）
+    const R = bossCfg.roll, A = bossActions;
+    boss.position.copy(home).addScaledVector(out, ROLL_IN_DIST);
+    boss.position.y = introGroundY(boss.position.x, boss.position.z, home.y);
+    A.idle.stop();
+    A[R.clip].reset().play();
+    bossIntro.prev = boss.position.clone();
+    bossIntro.look.copy(boss.position).setY(boss.position.y + bossCfg.bodyY);
+  }
   bossIdleTime = 0;
   jetting = false; jetEndTime = 0; jetSpeed = 0; jetVel.set(0, 0, 0); recoilVel.set(0, 0, 0);
   releaseAll();
@@ -1192,8 +1461,39 @@ function updateBossIntro(dt) {
   I.t += dt;
   const t = I.t;
   const caption = cutinEl.querySelector('.caption');
-  if (t > 0.3 && t < INTRO_LAND && !caption.textContent) caption.textContent = '空から、なにかが……！';
-  if (!I.landed) {
+  if (t > 0.3 && t < I.land && !caption.textContent) caption.textContent = I.rollIn ? 'ゴゴゴゴ……！ 地ひびきが近づいてくる……！' : '空から、なにかが……！';
+  if (I.rollIn && !I.landed) {
+    // 転がってくる（だんだん速く）。地ひびきで画面がゆれ続け、近づくほど大きくなる
+    const R = bossCfg.roll;
+    const u = Math.min(1, t / I.land);
+    const left = ROLL_IN_DIST * (1 - Math.pow(u, 1.25));
+    pos.copy(home).addScaledVector(I.out, left);
+    const gy = introGroundY(pos.x, pos.z, home.y);
+    pos.y += (gy - pos.y) * (1 - Math.exp(-6 * dt));
+    const speed = dt > 0 ? Math.hypot(pos.x - I.prev.x, pos.z - I.prev.z) / dt : 0;
+    I.prev.copy(pos);
+    const roll = bossActions[R.clip];
+    roll.timeScale = speed * roll.getClip().duration / R.loop;
+    quake = Math.max(quake, 0.25 + 0.7 * u);
+    if (t >= I.land) {
+      // いつもの位置でドンと止まる
+      I.landed = true;
+      pos.copy(home);
+      quake = 2.2;
+      bossActions.idle.reset().play();
+      roll.crossFadeTo(bossActions.idle, 0.5, false);
+      const ds = bossCfg.camScale || 1;
+      I.dust.push({ mesh: dustRing(home, 0xd9c6a5, 55 * ds), t: 0, life: 1.6 }, { mesh: dustRing(home, 0xb9a284, 34 * ds), t: -0.15, life: 1.4 },
+        { mesh: dustCloud(home), t: 0, life: 2.4, cloud: true, size: ds });
+      caption.textContent = '';
+    }
+  } else if (I.rollIn) {
+    // 止まった反動で、ぐらっと前へ傾いて戻る
+    const s = t - I.land;
+    const w = Math.exp(-2.5 * s) * Math.sin(s * 7);
+    boss.rotation.x = 0.12 * w;
+    boss.scale.set(1 + 0.05 * w, 1 - 0.06 * w, 1 + 0.05 * w);
+  } else if (!I.landed) {
     // 落ちる（だんだん速く）。勢いで縦にのびる
     const u = THREE.MathUtils.clamp((t - INTRO_FALL_FROM) / (INTRO_LAND - INTRO_FALL_FROM), 0, 1);
     pos.y = home.y + INTRO_FALL_H - (INTRO_FALL_H + bossCfg.sink) * u * u;
@@ -1203,13 +1503,14 @@ function updateBossIntro(dt) {
       I.landed = true;
       pos.y = home.y - bossCfg.sink;
       quake = 2.2;
-      I.dust.push({ mesh: dustRing(home, 0xd9c6a5, 55), t: 0, life: 1.6 }, { mesh: dustRing(home, 0xb9a284, 34), t: -0.15, life: 1.4 },
-        { mesh: dustCloud(home), t: 0, life: 2.4, cloud: true });
+      const ds = bossCfg.camScale || 1;
+      I.dust.push({ mesh: dustRing(home, 0xd9c6a5, 55 * ds), t: 0, life: 1.6 }, { mesh: dustRing(home, 0xb9a284, 34 * ds), t: -0.15, life: 1.4 },
+        { mesh: dustCloud(home), t: 0, life: 2.4, cloud: true, size: ds });
       caption.textContent = '';
     }
   } else {
     // めりこんだあと：つぶれて、ぷるんと戻る
-    const s = t - INTRO_LAND;
+    const s = t - I.land;
     const w = Math.exp(-2.2 * s) * Math.cos(s * 9);
     boss.scale.set(1 + 0.22 * w, 1 - 0.3 * w, 1 + 0.22 * w);
     // 浮かび上がる（上がりきったら少しふわっと揺れておさまる）
@@ -1221,7 +1522,7 @@ function updateBossIntro(dt) {
   // 爪をたたきつけて威嚇
   if (!I.slammed && t >= INTRO_SLAM) {
     I.slammed = true;
-    I.slam = bossCfg.attacks[0][0];
+    I.slam = bossCfg.intro || bossCfg.attacks[0][0];
     startBossAttack(I.slam);
     bossHitDone = true;   // 町への攻撃にはしない
   }
@@ -1232,7 +1533,8 @@ function updateBossIntro(dt) {
     const u = THREE.MathUtils.clamp(d.t / d.life, 0, 1);
     if (d.cloud) {
       const k = 1 - Math.pow(1 - u, 3);
-      d.mesh.scale.set(6 + 30 * k, 3 + 14 * k, 6 + 30 * k);
+      const z = d.size || 1;
+      d.mesh.scale.set((6 + 30 * k) * z, (3 + 14 * k) * z, (6 + 30 * k) * z);
       d.mesh.material.opacity = 0.7 * (1 - u);
     } else {
       const k = 1 - Math.pow(1 - u, 2);
@@ -1248,15 +1550,17 @@ function updateBossIntro(dt) {
     pos.copy(home);
     boss.scale.setScalar(1);
     boss.rotation.z = 0;
+    boss.rotation.x = 0;
     bossIntro = null;
     bossAppeared = true;
     bossIdleTime = 0;
-    if (retreatLine) retreatLine.visible = true;
+    if (bossAttack) { bossActions.idle.reset().play(); bossAttack.crossFadeTo(bossActions.idle, BOSS_FADE, false); bossAttack = null; }
+    if (retreatLine && !bossCfg.hard) retreatLine.visible = true;
     camera.fov = 70;
     camera.updateProjectionMatrix();
     document.body.classList.remove('cutin');
     setTimeout(() => fadeEl.classList.remove('on'), 300);
-    showToast(`${bossCfg.name}が現れた！ ジェットで体当たりして、町から追い返そう`);
+    showToast(bossCfg.hard ? `${bossCfg.name}が現れた！ 町へ転がってくる……！` : `${bossCfg.name}が現れた！ ジェットで体当たりして、町から追い返そう`);
     saveGame();
   }
 }
@@ -1265,13 +1569,13 @@ function bossIntroCamera(dt) {
   const I = bossIntro, t = I.t;
   _il.copy(boss.position).setY(boss.position.y + bossCfg.bodyY);   // 体の中心
   let fov;
-  if (t < INTRO_LAND + 0.9) {
+  if (t < I.land + 0.9) {
     // 落ち始める前は空を見上げ、落ちてきたら体を追う
     _ic.copy(I.camA);
-    if (t > INTRO_FALL_FROM - 0.2) I.look.lerp(_il, 1 - Math.exp(-6 * dt));
-    fov = t < INTRO_LAND ? 58 : 58 + 10 * Math.exp(-4 * (t - INTRO_LAND));   // ぶつかった瞬間に少し広がる
+    if (I.rollIn || t > INTRO_FALL_FROM - 0.2) I.look.lerp(_il, 1 - Math.exp(-6 * dt));
+    fov = t < I.land ? 58 : 58 + 10 * Math.exp(-4 * (t - I.land));   // ぶつかった瞬間に少し広がる
   } else if (t < INTRO_SLAM - 0.2) {
-    const u = THREE.MathUtils.smoothstep(t, INTRO_LAND + 0.9, INTRO_SLAM - 0.2);
+    const u = THREE.MathUtils.smoothstep(t, I.land + 0.9, INTRO_SLAM - 0.2);
     _ic.lerpVectors(I.camB, I.home, 0.22 * u);   // ボスへ向かってまっすぐ寄る（見通しを確かめた線の上）
     if (!I.cutB) { I.cutB = true; I.look.copy(_il); }
     I.look.lerp(_il, 1 - Math.exp(-4 * dt));
@@ -1295,18 +1599,321 @@ function bossIntroCamera(dt) {
   sky.position.copy(camera.position);
   model.visible = true;
 }
+// ---- 町の崩壊（ボス3。ステージ 3 → 4） ----
+// 町長の summon のセリフのあと、カットインになって：
+//   A 砂煙の中、町のみんなが西の坂道（お城への道）を山へ駆け上がって避難していく
+//   B ロックボスが町の外から地ひびきを立てて転がってくる
+//   C 山の上から見下ろすと、ロックボスが町を突っ切って押しつぶしていく
+//   → 暗転して、町を崩壊した町（town_collapsed.glb）に差し替える。町の人は山へ避難していなくなり、ステージ 4 になる
+const COLLAPSE_CUT = [4.5, 9.0];      // B・C のカットの始まり（秒）
+const COLLAPSE_END = 13.6;            // 暗転しきる時刻（最後の FADE_TIME で暗転する）
+const EVAC_FROM = new THREE.Vector3(-52, 0, 4);    // 避難する人が集まって駆け出す所（町の西の外れ、お城への道の入り口）
+const EVAC_TO = new THREE.Vector3(-120, 0, 5);     // 駆けていく先（お城への坂道）
+const EVAC_SPEED = 3.2;                            // 駆ける速さ（m/秒）
+const RAMPAGE_FROM = 48, RAMPAGE_TO = -38;         // C で転がる範囲（町の真ん中から、町の外への向きに m）
+const DUST_COLOR = lin(0.72, 0.6, 0.45);           // 砂煙の霧の色
+let collapse = null;              // { t, out, side, dust: [], puff, camB, camC, look, faded, swapping }
+let townCollapsed = false;
+let townGroup = null, distantGroup = null, foamObjs = [], collapsedLoading = null;
+const dustEl = document.getElementById('dust');
+// 崩壊した町は大きいので、ステージ 3 になったら裏で読み込んでおく
+function preloadCollapsed() {
+  collapsedLoading ||= load('models/town_collapsed.glb').catch((e) => { collapsedLoading = null; throw e; });
+  return collapsedLoading;
+}
+function startCollapse() {
+  preloadCollapsed().catch((e) => console.error(e));
+  const out = new THREE.Vector3(BOSS_POS.x - BOSS_TARGET.x, 0, BOSS_POS.z - BOSS_TARGET.z).normalize();
+  const side = new THREE.Vector3(-out.z, 0, out.x);
+  collapse = { t: 0, out, side, dust: [], puff: 0, faded: false, swapping: false, prev: new THREE.Vector3(), look: new THREE.Vector3(),
+    fogNear: scene.fog.near, fogFar: scene.fog.far, cut: -1 };
+  // 町の人は、お城への道の入り口に集まって、山へ駆けていく（町長と話していた場所からは見えないので、カットの間だけ集める）
+  residents.forEach((r, i) => {
+    if (r.bread) { r.bread.claimedBy = null; r.bread = null; }
+    r.route = r.afterRoute = null;
+    r.state = 'evac';
+    r.oneShot?.stop(); r.oneShot = null;
+    r.root.visible = true;
+    const row = Math.floor(i / 3), col = i % 3;
+    r.root.position.copy(groundPoint(_rm.set(EVAC_FROM.x + 4 + row * 2.2 + Math.random(), 0, EVAC_FROM.z + (col - 1) * 1.6)));
+    r.evac = groundPoint(_rm.set(EVAC_TO.x, 0, EVAC_TO.z + (col - 1) * 1.6));
+    r.evacDelay = row * 0.35 + Math.random() * 0.3;
+    setFace(r, 'sad');
+  });
+  // ボスは転がって町へ（転がるアニメ）
+  boss.visible = true;
+  boss.position.copy(BOSS_TARGET).addScaledVector(out, 160);
+  boss.position.y = introGroundY(boss.position.x, boss.position.z, BOSS_POS.y);
+  boss.rotation.y = Math.atan2(-out.x, -out.z);
+  bossActions.idle.stop();
+  bossActions[bossCfg.roll.clip].reset().play();
+  rolling = 2;
+  collapse.prev.copy(boss.position);
+  // カメラ B：町の東の端の横から、転がってくるボスを見る。C：北の山の斜面から町を見下ろす
+  const b = BOSS_TARGET.clone().addScaledVector(out, 38).addScaledVector(side, 72);
+  collapse.camB = b.setY(introGroundY(b.x, b.z, 10) + 6);
+  const c = new THREE.Vector3(BOSS_TARGET.x - 28, 0, BOSS_TARGET.z - 72);
+  collapse.camC = c.setY(introGroundY(c.x, c.z, 20) + 26);
+  jetting = false; jetEndTime = 0; jetSpeed = 0; jetVel.set(0, 0, 0); recoilVel.set(0, 0, 0);
+  releaseAll();
+  cutinEl.querySelector('.caption').textContent = '';
+  document.body.classList.add('cutin');
+  dustEl.classList.add('on');
+}
+// ボスを町の真ん中から外への向きに d の所へ（地面の高さに、なめらかに合わせる）
+function collapseRoll(d, dt) {
+  const C = collapse, pos = boss.position;
+  pos.copy(BOSS_TARGET).addScaledVector(C.out, d).setY(pos.y);
+  const gy = introGroundY(pos.x, pos.z, pos.y);
+  pos.y += (gy - pos.y) * (1 - Math.exp(-5 * dt));
+  const speed = dt > 0 ? Math.hypot(pos.x - C.prev.x, pos.z - C.prev.z) / dt : 0;
+  C.prev.copy(pos);
+  const roll = bossActions[bossCfg.roll.clip];
+  roll.timeScale = speed * roll.getClip().duration / bossCfg.roll.loop;
+}
+function updateCollapse(dt) {
+  const C = collapse;
+  C.t += dt;
+  const t = C.t, caption = cutinEl.querySelector('.caption');
+  const cut = t < COLLAPSE_CUT[0] ? 0 : t < COLLAPSE_CUT[1] ? 1 : 2;
+  if (cut !== C.cut) {
+    C.cut = cut;
+    caption.textContent = ['町のみんなが、山へ避難していく……！', 'ゴゴゴゴ……！ 脅威が転がってくる！', '脅威が、町を押しつぶしていく……！'][cut];
+  }
+  // 砂煙：霧を砂色にして近くまで濃くする（だんだん濃く）
+  const k = Math.min(1, t / 1.5);
+  scene.fog.color.lerp(DUST_COLOR, k);
+  scene.fog.near = THREE.MathUtils.lerp(C.fogNear, 4, k);
+  scene.fog.far = THREE.MathUtils.lerp(C.fogFar, cut === 2 ? 260 : 120, k);
+  // 地ひびき
+  quake = Math.max(quake, cut === 0 ? 0.35 : cut === 1 ? 0.35 + 0.6 * (t - COLLAPSE_CUT[0]) / (COLLAPSE_CUT[1] - COLLAPSE_CUT[0]) : 1.1);
+  // ボス：B は町の外から町の東の端まで、C は町を突っ切って西へ
+  if (cut <= 1) {
+    const u = THREE.MathUtils.clamp(t / COLLAPSE_CUT[1], 0, 1);
+    collapseRoll(THREE.MathUtils.lerp(160, RAMPAGE_FROM, Math.pow(u, 1.15)), dt);
+  } else {
+    const u = THREE.MathUtils.clamp((t - COLLAPSE_CUT[1]) / (COLLAPSE_END - COLLAPSE_CUT[1]), 0, 1);
+    collapseRoll(THREE.MathUtils.lerp(RAMPAGE_FROM, RAMPAGE_TO, u), dt);
+  }
+  // 砂煙がもくもくと上がる（A は町の人の後ろの通り、B・C は転がるボスの足もと）
+  if ((C.puff -= dt) <= 0) {
+    if (cut === 0) {
+      C.puff = 0.18;
+      const at = groundPoint(_rm.set(EVAC_FROM.x + 8 + Math.random() * 22, 0, EVAC_FROM.z + (Math.random() - 0.5) * 12));
+      C.dust.push({ mesh: dustCloud(at), t: 0, life: 3.2, cloud: true, size: 0.35 + Math.random() * 0.25 });
+    } else {
+      C.puff = cut === 1 ? 0.25 : 0.2;
+      // ボスの後ろ（転がってきた側）に上がる。大きすぎるとカメラが包まれてしまう
+      const at = boss.position.clone().addScaledVector(C.out, 14 + Math.random() * 10).addScaledVector(C.side, (Math.random() - 0.5) * 30);
+      C.dust.push({ mesh: dustCloud(at), t: 0, life: 3, cloud: true, size: (cut === 1 ? 0.45 : 0.7) + Math.random() * 0.35 });
+      if (cut === 2) { C.dust.push({ mesh: dustRing(boss.position, 0xcdb89a, 45), t: 0, life: 1.4 }); quake = Math.max(quake, 1.6); }
+    }
+  }
+  for (const d of C.dust) {
+    d.t += dt;
+    const u = THREE.MathUtils.clamp(d.t / d.life, 0, 1);
+    if (d.cloud) {
+      const e = 1 - Math.pow(1 - u, 3), z = d.size;
+      d.mesh.scale.set((6 + 30 * e) * z, (3 + 18 * e) * z, (6 + 30 * e) * z);
+      d.mesh.material.opacity = 0.75 * (1 - u);
+    } else {
+      d.mesh.scale.setScalar(Math.max(0.01, d.mesh.userData.size * (1 - Math.pow(1 - u, 2))));
+      d.mesh.material.opacity = 0.85 * (1 - u);
+    }
+    d.mesh.visible = u < 1;
+  }
+  // 暗転したら、町を差し替える（崩壊した町の読み込みが終わるまでは暗いまま）
+  if (!C.faded && t >= COLLAPSE_END - FADE_TIME) { C.faded = true; fadeEl.classList.add('on'); }
+  if (t >= COLLAPSE_END && !C.swapping) {
+    C.swapping = true;
+    caption.textContent = '';
+    collapseTown().then(finishCollapse, (e) => { console.error(e); finishCollapse(); });
+  }
+}
+function finishCollapse() {
+  const C = collapse;
+  for (const d of C.dust) { scene.remove(d.mesh); d.mesh.geometry.dispose(); d.mesh.material.dispose(); }
+  scene.fog.near = C.fogNear;
+  scene.fog.far = C.fogFar;
+  collapse = null;
+  // ボスは町の東の端に止まって、こちらをにらむ
+  boss.position.copy(BOSS_TARGET).addScaledVector(C.out, BOSS_STOP);
+  boss.position.y = introGroundY(boss.position.x, boss.position.z, boss.position.y);
+  boss.rotation.y = Math.atan2(-C.out.x, -C.out.z);
+  bossActions[bossCfg.roll.clip].stop();
+  bossActions.idle.reset().play();
+  rolling = 0;
+  roamTarget = null;
+  roamWait = 3;   // 少しにらんでから、転げまわり始める
+  bossAppeared = true;
+  storyStage = Math.max(storyStage, bossCfg.next);
+  respawn();
+  camera.fov = 70;
+  camera.updateProjectionMatrix();
+  document.body.classList.remove('cutin');
+  dustEl.classList.remove('on');
+  setTimeout(() => fadeEl.classList.remove('on'), 300);
+  showToast('町が脅威に押しつぶされてしまった……！ パン工房の前で、工場長が待っている');
+  saveGame();
+}
+function collapseCamera(dt) {
+  const C = collapse, t = C.t;
+  _il.copy(boss.position).setY(boss.position.y + bossCfg.bodyY);
+  let fov = 60;
+  if (C.cut === 0) {
+    // 避難：坂道の先から、駆けてくる町の人を見る
+    _ic.set(EVAC_FROM.x - 13, 0, EVAC_FROM.z + 4.5);
+    _ic.y = introGroundY(_ic.x, _ic.z, 10) + 1.9;
+    _il.set(EVAC_FROM.x + 3, 0, EVAC_FROM.z);
+    _il.y = introGroundY(_il.x, _il.z, 10) + 1.4;
+    C.look.copy(_il);
+    fov = 55;
+  } else if (C.cut === 1) {
+    _ic.copy(C.camB);
+    if (!C.lookB) { C.lookB = true; C.look.copy(_il); }
+    C.look.lerp(_il, 1 - Math.exp(-5 * dt));
+    fov = 52 + 8 * THREE.MathUtils.smoothstep(t, COLLAPSE_CUT[0], COLLAPSE_CUT[1]);
+  } else {
+    _ic.copy(C.camC);
+    if (!C.lookC) { C.lookC = true; C.look.copy(_il); }
+    C.look.lerp(_il, 1 - Math.exp(-3 * dt));
+    fov = 50;
+  }
+  camera.position.copy(_ic);
+  camera.lookAt(C.look);
+  if (camera.fov !== fov) { camera.fov = fov; camera.updateProjectionMatrix(); }
+  if (quake > 0.01) {
+    const s = time.value * 60;
+    camera.position.x += Math.sin(s * 1.3) * QUAKE_SHAKE * quake;
+    camera.position.y += Math.sin(s * 1.9 + 2) * QUAKE_SHAKE * quake;
+    camera.position.z += Math.sin(s * 1.1 + 4) * QUAKE_SHAKE * quake * 0.6;
+  }
+  sky.position.copy(camera.position);
+  model.visible = true;
+}
+// 町を崩壊した町に差し替える（当たり判定・滝の泡も作り直す）。廃墟の部品と、元に戻した区画の部品は消す
+async function collapseTown() {
+  const gltf = await preloadCollapsed();
+  if (townCollapsed) return;
+  townCollapsed = true;
+  scene.remove(townGroup);
+  townGroup.traverse((o) => { if (o.isMesh) o.geometry.dispose(); });
+  if (windmill) { scene.remove(windmill); windmill = null; }
+  for (const o of foamObjs) { scene.remove(o); o.geometry.dispose(); o.material.dispose(); }
+  foamObjs = [];
+  for (const a of ruinAreas) {
+    if (a.ruin.parent) scene.remove(a.ruin);
+    a.hidden.visible = false;
+    a.toggles.forEach((o) => { o.visible = false; });
+    a.ruinSolid = [];
+    a.restored = false;
+    a.fade = RUIN_TINT_FADE;
+    for (const i of a.boxIdx) ruinUniforms.uRuinAmt.value[i] = 1;   // 町じゅうをくすませる
+  }
+  windmill = takeWindmillRotor(gltf.scene);
+  if (windmill.children.length) scene.add(windmill); else windmill = null;
+  const mats = new Set();
+  gltf.scene.traverse((o) => { if (o.isMesh) mats.add(o.material); });
+  townGroup = mergeByMaterial(gltf.scene);
+  for (const m of townGroup.children) {
+    fixUnexportedColor(m.material);
+    if (isWater(m.material)) { makeWater(m.material); m.castShadow = false; }
+  }
+  for (const m of mats) if (!isWater(m)) addRuinTint(m);
+  scene.add(townGroup);
+  style.apply(townGroup);   // 新しい町の材質もアニメ調に
+  if (windmill) style.apply(windmill);
+  buildCollider([townGroup, distantGroup], [], stallBlocks(gltf.scene));
+  rebuildRuinCollider();
+  setupFoam(gltf.scene, townGroup);
+  enterCollapsed();
+}
+// 崩壊したあと：町の人は山へ避難していない（工場長だけはパン工房の前にいる）。小バイ菌と助けを呼ぶ声もなくなる
+function enterCollapsed() {
+  for (const r of residents) {
+    r.hungry = false;
+    if (r.id === '0-1') {
+      // 工場長だけは山へ避難せず、半分崩れたパン工房の前に立っている（魔法のパン種をくれる）
+      r.state = 'idle';
+      r.root.position.copy(groundPoint(r.home));
+      r.root.rotation.y = r.standFace ?? r.root.rotation.y;
+      r.root.visible = true;
+      continue;
+    }
+    r.state = 'gone';
+    r.root.visible = false;
+  }
+  for (const g of germs) { g.state = 'defeat'; g.done = true; g.target = null; scene.remove(g.root); }
+  for (const h of helps) {
+    scene.remove(h.arrow, h.icon);
+    h.arrow.traverse((o) => { if (o.isMesh) o.material.dispose(); });
+    h.icon.material.map.dispose();
+    h.icon.material.dispose();
+  }
+  helps.length = 0;
+}
+// 転がるボス：動いている間は転がり始め → 転がる（進む速さに合わせてアニメの速さを変える）、止まったら待機へ
+let rolling = 0;   // 0 止まっている / 1 転がり始め / 2 転がっている
+function setRolling(on) {
+  const R = bossCfg.roll, A = bossActions;
+  if (!R || !A || on === (rolling > 0)) return;
+  const from = rolling === 1 ? A[R.start] : rolling === 2 ? A[R.clip] : A.idle;
+  const to = on ? A[R.start] : A.idle;
+  rolling = on ? 1 : 0;
+  to.reset().play();
+  from.crossFadeTo(to, 0.4, false);
+}
 // 町の真ん中からボスまでの水平距離
 function bossDistance() {
   return Math.hypot(boss.position.x - BOSS_TARGET.x, boss.position.z - BOSS_TARGET.z);
 }
+// 町を転げまわる：町の中の場所を次々に選んで、そこへ転がっていく
+const _roam = new THREE.Vector3();
+let roamTarget = null, roamWait = 0;
+function roamBoss(dt) {
+  const R = bossCfg.roam, pos = boss.position;
+  if (!roamTarget || Math.hypot(roamTarget.x - pos.x, roamTarget.z - pos.z) < 3) {
+    if (roamTarget) roamWait = 1 + Math.random() * 1.5;   // 着いたら少し止まって、次へ
+    // 今いる所から 25m 以上離れた、町の中の場所
+    for (let i = 0; i < 20; i++) {
+      const a = Math.random() * Math.PI * 2, d = R.radius * Math.sqrt(Math.random());
+      _roam.set(BOSS_TARGET.x + Math.cos(a) * d, 0, BOSS_TARGET.z + Math.sin(a) * d);
+      if (Math.hypot(_roam.x - pos.x, _roam.z - pos.z) > 25) break;
+    }
+    roamTarget = _roam.clone();
+  }
+  _bd.set(roamTarget.x - pos.x, 0, roamTarget.z - pos.z);
+  const dist = _bd.length();
+  _bd.divideScalar(dist || 1);
+  const want = Math.atan2(_bd.x, _bd.z);
+  boss.rotation.y = turnToward(boss.rotation.y, want, 1 - Math.exp(-2 * dt));
+  const facing = Math.max(0, Math.cos(want - boss.rotation.y));   // 向きを変えてから転がり出す
+  const moving = (roamWait -= dt) <= 0;
+  if (moving) pos.addScaledVector(_bd, Math.min(R.speed * facing * (rolling === 2 ? 1 : 0.3) * dt, dist));
+  setRolling(moving);
+  const roll = bossActions?.[bossCfg.roll.clip];
+  if (roll) roll.timeScale = R.speed * facing * roll.getClip().duration / bossCfg.roll.loop;
+  _o.set(pos.x, 400, pos.z);
+  const hit = cast(_o, DOWN, 800);
+  if (hit) pos.y += (hit.point.y - pos.y) * (1 - Math.exp(-4 * dt));
+}
+const bossRoaming = () => bossCfg?.roam && storyStage >= bossCfg.next && bossAppeared && !bossGone;
 function moveBoss(dt) {
   if (!boss || bossGone || retreat || !bossAppeared) return;
+  if (bossRoaming()) { roamBoss(dt); return; }
   const pos = boss.position;
   _bd.set(BOSS_TARGET.x - pos.x, 0, BOSS_TARGET.z - pos.z);
   const dist = _bd.length();
   _bd.divideScalar(dist || 1);
-  // 町へ向かって進む（押し戻されている間と、そのあとしばらくは止まる）
-  if ((bossStun -= dt) <= 0 && dist > BOSS_STOP) pos.addScaledVector(_bd, Math.min(BOSS_CREEP * dt, dist - BOSS_STOP));
+  // 町へ向かって進む（押し戻されている間と、そのあとしばらくは止まる）。転がるボスは速く、転がりながら
+  const R = bossCfg.roll;
+  const moving = (bossStun -= dt) <= 0 && dist > BOSS_STOP + 0.05;
+  if (moving) pos.addScaledVector(_bd, Math.min((R ? R.speed * (rolling === 2 ? 1 : 0.3) : BOSS_CREEP) * dt, dist - BOSS_STOP));
+  if (R) {
+    setRolling(moving);
+    const roll = bossActions?.[R.clip];
+    if (roll) roll.timeScale = R.speed * roll.getClip().duration / R.loop;
+  }
   pos.addScaledVector(bossVel, dt);
   bossVel.multiplyScalar(Math.exp(-RAM_PUSH_DAMP * dt));
   // 押し戻せる範囲
@@ -1342,13 +1949,34 @@ function collideBoss(dt) {
   // 道具がないと、ヘドロの体をずぶずぶとすり抜けてしまう（押し出しもしない）
   if (bossCfg.needs && !items.has(bossCfg.needs)) {
     jetVel.multiplyScalar(Math.exp(-2.5 * dt));
-    if (toward > RAM_MIN_SPEED * 0.5 && passToast > 6) {
-      passToast = 0;
-      showToast(`${bossCfg.name}の体をすり抜けてしまった！ パン工房の工場長に相談しよう`);
+    if (toward > RAM_MIN_SPEED * 0.5) {
+      // ヘドロの体を通り抜けると、からだが溶かされて 1/4 減る
+      const first = passToast > 6;
+      if (first) passToast = 0;
+      hurtBody(first ? `${bossCfg.name}の体をすり抜けて、からだが溶かされた！ パン工房の工場長に相談しよう` : null);
     }
     return;
   }
-  if (ramCooldown <= 0 && toward > RAM_MIN_SPEED) {
+  // 町を転げまわっているボスにぶつかると、つぶされる（からだが 1/4 減って、はじき飛ばされる）
+  if (bossRoaming() && rolling > 0) {
+    if (hurtBody(`${bossCfg.name}につぶされた！ からだが減ってしまった`)) {
+      jetting = false; jetEndTime = 0; jetSpeed = 0;
+      jetVel.set(_bd.x, 0, _bd.z).normalize().multiplyScalar(RAM_BOUNCE * 1.5);
+      velY = Math.max(velY, 7);
+      quake = Math.max(quake, 0.8);
+    }
+  }
+  // かたくて押し戻せないボス：ロボがはね返されるだけ
+  else if (bossCfg.hard && ramCooldown <= 0 && toward > RAM_MIN_SPEED) {
+    ramCooldown = RAM_COOLDOWN;
+    useFuel(FUEL_RAM);
+    jetting = false; jetEndTime = 0; jetSpeed = 0;
+    jetVel.set(_bd.x, 0, _bd.z).normalize().multiplyScalar(RAM_BOUNCE);
+    velY = Math.max(velY, 4);
+    shake = 1.5;
+    if (passToast > 6) { passToast = 0; showToast(`${bossCfg.name}はかたすぎて、びくともしない！`); }
+  }
+  if (!bossCfg.hard && ramCooldown <= 0 && toward > RAM_MIN_SPEED) {
     ramCooldown = RAM_COOLDOWN;
     if (bossCfg.needs) solidifyBoss();   // ぶつかった所が固まる
     const k = THREE.MathUtils.clamp((toward - RAM_MIN_SPEED) / (JET_SPEED - RAM_MIN_SPEED), 0, 1);
@@ -1381,8 +2009,8 @@ const GERM_SEE = 25;           // この距離の町人をねらう
 let germBody = 0.8, germRadius = 0.4;
 const GERM_STICK = 0.5;        // 町人の体の表面からこの距離まで来たら、くっつく
 const GERM_HIT = 1.0;          // ジェット体当たりが当たる距離（ロボの体の中心の縦の線から、体の中心まで。少し甘め）
-// ジェットで飛んでいるロボは地面から 4m ほどの高さなので、真下を通り過ぎた子バイ菌にも当たるようにする（仮）
-const GERM_HIT_BELOW = 4.5;
+// ロボの足元がこの高さより上を通り過ぎたら当たらない（子バイ菌の体の中心から。体の上 0.8m ほどまでは少し甘めに当たる）
+const GERM_HIT_BELOW = 1.2;
 const GERM_BOUNCE = 6;         // 体当たりしたロボがはね返される速さ（m/秒。ボスは RAM_BOUNCE）
 // 低空で飛んでいるときに、階段や段の少し上にいる子バイ菌にも当たるように、上にも広げる（ロボの頭の上からこの高さまで）
 const GERM_HIT_ABOVE = 1.5;
@@ -1541,7 +2169,7 @@ const FUEL_MIN_START = 0.02;    // これより少ないと噴射を始められ
 const BODY_PER_SHOT = 0.05;     // パン 1 個で削れるからだ（満タンで 20 発）
 const WORKSHOP_FRONT = new THREE.Vector3(-7.7, 12, -25.2);   // パン工房の扉（町の中、北の奥の段）の前
 const WORKSHOP_REFILL_R = 6;    // 扉の前のこの距離の中で地面にいると補給される
-const WORKSHOP_REFILL = 0.5;    // 補給の速さ（1 秒あたり、燃料とからだの両方）
+const WORKSHOP_REFILL = 0.5;    // 補給の速さ（1 秒あたり、燃料だけ）
 let fuelMax = FUEL_MAX_START, fuel = fuelMax, body = 1;
 let knockout = null;            // からだが 0 になって、パン工房へ戻されている途中 { t, moved }
 const areaGauge = [];           // 区画ごと { spots: [小バイ菌の出る場所], germs: [出てきた小バイ菌], residents: [町人], called, done }
@@ -1732,6 +2360,7 @@ function makeHelpIcon(color) {
 // （目の前にいきなり出てこないよう、小バイ菌の場所が HELP_NEAR より近い区画は、ほかになければ選ぶ）
 const HELP_NEAR = 12;
 function startHelp() {
+  if (storyStage >= 4) return false;   // 崩壊したあとの町には、町の人がいない
   let best = -1, bestD = Infinity;
   areaGauge.forEach((g, i) => {
     const again = g.called && g.germs.some((x) => !germGone(x)) && !helps.some((h) => h.area === i);   // よみがえった小バイ菌
@@ -1826,6 +2455,22 @@ function raiseFuelMax(step = FUEL_MAX_STEP) {
   fuelMax = Math.min(1, fuelMax + step);
   fuel = Math.min(fuelMax, fuel + (fuelMax - before));
 }
+// 脅威につぶされた・ヘドロの体をすり抜けたとき：からだが減り、画面のふちが赤く光る。0 になったらパン工房へ
+const BODY_HIT = 0.25;          // 1 回で減るからだ（1/4）
+const BODY_HIT_GUARD = 1.5;     // 続けて減らない時間（秒）
+let bodyHitWait = 0;
+function hurtBody(msg) {
+  if (bodyHitWait > 0 || knockout) return false;
+  bodyHitWait = BODY_HIT_GUARD;
+  body = Math.max(0, body - BODY_HIT);
+  hurtEl.classList.remove('on');
+  void hurtEl.offsetWidth;
+  hurtEl.classList.add('on');
+  shake = Math.max(shake, 1.5);
+  if (body <= 0) knockout = { t: 0, moved: false };
+  else if (msg) showToast(msg);
+  return true;
+}
 function shaveBody() {
   body = Math.max(0, body - BODY_PER_SHOT);
   if (body <= 0 && !knockout) knockout = { t: -0.8, moved: false };   // 撃ったパンが飛んでいくのを少し見せてから暗転
@@ -1840,6 +2485,7 @@ function updateProgress(dt, active) {
     showToast(`${AREA_NAMES[ruinAreas[i].name] || ruinAreas[i].name}が元に戻った！`);
   });
 
+  bodyHitWait -= dt;
   if (active && !knockout) {
     if (jetting) {
       useFuel(FUEL_JET * dt);
@@ -1848,10 +2494,7 @@ function updateProgress(dt, active) {
     // パン工房の前で補給（焼き直し）
     refilling = onGround && Math.hypot(feet.x - WORKSHOP_FRONT.x, feet.z - WORKSHOP_FRONT.z) < WORKSHOP_REFILL_R
       && Math.abs(feet.y - WORKSHOP_FRONT.y) < 3;
-    if (refilling) {
-      fuel = Math.min(fuelMax, fuel + WORKSHOP_REFILL * dt);
-      body = Math.min(1, body + WORKSHOP_REFILL * dt);
-    }
+    if (refilling) fuel = Math.min(fuelMax, fuel + WORKSHOP_REFILL * dt);   // からだは戻らない（パン屋のお姉さんで戻る）
   }
 
   // からだが 0：暗転 → パン工房の前へ → 明るくなる
@@ -1867,9 +2510,14 @@ function updateProgress(dt, active) {
       view.pitch = view.thirdPerson ? 0.25 : 0;
       snapToGround(true);
       fuel = fuelMax; body = 1;
-      showToast('パン工房で焼き直してもらった！');
+      doorArmed = false;   // 扉の輪の中に戻されるので、一度外へ出るまでは工房に入らない
+      if (!TALKS.revive) showToast('パン工房で焼き直してもらった！');
     }
-    if (knockout.t > FADE_TIME + 0.6) { fadeEl.classList.remove('on'); knockout = null; }
+    if (knockout.t > FADE_TIME + 0.6) {
+      fadeEl.classList.remove('on');
+      knockout = null;
+      startReviveTalk();
+    }
   }
 
   updateHelps(dt, active);
@@ -1898,7 +2546,7 @@ function drawMeters() {
   metersEl.querySelector('.meter-fuel').classList.toggle('low', fuel < fuelMax * 0.2);
   metersEl.querySelector('.meter-body').classList.toggle('low', body < 0.2);
   const areaEl = metersEl.querySelector('.meter-area');
-  if (refilling) areaEl.textContent = 'パン工房：補給中（燃料とからだが戻る）';
+  if (refilling) areaEl.textContent = 'パン工房：補給中（燃料が戻る）';
   else if (here >= 0) {
     const g = areaGauge[here], name = AREA_NAMES[ruinAreas[here].name];
     const left = g.spots.length - g.germs.filter(germGone).length;
@@ -2246,6 +2894,27 @@ function updateHunger(dt, active) {
 function updateResidents(dt) {
   for (const r of residents) {
     const pos = r.root.position;
+    if (r.state === 'gone') continue;   // 山へ避難した
+    if (r.state === 'evac') {
+      // 山へ駆けていく（カットの間だけ。壁は気にしない）
+      let speed = 0;
+      if ((r.evacDelay -= dt) <= 0) {
+        _rd.subVectors(r.evac, pos).setY(0);
+        const dist = _rd.length();
+        r.root.rotation.y = turnToward(r.root.rotation.y, Math.atan2(_rd.x, _rd.z), 1 - Math.exp(-8 * dt));
+        speed = Math.min(EVAC_SPEED * (0.85 + 0.15 * r.kind.speed / 0.5), dist / Math.max(dt, 1e-3));
+        pos.addScaledVector(_rd.divideScalar(dist || 1), speed * dt);
+        const gy = introGroundY(pos.x, pos.z, pos.y);
+        pos.y += (gy - pos.y) * (1 - Math.exp(-12 * dt));
+      }
+      r.walkWeight += ((speed > 0.01 ? 1 : 0) - r.walkWeight) * (1 - Math.exp(-8 * dt));
+      r.walk.setEffectiveWeight(r.walkWeight);
+      r.idle.setEffectiveWeight(1 - r.walkWeight);
+      if (r.talkA) r.talkA.setEffectiveWeight(0);
+      r.walk.timeScale = 2.2;
+      r.mixer.update(dt);
+      continue;
+    }
     updateHouse(r);
     if (r.state === 'home') continue;
     // 食べに行っていたパンが消えたらあきらめる
@@ -2455,7 +3124,7 @@ function catchBread(b) {
 async function init() {
   const talksLoaded = loadTalks();   // 模型と同時に読む
   preloadPortraits();
-  const [town, distant, pancannon, germboss, bread, grandpa, girl, grandma, townRuin, mayor, germmini, workshop, chief, baker, sludgeboss] = await Promise.all(FILES.map(load));
+  const [town, distant, pancannon, germboss, bread, grandpa, girl, grandma, townRuin, mayor, germmini, workshop, chief, baker, sludgeboss, rockboss, choco, chocoTankGltf, yeastGltf, yeastCannonGltf] = await Promise.all(FILES.map(load));
   await talksLoaded;
   statusEl.textContent = 'シーンを組み立て中…';
   await new Promise((r) => setTimeout(r, 0));
@@ -2478,8 +3147,11 @@ async function init() {
   }
   for (const m of townMats.values()) addRuinTint(m);
   scene.add(townMerged, distantMerged);
-  buildCollider([townMerged, distantMerged], ruinAreas.flatMap((a) => a.hidden.children));
+  townGroup = townMerged;
+  distantGroup = distantMerged;
+  buildCollider([townMerged, distantMerged], ruinAreas.flatMap((a) => a.hidden.children), stallBlocks(town.scene));
   rebuildRuinCollider();
+  setupFoam(town.scene, townMerged);
   setupRetreatLine([townMerged, distantMerged]);
 
   // 既定シーン（PanCannon）のみ。glb 内の Bakery シーンは distant の重複なので使わない
@@ -2489,7 +3161,8 @@ async function init() {
   scene.add(player);
   mixer = new THREE.AnimationMixer(model);
   setupAnimations(pancannon.animations);
-  bossModels = [prepareBoss(germboss, BOSSES[0]), prepareBoss(sludgeboss, BOSSES[1])];
+  setupPilot();
+  bossModels = [prepareBoss(germboss, BOSSES[0]), prepareBoss(sludgeboss, BOSSES[1]), prepareBoss(rockboss, BOSSES[2])];
   useBoss(0);
   setupBread(bread);
   placeResidents({ grandpa, girl, grandma, mayor, baker, chief });
@@ -2503,6 +3176,8 @@ async function init() {
   player.add(lamp);
   playerLamp = lamp;
   setupOpening(workshop, mayor, chief);
+  setupChoco(choco, chocoTankGltf);
+  setupYeast(yeastGltf, yeastCannonGltf);
   // 夜に明るくする窓と街灯（廃墟の崩れた家の窓も含む）
   const glowMats = new Set();
   scene.traverse((o) => { if (o.isMesh && /BK_glass/.test(o.material.name)) glowMats.add(o.material); });
@@ -2543,14 +3218,14 @@ function readSave() {
 }
 function clearSave() { try { localStorage.removeItem(SAVE_KEY); } catch { /* 保存できない環境 */ } }
 function talkIndex(r, t) {
-  for (const key of [r.id, r.kindName]) {
+  for (const key of [r.id, r.kindName, 'revive']) {   // revive は工場長が焼き直しのあとに話すセリフ
     const i = TALKS[key]?.talks?.indexOf(t);
     if (i >= 0) return [key, i];
   }
   return null;
 }
 function saveGame() {
-  if (!savingOn || opening || visit || bossIntro || retreat || knockout) return false;
+  if (!savingOn || opening || visit || bossIntro || retreat || knockout || collapse) return false;
   const d = {
     v: SAVE_VERSION, at: Date.now(),
     stage: storyStage, boss: bossIndex, bossAppeared, bossGone,
@@ -2580,9 +3255,11 @@ function loadGame(d) {
     boss.rotation.y = Math.atan2(BOSS_TARGET.x - boss.position.x, BOSS_TARGET.z - boss.position.z);
     boss.visible = true;
     bossAppeared = true;
-    if (retreatLine) retreatLine.visible = true;
+    if (retreatLine && !bossCfg.hard) retreatLine.visible = true;
   }
   for (const k of d.items || []) if (k in ITEMS) items.add(k);
+  if (items.has('choco')) chocoTank.visible = true;
+  if (items.has('yeast')) applyYeast();
   if (d.fuelMax) fuelMax = d.fuelMax;
   fuel = Math.min(fuelMax, d.fuel ?? fuelMax);
   body = d.body ?? 1;
@@ -2846,41 +3523,77 @@ let visit = null;               // { phase: 'in' | 'look' | 'talk' | 'out', t }
 let doorArmed = true;           // 一度輪の外へ出るまでは、また入らない（工房から出てきた直後など）
 let doorRing = null, doorIcon = null, chiefAnims = [];
 const doorOpen = () => storyStage < CHIEF_OUT_STAGE;
-function setupDoor() {
-  const ground = groundPoint(WORKSHOP_FRONT);
-  doorRing = new THREE.Mesh(new THREE.RingGeometry(DOOR_R * 0.72, DOOR_R, 48),
+// 黄色い光る輪（地面に置く）と、場所の名前の札（吹き出しの形。遠くからでも同じ大きさ）
+function placeRing(r) {
+  const ring = new THREE.Mesh(new THREE.RingGeometry(r * 0.72, r, 48),
     new THREE.MeshBasicMaterial({ color: 0xffd75e, transparent: true, opacity: 0.8, depthWrite: false, side: THREE.DoubleSide }));
-  doorRing.rotation.x = -Math.PI / 2;
-  doorRing.position.copy(ground).setY(ground.y + 0.05);
-  doorRing.renderOrder = 2;
-  scene.add(doorRing);
-  // 扉の上の「入る」の札（遠くからでも同じ大きさ）
+  ring.rotation.x = -Math.PI / 2;
+  ring.renderOrder = 2;
+  scene.add(ring);
+  return ring;
+}
+function placeSign(text) {
   const c = document.createElement('canvas');
-  c.width = 192; c.height = 112;
   const x = c.getContext('2d');
+  const font = 'bold 44px "Hiragino Maru Gothic ProN", "Yu Gothic UI", sans-serif';
+  x.font = font;
+  const w = Math.ceil(x.measureText(text).width) + 64, h = 112;
+  c.width = w; c.height = h;
   x.fillStyle = '#ffd75e'; x.strokeStyle = '#3a2a1e'; x.lineWidth = 7; x.lineJoin = 'round';
-  x.beginPath(); x.roundRect(8, 8, 176, 70, 20); x.moveTo(80, 78); x.lineTo(96, 104); x.lineTo(112, 78); x.fill(); x.stroke();
-  x.fillStyle = '#3a2a1e'; x.font = 'bold 44px "Hiragino Maru Gothic ProN", "Yu Gothic UI", sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
-  x.fillText('入る', 96, 45);
+  x.beginPath(); x.roundRect(8, 8, w - 16, 70, 20); x.moveTo(w / 2 - 16, 78); x.lineTo(w / 2, 104); x.lineTo(w / 2 + 16, 78); x.fill(); x.stroke();
+  x.fillStyle = '#3a2a1e'; x.font = font; x.textAlign = 'center'; x.textBaseline = 'middle';
+  x.fillText(text, w / 2, 45);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
-  doorIcon = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, depthWrite: false, sizeAttenuation: false }));
-  doorIcon.center.set(0.5, 0);
-  doorIcon.scale.set(0.11 * 192 / 112, 0.11, 1);
-  doorIcon.renderOrder = 997;
+  const sign = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, depthWrite: false, sizeAttenuation: false }));
+  sign.center.set(0.5, 0);
+  sign.scale.set(0.11 * w / h, 0.11, 1);
+  sign.renderOrder = 997;
+  scene.add(sign);
+  return sign;
+}
+// 輪と札をゆらす（光が強くなったり弱くなったり、札は上下に）
+function pulseMarker(ring, sign, y, signLift) {
+  const t = time.value;
+  ring.material.opacity = 0.55 + 0.3 * Math.sin(t * 4);
+  ring.scale.setScalar(1 + 0.06 * Math.sin(t * 4));
+  sign.position.y = y + signLift + Math.sin(t * 3) * 0.1;
+}
+// パン屋のお姉さん（話すと、からだを満タンにしてくれる）にも、輪と「パン屋」の札
+const BAKER_RING_R = 0.9;
+let bakerRing = null, bakerSign = null;
+function setupBakerMarker() {
+  bakerRing = placeRing(BAKER_RING_R);
+  bakerSign = placeSign('パン屋');
+}
+function updateBakerMarker(active) {
+  const r = residents.find((x) => x.id === '3-1');
+  const show = !!r && r.root.visible && r.state !== 'gone' && r.state !== 'evac';   // 避難のカットでは出さない
+  bakerRing.visible = show;
+  bakerSign.visible = show && active;
+  if (!show) return;
+  const p = r.root.position;
+  bakerRing.position.set(p.x, p.y + 0.05, p.z);
+  bakerSign.position.x = p.x; bakerSign.position.z = p.z;
+  pulseMarker(bakerRing, bakerSign, p.y, r.height + 0.7);
+}
+function setupDoor() {
+  const ground = groundPoint(WORKSHOP_FRONT);
+  doorRing = placeRing(DOOR_R);
+  doorRing.position.copy(ground).setY(ground.y + 0.05);
+  // 扉の上の「パン工房」の札
+  doorIcon = placeSign('パン工房');
   doorIcon.position.copy(ground).setY(ground.y + 3.4);
-  scene.add(doorIcon);
+  setupBakerMarker();
 }
 function updateDoor(dt, active) {
   if (!doorRing) return;
+  updateBakerMarker(active);
   const open = doorOpen();
-  const t = time.value;
   doorRing.visible = open;
   doorIcon.visible = open && active;
   if (!open) return;
-  doorRing.material.opacity = 0.55 + 0.3 * Math.sin(t * 4);
-  doorRing.scale.setScalar(1 + 0.06 * Math.sin(t * 4));
-  doorIcon.position.y = doorRing.position.y + 3.4 + Math.sin(t * 3) * 0.1;
+  pulseMarker(doorRing, doorIcon, doorRing.position.y, 3.4);
   const d = Math.hypot(feet.x - WORKSHOP_FRONT.x, feet.z - WORKSHOP_FRONT.z);
   if (d > DOOR_R + 0.6) doorArmed = true;
   if (active && doorArmed && d < DOOR_R && Math.abs(feet.y - doorRing.position.y) < 1.5
@@ -2912,9 +3625,14 @@ function setupVisitRoom() {
   room.add(playerLamp);
   playerLamp.position.set(0, 4, 0.5);
   playerLamp.intensity = OPENING_LAMP;
-  // 工房で補給
+  // 工房で補給（燃料だけ。からだはパン屋のお姉さんに話すと戻る）
   fuel = fuelMax;
-  body = 1;
+  // 展示台の板チョコ（ステージ 1 をクリアしたら並ぶ。もらったらない）
+  if (chocoShow) {
+    chocoShow.position.set(0, 0, 0);
+    chocoShow.scale.setScalar(1);
+    chocoShow.visible = storyStage >= 2 && !items.has('choco');
+  }
 }
 function leaveWorkshop() {
   visit.phase = 'out';
@@ -2934,8 +3652,34 @@ function endVisit() {
   saveGame();   // 道具をもらったあとなど
   setTimeout(() => fadeEl.classList.remove('on'), 200);
 }
+function startChocoEquip() {
+  visit.phase = 'equip';
+  visit.t = 0;
+  visit.from = chocoShow.getWorldPosition(new THREE.Vector3());
+  visit.done = false;
+  chocoShow.parent.updateMatrixWorld(true);
+  visit.inv = new THREE.Matrix4().copy(chocoShow.parent.matrixWorld).invert();
+}
+// 板チョコが展示台からメカの背中へ弧を描いて飛び、小さくなって消える → タンクが付いてキラキラ → 外へ
+function updateChocoEquip(v) {
+  chocoTank.getWorldPosition(_oc2);
+  const u = Math.min(1, v.t / CHOCO_FLY), e = u * u * (3 - 2 * u);
+  _ot2.lerpVectors(v.from, _oc2, e);
+  _ot2.y += Math.sin(Math.PI * e) * 0.8;
+  chocoShow.position.copy(_ot2).applyMatrix4(v.inv);   // 展示台のスロットの座標へ
+  chocoShow.scale.setScalar(1 - 0.85 * e);
+  chocoShow.visible = u < 1;
+  if (!v.done && u >= 1) {
+    v.done = true;
+    applyChoco();
+    sparkleBurst(_oc2, 26, 0.4);
+    showToast(GIFT_TOASTS.choco);
+  }
+  if (v.t >= CHOCO_EQUIP_END) leaveWorkshop();
+}
 function updateVisit(dt, active) {
   const v = visit;
+  updateSparks(dt);
   if (!active) { if (v.phase !== 'in' && v.phase !== 'out') render(); return; }
   v.t += dt;
   if (v.phase === 'in') {
@@ -2956,9 +3700,11 @@ function updateVisit(dt, active) {
     talkGift = script.gift;
     talk.open(script);
   }
+  if (v.phase === 'equip') updateChocoEquip(v);
   const talking = v.phase === 'talk' && talk.active;
-  chiefPlay(talking ? 'Talk' : 'Idle');
+  chiefPlay(talking ? 'Talk' : v.phase === 'equip' ? 'Laugh' : 'Idle');
   roomChiefMixer.update(dt);
+  chocoMixer?.update(dt);
   render();
   if (talk.active) talk.update(dt, openingHead('chief'));
   function render() {
@@ -2973,11 +3719,148 @@ function updateVisit(dt, active) {
     _oc.y += 0.3;
     _oc.lerp(_oc2, e); _ot.lerp(_ot2, e);
     const fov = OPENING_WIDE_FOV + (OPENING_FOV - OPENING_WIDE_FOV) * e;
+    if (v.phase === 'equip' || v.equipCam) {
+      // 取り付け：メカの横の高い所から、背中のタンクを見下ろす（メカのすぐ後ろは入口の壁）
+      v.equipCam = true;
+      const h = player.rotation.y, fx = Math.sin(h), fz = Math.cos(h);
+      _oc.set(fz * 2.4 - fx * 1.2, 2.2, -fx * 2.4 - fz * 1.2).add(player.position);
+      _ot.set(-fx * 0.25, 1.15, -fz * 0.25).add(player.position);
+    }
     if (camera.fov !== fov) { camera.fov = fov; camera.updateProjectionMatrix(); }
     camera.position.copy(_oc);
     camera.lookAt(_ot);
     sky.position.copy(camera.position);
     followShadow(room.position);
+  }
+}
+// ---- 板チョコ（パワーアップ） ----
+// 展示用の板チョコ（choco.glb）は工房の展示台の真ん中（WI_ItemSlot_1）に置く。ふわふわ浮いて揺れるアニメーション。
+// もらうと、メカの背中にチョコ燃料タンク（choco_tank.glb）が付いて、燃料の最大が上がる
+const CHOCO_FLY = 1.0;            // 展示台からメカの背中へ飛んでいく時間（秒）
+const CHOCO_EQUIP_END = 2.6;      // 取り付けの場面の長さ（そのあと工房の外へ）
+let chocoShow = null, chocoMixer = null, chocoTank = null;
+function setupChoco(chocoGltf, tankGltf) {
+  chocoShow = chocoGltf.scene;
+  chocoShow.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  room.getObjectByName('WI_ItemSlot_1').add(chocoShow);
+  chocoShow.visible = false;
+  chocoMixer = new THREE.AnimationMixer(chocoShow);
+  for (const c of chocoGltf.animations) chocoMixer.clipAction(c).play();
+  chocoTank = tankGltf.scene.getObjectByName('CH_TankRoot');
+  chocoTank.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  model.getObjectByName('PC_Rig_Body').add(chocoTank);
+  chocoTank.position.set(0, 0.235, -0.45);
+  chocoTank.rotation.set(0.2443, 0, 0);   // 上を少し体の方へ傾ける
+  chocoTank.visible = false;
+}
+// 板チョコの効果：タンクが付いて、燃料の最大が上がり、満タンになる
+function applyChoco() {
+  chocoTank.visible = true;
+  if (fuelMax < CHOCO_FUEL_MAX) raiseFuelMax(CHOCO_FUEL_MAX - fuelMax);
+  fuel = fuelMax;
+}
+// キラキラ星（取り付けた瞬間など）。画面の大きさは距離で変わる
+let sparkTex = null;
+const sparks = [];
+const sparkGroup = new THREE.Group();   // 輪郭線を付けない（四角い板の線が出るため）
+sparkGroup.userData.noOutline = true;
+scene.add(sparkGroup);
+function sparkleBurst(at, n = 18, size = 0.35) {
+  if (!sparkTex) {
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const g = c.getContext('2d');
+    const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grad.addColorStop(0, 'rgba(255,250,220,1)'); grad.addColorStop(0.25, 'rgba(255,214,90,0.9)'); grad.addColorStop(1, 'rgba(255,190,60,0)');
+    g.fillStyle = grad;
+    g.beginPath();
+    for (let i = 0; i < 8; i++) {   // 4 本の光の筋がある星
+      const a = i * Math.PI / 4, r = i % 2 ? 7 : 32;
+      g.lineTo(32 + Math.cos(a) * r, 32 + Math.sin(a) * r);
+    }
+    g.closePath(); g.fill();
+    sparkTex = new THREE.CanvasTexture(c);
+    sparkTex.colorSpace = THREE.SRGBColorSpace;
+  }
+  for (let i = 0; i < n; i++) {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: sparkTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+    sp.position.copy(at);
+    const a = Math.random() * Math.PI * 2, up = Math.random();
+    sp.userData = { vel: new THREE.Vector3(Math.cos(a) * (0.6 + Math.random()), 0.6 + up * 1.6, Math.sin(a) * (0.6 + Math.random())), t: 0, life: 0.7 + Math.random() * 0.6, size: size * (0.5 + Math.random()), spin: (Math.random() - 0.5) * 6 };
+    sp.renderOrder = 998;
+    sparkGroup.add(sp);
+    sparks.push(sp);
+  }
+}
+function updateSparks(dt) {
+  for (let i = sparks.length - 1; i >= 0; i--) {
+    const sp = sparks[i], u = sp.userData;
+    u.t += dt;
+    const k = u.t / u.life;
+    if (k >= 1) { sparkGroup.remove(sp); sp.material.dispose(); sparks.splice(i, 1); continue; }
+    sp.position.addScaledVector(u.vel, dt);
+    u.vel.multiplyScalar(Math.exp(-2.5 * dt));
+    const s = u.size * Math.sin(Math.PI * Math.min(1, k * 1.4)) + 1e-3;
+    sp.scale.set(s, s, 1);
+    sp.material.rotation += u.spin * dt;
+    sp.material.opacity = 1 - k * k;
+  }
+}
+// ---- 魔法のパン種（最後の武器） ----
+// 町が崩壊したあと、パン工房の前の工場長と話すと、つぼ（yeast.glb）が工場長の前から砲台の先へ飛んできて、
+// 砲口に光るパン種（yeast_cannon.glb、PC_Rig_Barrel の子）が付く。パン種はゆっくり脈打つ（待機のクリップ）
+const YEAST_FLY = 1.1;           // つぼが砲台へ飛んでいく時間（秒）
+let yeastPot = null, yeastPotMixer = null, yeastGun = null, yeastGunMixer = null, yeastGunActs = {};
+let yeastFly = null;             // { t, from }
+function setupYeast(potGltf, gunGltf) {
+  yeastPot = potGltf.scene;
+  yeastPot.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  yeastPot.visible = false;
+  scene.add(yeastPot);
+  yeastPotMixer = new THREE.AnimationMixer(yeastPot);
+  for (const c of potGltf.animations) yeastPotMixer.clipAction(c).play();
+  yeastGun = gunGltf.scene.getObjectByName('YC_Root');
+  yeastGun.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  model.getObjectByName('PC_Rig_Barrel').add(yeastGun);   // 砲身の原点そのもの（位置も回転も 0 のまま）
+  yeastGun.visible = false;
+  yeastGunMixer = new THREE.AnimationMixer(yeastGun);
+  const clips = clipsFromExtras(yeastGun.getObjectByName('YC_DoughPivot'), gunGltf.animations);
+  for (const [name, c] of Object.entries(clips)) {
+    const a = yeastGunMixer.clipAction(c);
+    if (name !== 'idle') { a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = true; }
+    yeastGunActs[name] = a;
+  }
+  yeastGunActs.idle?.play();
+}
+function applyYeast() {
+  yeastGun.visible = true;
+}
+// 工場長の前から、つぼが弧を描いて砲台の先へ飛び、小さくなって消える → パン種が付いてキラキラ
+function startYeastFly(chief) {
+  const p = chief.root.position, h = chief.root.rotation.y;
+  yeastFly = { t: 0, from: new THREE.Vector3(p.x + Math.sin(h) * 0.5, p.y + 1.0, p.z + Math.cos(h) * 0.5) };
+  yeastPot.position.copy(yeastFly.from);
+  yeastPot.scale.setScalar(2);   // 遠くからでも見えるように少し大きく
+  yeastPot.visible = true;
+  sparkleBurst(yeastFly.from, 10, 0.3);
+}
+function updateYeast(dt) {
+  yeastPotMixer?.update(dt);
+  if (yeastGun?.visible) yeastGunMixer.update(dt);
+  if (!yeastFly) return;
+  yeastFly.t += dt;
+  const u = Math.min(1, yeastFly.t / YEAST_FLY), e = u * u * (3 - 2 * u);
+  yeastGun.getWorldPosition(_oc2);
+  yeastPot.position.lerpVectors(yeastFly.from, _oc2, e);
+  yeastPot.position.y += Math.sin(Math.PI * e) * 1.2;
+  yeastPot.rotation.y += dt * 6;
+  yeastPot.scale.setScalar(2 * (1 - 0.85 * e));
+  if (u >= 1) {
+    yeastFly = null;
+    yeastPot.visible = false;
+    applyYeast();
+    sparkleBurst(_oc2, 26, 0.4);
+    showToast(GIFT_TOASTS.yeast);
   }
 }
 // 話し終わったら暗転して町へ
@@ -3070,7 +3953,8 @@ function talkTarget() {
 // ---- 町人のセリフを選ぶ（台本は talks.json。書き方は docs/talks-spec.md） ----
 // talks.json を読んで TALKS に足す。docs/talks.schema.json と同じ決まりで確かめ、
 // 合わないまとまりはコンソールに警告を出して使わない（キャラクターごと使えないときもある）
-const TALK_KEY = /^((10|[0-9])-[1-9][0-9]?|grandpa|grandma|girl|mayor|baker|chief)$/;
+// revive：からだが 0 になってパン工房で焼き直されたときの、工場長のセリフ（だれかに話しかけたときには使わない）
+const TALK_KEY = /^((10|[0-9])-[1-9][0-9]?|grandpa|grandma|girl|mayor|baker|chief|revive)$/;
 // セリフの人物画は portraits/<組>_<表情>.webp。組はキャラクターの portrait、表情は face（喜・怒・哀・楽。省略すると喜）
 const PORTRAIT_SETS = ['baker', 'mayor', 'chief'];
 const FACES = ['joy', 'angry', 'sad', 'fun'];
@@ -3095,6 +3979,7 @@ const TALK_CHECKS = {
   refill: (v) => REFILLS.includes(v),
   gift: (v) => v in ITEMS,
   boss: (v) => isInt(v, 1, BOSSES.length),
+  summon: (v) => isInt(v, 1, BOSSES.length) && !!BOSSES[v - 1].summon,
   lines: (v) => Array.isArray(v) && v.length >= 1 && v.length <= TALK_LINES_MAX && v.every((l) => {
     if (typeof l === 'string') return l.length >= 1 && l.length <= TALK_LINE_MAX;
     return l && typeof l === 'object' && Object.keys(l).every((k) => k === 'text' || k === 'face')
@@ -3102,7 +3987,7 @@ const TALK_CHECKS = {
       && (l.face === undefined || FACES.includes(l.face));
   }),
 };
-const TALK_CONDITIONS = ['stage', 'town', 'area', 'areaTown', 'once', 'boss'];
+const TALK_CONDITIONS = ['stage', 'town', 'area', 'areaTown', 'once', 'boss', 'summon'];
 function talkProblems(t) {
   if (!t || typeof t !== 'object') return ['まとまりがオブジェクトではない'];
   const bad = Object.keys(t).filter((k) => !TALK_CHECKS[k]).map((k) => `知らない項目 ${k}`);
@@ -3142,7 +4027,7 @@ async function loadTalks() {
 //   2：ボス1 を追い出してから → 復興度 60% → ボス2 が来て、追い出すまで
 //   3：ボス2 を追い出してから → 復興度 100% → ボス3 が来て、町が倒壊するまで
 //   4：町が倒壊してから、ボス3 を倒すまで
-// 今あるのはボス1・ボス2 なので、進むのは 3 まで（ボス3 を作ったら、そこで 4 へ進める）
+// ボス3 は町長のセリフのあとに現れて町を押しつぶし（startCollapse）、ステージ 4 になる。ボス3 を倒すところはこれから
 const STAGE_MAX = 4;
 let storyStage = 1;
 // 区画の番号（1〜10）は AREA_NAMES に書いた順。パン工房は 0
@@ -3154,6 +4039,8 @@ function talkFits(t, r, used) {
   if (t.once && used.has(t)) return false;
   if (t.gift && items.has(t.gift)) return false;   // もうもらった道具の話はしない
   if (t.boss !== undefined && !(bossIndex + 1 === t.boss && (bossAppeared || retreat) && !bossGone)) return false;
+  // ボスを呼ぶ話は、そのボスの番で、まだ現れていないときだけ（ステージもそのボスのステージ）
+  if (t.summon !== undefined && !(bossIndex + 1 === t.summon && !bossAppeared && !bossIntro && !bossSummoned && !bossGone && storyStage === BOSSES[t.summon - 1].stage)) return false;
   const ai = areaAt(r.home.x, r.home.z);
   return inRange(storyStage, t.stage)
     && inRange(Math.round(townProgress() * 100), t.town)
@@ -3164,7 +4051,7 @@ function pickTalk(list, r) {
   const used = r.talked || (r.talked = new Set());
   let cands = list.filter((t) => talkFits(t, r, used));
   // 補充が要るときは、補充してくれるまとまりを必ず選ぶ（続けて同じでもよい）
-  const refills = cands.filter((t) => t.gift || (t.refill && needsRefill(t.refill)));   // 道具をくれる話も、必ず選ぶ
+  const refills = cands.filter((t) => t.gift || t.summon || (t.refill && needsRefill(t.refill)));   // 道具をくれる話・ボスを呼ぶ話も、必ず選ぶ
   if (refills.length) cands = refills;
   else if (cands.length > 1) cands = cands.filter((t) => t !== r.lastTalk);   // 続けて同じ話はしない
   if (!cands.length) return null;
@@ -3186,12 +4073,32 @@ function talkScript(r) {
       const text = typeof l === 'string' ? l : l.text;
       return { text, portrait: portraitSrc(book.portrait, (typeof l === 'object' && l.face) || t.face) };
     });
-    return { name: t.name || book.name, portrait: null, lines, refill: t.refill, gift: t.gift };
+    return { name: t.name || book.name, portrait: null, lines, refill: t.refill, gift: t.gift, summon: t.summon };
   }
   return null;
 }
+// 焼き直されたあとの工場長のセリフ（talks.json の revive）。魔法のパン種がある限り、何度でも生き返れる
+function startReviveTalk() {
+  const book = TALKS.revive, chief = residents.find((r) => r.id === '0-1');
+  if (!book || !chief || talk.active) return;
+  // まだ話していない一度きりの話（はじめてやられたときの、くわしい話）を先に
+  const used = chief.talked || (chief.talked = new Set());
+  const first = book.talks.find((x) => x.once && talkFits(x, chief, used));
+  const t = first || pickTalk(book.talks.filter((x) => !x.once), chief);
+  if (!t) return;
+  chief.talked.add(t);
+  const lines = t.lines.map((l) => ({
+    text: typeof l === 'string' ? l : l.text,
+    portrait: portraitSrc(book.portrait, (typeof l === 'object' && l.face) || t.face),
+  }));
+  talkWith = null;
+  talkRefill = talkGift = talkSummon = null;
+  keys.clear();
+  touch.reset();
+  talk.open({ name: t.name || book.name, portrait: null, lines });
+}
 function startTalk(r) {
-  if (!r || opening || retreat || talk.active || !onGround || floating || jetting) return;
+  if (!r || opening || retreat || collapse || talk.active || !onGround || floating || jetting) return;
   const script = talkScript(r);
   if (!script) return;
   if (r.bread) { r.bread.claimedBy = null; r.bread = null; }
@@ -3202,9 +4109,15 @@ function startTalk(r) {
   touch.reset();
   talkRefill = script.refill;
   talkGift = script.gift;
+  talkSummon = script.summon;
   talk.open(script);
 }
-let talkRefill = null, talkGift = null;
+let talkRefill = null, talkGift = null, talkSummon = null;
+const GIFT_TOASTS = {
+  solidifier: '固形化パンを手に入れた！ 脅威に体当たりすると、体が固まって押し戻せる',
+  choco: '板チョコを手に入れた！ チョコ燃料タンクで、燃料の最大が 50% に上がった',
+  yeast: '魔法のパン種を手に入れた！ 砲台の先に、光るパン種が付いた',
+};
 function advanceTalk() {
   if (!talk.advance()) return;
   if (opening) { finishOpening(); return; }
@@ -3216,17 +4129,29 @@ function advanceTalk() {
     showToast(v === 'body' ? 'からだが満タンになった！' : v === 'fuel' ? '燃料が満タンになった！' : 'からだと燃料が満タンになった！');
   }
   if (talkGift) {
-    items.add(talkGift);
-    showToast(talkGift === 'solidifier' ? '固形化パンを手に入れた！ ヘドロボスに体当たりすると、体が固まって押し戻せる' : `${ITEMS[talkGift]}を手に入れた！`);
+    const g = talkGift;
     talkGift = null;
+    items.add(g);
+    if (g === 'choco' && visit) { startChocoEquip(); return; }   // 工房の中：展示台から飛んできて、背中に付く
+    if (g === 'choco') { applyChoco(); sparkleBurst(_rm.set(feet.x, feet.y + 1.4, feet.z)); }
+    if (g === 'yeast' && talkWith) startYeastFly(talkWith);   // 着いたときにお知らせを出す
+    else showToast(GIFT_TOASTS[g] || `${ITEMS[g]}を手に入れた！`);
+  }
+  if (talkSummon) {
+    // 話し終わって少したつと、ボスが現れる（BOSS_APPEAR_DELAY）
+    talkSummon = null;
+    bossSummoned = true;
+    bossAppearWait = 0;
   }
   if (visit) { leaveWorkshop(); return; }
+  if (!talkWith) return;   // 焼き直しのあとの工場長のセリフ（話し相手がいない）
   talkWith.state = 'idle';
   talkWith.wait = RES_IDLE[0];
   talkWith = null;
 }
 let hintTarget = null;
 function updateTalk(dt) {
+  if (talk.active && !talkWith) { talk.update(dt, { visible: false }); return; }   // 話し相手がその場にいないセリフ
   if (talk.active) {
     // ロボも話し相手のほうを向く
     const p = talkWith.root.position;
@@ -3288,7 +4213,13 @@ function startGame(cont) {
   startLabel.classList.remove('disabled');
   if (cont) {
     if (opening) endOpening();
-    loadGame(readSave());
+    const d = readSave();
+    loadGame(d);
+    // ステージ 4 は崩壊した町。読み込み終わるまで暗くしておく
+    if (d.stage >= 4) {
+      fadeEl.classList.add('on');
+      collapseTown().catch((e) => console.error(e)).finally(() => { respawn(); setTimeout(() => fadeEl.classList.remove('on'), 300); });
+    }
   } else respawn(NEW_START_POS, NEW_START_YAW);
   enterPlay();
 }
@@ -3392,12 +4323,14 @@ window.addEventListener('keydown', (e) => {
 });
 window.addEventListener('keyup', (e) => keys.delete(e.code));
 
-// カメラをロボの正面の向き（ロボの後ろから、ロボが向いている方向を見る）へ回す
-let recentering = false;
-function recenterCamera() { recentering = view.thirdPerson; }
+// カメラをロボの正面の向き（ロボの後ろから、ロボが向いている方向を見る）へ回す。
+// 向きは C を押したときのロボの向きで決める（回っている間もロボの向きを追うと、
+// 左右キーの移動はカメラの向きが基準なので、ロボとカメラが追いかけあってぐるぐる回ってしまう）
+let recentering = false, recenterYaw = 0;
+function recenterCamera() { recentering = view.thirdPerson; recenterYaw = heading + Math.PI; }
 function updateRecenter(dt) {
   if (!recentering) return;
-  const target = heading + Math.PI;
+  const target = recenterYaw;
   const k = 1 - Math.exp(-10 * dt);
   view.yaw = turnToward(view.yaw, target, k);
   view.pitch += (0.25 - view.pitch) * k;
@@ -3498,9 +4431,11 @@ function waterLevel(pos, gy) {
 }
 
 // 閉じ込められたときの救出：壁を抜けて家の中などに入ってしまったら、最後に外にいた場所へ戻す。
+// 頭の上に天井がある（ロボの背が入らない）所に立ったまま TRAP_LOW_TIME 秒たったときも戻す（橋の下のすき間など）
 // TRAP_CHECK 秒ごとに、まわり 16 方向（2 つの高さ）がすべて TRAP_RANGE m 以内で壁にふさがれていて、
 // 頭の上 TRAP_ROOF m 以内に天井があるかを調べる。それが TRAP_TIME 秒続いたら戻す
-const TRAP_CHECK = 0.5, TRAP_TIME = 1.0, TRAP_RANGE = 12, TRAP_ROOF = 6;
+const TRAP_CHECK = 0.5, TRAP_TIME = 1.0, TRAP_RANGE = 12, TRAP_ROOF = 6, TRAP_LOW_TIME = 2.0;
+let lowTime = 0;
 const lastFree = new THREE.Vector3();
 let trapWait = 0, trappedTime = 0, lastFreeSet = false;
 // 地面の下（山の中など）にいるか：頭の上の高いところに、上を向いた地面がある
@@ -3527,6 +4462,12 @@ function enclosedAt(p) {
 function updateTrap(dt) {
   if ((trapWait -= dt) > 0) return;
   trapWait = TRAP_CHECK;
+  if (onGround && !floating && headBlocked(feet)) {
+    lowTime += TRAP_CHECK;
+    if (lowTime >= TRAP_LOW_TIME) { lowTime = 0; rescueTrapped(); }
+    return;
+  }
+  lowTime = 0;
   if (!enclosedAt(feet)) {
     trappedTime = 0;
     // 戻る先は、頭の上が空いている（家の中や地面の下ではない）ところだけ覚える
@@ -3537,6 +4478,9 @@ function updateTrap(dt) {
   trappedTime += TRAP_CHECK;
   if (trappedTime < TRAP_TIME) return;
   trappedTime = 0;
+  rescueTrapped();
+}
+function rescueTrapped() {
   feet.copy(lastFreeSet ? lastFree : START_POS);   // 覚えた場所がなければスタート地点へ
   velY = 0; jetting = false; jetEndTime = 0; jetVel.set(0, 0, 0); recoilVel.set(0, 0, 0);
   snapToGround(true);
@@ -3605,6 +4549,7 @@ function crossedWall(from, to) {
 // 体（頭の高さまで）が、屋根の裏やひさしなどの斜めの面にめり込むか。
 // 斜めの面は壁として扱わないので、低空のジェットで屋根の下へもぐりこみ、家の中に落ちてしまうことがある
 const HEAD_FROM = STEP_HEIGHT + 0.1, HEAD_TOP = 1.5;
+const _hp = new THREE.Vector3();
 function headBlocked(p) {
   _o.set(p.x, p.y + HEAD_FROM, p.z);
   return !!cast(_o, UP, HEAD_TOP - HEAD_FROM);
@@ -3726,6 +4671,8 @@ function updatePlayer(dt) {
     if (crossedWall(_subPrev, feet) || (headBlocked(feet) && !headBlocked(_subPrev))) { feet.x = _subPrev.x; feet.z = _subPrev.z; break; }
     const g = groundBelow(feet);
     if (g === null || dropUnderRoof(subG, g)) { feet.x = _subPrev.x; feet.z = _subPrev.z; break; }
+    // 登った先の頭の上に天井があるなら登らない（橋の下の低い岸に上がって、はさまってしまうため）
+    if (g > feet.y + 0.01 && headBlocked(_hp.set(feet.x, g, feet.z)) && !headBlocked(_subPrev)) { feet.x = _subPrev.x; feet.z = _subPrev.z; break; }
     subG = g;
     if (g > feet.y) feet.y = g;   // 上り坂・段差を登る
   }
@@ -3816,8 +4763,33 @@ const LAND_TIME = 0.35;   // 着地の沈み込み（フレーム 208〜220）
 const JET_END_TIME = 0.25; // 炎が消えるまで（フレーム 282〜288）
 const frameTime = (f, start) => (f - start) / ANIM_FPS;
 
+// ふわお（操縦席の MP_Rig）は、からだが減るほど小さくなる（体積がからだに比例。10% で操縦席のふちから見えなくなる）
+const PILOT_HIDE = 0.19;        // 操縦席のふちに隠れる大きさ（倍）。からだ 10% でこの大きさ
+const PILOT_BASE = new THREE.Vector3(0, 0.37, 0);   // 体の底（MP_Rig の原点。PC_Rig_Body から）。ここを中心に縮める
+let pilotScale = null, pilotSize = 1;
+function setupPilot() {
+  const rig = model.getObjectByName('MP_Rig'), parent = rig?.parent;
+  if (!rig) return;
+  pilotScale = new THREE.Group();
+  pilotScale.name = 'MP_Scale';
+  pilotScale.position.copy(PILOT_BASE);
+  const inner = new THREE.Group();
+  inner.position.copy(PILOT_BASE).negate();
+  parent.add(pilotScale);
+  pilotScale.add(inner);
+  inner.add(rig);   // アニメーションは MP_Rig そのものに付いているので、そのまま動く
+}
+function pilotSizeOf(b) {
+  const v0 = PILOT_HIDE ** 3;
+  const v = b >= 0.1 ? v0 + (b - 0.1) / 0.9 * (1 - v0) : v0 * b / 0.1;
+  return Math.cbrt(Math.max(0, v));
+}
 function updateAnimation(dt) {
   if (!walkAction) return;
+  if (pilotScale) {
+    pilotSize += (pilotSizeOf(body) - pilotSize) * (1 - Math.exp(-6 * dt));
+    pilotScale.scale.setScalar(Math.max(1e-3, pilotSize));
+  }
   if (fireDone) {
     fireDone = false;
     firing = false;
@@ -3930,6 +4902,8 @@ let daytime = null;
 function tick(dt, active) {
   // 一時停止中は時間を止める（見た目の切り替えには合わせ直す）。N を押している間は早送り
   waterUniforms.uTime.value += dt;
+  updateSpray();
+  if (!visit) { updateSparks(dt); updateYeast(dt); }
   time.value += dt;
   if (opening) { updateOpening(dt, active); return; }
   if (visit) { updateVisit(dt, active); return; }
@@ -3948,12 +4922,16 @@ function tick(dt, active) {
   updateSave(dt, active);
   // 工場長は、ステージ 2 までは工房の中（町にはいない）
   const chiefRes = residents.find((r) => r.id === '0-1');
-  if (chiefRes) chiefRes.root.visible = storyStage >= CHIEF_OUT_STAGE;
+  if (chiefRes && chiefRes.state !== 'evac' && chiefRes.state !== 'gone') chiefRes.root.visible = storyStage >= CHIEF_OUT_STAGE;
   if (retreat && active) { updateRetreat(dt); releaseAll(); }   // カットインの間は操作できない（ロボは着地まで落ちる）
   if (active && boss && !bossGone && !bossAppeared && !bossIntro && !talk.active && !knockout && !retreat && storyStage === bossCfg.stage
-    && (bossAppearWait += dt) > BOSS_APPEAR_DELAY && townProgress() > bossCfg.appearAt) startBossIntro();
+    && !collapse && (bossAppearWait += dt) > BOSS_APPEAR_DELAY && (bossCfg.summon ? bossSummoned : townProgress() > bossCfg.appearAt)) {
+    if (bossCfg.summon) startCollapse(); else startBossIntro();
+  }
+  if (collapse && active && !collapse.swapping) { updateCollapse(dt); releaseAll(); }
+  if (storyStage >= 3 && !townCollapsed) preloadCollapsed().catch(() => {});   // 崩壊した町を裏で読んでおく
   if (bossIntro && active) { updateBossIntro(dt); releaseAll(); }
-  if (active && !talk.active && !knockout && !bossIntro) { updatePlayer(dt); collideBoss(dt); updateTrap(dt); }
+  if (active && !talk.active && !knockout && !bossIntro && !collapse) { updatePlayer(dt); collideBoss(dt); updateTrap(dt); }
   else moveSpeed = 0;
   collidePeople(active);
   updateAnimation(dt);
@@ -3961,6 +4939,7 @@ function tick(dt, active) {
   updateCamera();
   if (retreat) retreatCamera(dt);
   if (bossIntro) bossIntroCamera(dt);
+  if (collapse) collapseCamera(dt);
 }
 
 // ---- ループ ----

@@ -282,6 +282,9 @@ export function createAnimeStyle({ renderer, scene, camera, sun, fill, hemi, sky
       scene.background = null;
       scene.overrideMaterial = normalMat;
       sky.visible = false;
+      // 輪郭線を付けないもの（キラキラなど。userData.noOutline）は、法線の回には描かない
+      const noOutline = scene.children.filter((o) => o.visible && o.userData.noOutline);
+      for (const o of noOutline) o.visible = false;
       renderer.shadowMap.autoUpdate = false;
       renderer.setClearColor(flatNormal, 1);
       renderer.setRenderTarget(normalRT);
@@ -289,6 +292,7 @@ export function createAnimeStyle({ renderer, scene, camera, sun, fill, hemi, sky
       renderer.setClearColor(_clear, clearAlpha);
       renderer.shadowMap.autoUpdate = true;
       sky.visible = true;
+      for (const o of noOutline) o.visible = true;
       scene.overrideMaterial = null;
       scene.background = bg;
 
