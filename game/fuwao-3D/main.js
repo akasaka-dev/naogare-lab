@@ -335,6 +335,8 @@ function makeSpray({ origin, width, power, count, size, opacity, life, spread })
   });
   const pts = new THREE.Points(g, mat);
   pts.frustumCulled = false;
+  // 輪郭線の回（法線と奥行きだけを描く）には入れない。点の大きさが決まらず、スマホでは大きな四角になって線が出るため
+  pts.userData.noOutline = true;
   pts.renderOrder = 3;
   return pts;
 }
@@ -352,6 +354,7 @@ function setupFoam(townScene, merged) {
     foam.position.set(cx, y, b.min.z + len / 2);
     foam.receiveShadow = true;
     foam.renderOrder = 2;
+    foam.userData.noOutline = true;   // 泡の板のふちに輪郭線を出さない
     scene.add(foam);
     foamObjs.push(foam);
     // 滝の高さ（川上の水面との差）で、しぶきの勢いを変える
@@ -2411,6 +2414,7 @@ function makeHelpIcon(color, kind = 'germ') {
   icon.center.set(0.5, 0);
   icon.renderOrder = 997;
   icon.visible = false;
+  icon.userData.noOutline = true;   // 画面に貼る絵なので、輪郭線の回には入れない
   scene.add(icon);
   return icon;
 }
@@ -2775,7 +2779,7 @@ const RESIDENTS = [
   { id: '1-1', kind: 'mayor', home: new THREE.Vector3(-11, 0, 15), radius: 2.5 },   // 広場、噴水の東側
   // パン屋の店先（扉の前、街灯の右）。軒の下なので、地面はこの高さから下を調べる。face は立つ向き
   { id: '3-1', kind: 'baker', home: new THREE.Vector3(-1.2, 4.28, 3.45), radius: 0, face: 0.245, under: true },
-  // パン工房の扉の横（スタート地点の右前）。ふわおのほうを向いて立つ。外に出てくるのはステージ 3 から（CHIEF_OUT_STAGE。それまでは工房の中）
+  // パン工房の扉の横（スタート地点の右前）。ふわおのほうを向いて立つ。外に出てくるのは町が崩壊したステージ 4 から（CHIEF_OUT_STAGE。それまでは工房の中）
   { id: '0-1', kind: 'chief', home: new THREE.Vector3(-5.2, 12, -24.4), radius: 0, face: -0.7 },
 ];
 const RES_HOME_HURRY = 1.25;     // 家へ帰るときは少し急ぐ
@@ -3570,10 +3574,10 @@ function updateOpening(dt, active) {
   if (talk.active) talk.update(dt, openingHead(who));
 }
 // ---- パン工房の中へ（扉に駆け込むと、場面が工房の中へ切り替わる） ----
-// ステージ 2 までは、工場長は工房の中にいる（CHIEF_OUT_STAGE から外の扉の横に出てくる）。
+// ステージ 3 までは、工場長は工房の中にいる（町が崩壊した CHIEF_OUT_STAGE から、外の扉の横に出てくる）。
 // 扉の前の光る輪（WORKSHOP_FRONT）に入ると暗転して、工房の中（オープニングの部屋）へ。工場長と話し終わると、暗転して扉の前へ戻る。
 // 工房の中では、燃料とからだが満タンになる
-const CHIEF_OUT_STAGE = 3;
+const CHIEF_OUT_STAGE = 4;
 const DOOR_R = 1.1;             // 扉の前の輪の半径（m）。この中に入ると工房へ
 const DOOR_ROBOT = [0, 2.7];    // 工房の中で、ロボが立つ場所（部屋の原点から。入口は +Z 側）
 const VISIT_LOOK = 1.6;         // 入口から部屋の全体を見せてから、工場長へ寄るまで（秒）
@@ -3607,6 +3611,7 @@ function placeSign(text) {
   sign.center.set(0.5, 0);
   sign.scale.set(0.11 * w / h, 0.11, 1);
   sign.renderOrder = 997;
+  sign.userData.noOutline = true;
   scene.add(sign);
   return sign;
 }
@@ -4978,7 +4983,7 @@ function tick(dt, active) {
   updateHunger(dt, active);
   updateDoor(dt, active);
   updateSave(dt, active);
-  // 工場長は、ステージ 2 までは工房の中（町にはいない）
+  // 工場長は、町が崩壊するまでは工房の中（町にはいない）
   const chiefRes = residents.find((r) => r.id === '0-1');
   if (chiefRes && chiefRes.state !== 'evac' && chiefRes.state !== 'gone') chiefRes.root.visible = storyStage >= CHIEF_OUT_STAGE;
   if (retreat && active) { updateRetreat(dt); releaseAll(); }   // カットインの間は操作できない（ロボは着地まで落ちる）
