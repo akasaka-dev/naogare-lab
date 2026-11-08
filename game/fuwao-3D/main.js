@@ -1926,6 +1926,7 @@ function startFinale() {
   const out = new THREE.Vector3(feet.x - boss.position.x, 0, feet.z - boss.position.z).normalize();   // ボスからふわおへ
   finale = { t: 0, phase: 'glow', out, look: new THREE.Vector3(), faded: false, burst: false, wreck: false, puff: 0, dust: [] };
   savingOn = false;   // つづきからは、最後の体当たりの前から
+  document.getElementById('endingImg').src = endingSrc();   // エンディングの絵を先に読んでおく
   // ロボははね返されて、パン種は顔の中へ
   jetting = false; jetEndTime = 0; jetSpeed = 0;
   jetVel.copy(out).multiplyScalar(RAM_BOUNCE * 1.4);
@@ -2076,30 +2077,47 @@ function finaleCamera(dt) {
   }
   sky.position.copy(camera.position);
 }
-// エンディング：縦長の絵（ending1.webp）を、空から下のメカとパン屋のお姉さんまで、ゆっくりスクロールする。
-// 下まで来たら、タイトルと「タイトルにもどる」が浮かぶ
-const ENDING_WAIT = 2.0;     // 絵が出てからスクロールし始めるまで（秒）
-const ENDING_SCROLL = 14;    // スクロールの長さ（秒）
-const ENDING_TALL = 1.5;     // 絵の高さは、画面の高さのこの倍以上にする（スマホの縦画面でもスクロールさせるため）
-const ENDING_FOCUS_X = 0.62; // 最後に画面のまん中に来る、絵の横の位置（メカとパン屋のお姉さん）
+// エンディング：画面の向きで絵と動きを使い分ける
+//   縦長の画面：縦の絵（ending1.webp）を、煙の立つ空から下のメカとパン屋のお姉さんまでスクロールする
+//   横長の画面：横の絵（ending1h.webp）を、左の崩れたパン工房から右のメカとお姉さんまで横に流す
+// 終わったら、タイトルと「タイトルにもどる」が浮かぶ
+const ENDING_WAIT = 2.0;     // 絵が出てから動き始めるまで（秒）
+const ENDING_SCROLL = 14;    // 動いている長さ（秒）
+const ENDING_TALL = 1.5;     // 縦の絵：高さは画面の高さのこの倍以上（スマホの縦画面でもスクロールさせるため）
+const ENDING_WIDE = 1.4;     // 横の絵：幅は画面の幅のこの倍以上（横に流すため）
+// 最後に画面のまん中に来る、絵の中の位置（メカとお姉さん）。[横, 縦]。横の絵は、上に浮かぶタイトルがお姉さんの頭にかからないよう少し上寄り
+const ENDING_FOCUS = { tall: [0.62, 1], wide: [0.8, 0.45] };
+const endingWide = () => window.innerWidth >= window.innerHeight;
+function endingSrc() { return endingWide() ? 'ending1h.webp' : 'ending1.webp'; }
 function showEnding() {
   finale.phase = 'ending';
   document.body.classList.remove('cutin');
   endingEl.classList.add('on');
   const img = document.getElementById('endingImg');
+  const src = endingSrc();
   const run = () => {
-    // 画面の幅より狭くせず、高さは画面の ENDING_TALL 倍以上。横にはみ出すときは、下へ進みながら横にもずらす
     const vw = window.innerWidth, vh = window.innerHeight, aspect = img.naturalWidth / img.naturalHeight;
-    const h = Math.max(vh * ENDING_TALL, vw / aspect), w = h * aspect;
+    const clampX = (x, w) => THREE.MathUtils.clamp(x, vw - w, 0), clampY = (y, h) => THREE.MathUtils.clamp(y, vh - h, 0);
+    let w, h, from, to;
+    if (src === 'ending1h.webp') {
+      // 横：左はしから、右のお姉さんまで。縦の位置はメカとお姉さんが入る高さ
+      w = Math.max(vw * ENDING_WIDE, vh * aspect); h = w / aspect;
+      const [fx, fy] = ENDING_FOCUS.wide, y = clampY(vh / 2 - fy * h, h);
+      from = [0, y]; to = [clampX(vw / 2 - fx * w, w), y];
+    } else {
+      // 縦：いちばん上の空から、下のメカとお姉さんまで。横にはみ出すときは、下へ進みながら横にもずらす
+      h = Math.max(vh * ENDING_TALL, vw / aspect); w = h * aspect;
+      from = [(vw - w) / 2, 0]; to = [clampX(vw / 2 - ENDING_FOCUS.tall[0] * w, w), vh - h];
+    }
     img.style.width = `${w}px`;
     img.style.height = `${h}px`;
-    const x0 = (vw - w) / 2, x1 = THREE.MathUtils.clamp(vw / 2 - ENDING_FOCUS_X * w, vw - w, 0);
-    img.style.transform = `translate(${x0}px, 0px)`;
-    img.animate([{ transform: `translate(${x0}px, 0px)` }, { transform: `translate(${x1}px, ${vh - h}px)` }],
+    img.style.transform = `translate(${from[0]}px, ${from[1]}px)`;
+    img.animate([{ transform: `translate(${from[0]}px, ${from[1]}px)` }, { transform: `translate(${to[0]}px, ${to[1]}px)` }],
       { duration: ENDING_SCROLL * 1000, delay: ENDING_WAIT * 1000, easing: 'ease-in-out', fill: 'forwards' })
       .finished.then(() => endingEl.classList.add('done'));
   };
-  if (img.complete) run(); else img.addEventListener('load', run, { once: true });
+  if (img.getAttribute('src') !== src) img.src = src;
+  if (img.complete && img.naturalWidth) run(); else img.addEventListener('load', run, { once: true });
 }
 // 転がるボス：動いている間は転がり始め → 転がる（進む速さに合わせてアニメの速さを変える）、止まったら待機へ
 let rolling = 0;   // 0 止まっている / 1 転がり始め / 2 転がっている
@@ -2188,7 +2206,8 @@ function collideBoss(dt) {
   ramCooldown -= dt;
   // 魔法のパン種を付けたまま、町を転げまわる脅威の顔（正面）にジェットで体当たりすると、最後の演出へ。
   // 顔は地面から 20m ほどの高さにあって届きにくいので、玉の正面（顔の向きから FACE_HIT_ANGLE 以内）にぶつかれば当たりにする
-  if (items.has('yeast') && bossRoaming() && jetVel.length() > RAM_MIN_SPEED) {
+  // 町長の警告（はじめて発射しようとしたとき）を聞くまでは、体当たりしてもはね返されるだけ
+  if (items.has('yeast') && mayorWarned && bossRoaming() && jetVel.length() > RAM_MIN_SPEED) {
     const face = boss.getObjectByName('RB_Plate_Face');
     bossSpikes.getWorldPosition(_bc);
     if (face && Math.hypot(feet.x - _bc.x, feet.y + ROBOT_HEIGHT / 2 - _bc.y, feet.z - _bc.z) < bossSpikeRadius + RADIUS + 0.5) {
