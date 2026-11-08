@@ -2076,11 +2076,30 @@ function finaleCamera(dt) {
   }
   sky.position.copy(camera.position);
 }
-// エンディング（中身はこれから。いまは仮の画面）
+// エンディング：縦長の絵（ending1.webp）を、空から下のメカとパン屋のお姉さんまで、ゆっくりスクロールする。
+// 下まで来たら、タイトルと「タイトルにもどる」が浮かぶ
+const ENDING_WAIT = 2.0;     // 絵が出てからスクロールし始めるまで（秒）
+const ENDING_SCROLL = 14;    // スクロールの長さ（秒）
+const ENDING_TALL = 1.5;     // 絵の高さは、画面の高さのこの倍以上にする（スマホの縦画面でもスクロールさせるため）
+const ENDING_FOCUS_X = 0.62; // 最後に画面のまん中に来る、絵の横の位置（メカとパン屋のお姉さん）
 function showEnding() {
   finale.phase = 'ending';
   document.body.classList.remove('cutin');
   endingEl.classList.add('on');
+  const img = document.getElementById('endingImg');
+  const run = () => {
+    // 画面の幅より狭くせず、高さは画面の ENDING_TALL 倍以上。横にはみ出すときは、下へ進みながら横にもずらす
+    const vw = window.innerWidth, vh = window.innerHeight, aspect = img.naturalWidth / img.naturalHeight;
+    const h = Math.max(vh * ENDING_TALL, vw / aspect), w = h * aspect;
+    img.style.width = `${w}px`;
+    img.style.height = `${h}px`;
+    const x0 = (vw - w) / 2, x1 = THREE.MathUtils.clamp(vw / 2 - ENDING_FOCUS_X * w, vw - w, 0);
+    img.style.transform = `translate(${x0}px, 0px)`;
+    img.animate([{ transform: `translate(${x0}px, 0px)` }, { transform: `translate(${x1}px, ${vh - h}px)` }],
+      { duration: ENDING_SCROLL * 1000, delay: ENDING_WAIT * 1000, easing: 'ease-in-out', fill: 'forwards' })
+      .finished.then(() => endingEl.classList.add('done'));
+  };
+  if (img.complete) run(); else img.addEventListener('load', run, { once: true });
 }
 // 転がるボス：動いている間は転がり始め → 転がる（進む速さに合わせてアニメの速さを変える）、止まったら待機へ
 let rolling = 0;   // 0 止まっている / 1 転がり始め / 2 転がっている
