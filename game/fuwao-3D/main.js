@@ -797,6 +797,12 @@ function setupAnimations(clips) {
 
 function fire() {
   if (firing || !fireAction || knockout || retreat) return;   // 地上でも空中（ジャンプ・ジェット中）でも撃てる
+  // 魔法のパン種が砲口にくっついていると、パンは出ない。はじめてのときは町長が止めに来る
+  if (items.has('yeast')) {
+    showToast('発射しない。種がくっついている');
+    if (!mayorWarned && !finale && !talk.active) startMayorWarn();
+    return;
+  }
   firing = true;
   recoiled = false;
   shotSpawned = false;
@@ -846,7 +852,7 @@ if (new URLSearchParams(location.search).has('debug')) {
     get residentAreas() { return residents.map((r) => `${r.id} ${r.kindName} → 区画${areaNumber(areaAt(r.home.x, r.home.z))}`); },
     retreat() { if (!retreat && !bossGone) startRetreat(); },
     appear() { if (!bossAppeared && !bossIntro) startBossIntro(); },
-    get collapse() { return collapse; }, get townCollapsed() { return townCollapsed; }, useBoss, get bossIndex() { return bossIndex; },
+    get collapse() { return collapse; }, get finale() { return finale; }, startFinale, startMayorWarn, get townCollapsed() { return townCollapsed; }, useBoss, get bossIndex() { return bossIndex; },
     get items() { return [...items]; }, giveItem(k) { items.add(k); }, noon: makeHungry, enterWorkshop, saveGame, readSave, clearSave, startGame, get visit() { return visit; }, get hungry() { return residents.filter((r) => r.hungry).map((r) => r.id); }, get intro() { return bossIntro; }, get appeared() { return bossAppeared; },
     get retreating() { return !!retreat; }, get bossGone() { return bossGone; },
     attackTown, get quake() { return quake; },
@@ -1391,6 +1397,7 @@ function dustRing(center, color, size) {
   mesh.rotation.x = -Math.PI / 2;
   mesh.position.copy(center).setY(center.y + 0.6);
   mesh.userData.size = size;
+  mesh.userData.noOutline = true;   // 砂煙に輪郭線は出さない
   mesh.visible = false;
   scene.add(mesh);
   return mesh;
@@ -1398,6 +1405,7 @@ function dustRing(center, color, size) {
 function dustCloud(center) {
   const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xcdb89a, transparent: true, opacity: 0.7, depthWrite: false }));
   mesh.position.copy(center);
+  mesh.userData.noOutline = true;
   mesh.visible = false;
   scene.add(mesh);
   return mesh;
@@ -1855,6 +1863,211 @@ function enterCollapsed() {
   }
   helps.length = 0;
 }
+// ---- 町長の警告（魔法のパン種を付けて、はじめて発射しようとしたとき） ----
+// 山へ避難していた町長が、ふわおのところへ歩いてきて止める（talks.json の warning）。話し終わると山のほうへ去っていく
+let mayorWarned = false;
+const MAYOR_COME_FROM = 14;       // 町長が歩いてくる距離（m）
+const MAYOR_WALK = 1.8;           // 歩いてくる速さ（m/秒）
+const MAYOR_LEAVE = 30;           // 話し終わって去っていく距離（m。そこで見えなくなる）
+function startMayorWarn() {
+  const r = residents.find((x) => x.id === '1-1');
+  if (!r || !TALKS.warning) return;
+  mayorWarned = true;
+  // お城への坂道（山）のほうから歩いてくる
+  _rd.set(EVAC_TO.x - feet.x, 0, EVAC_TO.z - feet.z).normalize();
+  r.root.position.copy(groundPoint(_rm.set(feet.x + _rd.x * MAYOR_COME_FROM, 0, feet.z + _rd.z * MAYOR_COME_FROM)));
+  r.root.visible = true;
+  r.state = 'approach';
+  r.leaving = false;
+  setFace(r, 'sad');
+}
+function mayorTalk(r) {
+  const book = TALKS.warning;
+  const t = book.talks[0];
+  r.state = 'talk';
+  talkWith = r;
+  talkRefill = talkGift = talkSummon = null;
+  keys.clear();
+  touch.reset();
+  r.leaveAfterTalk = true;
+  talk.open({
+    name: t.name || book.name, portrait: null,
+    lines: t.lines.map((l) => ({ text: typeof l === 'string' ? l : l.text, portrait: portraitSrc(book.portrait, (typeof l === 'object' && l.face) || t.face) })),
+  });
+}
+// 話し終わった町長は、山のほうへ去っていく
+function mayorLeave(r) {
+  r.leaveAfterTalk = false;
+  r.leaving = true;
+  _rd.set(EVAC_TO.x - r.root.position.x, 0, EVAC_TO.z - r.root.position.z).normalize();
+  r.evac = groundPoint(_rm.set(r.root.position.x + _rd.x * MAYOR_LEAVE, 0, r.root.position.z + _rd.z * MAYOR_LEAVE));
+  r.evacDelay = 0.6;
+  r.state = 'evac';
+}
+
+// ---- 最後の演出（魔法のパン種で、脅威3 を倒す） ----
+// 町を転げまわる脅威の顔（RB_Hurt_Face）に、魔法のパン種を付けたままジェットで体当たりすると：
+//   パン種が顔にめりこむ → 石板のすき間が金色に脈打ち、だんだん強く光る（RB_Glow。砕けるクリップの 211〜217 をゆっくり）
+//   → はじける（白い閃光・大きなゆれ・キラキラ・砂煙。218 から砕けるクリップの続きで破片が飛び散る）
+//   → 暗転して、ぼろぼろのメカだけが残っている → エンディング
+// ぼろぼろのメカのモデルはまだないので、今のメカを傾けて黒ずませ、ふわおを消して煙を出している
+const FACE_HIT_ANGLE = THREE.MathUtils.degToRad(50);   // 顔の向きからこの角度までの正面にぶつかれば、顔に当たったことにする
+const FINALE_GLOW = [0.4, 3.4];      // 金色に光っている時間（秒）。この間に 211→217 フレームをゆっくり進める
+const FINALE_BURST_END = 6.6;        // はじけてから破片が落ちきるまで（クリップの 218〜290）
+const FINALE_WRECK = 7.4;            // 暗転のあと、ぼろぼろのメカの場面になる時刻
+const FINALE_END = 14.5;             // エンディングの画面へ
+let finale = null;                   // { t, phase, cam, look, faded, glowMats, burst }
+const flashEl = document.getElementById('flash');
+const endingEl = document.getElementById('ending');
+function startFinale() {
+  const out = new THREE.Vector3(feet.x - boss.position.x, 0, feet.z - boss.position.z).normalize();   // ボスからふわおへ
+  finale = { t: 0, phase: 'glow', out, look: new THREE.Vector3(), faded: false, burst: false, wreck: false, puff: 0, dust: [] };
+  savingOn = false;   // つづきからは、最後の体当たりの前から
+  // ロボははね返されて、パン種は顔の中へ
+  jetting = false; jetEndTime = 0; jetSpeed = 0;
+  jetVel.copy(out).multiplyScalar(RAM_BOUNCE * 1.4);
+  velY = Math.max(velY, 6);
+  yeastGun.visible = false;
+  // 脅威は転がるのをやめて、砕けるクリップの 211 フレームで止める（時刻はこちらで進める）
+  for (const a of Object.values(bossActions)) a.stop();
+  const sh = bossActions.shatter;
+  sh.reset().play();
+  sh.paused = true;
+  sh.time = 1 / ANIM_FPS;
+  rolling = 0;
+  // 光る材質（EXP_RB_glow）。アニメ調の材質と元の材質の両方
+  finale.glowMats = [];
+  boss.traverse((o) => {
+    if (!o.isMesh) return;
+    for (const m of new Set([o.material, o.userData.pbrMaterial])) if (m && /RB_glow/i.test(m.name)) { m.userData.baseGlow ??= m.emissiveIntensity; finale.glowMats.push(m); }
+  });
+  boss.getObjectByName('RB_Hurt_Face').getWorldPosition(_oc2);
+  sparkleBurst(_oc2, 30, 1.2);
+  quake = Math.max(quake, 1.5);
+  // カメラ：ボスのふわお側の斜め前、引き気味に（破片は 35m の高さ、60m 先まで飛ぶ）
+  const side = new THREE.Vector3(-out.z, 0, out.x);
+  finale.cam = boss.position.clone().addScaledVector(out, 78).addScaledVector(side, 30);
+  finale.cam.y = Math.max(introGroundY(finale.cam.x, finale.cam.z, boss.position.y), boss.position.y) + 18;
+  finale.look.copy(boss.position).setY(boss.position.y + 21);
+  cutinEl.querySelector('.caption').textContent = '魔法のパン種が、脅威の顔にめりこんだ！';
+  document.body.classList.add('cutin');
+  releaseAll();
+}
+function updateFinale(dt) {
+  const F = finale;
+  F.t += dt;
+  const t = F.t, caption = cutinEl.querySelector('.caption');
+  const sh = bossActions.shatter;
+  if (F.phase === 'glow') {
+    // 211→217 フレームをゆっくり。すき間の金色が、だんだん速く、強く脈打つ
+    const u = THREE.MathUtils.clamp((t - FINALE_GLOW[0]) / (FINALE_GLOW[1] - FINALE_GLOW[0]), 0, 1);
+    sh.time = (1 + 6 * u) / ANIM_FPS;
+    const pulse = 0.5 + 0.5 * Math.sin(t * (6 + 22 * u));
+    for (const m of F.glowMats) m.emissiveIntensity = m.userData.baseGlow * (1 + 3.5 * u) * (0.6 + 0.6 * pulse);
+    quake = Math.max(quake, 0.3 + 1.2 * u);
+    if (t > FINALE_GLOW[0] + 0.6 && !F.saidGlow) { F.saidGlow = true; caption.textContent = 'パン種が、中でふくらんでいく……！'; }
+    if (t >= FINALE_GLOW[1]) {
+      // はじける！
+      F.phase = 'burst';
+      sh.time = 8 / ANIM_FPS;
+      sh.paused = false;
+      quake = 3;
+      flashEl.classList.remove('on'); void flashEl.offsetWidth; flashEl.classList.add('on');
+      const c = boss.position.clone().setY(boss.position.y + 21);
+      for (let i = 0; i < 6; i++) sparkleBurst(_rm.set(c.x + (Math.random() - 0.5) * 30, c.y + (Math.random() - 0.5) * 20, c.z + (Math.random() - 0.5) * 30), 24, 2.5);
+      const g = boss.position.clone();
+      F.dust.push({ mesh: dustRing(g, 0xe8d8b0, 120), t: 0, life: 2.2 }, { mesh: dustCloud(g), t: 0, life: 3.5, cloud: true, size: 2.4 });
+      caption.textContent = '脅威が、はじけ飛んだ！';
+    }
+  }
+  if (F.phase === 'burst') {
+    for (const m of F.glowMats) m.emissiveIntensity *= Math.exp(-3 * dt);
+    if (!F.faded && t >= FINALE_WRECK - FADE_TIME) { F.faded = true; fadeEl.classList.add('on'); }
+    if (t >= FINALE_WRECK) setupWreck();
+  }
+  if (F.phase === 'wreck') {
+    // 煙が細く上がり続ける
+    if ((F.puff -= dt) <= 0) {
+      F.puff = 0.7;
+      F.dust.push({ mesh: dustCloud(_rm.set(feet.x + (Math.random() - 0.5) * 0.4, feet.y + 0.9, feet.z + (Math.random() - 0.5) * 0.4)), t: 0, life: 2.6, cloud: true, size: 0.012 + Math.random() * 0.008, smoke: true });
+    }
+    if (t >= FINALE_END - FADE_TIME && !F.endFade) { F.endFade = true; fadeEl.classList.add('on'); }
+    if (t >= FINALE_END) showEnding();
+  }
+  for (const d of F.dust) {
+    d.t += dt;
+    const u = THREE.MathUtils.clamp(d.t / d.life, 0, 1);
+    if (d.cloud) {
+      const e = 1 - Math.pow(1 - u, 3), z = d.size;
+      d.mesh.scale.set((6 + 30 * e) * z, (3 + 18 * e) * z * (d.smoke ? 3 : 1), (6 + 30 * e) * z);
+      if (d.smoke) d.mesh.position.y += dt * 1.2;
+      d.mesh.material.opacity = (d.smoke ? 0.5 : 0.75) * (1 - u);
+    } else {
+      d.mesh.scale.setScalar(Math.max(0.01, d.mesh.userData.size * (1 - Math.pow(1 - u, 2))));
+      d.mesh.material.opacity = 0.85 * (1 - u);
+    }
+    d.mesh.visible = u < 1;
+  }
+}
+// ぼろぼろのメカだけが残っている（ふわおはいない。メカは傾いて黒ずみ、煙が上がる）
+function setupWreck() {
+  const F = finale;
+  F.phase = 'wreck';
+  boss.visible = false;
+  bossGone = true;
+  bossAppeared = false;
+  if (retreatLine) retreatLine.visible = false;
+  for (const m of F.glowMats) m.emissiveIntensity = m.userData.baseGlow;
+  jetVel.set(0, 0, 0); recoilVel.set(0, 0, 0); velY = 0;
+  snapToGround(true);
+  if (pilotScale) pilotScale.visible = false;
+  chocoTank.visible = false;
+  model.traverse((o) => {
+    if (!o.isMesh) return;
+    for (const m of new Set([o.material, o.userData.pbrMaterial])) if (m?.color && !m.userData.wrecked) { m.userData.wrecked = true; m.color.multiplyScalar(0.5); }
+  });
+  F.wreckTilt = true;
+  const h = heading;
+  F.cam = new THREE.Vector3(feet.x + Math.sin(h) * 3.2 + Math.cos(h) * 1.4, feet.y + 1.4, feet.z + Math.cos(h) * 3.2 - Math.sin(h) * 1.4);
+  F.look.set(feet.x, feet.y + 0.7, feet.z);
+  F.camFrom = F.cam.clone();
+  cutinEl.querySelector('.caption').textContent = 'あとには、ぼろぼろのメカだけが残っていた……';
+  setTimeout(() => fadeEl.classList.remove('on'), 300);
+}
+function finaleCamera(dt) {
+  const F = finale;
+  if (F.phase === 'wreck') {
+    // ゆっくり寄っていく
+    const k = Math.min(1, (F.t - FINALE_WRECK) / (FINALE_END - FINALE_WRECK));
+    camera.position.lerpVectors(F.camFrom, F.look, 0.35 * k);
+    camera.lookAt(F.look);
+    // メカは傾いて、少し沈んでいる
+    model.rotation.set(0.25, 0, 0.42);
+    model.position.y = -0.12;
+    model.visible = true;
+  } else {
+    boss.getObjectByName('RB_Ball').getWorldPosition(_il);
+    if (F.phase === 'glow') F.look.lerp(_il, 1 - Math.exp(-3 * dt));
+    camera.position.copy(F.cam);
+    camera.lookAt(F.look);
+    model.visible = true;
+  }
+  const fov = F.phase === 'wreck' ? 50 : 62;
+  if (camera.fov !== fov) { camera.fov = fov; camera.updateProjectionMatrix(); }
+  if (quake > 0.01) {
+    const s = time.value * 60;
+    camera.position.x += Math.sin(s * 1.3) * QUAKE_SHAKE * quake;
+    camera.position.y += Math.sin(s * 1.9 + 2) * QUAKE_SHAKE * quake;
+    camera.position.z += Math.sin(s * 1.1 + 4) * QUAKE_SHAKE * quake * 0.6;
+  }
+  sky.position.copy(camera.position);
+}
+// エンディング（中身はこれから。いまは仮の画面）
+function showEnding() {
+  finale.phase = 'ending';
+  document.body.classList.remove('cutin');
+  endingEl.classList.add('on');
+}
 // 転がるボス：動いている間は転がり始め → 転がる（進む速さに合わせてアニメの速さを変える）、止まったら待機へ
 let rolling = 0;   // 0 止まっている / 1 転がり始め / 2 転がっている
 function setRolling(on) {
@@ -1900,9 +2113,9 @@ function roamBoss(dt) {
   const hit = cast(_o, DOWN, 800);
   if (hit) pos.y += (hit.point.y - pos.y) * (1 - Math.exp(-4 * dt));
 }
-const bossRoaming = () => bossCfg?.roam && storyStage >= bossCfg.next && bossAppeared && !bossGone;
+const bossRoaming = () => bossCfg?.roam && storyStage >= bossCfg.next && bossAppeared && !bossGone && !finale;
 function moveBoss(dt) {
-  if (!boss || bossGone || retreat || !bossAppeared) return;
+  if (!boss || bossGone || retreat || !bossAppeared || finale) return;
   if (bossRoaming()) { roamBoss(dt); return; }
   const pos = boss.position;
   _bd.set(BOSS_TARGET.x - pos.x, 0, BOSS_TARGET.z - pos.z);
@@ -1938,8 +2151,20 @@ function moveBoss(dt) {
 }
 // ロボとボスのトゲ：ぶつかったら押し出す。噴射で速く飛んでいたら体当たり
 function collideBoss(dt) {
-  if (!bossSpikes || bossGone || retreat || !bossAppeared) return;
+  if (!bossSpikes || bossGone || retreat || !bossAppeared || finale) return;
   ramCooldown -= dt;
+  // 魔法のパン種を付けたまま、町を転げまわる脅威の顔（正面）にジェットで体当たりすると、最後の演出へ。
+  // 顔は地面から 20m ほどの高さにあって届きにくいので、玉の正面（顔の向きから FACE_HIT_ANGLE 以内）にぶつかれば当たりにする
+  if (items.has('yeast') && bossRoaming() && jetVel.length() > RAM_MIN_SPEED) {
+    const face = boss.getObjectByName('RB_Plate_Face');
+    bossSpikes.getWorldPosition(_bc);
+    if (face && Math.hypot(feet.x - _bc.x, feet.y + ROBOT_HEIGHT / 2 - _bc.y, feet.z - _bc.z) < bossSpikeRadius + RADIUS + 0.5) {
+      face.getWorldPosition(_bd);
+      const fx = _bd.x - _bc.x, fz = _bd.z - _bc.z, rx = feet.x - _bc.x, rz = feet.z - _bc.z;
+      const cos = (fx * rx + fz * rz) / ((Math.hypot(fx, fz) * Math.hypot(rx, rz)) || 1);
+      if (cos > Math.cos(FACE_HIT_ANGLE)) { startFinale(); return; }
+    }
+  }
   bossSpikes.getWorldPosition(_bc);
   // トゲのあたりまでの球（GB_Hit_Spikes の radius、約 9m。体は約 6m、トゲの先は約 10m）。
   // 体は地面から浮いているので、真下を通るときは当たらない
@@ -2957,6 +3182,24 @@ function updateResidents(dt) {
   for (const r of residents) {
     const pos = r.root.position;
     if (r.state === 'gone') continue;   // 山へ避難した
+    if (r.state === 'approach') {
+      // ふわおのところへ歩いてきて、そばまで来たら話しかける（町長の警告）
+      _rd.set(feet.x - pos.x, 0, feet.z - pos.z);
+      const dist = _rd.length();
+      r.root.rotation.y = turnToward(r.root.rotation.y, Math.atan2(_rd.x, _rd.z), 1 - Math.exp(-6 * dt));
+      const speed = dist > 2.2 ? MAYOR_WALK : 0;
+      if (speed) {
+        pos.addScaledVector(_rd.divideScalar(dist), speed * dt);
+        pos.y += (introGroundY(pos.x, pos.z, pos.y) - pos.y) * (1 - Math.exp(-12 * dt));
+      } else if (!talk.active) mayorTalk(r);
+      r.walkWeight += ((speed ? 1 : 0) - r.walkWeight) * (1 - Math.exp(-8 * dt));
+      r.walk.setEffectiveWeight(r.walkWeight);
+      r.idle.setEffectiveWeight(1 - r.walkWeight);
+      if (r.talkA) r.talkA.setEffectiveWeight(0);
+      r.walk.timeScale = speed / r.kind.speed || 1;
+      r.mixer.update(dt);
+      continue;
+    }
     if (r.state === 'evac') {
       // 山へ駆けていく（カットの間だけ。壁は気にしない）
       let speed = 0;
@@ -2964,16 +3207,17 @@ function updateResidents(dt) {
         _rd.subVectors(r.evac, pos).setY(0);
         const dist = _rd.length();
         r.root.rotation.y = turnToward(r.root.rotation.y, Math.atan2(_rd.x, _rd.z), 1 - Math.exp(-8 * dt));
-        speed = Math.min(EVAC_SPEED * (0.85 + 0.15 * r.kind.speed / 0.5), dist / Math.max(dt, 1e-3));
+        speed = Math.min((r.leaving ? MAYOR_WALK * 1.4 : EVAC_SPEED * (0.85 + 0.15 * r.kind.speed / 0.5)), dist / Math.max(dt, 1e-3));
         pos.addScaledVector(_rd.divideScalar(dist || 1), speed * dt);
         const gy = introGroundY(pos.x, pos.z, pos.y);
         pos.y += (gy - pos.y) * (1 - Math.exp(-12 * dt));
+        if (r.leaving && dist < 0.5) { r.leaving = false; r.state = 'gone'; r.root.visible = false; continue; }
       }
       r.walkWeight += ((speed > 0.01 ? 1 : 0) - r.walkWeight) * (1 - Math.exp(-8 * dt));
       r.walk.setEffectiveWeight(r.walkWeight);
       r.idle.setEffectiveWeight(1 - r.walkWeight);
       if (r.talkA) r.talkA.setEffectiveWeight(0);
-      r.walk.timeScale = 2.2;
+      r.walk.timeScale = r.leaving ? 1.4 : 2.2;
       r.mixer.update(dt);
       continue;
     }
@@ -3287,12 +3531,12 @@ function talkIndex(r, t) {
   return null;
 }
 function saveGame() {
-  if (!savingOn || opening || visit || bossIntro || retreat || knockout || collapse) return false;
+  if (!savingOn || opening || visit || bossIntro || retreat || knockout || collapse || finale) return false;
   const d = {
     v: SAVE_VERSION, at: Date.now(),
     stage: storyStage, boss: bossIndex, bossAppeared, bossGone,
     bossPos: boss ? [+boss.position.x.toFixed(2), +boss.position.z.toFixed(2)] : null,
-    items: [...items], fuelMax, fuel: +fuel.toFixed(3), body: +body.toFixed(3), hour: +daytime.hour.toFixed(3),
+    items: [...items], mayorWarned, fuelMax, fuel: +fuel.toFixed(3), body: +body.toFixed(3), hour: +daytime.hour.toFixed(3),
     areas: areaGauge.map((g) => ({ called: g.called, done: g.done, gone: g.germs.map((x) => (germGone(x) ? 1 : 0)) })),
     residents: Object.fromEntries(residents.map((r) => [r.id, {
       fed: !!r.fed, hungry: !!r.hungry,
@@ -3320,6 +3564,7 @@ function loadGame(d) {
     if (retreatLine && !bossCfg.hard) retreatLine.visible = true;
   }
   for (const k of d.items || []) if (k in ITEMS) items.add(k);
+  mayorWarned = !!d.mayorWarned;
   if (items.has('choco')) chocoTank.visible = true;
   if (items.has('yeast')) applyYeast();
   if (d.fuelMax) fuelMax = d.fuelMax;
@@ -4017,7 +4262,8 @@ function talkTarget() {
 // talks.json を読んで TALKS に足す。docs/talks.schema.json と同じ決まりで確かめ、
 // 合わないまとまりはコンソールに警告を出して使わない（キャラクターごと使えないときもある）
 // revive：からだが 0 になってパン工房で焼き直されたときの、工場長のセリフ（だれかに話しかけたときには使わない）
-const TALK_KEY = /^((10|[0-9])-[1-9][0-9]?|grandpa|grandma|girl|mayor|baker|chief|revive)$/;
+// warning：魔法のパン種を付けてはじめて発射しようとしたとき、町長が止めに来るセリフ
+const TALK_KEY = /^((10|[0-9])-[1-9][0-9]?|grandpa|grandma|girl|mayor|baker|chief|revive|warning)$/;
 // セリフの人物画は portraits/<組>_<表情>.webp。組はキャラクターの portrait、表情は face（喜・怒・哀・楽。省略すると喜）
 const PORTRAIT_SETS = ['baker', 'mayor', 'chief'];
 const FACES = ['joy', 'angry', 'sad', 'fun'];
@@ -4161,7 +4407,7 @@ function startReviveTalk() {
   talk.open({ name: t.name || book.name, portrait: null, lines });
 }
 function startTalk(r) {
-  if (!r || opening || retreat || collapse || talk.active || !onGround || floating || jetting) return;
+  if (!r || opening || retreat || collapse || finale || talk.active || !onGround || floating || jetting) return;
   const script = talkScript(r);
   if (!script) return;
   if (r.bread) { r.bread.claimedBy = null; r.bread = null; }
@@ -4208,6 +4454,7 @@ function advanceTalk() {
   }
   if (visit) { leaveWorkshop(); return; }
   if (!talkWith) return;   // 焼き直しのあとの工場長のセリフ（話し相手がいない）
+  if (talkWith.leaveAfterTalk) { mayorLeave(talkWith); talkWith = null; return; }
   talkWith.state = 'idle';
   talkWith.wait = RES_IDLE[0];
   talkWith = null;
@@ -4992,9 +5239,10 @@ function tick(dt, active) {
     if (bossCfg.summon) startCollapse(); else startBossIntro();
   }
   if (collapse && active && !collapse.swapping) { updateCollapse(dt); releaseAll(); }
+  if (finale && active && finale.phase !== 'ending') { updateFinale(dt); releaseAll(); }
   if (storyStage >= 3 && !townCollapsed) preloadCollapsed().catch(() => {});   // 崩壊した町を裏で読んでおく
   if (bossIntro && active) { updateBossIntro(dt); releaseAll(); }
-  if (active && !talk.active && !knockout && !bossIntro && !collapse) { updatePlayer(dt); collideBoss(dt); updateTrap(dt); }
+  if (active && !talk.active && !knockout && !bossIntro && !collapse && !finale) { updatePlayer(dt); collideBoss(dt); updateTrap(dt); }
   else moveSpeed = 0;
   collidePeople(active);
   updateAnimation(dt);
@@ -5003,6 +5251,7 @@ function tick(dt, active) {
   if (retreat) retreatCamera(dt);
   if (bossIntro) bossIntroCamera(dt);
   if (collapse) collapseCamera(dt);
+  if (finale) finaleCamera(dt);
 }
 
 // ---- ループ ----
