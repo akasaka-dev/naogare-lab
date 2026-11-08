@@ -2868,6 +2868,15 @@ function raiseFuelMax(step = FUEL_MAX_STEP) {
 const BODY_HIT = 0.25;          // 1 回で減るからだ（1/4）
 const BODY_HIT_GUARD = 1.5;     // 続けて減らない時間（秒）
 let bodyHitWait = 0;
+// ゲームオーバー（いまは仮の画面。つづきからは、最後に保存したところから）
+const GAMEOVER_STAGE = 4;
+function showGameOver() {
+  knockout.gameover = true;
+  savingOn = false;   // からだが 0 のまま保存しない
+  jetting = false; jetVel.set(0, 0, 0); recoilVel.set(0, 0, 0); velY = 0;
+  releaseAll();
+  document.getElementById('gameover').classList.add('on');
+}
 function hurtBody(msg) {
   if (bodyHitWait > 0 || knockout) return false;
   bodyHitWait = BODY_HIT_GUARD;
@@ -2906,10 +2915,13 @@ function updateProgress(dt, active) {
     if (refilling) fuel = Math.min(fuelMax, fuel + WORKSHOP_REFILL * dt);   // からだは戻らない（パン屋のお姉さんで戻る）
   }
 
-  // からだが 0：暗転 → パン工房の前へ → 明るくなる
+  // からだが 0：暗転 → パン工房の前へ → 明るくなる。
+  // ステージ 4（町の崩壊のあと）は、魔法のパン種を工場長が窯から持ち出していて焼き直せないので、ゲームオーバー
   if (knockout) {
     knockout.t += dt;
     if (knockout.t >= 0) fadeEl.classList.add('on');
+    if (knockout.gameover) return;
+    if (storyStage >= GAMEOVER_STAGE && knockout.t > FADE_TIME) { showGameOver(); return; }
     if (!knockout.moved && knockout.t > FADE_TIME) {
       knockout.moved = true;
       feet.copy(groundPoint(WORKSHOP_FRONT));

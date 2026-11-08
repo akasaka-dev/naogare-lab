@@ -189,6 +189,12 @@
   #flash { position: fixed; inset: 0; background: #fffbe8; opacity: 0; pointer-events: none; z-index: 7; }
   #flash.on { animation: flash-pop 1.6s ease-out; }
   @keyframes flash-pop { 0% { opacity: 0; } 6% { opacity: 1; } 100% { opacity: 0; } }
+  /* ゲームオーバー（仮） */
+  #gameover { position: fixed; inset: 0; z-index: 9; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 22px;
+    background: #14100c; color: #f5ead6; font-family: "Klee One", "Hiragino Maru Gothic ProN", "Yu Gothic UI", sans-serif; }
+  #gameover.on { display: flex; animation: ending-in 1.5s ease-out; }
+  #gameover .title { font-size: clamp(26px, 7vw, 44px); letter-spacing: 0.15em; }
+  #gameover .start { cursor: pointer; font: inherit; font-size: 18px; padding: 10px 28px; border: none; border-radius: 999px; background: #e8973c; color: #fff; }
   /* エンディング：縦長の絵を、空から下へゆっくりスクロールする。終わったらタイトルとボタンが浮かぶ */
   #ending { position: fixed; inset: 0; z-index: 9; display: none; overflow: hidden; background: #14100c; color: #f5ead6;
     font-family: "Klee One", "Hiragino Maru Gothic ProN", "Yu Gothic UI", sans-serif; text-align: center; }
@@ -304,6 +310,7 @@
 <div id="hurt"></div>
 <div id="fade"></div>
 <div id="flash"></div>
+<div id="gameover"><div class="title">ゲームオーバー</div><button class="start" onclick="location.reload()">タイトルにもどる</button></div>
 <div id="ending"><img id="endingImg" alt=""><div class="credit"><div class="title">たすけあいヒーロー ふわお</div><button class="start" onclick="location.reload()">タイトルにもどる</button></div></div>
 <div id="hud"></div>
 <script type="module" src="main.js"></script>
