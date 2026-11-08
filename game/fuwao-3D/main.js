@@ -386,7 +386,7 @@ const crosshair = document.getElementById('crosshair');
 // ?collapsed：ボス3の後の倒壊した町（town_collapsed.glb）に差し替えて見る（テスト用）。
 // 廃墟の部品（ヘドロ・ガレキ）は重ねず、区画の分け方とくすみだけ使う
 const COLLAPSED = new URLSearchParams(location.search).has('collapsed');
-const FILES = [COLLAPSED ? 'models/town_collapsed.glb' : 'models/town.glb', 'models/distant.glb', 'models/pancannon.glb', 'models/germboss.glb', 'models/bread.glb', 'models/grandpa.glb', 'models/girl.glb', 'models/grandma.glb', 'models/town_ruin.glb', 'models/mayor.glb', 'models/germmini.glb', 'models/workshop.glb', 'models/chief.glb', 'models/baker.glb', 'models/sludgeboss.glb', 'models/rockboss.glb', 'models/choco.glb', 'models/choco_tank.glb', 'models/yeast.glb', 'models/yeast_cannon.glb'];
+const FILES = [COLLAPSED ? 'models/town_collapsed.glb' : 'models/town.glb', 'models/distant.glb', 'models/pancannon.glb', 'models/germboss.glb', 'models/bread.glb', 'models/grandpa.glb', 'models/girl.glb', 'models/grandma.glb', 'models/town_ruin.glb', 'models/mayor.glb', 'models/germmini.glb', 'models/workshop.glb', 'models/chief.glb', 'models/baker.glb', 'models/sludgeboss.glb', 'models/rockboss.glb', 'models/choco.glb', 'models/choco_tank.glb', 'models/yeast.glb', 'models/yeast_cannon.glb', 'models/mecha_wreck.glb'];
 const loaded = {}, total = {};
 // 公開版のモデルは meshopt で圧縮してある（25MB を超えるファイルは置けないため）
 const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
@@ -1913,12 +1913,65 @@ function mayorLeave(r) {
 // ぼろぼろのメカのモデルはまだないので、今のメカを傾けて黒ずませ、ふわおを消して煙を出している
 const FACE_HIT_ANGLE = THREE.MathUtils.degToRad(50);   // 顔の向きからこの角度までの正面にぶつかれば、顔に当たったことにする
 // 字幕が読めるように、ひとつひとつの場面は長めに
+// メカが飛ばされる動き（演出の間はふつうの移動を止めているので、ここで動かす）
+const FINALE_BLAST = [16, 13];       // はじけたときに吹き飛ばされる速さ（横、上。m/秒）
+const FINALE_BLAST_SPIN = [-9, 4];   // そのとき回る速さ（前後、左右。rad/秒）
+const WRECK_TILT = [0.25, 0.42];     // ぼろぼろのメカの傾き（前後、左右。rad）
+// 投げ出されたメカ：放物線で飛び、壁に当たったら横の勢いを失い、地面で何度かはずんで止まる。
+// 止まったら settle の傾きへゆっくり起き上がる（倒れる）
+function flyRobot(dt) {
+  const B = finale.fly;
+  if (!B) return;
+  const k = 1 - Math.exp(-4 * dt);
+  if (B.rest) {
+    B.rx += (B.settle[0] - B.rx) * k;
+    B.rz += (B.settle[1] - B.rz) * k;
+    return;
+  }
+  B.vel.y -= GRAVITY * dt;
+  // 壁や崩れた家にぶつかったら、横の勢いを失う
+  _rd.set(B.vel.x, 0, B.vel.z);
+  const step = _rd.length() * dt;
+  if (step > 1e-4 && B.vel.y < 0) {   // 上がっている間は、ガレキの上へ抜けていく
+    _o.set(feet.x, feet.y + 1.4, feet.z);   // 低いガレキは越えて飛ぶ
+    const hit = cast(_o, _rd.normalize(), step + RADIUS);
+    if (hit && hitNormal(hit, _rd)) { B.vel.x = 0; B.vel.z = 0; }   // 横の勢いを失って、その場に落ちる
+  }
+  feet.addScaledVector(B.vel, dt);
+  B.rx += B.spinX * dt;
+  B.rz += B.spinZ * dt;
+  const gy = groundBelow(feet, 1);
+  // 川に落ちたら、水面ではねて岸まで進む（川の底で止まらないように）
+  const water = gy !== null ? waterLevel(feet, gy) : null;
+  if (water !== null && feet.y <= water && B.vel.y <= 0) {
+    feet.y = water;
+    B.vel.y = Math.max(3, -B.vel.y * 0.3);
+    _rd.set(B.vel.x, 0, B.vel.z);
+    if (_rd.lengthSq() < 16) { if (_rd.lengthSq() < 1e-4) _rd.copy(finale.out); _rd.setLength(4); B.vel.x = _rd.x; B.vel.z = _rd.z; }
+    return;
+  }
+  if (gy !== null && feet.y <= gy && B.vel.y <= 0) {   // 着地は落ちてくるときだけ
+    feet.y = gy;
+    if (B.vel.y < -4) {
+      // はずむ（回転も弱まる）
+      B.vel.y *= -0.35; B.vel.x *= 0.55; B.vel.z *= 0.55;
+      B.spinX *= 0.5; B.spinZ *= 0.5;
+      quake = Math.max(quake, 0.6);
+    } else {
+      B.vel.set(0, 0, 0);
+      B.rest = true;
+      // 回った角度を、近い向きにそろえてから、止まる傾きへ
+      B.rx = Math.atan2(Math.sin(B.rx), Math.cos(B.rx));
+      B.rz = Math.atan2(Math.sin(B.rz), Math.cos(B.rz));
+    }
+  }
+}
 const FINALE_GLOW = [1.0, 6.0];      // 金色に光っている時間（秒）。この間に 211→217 フレームをゆっくり進める
 const FINALE_SAY_GLOW = 2.5;         // 「パン種が、中でふくらんでいく」に字幕が変わる時刻
 const FINALE_BURST_SPEED = 0.6;      // はじけたあとの砕けるクリップ（218〜290、3 秒）の速さ。ゆっくり見せる
 const FINALE_WRECK = 12.0;           // 暗転のあと、ぼろぼろのメカの場面になる時刻
 const FINALE_END = 20.0;             // エンディングの画面へ
-const WRECK_CAM = [7, 2.2];          // ぼろぼろのメカの場面：カメラの、はじめの距離と、寄りきったときの距離（m）
+const WRECK_CAM = [7.5, 3.2];          // ぼろぼろのメカの場面：カメラの、はじめの距離と、寄りきったときの距離（m）
 let finale = null;                   // { t, phase, cam, look, faded, glowMats, burst }
 const flashEl = document.getElementById('flash');
 const endingEl = document.getElementById('ending');
@@ -1927,10 +1980,10 @@ function startFinale() {
   finale = { t: 0, phase: 'glow', out, look: new THREE.Vector3(), faded: false, burst: false, wreck: false, puff: 0, dust: [] };
   savingOn = false;   // つづきからは、最後の体当たりの前から
   document.getElementById('endingImg').src = endingSrc();   // エンディングの絵を先に読んでおく
-  // ロボははね返されて、パン種は顔の中へ
+  // ロボははね返されて地面に落ち、パン種は顔の中へ
   jetting = false; jetEndTime = 0; jetSpeed = 0;
-  jetVel.copy(out).multiplyScalar(RAM_BOUNCE * 1.4);
-  velY = Math.max(velY, 6);
+  jetVel.set(0, 0, 0); recoilVel.set(0, 0, 0); velY = 0;
+  finale.fly = { vel: out.clone().multiplyScalar(7).setY(6), rx: 0, rz: 0, spinX: -3, spinZ: 1.5, rest: false, settle: [0, 0] };
   yeastGun.visible = false;
   // 脅威は転がるのをやめて、砕けるクリップの 211 フレームで止める（時刻はこちらで進める）
   for (const a of Object.values(bossActions)) a.stop();
@@ -1950,7 +2003,8 @@ function startFinale() {
   quake = Math.max(quake, 1.5);
   // カメラ：ボスのふわお側の斜め前、引き気味に（破片は 35m の高さ、60m 先まで飛ぶ）
   const side = new THREE.Vector3(-out.z, 0, out.x);
-  finale.cam = boss.position.clone().addScaledVector(out, 78).addScaledVector(side, 30);
+  // 真横寄りに置いて、はじけたあと飛ばされるメカが画面を横切るようにする
+  finale.cam = boss.position.clone().addScaledVector(out, 30).addScaledVector(side, 85);
   finale.cam.y = Math.max(introGroundY(finale.cam.x, finale.cam.z, boss.position.y), boss.position.y) + 18;
   finale.look.copy(boss.position).setY(boss.position.y + 21);
   cutinEl.querySelector('.caption').textContent = '魔法のパン種が、脅威の顔にめりこんだ！';
@@ -1960,6 +2014,7 @@ function startFinale() {
 function updateFinale(dt) {
   const F = finale;
   F.t += dt;
+  if (F.phase !== 'wreck') flyRobot(dt);
   const t = F.t, caption = cutinEl.querySelector('.caption');
   const sh = bossActions.shatter;
   if (F.phase === 'glow') {
@@ -1973,6 +2028,8 @@ function updateFinale(dt) {
     if (t >= FINALE_GLOW[1]) {
       // はじける！
       F.phase = 'burst';
+      F.fly = { vel: F.out.clone().multiplyScalar(FINALE_BLAST[0]).setY(FINALE_BLAST[1]), rx: F.fly?.rx || 0, rz: F.fly?.rz || 0,
+        spinX: FINALE_BLAST_SPIN[0], spinZ: FINALE_BLAST_SPIN[1], rest: false, settle: WRECK_TILT };
       sh.time = 8 / ANIM_FPS;
       sh.paused = false;
       sh.timeScale = FINALE_BURST_SPEED;
@@ -1992,9 +2049,12 @@ function updateFinale(dt) {
   }
   if (F.phase === 'wreck') {
     // 煙が細く上がり続ける
-    if ((F.puff -= dt) <= 0) {
-      F.puff = 0.7;
-      F.dust.push({ mesh: dustCloud(_rm.set(feet.x + (Math.random() - 0.5) * 0.4, feet.y + 0.9, feet.z + (Math.random() - 0.5) * 0.4)), t: 0, life: 2.6, cloud: true, size: 0.012 + Math.random() * 0.008, smoke: true });
+    for (const sm of F.smoke) {
+      if ((sm.wait -= dt) > 0) continue;
+      sm.wait = 0.5 + Math.random() * 0.4;
+      const mesh = dustCloud(_rm.copy(sm.at));
+      mesh.material.color.setHex(0x3e3834);   // 黒い煙（設定画のように）
+      F.dust.push({ mesh, t: 0, life: 3, cloud: true, size: (0.008 + Math.random() * 0.005) * sm.w, smoke: true });
     }
     if (t >= FINALE_END - FADE_TIME && !F.endFade) { F.endFade = true; fadeEl.classList.add('on'); }
     if (t >= FINALE_END) showEnding();
@@ -2014,7 +2074,17 @@ function updateFinale(dt) {
     d.mesh.visible = u < 1;
   }
 }
-// ぼろぼろのメカだけが残っている（ふわおはいない。メカは傾いて黒ずみ、煙が上がる）
+// 壊れたメカ（mecha_wreck.glb）：横倒しの動かない置物。最後の演出で、メカが落ちた場所に置き換える。
+// 煙は背中の裂けた穴・噴射口・つぶれた砲口から（MW_Root からの位置）
+const WRECK_SMOKE = [[0.03, 0.9, -0.3, 1], [-0.24, 0.4, -0.71, 0.6], [0.25, 0.43, 1.0, 0.5]];   // [x, y, z, 太さ]
+let wreckModel = null;
+function setupWreckModel(gltf) {
+  wreckModel = gltf.scene;
+  wreckModel.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  wreckModel.visible = false;
+  scene.add(wreckModel);
+}
+// ぼろぼろのメカだけが残っている（ふわおはいない。煙が上がる）
 function setupWreck() {
   const F = finale;
   F.phase = 'wreck';
@@ -2025,12 +2095,12 @@ function setupWreck() {
   for (const m of F.glowMats) m.emissiveIntensity = m.userData.baseGlow;
   jetVel.set(0, 0, 0); recoilVel.set(0, 0, 0); velY = 0;
   snapToGround(true);
-  if (pilotScale) pilotScale.visible = false;
-  chocoTank.visible = false;
-  model.traverse((o) => {
-    if (!o.isMesh) return;
-    for (const m of new Set([o.material, o.userData.pbrMaterial])) if (m?.color && !m.userData.wrecked) { m.userData.wrecked = true; m.color.multiplyScalar(0.5); }
-  });
+  // 落ちた場所に、壊れたメカを置く（砲身を、飛ばされてきた向きに）
+  model.visible = false;
+  wreckModel.position.set(feet.x, feet.y - 0.05, feet.z);
+  wreckModel.rotation.y = heading;
+  wreckModel.visible = true;
+  F.smoke = WRECK_SMOKE.map(([x, y, z, w]) => ({ at: new THREE.Vector3(x, y, z).applyAxisAngle(UP, heading).add(wreckModel.position), w, wait: Math.random() * 0.5 }));
   bossActions.shatter.timeScale = 1;
   // 見ればわかるので字幕は出さない。カメラはメカが見える向き（建物やガレキにさえぎられない向き）から寄っていく
   cutinEl.querySelector('.caption').textContent = '';
@@ -2056,16 +2126,17 @@ function finaleCamera(dt) {
     const k = THREE.MathUtils.smoothstep(F.t, FINALE_WRECK, FINALE_END);
     camera.position.copy(F.look).addScaledVector(F.camDir, THREE.MathUtils.lerp(WRECK_CAM[0], WRECK_CAM[1], k));
     camera.lookAt(F.look);
-    // メカは傾いて、少し沈んでいる
-    model.rotation.set(0.25, 0, 0.42);
-    model.position.y = -0.12;
-    model.visible = true;
+    model.visible = false;   // 壊れたメカ（wreckModel）に置き換えている
   } else {
     boss.getObjectByName('RB_Ball').getWorldPosition(_il);
     if (F.phase === 'glow') F.look.lerp(_il, 1 - Math.exp(-3 * dt));
+    // はじけたあとは、脅威と飛ばされていくメカの間を見る
+    else F.look.lerp(_ic.copy(_il).lerp(feet, 0.5), 1 - Math.exp(-2.5 * dt));
     camera.position.copy(F.cam);
     camera.lookAt(F.look);
     model.visible = true;
+    // 飛ばされて回っているメカ
+    if (F.fly) model.rotation.set(F.fly.rx, 0, F.fly.rz);
   }
   const fov = F.phase === 'wreck' ? 50 : 62;
   if (camera.fov !== fov) { camera.fov = fov; camera.updateProjectionMatrix(); }
@@ -3482,7 +3553,7 @@ function catchBread(b) {
 async function init() {
   const talksLoaded = loadTalks();   // 模型と同時に読む
   preloadPortraits();
-  const [town, distant, pancannon, germboss, bread, grandpa, girl, grandma, townRuin, mayor, germmini, workshop, chief, baker, sludgeboss, rockboss, choco, chocoTankGltf, yeastGltf, yeastCannonGltf] = await Promise.all(FILES.map(load));
+  const [town, distant, pancannon, germboss, bread, grandpa, girl, grandma, townRuin, mayor, germmini, workshop, chief, baker, sludgeboss, rockboss, choco, chocoTankGltf, yeastGltf, yeastCannonGltf, mechaWreck] = await Promise.all(FILES.map(load));
   await talksLoaded;
   statusEl.textContent = 'シーンを組み立て中…';
   await new Promise((r) => setTimeout(r, 0));
@@ -3536,6 +3607,7 @@ async function init() {
   setupOpening(workshop, mayor, chief);
   setupChoco(choco, chocoTankGltf);
   setupYeast(yeastGltf, yeastCannonGltf);
+  setupWreckModel(mechaWreck);
   // 夜に明るくする窓と街灯（廃墟の崩れた家の窓も含む）
   const glowMats = new Set();
   scene.traverse((o) => { if (o.isMesh && /BK_glass/.test(o.material.name)) glowMats.add(o.material); });
