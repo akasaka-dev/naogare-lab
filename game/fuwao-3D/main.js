@@ -1912,10 +1912,13 @@ function mayorLeave(r) {
 //   → 暗転して、ぼろぼろのメカだけが残っている → エンディング
 // ぼろぼろのメカのモデルはまだないので、今のメカを傾けて黒ずませ、ふわおを消して煙を出している
 const FACE_HIT_ANGLE = THREE.MathUtils.degToRad(50);   // 顔の向きからこの角度までの正面にぶつかれば、顔に当たったことにする
-const FINALE_GLOW = [0.4, 3.4];      // 金色に光っている時間（秒）。この間に 211→217 フレームをゆっくり進める
-const FINALE_BURST_END = 6.6;        // はじけてから破片が落ちきるまで（クリップの 218〜290）
-const FINALE_WRECK = 7.4;            // 暗転のあと、ぼろぼろのメカの場面になる時刻
-const FINALE_END = 14.5;             // エンディングの画面へ
+// 字幕が読めるように、ひとつひとつの場面は長めに
+const FINALE_GLOW = [1.0, 6.0];      // 金色に光っている時間（秒）。この間に 211→217 フレームをゆっくり進める
+const FINALE_SAY_GLOW = 2.5;         // 「パン種が、中でふくらんでいく」に字幕が変わる時刻
+const FINALE_BURST_SPEED = 0.6;      // はじけたあとの砕けるクリップ（218〜290、3 秒）の速さ。ゆっくり見せる
+const FINALE_WRECK = 12.0;           // 暗転のあと、ぼろぼろのメカの場面になる時刻
+const FINALE_END = 20.0;             // エンディングの画面へ
+const WRECK_CAM = [7, 2.2];          // ぼろぼろのメカの場面：カメラの、はじめの距離と、寄りきったときの距離（m）
 let finale = null;                   // { t, phase, cam, look, faded, glowMats, burst }
 const flashEl = document.getElementById('flash');
 const endingEl = document.getElementById('ending');
@@ -1965,12 +1968,13 @@ function updateFinale(dt) {
     const pulse = 0.5 + 0.5 * Math.sin(t * (6 + 22 * u));
     for (const m of F.glowMats) m.emissiveIntensity = m.userData.baseGlow * (1 + 3.5 * u) * (0.6 + 0.6 * pulse);
     quake = Math.max(quake, 0.3 + 1.2 * u);
-    if (t > FINALE_GLOW[0] + 0.6 && !F.saidGlow) { F.saidGlow = true; caption.textContent = 'パン種が、中でふくらんでいく……！'; }
+    if (t > FINALE_SAY_GLOW && !F.saidGlow) { F.saidGlow = true; caption.textContent = 'パン種が、中でふくらんでいく……！'; }
     if (t >= FINALE_GLOW[1]) {
       // はじける！
       F.phase = 'burst';
       sh.time = 8 / ANIM_FPS;
       sh.paused = false;
+      sh.timeScale = FINALE_BURST_SPEED;
       quake = 3;
       flashEl.classList.remove('on'); void flashEl.offsetWidth; flashEl.classList.add('on');
       const c = boss.position.clone().setY(boss.position.y + 21);
@@ -2026,20 +2030,30 @@ function setupWreck() {
     if (!o.isMesh) return;
     for (const m of new Set([o.material, o.userData.pbrMaterial])) if (m?.color && !m.userData.wrecked) { m.userData.wrecked = true; m.color.multiplyScalar(0.5); }
   });
-  F.wreckTilt = true;
-  const h = heading;
-  F.cam = new THREE.Vector3(feet.x + Math.sin(h) * 3.2 + Math.cos(h) * 1.4, feet.y + 1.4, feet.z + Math.cos(h) * 3.2 - Math.sin(h) * 1.4);
-  F.look.set(feet.x, feet.y + 0.7, feet.z);
-  F.camFrom = F.cam.clone();
-  cutinEl.querySelector('.caption').textContent = 'あとには、ぼろぼろのメカだけが残っていた……';
+  bossActions.shatter.timeScale = 1;
+  // 見ればわかるので字幕は出さない。カメラはメカが見える向き（建物やガレキにさえぎられない向き）から寄っていく
+  cutinEl.querySelector('.caption').textContent = '';
+  F.look.set(feet.x, feet.y + 0.6, feet.z);
+  F.camDir = wreckCameraDir(F.look);
   setTimeout(() => fadeEl.classList.remove('on'), 300);
+}
+// メカのまわり 12 方向から、メカとの間に何もない向きをさがす（メカの正面寄りから順に）。カメラは少し上から見下ろす
+function wreckCameraDir(look) {
+  const d = new THREE.Vector3(), up = 0.45;
+  for (let i = 0; i < 12; i++) {
+    const a = heading + (i % 2 ? 1 : -1) * Math.ceil(i / 2) * Math.PI / 6;
+    d.set(Math.sin(a), up, Math.cos(a)).normalize();
+    // 寄る途中もさえぎられないように、いちばん遠い位置まで確かめる
+    if (!cast(look, d, WRECK_CAM[0], leafCollider ? [...colliders, leafCollider] : colliders)) return d.clone();
+  }
+  return new THREE.Vector3(0, 1, 0.001).normalize();   // どの向きもふさがっていたら真上から
 }
 function finaleCamera(dt) {
   const F = finale;
-  if (F.phase === 'wreck') {
-    // ゆっくり寄っていく
-    const k = Math.min(1, (F.t - FINALE_WRECK) / (FINALE_END - FINALE_WRECK));
-    camera.position.lerpVectors(F.camFrom, F.look, 0.35 * k);
+  if (F.phase === 'wreck' || F.phase === 'ending') {
+    // メカへゆっくり寄っていく
+    const k = THREE.MathUtils.smoothstep(F.t, FINALE_WRECK, FINALE_END);
+    camera.position.copy(F.look).addScaledVector(F.camDir, THREE.MathUtils.lerp(WRECK_CAM[0], WRECK_CAM[1], k));
     camera.lookAt(F.look);
     // メカは傾いて、少し沈んでいる
     model.rotation.set(0.25, 0, 0.42);
@@ -3505,6 +3519,7 @@ async function init() {
   document.getElementById('progress').style.display = 'none';
   ready = true;
   showTitleMenu();
+  setupDebugStart();
 }
 
 // ---- 進み具合の保存（ブラウザの localStorage） ----
@@ -4505,6 +4520,45 @@ let started = false;
 const menuEl = document.getElementById('titleMenu');
 const newBtn = document.getElementById('newGame'), contBtn = document.getElementById('continueGame');
 let confirmNew = false;
+// ---- ?debug のときだけ：場面を選んで始める（演出の確かめ用） ----
+// 選んだ場面の保存データを debug 用のキー（SAVE_KEY）に作って、「つづきから」と同じように始める
+const DEBUG_STARTS = [
+  { label: 'ステージ1：はじめから', fresh: true },
+  { label: 'ステージ1：脅威1が現れる（復興100%）', stage: 1, boss: 0 },
+  { label: 'ステージ2：脅威2が現れる（道具なし）', stage: 2, boss: 1 },
+  { label: 'ステージ3：町長と話すと崩壊（復興100%）', stage: 3, boss: 2, items: ['solidifier', 'choco'] },
+  { label: 'ステージ4：崩壊後（工場長からパン種の前）', stage: 4, boss: 2, items: ['solidifier', 'choco'], roaming: true },
+  { label: 'ステージ4：パン種あり（町長の警告と最後の演出の前）', stage: 4, boss: 2, items: ['solidifier', 'choco', 'yeast'], roaming: true },
+];
+function debugSave(p) {
+  const fuelMaxOf = p.items?.includes('choco') ? CHOCO_FUEL_MAX : FUEL_MAX_START;
+  const pos = BOSS_TARGET.clone().add(_rd.set(BOSS_POS.x - BOSS_TARGET.x, 0, BOSS_POS.z - BOSS_TARGET.z).normalize().multiplyScalar(BOSS_STOP));
+  return {
+    v: SAVE_VERSION, at: Date.now(), stage: p.stage, boss: p.boss,
+    bossAppeared: !!p.roaming, bossGone: false, bossPos: p.roaming ? [+pos.x.toFixed(2), +pos.z.toFixed(2)] : null,
+    items: p.items || [], mayorWarned: false, fuelMax: fuelMaxOf, fuel: fuelMaxOf, body: 1, hour: 10,
+    // 町はすべて元に戻した状態（小バイ菌は全部倒し、町人はみんなパンを食べた）
+    areas: areaGauge.map((g) => ({ called: true, done: true, gone: g.spots.map(() => 1) })),
+    residents: Object.fromEntries(residents.map((r) => [r.id, { fed: true, hungry: false, once: [] }])),
+  };
+}
+function setupDebugStart() {
+  const box = document.getElementById('debugStart');
+  if (!new URLSearchParams(location.search).has('debug') || !box) return;
+  const sel = box.querySelector('select');
+  DEBUG_STARTS.forEach((p, i) => sel.add(new Option(p.label, i)));
+  box.style.display = 'flex';
+  box.querySelector('button').addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!ready) return;
+    const p = DEBUG_STARTS[sel.value];
+    box.style.display = 'none';
+    if (p.fresh) { clearSave(); startGame(false); return; }
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify(debugSave(p))); } catch { /* 保存できない環境 */ }
+    startGame(true);
+  });
+  box.addEventListener('click', (e) => e.stopPropagation());
+}
 function showTitleMenu() {
   const d = readSave();
   startLabel.style.display = 'none';
@@ -4520,6 +4574,8 @@ function startGame(cont) {
   started = true;
   savingOn = true;
   menuEl.style.display = 'none';
+  const dbg = document.getElementById('debugStart');
+  if (dbg) dbg.style.display = 'none';
   startLabel.classList.remove('disabled');
   if (cont) {
     if (opening) endOpening();
