@@ -1044,8 +1044,8 @@ function updateBoss(dt, active) {
     if (active && bossAppeared && boss && !bossGone && !retreat && !talk.active && bossDistance() <= BOSS_STOP + 1) attackTown();
   }
   quake *= Math.exp(-QUAKE_DAMP * dt);
-  // 町を転げまわっているときは、近いほど地面がゆれる
-  if (active && bossRoaming() && rolling > 0) {
+  // 町を転げまわっているときは、近いほど地面がゆれる（ふわおが空中にいる間はゆれない）
+  if (active && bossRoaming() && rolling > 0 && onGround) {
     const d = Math.hypot(boss.position.x - feet.x, boss.position.z - feet.z);
     quake = Math.max(quake, 0.35 * THREE.MathUtils.clamp(1 - (d - 20) / 60, 0, 1));
   }
@@ -1911,7 +1911,7 @@ function mayorLeave(r) {
 //   → はじける（白い閃光・大きなゆれ・キラキラ・砂煙。218 から砕けるクリップの続きで破片が飛び散る）
 //   → 暗転して、ぼろぼろのメカだけが残っている → エンディング
 // ぼろぼろのメカのモデルはまだないので、今のメカを傾けて黒ずませ、ふわおを消して煙を出している
-const FACE_HIT_ANGLE = THREE.MathUtils.degToRad(50);   // 顔の向きからこの角度までの正面にぶつかれば、顔に当たったことにする
+const FACE_HIT_ANGLE = THREE.MathUtils.degToRad(25);   // 顔の向きから上下左右この角度まで（顔の中心から約 10m）にぶつかれば、顔に当たったことにする
 // 字幕が読めるように、ひとつひとつの場面は長めに
 // メカが飛ばされる動き（演出の間はふつうの移動を止めているので、ここで動かす）
 const FINALE_BLAST = [16, 13];       // はじけたときに吹き飛ばされる速さ（横、上。m/秒）
@@ -2275,17 +2275,16 @@ function moveBoss(dt) {
 function collideBoss(dt) {
   if (!bossSpikes || bossGone || retreat || !bossAppeared || finale) return;
   ramCooldown -= dt;
-  // 魔法のパン種を付けたまま、町を転げまわる脅威の顔（正面）にジェットで体当たりすると、最後の演出へ。
-  // 顔は地面から 20m ほどの高さにあって届きにくいので、玉の正面（顔の向きから FACE_HIT_ANGLE 以内）にぶつかれば当たりにする
+  // 魔法のパン種を付けたまま、町を転げまわる脅威の顔にジェットで体当たりすると、最後の演出へ。
+  // 顔のまわり（玉の中心から見て、顔の向きから上下左右 FACE_HIT_ANGLE 以内）にぶつかったときだけ。顔は地面から 20m ほどの高さ
   // 町長の警告（はじめて発射しようとしたとき）を聞くまでは、体当たりしてもはね返されるだけ
   if (items.has('yeast') && mayorWarned && bossRoaming() && jetVel.length() > RAM_MIN_SPEED) {
     const face = boss.getObjectByName('RB_Plate_Face');
     bossSpikes.getWorldPosition(_bc);
     if (face && Math.hypot(feet.x - _bc.x, feet.y + ROBOT_HEIGHT / 2 - _bc.y, feet.z - _bc.z) < bossSpikeRadius + RADIUS + 0.5) {
-      face.getWorldPosition(_bd);
-      const fx = _bd.x - _bc.x, fz = _bd.z - _bc.z, rx = feet.x - _bc.x, rz = feet.z - _bc.z;
-      const cos = (fx * rx + fz * rz) / ((Math.hypot(fx, fz) * Math.hypot(rx, rz)) || 1);
-      if (cos > Math.cos(FACE_HIT_ANGLE)) { startFinale(); return; }
+      face.getWorldPosition(_bd).sub(_bc).normalize();   // 玉の中心から顔へ
+      _rd.set(feet.x - _bc.x, feet.y + ROBOT_HEIGHT / 2 - _bc.y, feet.z - _bc.z).normalize();   // 玉の中心からロボへ
+      if (_bd.dot(_rd) > Math.cos(FACE_HIT_ANGLE)) { startFinale(); return; }
     }
   }
   bossSpikes.getWorldPosition(_bc);
