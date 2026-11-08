@@ -216,7 +216,8 @@ export function createAnimeStyle({ renderer, scene, camera, sun, fill, hemi, sky
   const size = new THREE.Vector2();
   const colorRT = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
   const normalRT = new THREE.WebGLRenderTarget(1, 1, { depthTexture: new THREE.DepthTexture(1, 1) });
-  const normalMat = new THREE.MeshNormalMaterial();
+  // 町の材質はほとんどが両面（DoubleSide）。法線の回も両面にしないと、裏向きの壁が抜けて、奥の物の線が壁に透けて見える
+  const normalMat = new THREE.MeshNormalMaterial({ side: THREE.DoubleSide });
   const post = new THREE.ShaderMaterial({
     depthTest: false, depthWrite: false, toneMapped: false,
     uniforms: {
