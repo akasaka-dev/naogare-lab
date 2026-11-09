@@ -90,6 +90,9 @@
     .audio-btn { padding: 8px; }
   }
 
+  /* the held trump card: glows while it can still be played this match */
+  #cardBtn.ready { border-color: #fbbf24; box-shadow: 0 0 10px rgba(251, 191, 36, 0.65); }
+
   /* ---- Splash / title screen ---- */
   #splashScreen {
     position: fixed;
@@ -1004,6 +1007,9 @@
     <button id="titleBtn" class="audio-btn hidden" type="button" aria-label="タイトルに戻る">
       <span class="audio-icon">🏠</span>
     </button>
+    <button id="cardBtn" class="audio-btn hidden" type="button" aria-label="カード">
+      <span class="audio-icon">🃏</span>
+    </button>
     <button id="bgmToggle" class="audio-btn" type="button" aria-label="BGMのオン/オフ" aria-pressed="true">
       <span class="audio-icon">🎵</span><span class="audio-label">BGM</span>
     </button>
@@ -1357,6 +1363,7 @@
       seWin() { [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => tone(f, 0.22, 'triangle', 0.16, i * 0.09)); },
       seLose() { [392, 329.63, 261.63, 196].forEach((f, i) => tone(f, 0.28, 'sawtooth', 0.1, i * 0.11)); },
       seDraw() { tone(300, 0.2, 'sine', 0.12); tone(300, 0.2, 'sine', 0.12, 0.15); },
+      seCard() { tone(660, 0.12, 'triangle', 0.12); tone(880, 0.16, 'triangle', 0.12, 0.08); tone(1320, 0.26, 'sine', 0.1, 0.18); },
     };
   })();
 
@@ -1642,6 +1649,116 @@
   // fire mid-way through the NEW match and pop up a stale result overlay.
   let ladderOutcomeTimer = null;
 
+  // ---------- Trump cards ----------
+  // Beat a challenger and you may turn them into a card (only one is carried;
+  // a new one replaces it, and a fresh LV1 run starts with none). Once per
+  // match, on your own turn, playing it costs no turn. CPU matches only, and
+  // the CPU never uses cards - the same rules apply whoever moves first.
+  const CARDS = {
+    1: { id: 'gear', name: '歯車の一撃', nameKana: 'はぐるまのいちげき',
+         desc: '相手の球を1個、ランダムに消す', descKana: 'あいてのたまを1こ、ランダムにけす' },
+    2: { id: 'mirror', name: '鏡の予知', nameKana: 'かがみのよち',
+         desc: 'CPUがいま一番打ちたい場所を光らせて教える', descKana: 'CPUがいまいちばんうちたいばしょをひからせておしえる' },
+    3: { id: 'nightmare', name: '悪夢', nameKana: 'あくむ',
+         desc: 'CPUの次の一手がランダムになる', descKana: 'CPUのつぎのいってがランダムになる' },
+    4: { id: 'seal', name: '封印', nameKana: 'ふういん',
+         desc: 'CPUが一番打ちたい場所を、CPUが2回打つあいだ使えなくする', descKana: 'CPUがいちばんうちたいばしょを、CPUが2かいうつあいだつかえなくする' },
+    5: { id: 'usurp', name: '簒奪', nameKana: 'さんだつ',
+         desc: '相手の球を1個、ランダムに自分の色に変える', descKana: 'あいてのたまを1こ、ランダムにじぶんのいろにかえる' },
+  };
+  const cardName = (lv) => K(CARDS[lv].name, CARDS[lv].nameKana);
+  const cardDesc = (lv) => K(CARDS[lv].desc, CARDS[lv].descKana);
+  let heldCard = null;     // level of the challenger the player carries as a card (null = none)
+  let cardUsed = false;    // spent in the current match
+  let sealedCells = [];    // [{ cell, left }]: nobody can play these; `left` counts CPU moves
+  let nightmareNext = false;
+  let hintCell = -1;
+  const cardBtn = document.getElementById('cardBtn');
+
+  function isSealed(i) { return sealedCells.some((sc) => sc.cell === i); }
+  function refreshMarks() {
+    const m = {};
+    sealedCells.forEach((sc) => { m[sc.cell] = 'seal'; });
+    if (hintCell >= 0 && grid[hintCell] === 0) m[hintCell] = 'hint';
+    Board3D.setMarks(m);
+  }
+  function updateCardButton() {
+    const show = mode === 'cpu' && heldCard !== null;
+    cardBtn.classList.toggle('hidden', !show);
+    if (!show) return;
+    cardBtn.classList.toggle('muted', cardUsed);
+    cardBtn.classList.toggle('ready', !cardUsed);
+    cardBtn.setAttribute('aria-label', `${K('カード', 'カード')}: ${cardName(heldCard)}`);
+  }
+  function resetCardState() {
+    cardUsed = false; sealedCells = []; nightmareNext = false; hintCell = -1;
+    updateCardButton();
+  }
+  function flashStatus(msg) {
+    updateStatus(msg);
+    setTimeout(() => { if (!gameOver && !cpuThinking && currentPlayer !== undefined) updateStatus(); }, 1800);
+  }
+  // The cell the CPU would play right now if it played its best (no random slips).
+  function cpuIdealCell() {
+    const w = findImmediateWin(grid, 2);
+    if (w !== null) return w;
+    let depth = currentChar ? currentChar.depth : 3;
+    if (grid.filter((v) => v !== 0).length < 4) depth = Math.min(depth, 3);
+    return chooseCpuCell(grid, 2, depth);
+  }
+
+  cardBtn.addEventListener('click', () => {
+    SoundMgr.seClick();
+    if (heldCard === null || mode !== 'cpu') return;
+    if (cardUsed) { flashStatus(K('このカードは、この対戦ではもう使いました', 'このカードは、このたいせんではもうつかいました')); return; }
+    if (!humanCanMove()) { flashStatus(K('自分の番に使えます', 'じぶんのばんにつかえます')); return; }
+    const ch = CHARACTERS[heldCard - 1];
+    showResultOverlay({
+      title: `🃏 ${cardName(heldCard)}`,
+      message: `${cardDesc(heldCard)}\n${K('（使っても自分の番は終わりません）', '（つかってもじぶんのばんはおわりません）')}`,
+      portraitImg: ch.img,
+      portraitEmoji: ch.emoji,
+      buttons: [
+        { label: K('使う', 'つかう'), primary: true, onClick: playCard },
+        { label: K('やめる', 'やめる'), onClick: () => {} },
+      ],
+    });
+  });
+
+  function playCard() {
+    if (heldCard === null || cardUsed || !humanCanMove()) return;
+    const c = CARDS[heldCard];
+    if (c.id === 'gear' || c.id === 'usurp') {
+      const theirs = [];
+      grid.forEach((v, i) => { if (v === 2) theirs.push(i); });
+      if (!theirs.length) { flashStatus(K('相手の球がまだありません', 'あいてのたまがまだありません')); return; }
+      const idx = theirs[Math.floor(Math.random() * theirs.length)];
+      grid[idx] = c.id === 'gear' ? 0 : 1;
+      cardUsed = true;
+      pendingCell = -1;
+      Board3D.clearGhost();
+      Board3D.sync(grid);
+      SoundMgr.seCard();
+      updateCardButton();
+      const win = c.id === 'usurp' ? winningLine(grid, idx, 1) : null;
+      if (win) { handleWin(1, win); return; }
+    } else {
+      if (c.id === 'mirror') { hintCell = cpuIdealCell(); }
+      else if (c.id === 'nightmare') { nightmareNext = true; }
+      else if (c.id === 'seal') {
+        const cell = cpuIdealCell();
+        if (cell !== null) sealedCells.push({ cell, left: 2 });
+      }
+      cardUsed = true;
+      pendingCell = -1;
+      Board3D.clearGhost();
+      refreshMarks();
+      SoundMgr.seCard();
+      updateCardButton();
+    }
+    flashStatus(`🃏 ${cardName(heldCard)}${K('を使った！', 'をつかった！')}`);
+  }
+
   // ---------- Title screen wiring ----------
   function starString(n) {
     return '★'.repeat(n) + '☆'.repeat(5 - n);
@@ -1653,6 +1770,7 @@
   function startLadder() {
     ladderIndex = 0;
     currentChar = CHARACTERS[0];
+    heldCard = null;
     maybeShowStory(() => startGame('cpu'));
   }
 
@@ -2468,6 +2586,7 @@
     online = null;
     gameScreen.classList.add('hidden');
     titleBtn.classList.add('hidden');
+    cardBtn.classList.add('hidden');
     onlineScreenEl.classList.add('hidden');
     titleScreen.classList.remove('hidden');
     restoreEmoteBarPosition();
@@ -2836,7 +2955,7 @@
     overlay.classList.remove('hidden');
   }
 
-  function handleLadderOutcome(result) {
+  function handleLadderOutcome(result, opts) {
     if (result === 'draw') {
       showResultOverlay({
         title: K('引き分け', 'ひきわけ'),
@@ -2874,19 +2993,30 @@
 
     const beaten = currentChar;
     const next = CHARACTERS[ladderIndex + 1];
+    const taken = !!(opts && opts.cardTaken);
+    const cardLine = taken
+      ? `🃏 ${cardName(beaten.level)} ${K('を手に入れた！', 'をてにいれた！')}\n${cardDesc(beaten.level)}`
+      : `${K('カードにできる', 'カードにできる')}: 🃏 ${cardName(beaten.level)}\n${cardDesc(beaten.level)}`;
+    const buttons = [
+      { label: K('対戦開始', 'たいせんかいし'), primary: true, onClick: () => {
+          ladderIndex++;
+          currentChar = next;
+          startGame('cpu');
+        } },
+    ];
+    if (!taken && heldCard !== beaten.level) {
+      buttons.push({
+        label: `🃏 ${K('カードにする', 'カードにする')}${heldCard !== null ? K('（今のカードと入れ替え）', '（いまのカードといれかえ）') : ''}`,
+        onClick: () => { heldCard = beaten.level; handleLadderOutcome('win', { cardTaken: true }); },
+      });
+    }
+    buttons.push({ label: K('ここでやめる（タイトルへ）', 'ここでやめる（タイトルへ）'), onClick: goToTitle });
     showResultOverlay({
       title: `LV.${beaten.level} ${beaten.name} ${K('撃破！', 'げきは！')}`,
-      message: `${K('次の刺客が現れた……', 'つぎのしかくがあらわれた……')}\nLV.${next.level} ${next.name}`,
+      message: `${cardLine}\n\n${K('次の刺客が現れた……', 'つぎのしかくがあらわれた……')}\nLV.${next.level} ${next.name}`,
       portraitImg: next.img,
       portraitEmoji: next.emoji,
-      buttons: [
-        { label: K('対戦開始', 'たいせんかいし'), primary: true, onClick: () => {
-            ladderIndex++;
-            currentChar = next;
-            startGame('cpu');
-          } },
-        { label: K('ここでやめる（タイトルへ）', 'ここでやめる（タイトルへ）'), onClick: goToTitle },
-      ],
+      buttons,
     });
   }
 
@@ -2896,6 +3026,7 @@
     grid = newGrid();
     gameOver = false;
     cpuThinking = false;
+    resetCardState();
     buildBoard();
     hideBubble();
     updateStatus(K('先攻・後攻を決めています…', 'せんこう・こうこうをきめています…'));
@@ -2988,8 +3119,23 @@
     dropPiece(idx, currentPlayer);
   }
 
+  // Shared by a normal winning drop and by a card that completes a line.
+  function handleWin(player, winCells) {
+    gameOver = true;
+    Board3D.showWin(winCells);
+    scores[player]++;
+    statusEl.innerHTML = '';
+    if (mode === 'cpu' && currentChar) {
+      if (player === 2) SoundMgr.seLose(); else SoundMgr.seWin();
+      const spokenMs = speak(currentChar, player === 2 ? 'victory' : 'defeat');
+      ladderOutcomeTimer = setTimeout(() => handleLadderOutcome(player === 1 ? 'win' : 'lose'), Math.max(1800, spokenMs + 600));
+    } else {
+      SoundMgr.seWin();
+    }
+  }
+
   function dropPiece(idx, player) {
-    if (grid[idx] !== 0) return false;
+    if (grid[idx] !== 0 || isSealed(idx)) return false;
 
     pendingCell = -1;
     Board3D.clearGhost();
@@ -2997,21 +3143,23 @@
     Board3D.placeBall(idx, player);
     SoundMgr.seDrop();
 
+    // card bookkeeping: a hint lasts until the player moves; a seal until the CPU has moved twice
+    if (player === 1 && hintCell >= 0) hintCell = -1;
+    if (player === 2 && sealedCells.length) {
+      sealedCells.forEach((sc) => { sc.left--; });
+      sealedCells = sealedCells.filter((sc) => sc.left > 0);
+    }
+
     const winCells = winningLine(grid, idx, player);
     if (winCells) {
-      gameOver = true;
-      Board3D.showWin(winCells);
-      scores[player]++;
-      statusEl.innerHTML = '';
-      if (mode === 'cpu' && currentChar) {
-        if (player === 2) SoundMgr.seLose(); else SoundMgr.seWin();
-        const spokenMs = speak(currentChar, player === 2 ? 'victory' : 'defeat');
-        ladderOutcomeTimer = setTimeout(() => handleLadderOutcome(player === 1 ? 'win' : 'lose'), Math.max(1800, spokenMs + 600));
-      } else {
-        SoundMgr.seWin();
-      }
+      refreshMarks();
+      handleWin(player, winCells);
       return true;
     }
+
+    // never leave the only empty cells sealed (nobody could move)
+    if (sealedCells.length && getEmptyCells(grid).every(isSealed)) sealedCells = [];
+    refreshMarks();
 
     if (isBoardFull(grid)) {
       gameOver = true;
@@ -3313,6 +3461,7 @@
     let ghostFlame = null, ghostGlow = null, ghostRunners = null, guide = null, rings = null;
     let glowTex = null, flameTex = null;
     let dimmed = false;
+    let marks = {};   // idx -> 'seal' | 'hint': empty cells outlined by a trump card
     // one closed walk along 8 of a cube's 12 edges; sparks of light run around it
     const CYC = [[-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1], [-1, 1, 1], [1, 1, 1], [1, -1, 1], [-1, -1, 1]];
     // a thin, slow spark with a long fading tail of 6 tiny glows
@@ -3742,10 +3891,12 @@
           edgeCol = lightColor(c.player, 0.1).getHex();
           edgeOp = 1; faceOp = 0.22;
         }
+        const mk = lit ? null : marks[i];
+        if (mk) { edgeCol = mk === 'seal' ? 0xc084fc : 0xfde047; edgeOp = 1; faceOp = 0.5; }
         if (i === ghostCell) { edgeCol = lightColor(ghostPlayer, 0.2).getHex(); edgeOp = 1; faceOp = 0.18; }
         c.edgeMat.color.setHex(edgeCol);
         c.edgeMat.opacity = c.edgeBase = edgeOp;
-        c.faceMat.color.setHex(lit || i === ghostCell ? edgeCol : EDGE_BASE);
+        c.faceMat.color.setHex(lit || mk || i === ghostCell ? edgeCol : EDGE_BASE);
         c.faceMat.opacity = faceOp;
         // how bright this light burns: dimmed after a win, faded when another layer is being aimed at
         c.m = dimmed ? (c.win ? 1 : 0.22) : (gl < 0 || inGl ? 1 : 0.5);
@@ -3869,8 +4020,26 @@
         rafId = requestAnimationFrame(tick);
       },
       stop() { running = false; cancelAnimationFrame(rafId); },
+      // trump-card outlines on empty cells
+      setMarks(m) { marks = m || {}; if (ready) refreshView(); },
+      // redraw every light from a grid (after a card removed / recoloured a ball), without replaying ignitions
+      sync(g) {
+        if (!ready) return;
+        occupied.clear();
+        cells.forEach((c) => {
+          c.player = 0; c.win = false; c.m = 1; setFlameVisible(c.flame, false); c.glow.visible = false;
+          setRunnersVisible(c.runners, false);
+        });
+        bridges.length = 0;
+        clearFlow(flows[1]); clearFlow(flows[2]); clearFlow(flows.gold);
+        embers.life.fill(0);
+        hideGhost();
+        for (let i = 0; i < 64; i++) if (g[i]) this.placeBall(i, g[i], true);
+        refreshView();
+      },
       reset() {
         if (!ready) return;
+        marks = {};
         occupied.clear();
         cells.forEach((c) => {
           c.player = 0; c.win = false; c.m = 1; setFlameVisible(c.flame, false); c.glow.visible = false;
@@ -3888,16 +4057,16 @@
         resize();
       },
       // light up a cell for `player`
-      placeBall(idx, player) {
+      placeBall(idx, player, quiet) {
         if (!ready) return;
         const c = cells[idx];
         c.player = player;
-        c.t0 = performance.now();
+        c.t0 = quiet ? performance.now() - 5000 : performance.now();
         c.glow.material.color.copy(lightColor(player, 0.0));
         setFlameColor(c.flame, player);
         setRunnersColor(c.runners, lightColor(player, 0.55));
         c.em = Math.random();
-        for (let n = 0; n < 16; n++) spawnEmber(cellPosArr[idx], player);   // a burst of sparks as it ignites
+        if (!quiet) for (let n = 0; n < 16; n++) spawnEmber(cellPosArr[idx], player);   // a burst of sparks as it ignites
         occupied.add(idx);
         // join every touching light of the same colour (all 26 directions)
         const l = layerOf(idx), y = ((idx % 16) / 4) | 0, x = idx % 4;
@@ -3981,24 +4150,32 @@
   }
   Board3D.onTap((cell, pointerType) => {
     if (!humanCanMove()) return;
-    if (cell < 0 || grid[cell] !== 0) { pendingCell = -1; Board3D.clearGhost(); return; }
+    if (cell < 0 || grid[cell] !== 0 || isSealed(cell)) { pendingCell = -1; Board3D.clearGhost(); return; }
     if (pointerType === 'mouse' || pendingCell === cell) { handleCellClick(cell); return; }
     pendingCell = cell;
     Board3D.setGhost(cell, currentPlayer);
   });
   Board3D.onHover((cell) => {
     if (pendingCell >= 0) return;
-    if (cell < 0 || !humanCanMove() || grid[cell] !== 0) { Board3D.setGhost(-1); return; }
+    if (cell < 0 || !humanCanMove() || grid[cell] !== 0 || isSealed(cell)) { Board3D.setGhost(-1); return; }
     Board3D.setGhost(cell, currentPlayer);
   });
 
   // `currentChar.depth` is the search depth in plies; `wildness` is the chance
   // of dropping on a random cell instead. A winning cell is always taken.
   function getCpuMove() {
-    const empty = getEmptyCells(grid);
+    // sealed cells are treated as walls (filled with the opponent's colour) in a scratch copy
+    const g = grid.slice();
+    sealedCells.forEach((sc) => { g[sc.cell] = 1; });
+    const empty = getEmptyCells(g);
     if (empty.length === 0) return null;
 
-    const winCell = findImmediateWin(grid, 2);
+    if (nightmareNext) {   // 悪夢: this one move is blind
+      nightmareNext = false;
+      return empty[Math.floor(Math.random() * empty.length)];
+    }
+
+    const winCell = findImmediateWin(g, 2);
     if (winCell !== null) return winCell;
 
     const wildness = currentChar ? currentChar.wildness : 0;
@@ -4010,7 +4187,7 @@
     // The opening has 60+ near-equal moves and no tactics to find: searching deep
     // there only freezes the page (~2s at depth 5), so keep it shallow.
     if (grid.filter((v) => v !== 0).length < 4) depth = Math.min(depth, 3);
-    const cell = chooseCpuCell(grid, 2, depth);
+    const cell = chooseCpuCell(g, 2, depth);
     return cell === null ? empty[0] : cell;
   }
 
