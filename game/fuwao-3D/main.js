@@ -3338,6 +3338,7 @@ function placeResidents(models) {
       r.idle.time = 0;
     });
     residents.push(r);
+    if (r.eat) setHungry(r);   // まだパンを食べていない町人は、はじめからおなかをすかせている
   }
 }
 // 表情（Face_Sad / Face_Smile）は体のクリップと同時に再生し、最後の値を保つ
@@ -3411,8 +3412,8 @@ function updateHouse(r) {
   }
   r.placed = true;
 }
-// お昼（HUNGER_HOUR）になると、パンを食べる町人はみんなおなかがすいて、頭の上に「!」を出して助けを呼ぶ。
-// パンを食べると元気になる（町の復興度には関係しない。復興度に入るのは、はじめてパンを食べたときだけ）
+// パンを食べる町人は、はじめはみんなおなかをすかせていて、頭の上にパンのアイコンを出す（食べさせると区画の復興度が進む）。
+// お昼（HUNGER_HOUR）になると、またみんなおなかがすく（そのときは町の復興度には関係しない）
 const HUNGER_HOUR = 12;
 const HUNGER_COLOR = 0xf08a24;
 let lastHour = null;
@@ -3862,9 +3863,12 @@ function loadGame(d) {
     const x = d.residents?.[r.id];
     if (!x) continue;
     r.fed = !!x.fed;
-    if (r.fed && !r.kind.hungry) setFace(r, 'smile');
-    if (r.fed && r.kind.hungry) { setFace(r, 'smile'); if (r.idle === r.hungryIdle) { r.idle.stop(); r.idle = r.mixer.clipAction(r.baseIdleClip).play(); } }
-    if (x.hungry) setHungry(r);
+    if (r.eat && (x.hungry || !r.fed)) setHungry(r);
+    else {
+      r.hungry = false;
+      setFace(r, 'smile');
+      if (r.idle === r.hungryIdle) { r.idle.stop(); r.idle = r.mixer.clipAction(r.baseIdleClip).play(); }
+    }
     r.talked = new Set();
     for (const [key, i] of x.once || []) { const t = TALKS[key]?.talks?.[i]; if (t) r.talked.add(t); }
   }
