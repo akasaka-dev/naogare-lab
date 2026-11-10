@@ -90,9 +90,6 @@
     .audio-btn { padding: 8px; }
   }
 
-  /* the held trump card: glows while it can still be played this match */
-  #cardBtn.ready { border-color: #fbbf24; box-shadow: 0 0 10px rgba(251, 191, 36, 0.65); }
-
   /* ---- Splash / title screen ---- */
   #splashScreen {
     position: fixed;
@@ -172,7 +169,9 @@
        same space. */
     /* Same staging as the desktop layout: the full-length figure stands at the
        bottom right, large, behind the (translucent) board. */
-    #charBgImg { max-width: 100vw; height: 92vh; }
+    /* taller than the screen is wide is fine: the left edge is simply clipped, so the head
+       rises into the free band above the play area instead of hiding behind the board */
+    #charBgImg { max-width: 135vw; height: 92vh; }
     /* During a match, sit the whole play area at the bottom of the screen
        (just above the round buttons at the bottom right) so the character's
        face in the header band stays clear of the board. */
@@ -188,13 +187,22 @@
       overflow: hidden;
     }
     html:has(#gameScreen:not(.hidden)) { overflow: hidden; height: 100%; }
-    body:has(#gameScreen:not(.hidden)) #speechBubble { margin-bottom: 8px; }
+    body:has(#gameScreen:not(.hidden)) #dock { margin-top: 8px; gap: 12px; }
+    #speechBubble { min-height: 92px; padding: 18px 12px 10px 10px; gap: 9px; }
+    #bubbleAvatar { width: 44px; height: 44px; }
+    #speechBubble .bubble-text { font-size: 0.85rem; line-height: 1.5; }
+    #cardDeck { width: 64px; height: 90px; }
     body:has(#gameScreen:not(.hidden)) #status { margin-bottom: 6px; }
     #board-wrap #board {
       /* also capped by what's left under the bubble/labels, so short screens shrink the board instead of clipping the bubble */
-      width: min(calc(100vw - 16px), 68vh, 68dvh, calc(100dvh - 250px));
-      height: min(calc(100vw - 16px), 68vh, 68dvh, calc(100dvh - 250px));
+      width: min(calc(100vw - 16px), 68vh, 68dvh, calc(100dvh - 275px));
+      height: min(calc(100vw - 16px), 68vh, 68dvh, calc(100dvh - 275px));
     }
+  }
+
+  /* keep the bottom dock clear of the fixed round-button row */
+  body:has(#gameScreen:not(.hidden)) {
+    padding-bottom: calc(max(10px, env(safe-area-inset-bottom)) + 48px);
   }
 
   .page-content {
@@ -824,42 +832,191 @@
     object-position: top center;
   }
 
-  /* ---- CPU speech bubble ---- */
-  /* Sits where the game title used to be — reserves its slot only in CPU
-     mode (toggled via the .hidden utility class in JS); the text itself
-     still cross-fades in/out per line via the .show class. */
-  #speechBubble {
+  /* ---- Bottom dock: dialogue box (left) + trump-card deck (right) ---- */
+  #dock {
     width: 100%;
-    max-width: 420px;
-    min-height: 64px;
-    box-sizing: border-box;
-    background: rgba(15, 23, 42, 0.94);
-    border: 2px solid var(--accent);
-    border-radius: 16px;
-    padding: 12px 18px;
-    margin: 0 0 14px;
+    max-width: 620px;
     display: flex;
-    flex-direction: column;
-    justify-content: center;
-    text-align: center;
-    opacity: 0;
-    transform: translateY(-6px);
+    align-items: stretch;
+    gap: 16px;
+    margin-top: 14px;
+  }
+  #dock:has(#speechBubble.hidden) { display: none; }   /* pvp / online: no dock */
+  #speechBubble {
+    flex: 1;
+    min-width: 0;
+    min-height: 106px;
+    position: relative;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 20px 16px 12px 14px;
+    background: linear-gradient(160deg, rgba(36, 28, 70, 0.96), rgba(11, 9, 28, 0.96));
+    border: 1.5px solid rgba(196, 167, 255, 0.55);
+    border-radius: 14px;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05), 0 10px 26px rgba(0, 0, 0, 0.55), 0 0 18px rgba(139, 92, 246, 0.2);
+    opacity: 0.55;
+    transform: translateY(6px);
     transition: opacity 0.3s ease, transform 0.3s ease;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
   }
-  #speechBubble.show {
-    opacity: 1;
-    transform: translateY(0);
+  #speechBubble.show { opacity: 1; transform: translateY(0); }
+  #bubbleAvatar {
+    flex: none;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    object-fit: cover;
+    object-position: top center;
+    background: #0b0a1a;
+    border: 2px solid #d4af37;
+    box-shadow: 0 0 10px rgba(212, 175, 55, 0.45);
   }
+  #bubbleAvatar:not([src]), #bubbleAvatar[src=""] { display: none; }
+  .bubble-body { flex: 1; min-width: 0; }
   #speechBubble .bubble-name {
+    position: absolute;
+    top: -11px;
+    left: 16px;
+    padding: 2px 14px;
     font-size: 0.72rem;
-    font-weight: 700;
-    color: var(--accent);
-    margin-bottom: 4px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    color: #1b1330;
+    background: linear-gradient(90deg, #f5d77a, #d4af37);
+    border-radius: 999px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
   }
+  #speechBubble .bubble-name:empty { display: none; }
   #speechBubble .bubble-text {
     font-size: 0.92rem;
-    line-height: 1.55;
+    line-height: 1.6;
+  }
+
+  /* the card deck: a small stack of cards; the top one shows the held card */
+  #cardDeck {
+    position: relative;
+    flex: none;
+    width: 76px;
+    height: 106px;
+    align-self: flex-end;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--text);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: transform 0.2s ease;
+  }
+  #cardDeck.hidden { display: none; }
+  #cardDeck::before, #cardDeck::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 10px;
+    background: linear-gradient(145deg, #2b2057, #120e2b);
+    border: 1.5px solid rgba(167, 139, 250, 0.5);
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
+  }
+  #cardDeck::before { transform: translate(7px, 5px) rotate(5deg); opacity: 0.75; }
+  #cardDeck::after { transform: translate(3.5px, 2.5px) rotate(2.5deg); opacity: 0.9; }
+  #cardDeck.empty::before, #cardDeck.empty::after { display: none; }
+  #cardDeck:hover { transform: translateY(-4px); }
+  #cardDeck.used, #cardDeck.empty { cursor: default; }
+  #cardDeck.used:hover, #cardDeck.empty:hover { transform: none; }
+  .deck-card {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    display: block;
+    overflow: hidden;
+    border-radius: 10px;
+    border: 2px solid #d4af37;
+    background: #0b0a1a;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.6), inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+  }
+  .deck-art { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top center; }
+  .deck-card::after {   /* holographic sheen */
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(115deg, transparent 32%, rgba(255, 255, 255, 0.4) 48%, transparent 64%);
+    background-size: 260% 100%;
+    background-position: 140% 0;
+    mix-blend-mode: screen;
+    pointer-events: none;
+  }
+  #cardDeck.ready .deck-card { animation: deckPulse 2.2s ease-in-out infinite; }
+  #cardDeck.ready .deck-card::after { animation: deckSheen 3.4s ease-in-out infinite; }
+  @keyframes deckPulse {
+    0%, 100% { box-shadow: 0 0 14px rgba(251, 191, 36, 0.7), 0 6px 16px rgba(0, 0, 0, 0.6); }
+    50% { box-shadow: 0 0 26px rgba(251, 191, 36, 0.95), 0 6px 16px rgba(0, 0, 0, 0.6); }
+  }
+  @keyframes deckSheen {
+    0%, 55% { background-position: 140% 0; }
+    100% { background-position: -60% 0; }
+  }
+  .deck-lv {
+    position: absolute;
+    top: 4px;
+    left: 5px;
+    z-index: 2;
+    padding: 1px 5px;
+    font-size: 0.58rem;
+    font-weight: 800;
+    color: #fde68a;
+    background: rgba(8, 6, 20, 0.78);
+    border: 1px solid rgba(212, 175, 55, 0.6);
+    border-radius: 6px;
+  }
+  .deck-name {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 2;
+    padding: 16px 3px 5px;
+    text-align: center;
+    font-size: 0.64rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    color: #fde68a;
+    text-shadow: 0 1px 3px #000;
+    background: linear-gradient(to bottom, transparent, rgba(8, 6, 20, 0.94) 58%);
+  }
+  .deck-used {
+    display: none;
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.68rem;
+    font-weight: 900;
+    letter-spacing: 0.1em;
+    color: #e2e8f0;
+    background: rgba(5, 4, 14, 0.55);
+  }
+  #cardDeck.used .deck-used { display: flex; }
+  #cardDeck.used .deck-art { filter: grayscale(0.9) brightness(0.55); }
+  #cardDeck.empty .deck-card {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 4px;
+    font-size: 0.62rem;
+    line-height: 1.5;
+    color: rgba(226, 232, 240, 0.55);
+    border: 2px dashed rgba(148, 163, 184, 0.45);
+    background: rgba(15, 23, 42, 0.45);
+    box-shadow: none;
+  }
+  #cardDeck.empty .deck-card::after { display: none; }
+  #cardDeck.deal { animation: deckDeal 0.65s cubic-bezier(0.2, 0.9, 0.3, 1.2); }
+  @keyframes deckDeal {
+    from { transform: translateY(-40px) rotate(-12deg) scale(0.7); opacity: 0; }
+    to { transform: none; opacity: 1; }
   }
   #board-wrap {
     background: rgba(15, 23, 42, 0.55);
@@ -875,6 +1032,9 @@
     position: relative;
     width: min(calc(100vw - 24px), 720px, 68vh);
     height: min(calc(100vw - 24px), 720px, 68vh);
+    /* leave room for the labels, the bottom dock and the button row */
+    width: min(calc(100vw - 24px), 720px, 68vh, calc(100dvh - 290px));
+    height: min(calc(100vw - 24px), 720px, 68vh, calc(100dvh - 290px));
     min-width: 260px;
     min-height: 260px;
     touch-action: none;   /* drags orbit the camera instead of scrolling the page */
@@ -1007,9 +1167,6 @@
     <button id="titleBtn" class="audio-btn hidden" type="button" aria-label="タイトルに戻る">
       <span class="audio-icon">🏠</span>
     </button>
-    <button id="cardBtn" class="audio-btn hidden" type="button" aria-label="カード">
-      <span class="audio-icon">🃏</span>
-    </button>
     <button id="bgmToggle" class="audio-btn" type="button" aria-label="BGMのオン/オフ" aria-pressed="true">
       <span class="audio-icon">🎵</span><span class="audio-label">BGM</span>
     </button>
@@ -1086,15 +1243,22 @@
 
   <!-- Game screen -->
   <div id="gameScreen" class="hidden">
-    <div id="speechBubble" class="hidden">
-      <div class="bubble-name" id="bubbleName"></div>
-      <div class="bubble-text" id="bubbleText"></div>
-    </div>
     <div id="modeLabel"></div>
     <div id="status"></div>
     <div id="turnTimeoutWarning" class="hidden"></div>
     <div id="board-wrap">
       <div id="board"></div>
+    </div>
+    <!-- Bottom dock (CPU matches): the character's dialogue box + the trump-card deck -->
+    <div id="dock">
+      <div id="speechBubble" class="hidden">
+        <img id="bubbleAvatar" alt="" draggable="false">
+        <div class="bubble-body">
+          <div class="bubble-name" id="bubbleName"></div>
+          <div class="bubble-text" id="bubbleText"></div>
+        </div>
+      </div>
+      <button id="cardDeck" class="empty" type="button" aria-label="カード"></button>
     </div>
     <div id="onlineEmoteBar" class="hidden">
       <div id="emoteScroller">
@@ -1479,6 +1643,7 @@
     document.getElementById('onlineJoinConfirmBtn').textContent = K('開始する', 'かいしする');
     document.getElementById('onlineJoinCancelBtn').textContent = 'キャンセル';
     renderJoinConfirmText();
+    deckShown = undefined; updateCardButton();
     document.getElementById('storyHint').textContent = K('タップして進む', 'タップですすむ');
     document.getElementById('storySkipBtn').textContent = K('スキップ ≫', 'スキップ ≫');
     document.getElementById('endingHint').textContent = K('ドラッグで読み返せます／クリックでタイトルへ', 'ドラッグでよみかえせます／クリックでタイトルへ');
@@ -1673,7 +1838,7 @@
   let sealedCells = [];    // [{ cell, left }]: nobody can play these; `left` counts CPU moves
   let nightmareNext = false;
   let hintCell = -1;
-  const cardBtn = document.getElementById('cardBtn');
+  const cardBtn = document.getElementById('cardDeck');
 
   function isSealed(i) { return sealedCells.some((sc) => sc.cell === i); }
   function refreshMarks() {
@@ -1682,13 +1847,35 @@
     if (hintCell >= 0 && grid[hintCell] === 0) m[hintCell] = 'hint';
     Board3D.setMarks(m);
   }
+  // The deck in the bottom dock: empty slot / ready (gold glow + sheen) / used (greyed).
+  let deckShown;   // which card the deck currently draws (undefined = redraw)
+  function renderDeck() {
+    if (heldCard === null) {
+      cardBtn.innerHTML = `<span class="deck-card">${K('カードなし', 'カードなし')}</span>`;
+      return;
+    }
+    const ch = CHARACTERS[heldCard - 1];
+    cardBtn.innerHTML = `<span class="deck-card">
+      <img class="deck-art" src="${ch.img}" alt="" draggable="false">
+      <span class="deck-lv">LV.${ch.level}</span>
+      <span class="deck-name">${cardName(heldCard)}</span>
+      <span class="deck-used">${K('使用済み', 'しようずみ')}</span>
+    </span>`;
+  }
   function updateCardButton() {
-    const show = mode === 'cpu' && heldCard !== null;
-    cardBtn.classList.toggle('hidden', !show);
-    if (!show) return;
-    cardBtn.classList.toggle('muted', cardUsed);
-    cardBtn.classList.toggle('ready', !cardUsed);
-    cardBtn.setAttribute('aria-label', `${K('カード', 'カード')}: ${cardName(heldCard)}`);
+    const inCpu = mode === 'cpu';
+    cardBtn.classList.toggle('hidden', !inCpu);
+    if (!inCpu) return;
+    const has = heldCard !== null;
+    cardBtn.classList.toggle('empty', !has);
+    cardBtn.classList.toggle('used', has && cardUsed);
+    cardBtn.classList.toggle('ready', has && !cardUsed);
+    if (deckShown !== heldCard) {
+      renderDeck();
+      if (has) { cardBtn.classList.remove('deal'); void cardBtn.offsetWidth; cardBtn.classList.add('deal'); }
+      deckShown = heldCard;
+    }
+    cardBtn.setAttribute('aria-label', has ? `${K('カード', 'カード')}: ${cardName(heldCard)}` : K('カードなし', 'カードなし'));
   }
   function resetCardState() {
     cardUsed = false; sealedCells = []; nightmareNext = false; hintCell = -1;
@@ -1709,7 +1896,8 @@
 
   cardBtn.addEventListener('click', () => {
     SoundMgr.seClick();
-    if (heldCard === null || mode !== 'cpu') return;
+    if (mode !== 'cpu') return;
+    if (heldCard === null) { flashStatus(K('敵に勝つとカードが手に入ります', 'てきにかつとカードがてにはいります')); return; }
     if (cardUsed) { flashStatus(K('このカードは、この対戦ではもう使いました', 'このカードは、このたいせんではもうつかいました')); return; }
     if (!humanCanMove()) { flashStatus(K('自分の番に使えます', 'じぶんのばんにつかえます')); return; }
     const ch = CHARACTERS[heldCard - 1];
@@ -2545,6 +2733,7 @@
              onerror="this.style.display='none'">
         LV.${currentChar.level}/5 ${currentChar.name}（${starString(currentChar.stars)}） ／ ${K('あなたはピンク', 'あなたはぴんく')}`;
       setCharBackground(currentChar);
+      document.getElementById('bubbleAvatar').src = currentChar.img;
       speechBubbleEl.classList.remove('hidden');
     } else {
       SoundMgr.playTrack('game');
