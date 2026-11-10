@@ -163,6 +163,20 @@
   body.talking #touchUI .btn, body.talking #touchUI .joy-ring, body.talking #hud { display: none; }
   /* オープニング（パン工房の中の会話）の間は、操作ボタンと情報を出さない */
   body.opening #touchUI .btn, body.opening #touchUI .joy-ring, body.opening #hud, body.opening #crosshair { display: none !important; }
+  /* BGM と効果音の入・切（右上。パソコンでは M / K キーでも）。切っているときは斜線を引いてうすくする */
+  #sound { position: fixed; z-index: 8; display: flex; gap: 6px; right: calc(12px + env(safe-area-inset-right)); top: calc(12px + env(safe-area-inset-top)); }
+  body.touch #sound { top: calc(64px + env(safe-area-inset-top)); gap: 8px; }
+  #sound button { position: relative; width: 40px; height: 40px; padding: 0; border-radius: 50%; cursor: pointer; touch-action: none;
+    display: flex; align-items: center; justify-content: center; color: #fff6e6;
+    background: rgba(30,20,12,0.4); border: 2px solid rgba(255,246,230,0.5); box-sizing: border-box; }
+  body.touch #sound button { width: 44px; height: 44px; }
+  #sound button:hover { background: rgba(30,20,12,0.6); }
+  #sound svg { width: 22px; height: 22px; fill: currentColor; }
+  #sound button.off { opacity: 0.55; }
+  #sound button.off::after { content: ""; position: absolute; left: 50%; top: 50%; width: 30px; height: 2.5px; margin: -1.25px 0 0 -15px;
+    background: #fff6e6; border-radius: 2px; transform: rotate(-45deg); box-shadow: 0 0 0 1.5px rgba(30,20,12,0.6); }
+  /* 右上に音のボタンがあるので、パソコンでは「スキップ」をその下に出す */
+  body:not(.touch) #skipOpening { top: calc(62px + env(safe-area-inset-top)) !important; }
   /* オープニングを飛ばすボタン（パソコンでは S キーでも） */
   #skipOpening { display: none; position: fixed; z-index: 5; right: calc(14px + env(safe-area-inset-right)); top: calc(14px + env(safe-area-inset-top));
     padding: 7px 14px 8px; border-radius: 16px 20px 15px 19px / 19px 15px 20px 16px; cursor: pointer; user-select: none; -webkit-user-select: none; touch-action: none;
@@ -259,6 +273,7 @@
     <tr><td>T</td><td>アニメ調 / 元の見た目 切り替え</td></tr>
     <tr><td>N</td><td>押している間、時間を早送り</td></tr>
     <tr><td>R</td><td>スタート地点に戻る</td></tr>
+    <tr><td>M / K</td><td>BGM / 効果音 の入・切（右上のボタンでも）</td></tr>
     <tr><td>Esc</td><td>一時停止</td></tr>
     <tr><td>S</td><td>オープニングを飛ばす（⏭ ボタンでも）</td></tr>
   </table>
@@ -305,6 +320,10 @@
 </div>
 <div id="toast"></div>
 <div id="cutin"><div class="bar top"></div><div class="bar bottom"><span class="caption"></span></div></div>
+<div id="sound">
+  <button id="bgmBtn" type="button" title="BGM（M）" aria-label="BGM の入・切"><svg viewBox="0 0 24 24"><path d="M9 3v11.3A3.5 3.5 0 1 0 11 17.5V8h7v6.3A3.5 3.5 0 1 0 20 17.5V3z"/></svg></button>
+  <button id="sfxBtn" type="button" title="効果音（K）" aria-label="効果音の入・切"><svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 4.5v-15L7 9zM15.5 8.2a5 5 0 0 1 0 7.6l1.3 1.4a7 7 0 0 0 0-10.4zM18.4 5.3a9 9 0 0 1 0 13.4l1.3 1.4a11 11 0 0 0 0-16.2z"/></svg></button>
+</div>
 <div id="skipOpening">スキップ ⏭<span class="key">S</span></div>
 <div id="dust"></div>
 <div id="hurt"></div>

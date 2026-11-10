@@ -343,6 +343,8 @@ function makeSpray({ origin, width, power, count, size, opacity, life, spread })
 // 泡の板（滝ごとに 1 枚）の場所から、泡としぶきを作る。merged：町を材質ごとにまとめたもの（元の白い板を隠す）
 function setupFoam(townScene, merged) {
   const pads = [];
+  fallPts = [];
+  riverPts = riverPoints(merged);
   townScene.updateMatrixWorld(true);
   townScene.traverse((o) => { if (o.isMesh && /foam/i.test(o.material.name)) pads.push(new THREE.Box3().setFromObject(o)); });
   for (const m of merged.children) if (/foam/i.test(m.material.name)) m.visible = false;
@@ -362,6 +364,7 @@ function setupFoam(townScene, merged) {
     const up = waterCollider && cast(_o, DOWN, 120, waterCollider);
     const drop = THREE.MathUtils.clamp(up ? up.point.y - y : 1, 0.6, 5);
     const origin = new THREE.Vector3(cx, y, b.min.z + 0.25);
+    fallPts.push({ at: origin.clone().setY(y + drop / 2), drop });
     foamObjs.push(...[makeSpray({ origin, width: w * 0.9, power: 1.6 + drop * 0.7, count: Math.round(w * 20), size: 0.1, opacity: 0.8, life: 0.9, spread: 1.4 }),
     // 細かい霧（大きく、うすく、ゆっくり）
       makeSpray({ origin, width: w, power: 0.8 + drop * 0.35, count: Math.round(w * 5), size: 0.9 + drop * 0.25, opacity: 0.18, life: 2.2, spread: 0.9 })].map((o) => { scene.add(o); return o; }));
@@ -374,6 +377,136 @@ function updateSpray() {
   sprayColor.value.setRGB(c.r * k, c.g * k, c.b * k).lerp(_sprayWhite, 0.25).multiplyScalar(Math.min(1, 0.3 + hemi.intensity / 0.7));
 }
 const _sprayWhite = new THREE.Color(1, 1, 1);
+
+// ---- 環境音（小川・滝） ----
+// 川の水面に AMB_CELL ごとに置いた点と、滝（泡の板）の場所から、ふわおまでの距離で音量を決める。
+// 左右の聞こえ方はカメラの向きで決める。一時停止中・工房の中・オープニング・エンディングでは消す。
+// 音はモノラル 64kbps の MP3。iPhone では画面を押すまで鳴らせないので、ゲームを始めたときに用意する
+const AMB = {
+  stream: { file: 'sounds/stream.mp3', vol: 0.45, near: 2, far: 16 },      // 川のいちばん近い点からの距離（m）
+  waterfall: { file: 'sounds/waterfall.mp3', vol: 0.9, near: 3, far: 28 }, // 滝からの距離（m）
+};
+const AMB_CELL = 2.5;      // 川の点の間隔（m）
+const AMB_PAN = 0.7;       // 左右の振り分けの強さ（1 で片耳だけ）
+const AMB_SMOOTH = 0.15;   // 音量が変わるときのなめらかさ（秒）
+const AMB_EDGE = 0.06;     // MP3 の頭と終わりのすき間を飛ばしてくり返す（秒）
+let audioCtx = null, riverPts = [], fallPts = [];
+// BGM：ステージごとの曲（いまはステージ 1・2 の曲だけ）。長いので、全部をほどいて持たずに少しずつ読みながら流す（<audio>）。
+// 一時停止中・エンディング・ゲームオーバーでは消えていき、消えたら止める（つづきは止めたところから）。工房の中では小さめ
+const BGM = [{ file: 'sounds/bgm_stage1-2.mp3', stages: [1, 2] }];
+const BGM_VOL = 0.35;        // BGM の大きさ
+const BGM_INDOOR = 0.6;      // 工房の中・オープニングでは、この倍
+const BGM_FADE = 0.6;        // 大きさが変わるときのなめらかさ（秒）
+const bgm = { el: null, gain: null, now: null };
+// BGM と効果音の入・切（右上のボタン、M / K キー）。この端末に覚えておく
+const SOUND_KEY = 'fuwao3d:sound';
+const soundOn = { bgm: true, sfx: true };
+try { Object.assign(soundOn, JSON.parse(localStorage.getItem(SOUND_KEY)) || {}); } catch { /* 保存できない環境 */ }
+function setSound(kind, on) {
+  soundOn[kind] = on;
+  try { localStorage.setItem(SOUND_KEY, JSON.stringify(soundOn)); } catch { /* 保存できない環境 */ }
+  document.getElementById(`${kind}Btn`).classList.toggle('off', !on);
+  if (kind === 'bgm') updateBgm(playing);   // 押したその場で鳴らす（iPhone は押したときでないと鳴らせない）
+}
+for (const kind of ['bgm', 'sfx']) {
+  const btn = document.getElementById(`${kind}Btn`);
+  btn.classList.toggle('off', !soundOn[kind]);
+  btn.addEventListener('pointerdown', (e) => e.stopPropagation());
+  btn.addEventListener('click', (e) => { e.stopPropagation(); setSound(kind, !soundOn[kind]); btn.blur(); });
+}
+// 町の水の材質の頂点を、AMB_CELL のマスごとに 1 点にまとめる
+function riverPoints(merged) {
+  const cells = new Map(), v = new THREE.Vector3();
+  for (const m of merged.children) {
+    if (!isWater(m.material)) continue;
+    m.updateMatrixWorld(true);
+    const pos = m.geometry.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld);
+      const key = `${Math.floor(v.x / AMB_CELL)},${Math.floor(v.z / AMB_CELL)}`;
+      const c = cells.get(key);
+      if (c) { c.add(v); c.n++; } else { const p = v.clone(); p.n = 1; cells.set(key, p); }
+    }
+  }
+  return [...cells.values()].map((p) => p.divideScalar(p.n));
+}
+// ゲームを始めたとき（押したとき）に呼ぶ。2 回目からは止まっていたら動かすだけ
+function initAudio() {
+  if (audioCtx) { audioCtx.resume?.(); updateBgm(true); return; }   // 再開も押したときなので、ここで鳴らし直す
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return;
+  audioCtx = new Ctx();
+  audioCtx.resume?.();
+  // BGM は <audio> を Web Audio につないで、大きさを変える
+  bgm.el = new Audio();
+  bgm.el.loop = true;
+  bgm.el.preload = 'auto';
+  bgm.gain = audioCtx.createGain();
+  bgm.gain.gain.value = 0;
+  audioCtx.createMediaElementSource(bgm.el).connect(bgm.gain).connect(audioCtx.destination);
+  updateBgm(true);   // 押したその場で鳴らし始める（iPhone は押したときでないと鳴らせない）
+  for (const a of Object.values(AMB)) {
+    a.gain = audioCtx.createGain();
+    a.gain.gain.value = 0;
+    a.pan = audioCtx.createStereoPanner ? audioCtx.createStereoPanner() : null;
+    if (a.pan) a.gain.connect(a.pan).connect(audioCtx.destination); else a.gain.connect(audioCtx.destination);
+    fetch(a.file).then((r) => r.arrayBuffer()).then((b) => new Promise((ok, ng) => audioCtx.decodeAudioData(b, ok, ng))).then((buf) => {
+      const src = audioCtx.createBufferSource();
+      src.buffer = buf;
+      src.loop = true;
+      src.loopStart = AMB_EDGE;
+      src.loopEnd = buf.duration - AMB_EDGE;
+      src.connect(a.gain);
+      src.start(0, AMB_EDGE + Math.random() * (buf.duration - 3 * AMB_EDGE));   // 2 つの音の頭をずらす
+    }).catch((e) => console.warn('環境音を読めませんでした', a.file, e));
+  }
+}
+document.addEventListener('visibilitychange', () => {
+  if (!audioCtx) return;
+  if (document.hidden) { audioCtx.suspend(); bgm.el?.pause(); } else audioCtx.resume();
+});
+const ambFalloff = (d, a) => d <= a.near ? 1 : d >= a.far ? 0 : ((a.far - d) / (a.far - a.near)) ** 2;
+const _ambR = new THREE.Vector3(), _ambD = new THREE.Vector3();
+// 音の来る方向（at）の左右（-1 左 〜 1 右）
+function ambPan(at) {
+  _ambR.setFromMatrixColumn(camera.matrixWorld, 0).setY(0).normalize();
+  _ambD.subVectors(at, camera.position).setY(0);
+  const len = _ambD.length();
+  return len < 0.5 ? 0 : THREE.MathUtils.clamp(_ambD.dot(_ambR) / len, -1, 1) * AMB_PAN;
+}
+function setAmb(a, vol, pan) {
+  if (!a.gain) return;
+  const t = audioCtx.currentTime;
+  a.gain.gain.setTargetAtTime(vol, t, AMB_SMOOTH);
+  a.pan?.pan.setTargetAtTime(pan, t, AMB_SMOOTH);
+}
+// いまのステージの曲を、場面に合った大きさで流す
+function updateBgm(on) {
+  if (!bgm.el) return;
+  const over = endingEl.classList.contains('on') || document.getElementById('gameover').classList.contains('on');
+  const song = BGM.find((b) => b.stages.includes(storyStage)) || null;
+  if (song !== bgm.now && song) { bgm.el.src = song.file; bgm.now = song; }
+  const vol = on && soundOn.bgm && !over && song === bgm.now && song ? BGM_VOL * (opening || visit ? BGM_INDOOR : 1) : 0;
+  bgm.gain.gain.setTargetAtTime(vol, audioCtx.currentTime, BGM_FADE / 3);
+  if (vol > 0 && bgm.el.paused && !document.hidden) bgm.el.play().catch(() => {});
+  else if (vol === 0 && !bgm.el.paused && bgm.gain.gain.value < 0.005) bgm.el.pause();
+}
+function updateAmbient(on) {
+  if (!audioCtx) return;
+  updateBgm(on);
+  const quiet = !on || !soundOn.sfx || opening || visit || endingEl.classList.contains('on') || document.getElementById('gameover').classList.contains('on');
+  // 小川：いちばん近い川の点
+  let best = null, bd = Infinity;
+  if (!quiet) for (const p of riverPts) { const d = p.distanceToSquared(feet); if (d < bd) { bd = d; best = p; } }
+  setAmb(AMB.stream, best ? AMB.stream.vol * ambFalloff(Math.sqrt(bd), AMB.stream) : 0, best ? ambPan(best) : 0);
+  // 滝：いちばん大きく聞こえる滝（高い滝ほど大きい）
+  let fv = 0, fat = null;
+  if (!quiet) for (const f of fallPts) {
+    const v = ambFalloff(f.at.distanceTo(feet), AMB.waterfall) * THREE.MathUtils.clamp(f.drop / 3, 0.35, 1);
+    if (v > fv) { fv = v; fat = f.at; }
+  }
+  setAmb(AMB.waterfall, AMB.waterfall.vol * fv, fat ? ambPan(fat) : 0);
+}
 
 // ---- 読み込み ----
 const overlay = document.getElementById('overlay');
@@ -833,6 +966,8 @@ if (new URLSearchParams(location.search).has('debug')) {
     spawnGerm,
     get breads() { return breads; },
     get residents() { return residents; },
+    // 環境音の様子（川の点の数、滝の場所と高さ、いまの音量）
+    get ambient() { return { ctx: audioCtx?.state, bgm: bgm.now?.file, bgmVol: bgm.gain?.gain.value, bgmPlaying: bgm.el ? !bgm.el.paused : null, bgmTime: bgm.el?.currentTime, river: riverPts.length, falls: fallPts.map((f) => [...f.at.toArray().map((v) => +v.toFixed(1)), +f.drop.toFixed(1)]), stream: AMB.stream.gain?.gain.value, waterfall: AMB.waterfall.gain?.gain.value }; },
     get waterCollider() { return waterCollider; },
     // 例: __fuwao.restore('Plaza')。区画の名前は __fuwao.ruinAreas
     get ruinAreas() { return ruinAreas.map((a) => `${a.name}${a.restored ? '（戻した）' : ''}`); },
@@ -846,7 +981,6 @@ if (new URLSearchParams(location.search).has('debug')) {
       return { town: townProgress(), fuel, fuelMax, body, knockout,
         areas: ruinAreas.map((a, i) => `${AREA_NAMES[a.name]} ${Math.round(areaProgress(i) * 100)}% (spots ${areaGauge[i].spots.length}, out ${areaGauge[i].germs.length}, residents ${areaGauge[i].residents.length})`) };
     },
-    buriedAt(x, y, z) { return buriedAt(new THREE.Vector3(x, y, z)); },
     get stage() { return storyStage; }, set stage(v) { storyStage = v; },
     talkScript(i) { return talkScript(residents[i]); },
     get residentAreas() { return residents.map((r) => `${r.id} ${r.kindName} → 区画${areaNumber(areaAt(r.home.x, r.home.z))}`); },
@@ -3130,12 +3264,12 @@ const RESIDENT_KINDS = {
 const GRANDMA_DOOR = new THREE.Vector3(6.05, 0, 9.45);
 const RESIDENTS = [
   { id: '7-1', kind: 'grandpa', home: new THREE.Vector3(15, 0, 7.5), radius: 5 },   // スタート地点の西、表通り
-  { id: '2-1', kind: 'grandpa', home: new THREE.Vector3(2, 0, 6), radius: 5 },
-  { id: '2-2', kind: 'grandma', home: new THREE.Vector3(5, 0, 7), radius: 5,     // 西のおじいちゃんの近く
+  { id: '4-1', kind: 'grandpa', home: new THREE.Vector3(-6, 0, -8.5), radius: 3 },   // 上の通り（表通りの一段上）の家並みの前
+  { id: '2-2', kind: 'grandma', home: new THREE.Vector3(5, 0, 7), radius: 5,     // 表通り、家の前
     house: { door: GRANDMA_DOOR, way: [], out: [6.5, 18.5] } },
   { id: '7-2', kind: 'girl', home: new THREE.Vector3(19, 0, 6), radius: 3,          // 橋の上。帰りは橋を西へ渡る
     house: { door: GRANDMA_DOOR, way: [new THREE.Vector3(15, 0, 6.3), new THREE.Vector3(8, 0, 8.3)], out: [7, 18] } },
-  { id: '1-1', kind: 'mayor', home: new THREE.Vector3(-11, 0, 15), radius: 2.5 },   // 広場、噴水の東側
+  { id: '1-1', kind: 'mayor', home: new THREE.Vector3(-15.5, 0, 9.2), radius: 1.2 },   // 広場の北のはし、表通りから見える噴水の手前
   // パン屋の店先（扉の前、街灯の右）。軒の下なので、地面はこの高さから下を調べる。face は立つ向き
   { id: '3-1', kind: 'baker', home: new THREE.Vector3(-1.2, 4.28, 3.45), radius: 0, face: 0.245, under: true },
   // パン工房の扉の横（スタート地点の右前）。ふわおのほうを向いて立つ。外に出てくるのは町が崩壊したステージ 4 から（CHIEF_OUT_STAGE。それまでは工房の中）
@@ -3532,7 +3666,7 @@ function collidePeople(active) {
     const d = Math.hypot(dx, dz), overlap = RADIUS + r.radius - d;
     if (overlap <= 0) continue;
     if (d < 1e-4) { dx = Math.sin(heading); dz = Math.cos(heading); } else { dx /= d; dz /= d; }
-    if (!tryNudge(r, dx * overlap, dz * overlap)) moveHorizontal(_push.set(-dx * overlap, 0, -dz * overlap));
+    if (!tryNudge(r, dx * overlap, dz * overlap)) nudgePlayer(-dx * overlap, -dz * overlap);
   }
 }
 // 飛んでいるパンが人に当たったら、その人が受け止めて食べる（食べている最中なら、その場に浮かぶ）
@@ -4693,6 +4827,7 @@ function showTitleMenu() {
 }
 function startGame(cont) {
   started = true;
+  initAudio();
   savingOn = true;
   menuEl.style.display = 'none';
   const dbg = document.getElementById('debugStart');
@@ -4733,6 +4868,7 @@ overlay.addEventListener('click', () => {
   enterPlay();
 });
 function enterPlay() {
+  initAudio();
   if (dragLook) { play(); return; }
   try { document.body.requestPointerLock()?.catch?.(() => {}); } catch { /* 非対応 */ }
   setTimeout(() => {
@@ -4793,6 +4929,8 @@ window.addEventListener('wheel', (e) => {
 
 const keys = new Set();
 window.addEventListener('keydown', (e) => {
+  if (e.code === 'KeyM' && !e.repeat) setSound('bgm', !soundOn.bgm);
+  if (e.code === 'KeyK' && !e.repeat) setSound('sfx', !soundOn.sfx);
   if (dragLook && playing && e.code === 'Escape') { pause(); return; }
   if (playing && (talk.active || opening)) {   // 会話中とオープニング中は、会話を進めるキーだけ
     if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); if (!e.repeat) advanceTalk(); }
@@ -4917,153 +5055,94 @@ function waterLevel(pos, gy) {
   return hit && hit.point.y > gy + 0.05 ? hit.point.y : null;
 }
 
-// 閉じ込められたときの救出：壁を抜けて家の中などに入ってしまったら、最後に外にいた場所へ戻す。
-// 頭の上に天井がある（ロボの背が入らない）所に立ったまま TRAP_LOW_TIME 秒たったときも戻す（橋の下のすき間など）
-// TRAP_CHECK 秒ごとに、まわり 16 方向（2 つの高さ）がすべて TRAP_RANGE m 以内で壁にふさがれていて、
-// 頭の上 TRAP_ROOF m 以内に天井があるかを調べる。それが TRAP_TIME 秒続いたら戻す
-const TRAP_CHECK = 0.5, TRAP_TIME = 1.0, TRAP_RANGE = 12, TRAP_ROOF = 6, TRAP_LOW_TIME = 2.0;
-let lowTime = 0;
-const lastFree = new THREE.Vector3();
-let trapWait = 0, trappedTime = 0, lastFreeSet = false;
-// 地面の下（山の中など）にいるか：頭の上の高いところに、上を向いた地面がある
-const BURIED_GAP = 15;
-function buriedAt(p) {
-  _o.set(p.x, p.y + 0.5, p.z);
-  const hit = cast(_o, UP, 400);
-  return !!hit && hit.distance > BURIED_GAP && hit.face.normal.y > 0.3;
-}
-function enclosedAt(p) {
-  if (buriedAt(p)) return true;
-  _o.set(p.x, p.y + 0.5, p.z);
-  if (!cast(_o, UP, TRAP_ROOF)) return false;
-  for (const h of [0.6, 1.2]) {
-    for (let k = 0; k < 16; k++) {
-      const a = k * Math.PI / 8;
-      _o.set(p.x, p.y + h, p.z);
-      _d.set(Math.sin(a), 0, Math.cos(a));
-      if (!cast(_o, _d, TRAP_RANGE)) return false;
-    }
-  }
-  return true;
-}
-function updateTrap(dt) {
-  if ((trapWait -= dt) > 0) return;
-  trapWait = TRAP_CHECK;
-  if (onGround && !floating && headBlocked(feet)) {
-    lowTime += TRAP_CHECK;
-    if (lowTime >= TRAP_LOW_TIME) { lowTime = 0; rescueTrapped(); }
-    return;
-  }
-  lowTime = 0;
-  if (!enclosedAt(feet)) {
-    trappedTime = 0;
-    // 戻る先は、頭の上が空いている（家の中や地面の下ではない）ところだけ覚える
-    _o.set(feet.x, feet.y + 0.5, feet.z);
-    if (onGround && !cast(_o, UP, 40)) { lastFree.copy(feet); lastFreeSet = true; }
-    return;
-  }
-  trappedTime += TRAP_CHECK;
-  if (trappedTime < TRAP_TIME) return;
-  trappedTime = 0;
-  rescueTrapped();
-}
-function rescueTrapped() {
-  feet.copy(lastFreeSet ? lastFree : START_POS);   // 覚えた場所がなければスタート地点へ
-  velY = 0; jetting = false; jetEndTime = 0; jetVel.set(0, 0, 0); recoilVel.set(0, 0, 0);
-  snapToGround(true);
-  showToast('外に戻った！');
-}
-
 function snapToGround(force) {
   const gy = groundBelow(feet, force ? 1 : STEP_HEIGHT);   // 頭上に張り出しがあるので、探すのは少し上まで
   if (gy !== null) feet.y = gy;
 }
 
-// 横方向の移動：壁に当たったら壁に沿って滑らせる
-const PROBE_HEIGHTS = [STEP_HEIGHT + 0.05, 1.0, 1.55];
-// 浮かんでいるときは水面より下にあるもの（滝の縁の石など）に引っかからず、上をすべっていく
-const FLOAT_PROBE_HEIGHTS = [FLOAT_DRAFT + 0.05, 1.0, 1.55];
-const probeHeights = () => (floating ? FLOAT_PROBE_HEIGHTS : PROBE_HEIGHTS);
+// ---- ロボの体の当たり判定（カプセル） ----
+// ロボの体を縦長のカプセル（半径 RADIUS）として、町のモデルの三角形と重なったら、重なった分だけ横へ押し出す。
+// 壁にはその手前で止まり、斜めに当たれば壁に沿ってすべる。軒や窓枠のような出っぱりも、体のどの高さで当たっても止まる。
+// 足元から STEP_HEIGHT までは地面の判定（groundBelow）にまかせるので、カプセルの下の端はその高さ
+// （浮かんでいるときは、水面の下の石に引っかからないよう FLOAT_DRAFT の高さ）。上の端は旗の先（ROBOT_HEIGHT）
+const CAP_ITER = 3;   // 押し出しのくり返し（角では 2 枚の壁から押されるため）
+const _seg = new THREE.Line3(), _capBox = new THREE.Box3();
+const _triP = new THREE.Vector3(), _capP = new THREE.Vector3(), _triN = new THREE.Vector3();
+function capsuleAt(p) {
+  const bottom = (floating ? FLOAT_DRAFT + 0.05 : STEP_HEIGHT) + RADIUS;
+  _seg.start.set(p.x, p.y + bottom, p.z);
+  _seg.end.set(p.x, p.y + Math.max(bottom, ROBOT_HEIGHT - RADIUS), p.z);
+  _capBox.makeEmpty().expandByPoint(_seg.start).expandByPoint(_seg.end).expandByScalar(RADIUS);
+}
+// カプセルに重なる三角形ごとに visit(tri, 距離) を呼ぶ。_triP は三角形の上の、_capP はカプセルの芯の上のいちばん近い点
+function eachCapsuleHit(visit) {
+  for (const c of colliders) {
+    c?.geometry.boundsTree.shapecast({
+      intersectsBounds: (box) => box.intersectsBox(_capBox),
+      intersectsTriangle: (tri) => {
+        const d = tri.closestPointToSegment(_seg, _triP, _capP);
+        return d < RADIUS ? visit(tri, d) : false;
+      },
+    });
+  }
+}
+// p（足元）の体が壁に重なっていたら、重ならないところまで横へ押し出す。from は押し出す前にいた所（向きが決まらないときに使う）
+function slideCapsule(p, from) {
+  for (let iter = 0; iter < CAP_ITER; iter++) {
+    capsuleAt(p);
+    let pushed = false;
+    eachCapsuleHit((tri, d) => {
+      _capP.sub(_triP).setY(0);
+      let len = _capP.length();
+      if (len < 1e-5) {
+        // 芯が三角形に触れている：三角形の向き（来たほうへ）に押す
+        tri.getNormal(_triN).setY(0);
+        if (_triN.lengthSq() < 1e-8) return false;   // 床・天井は横には押さない
+        _triN.normalize();
+        if (_triN.x * (from.x - _triP.x) + _triN.z * (from.z - _triP.z) < 0) _triN.negate();
+        _capP.copy(_triN);
+        len = 1;
+      } else if (len < (RADIUS - d) * 0.05) {
+        return false;   // ほぼ真上・真下からの重なり（天井・床）は横には押さない
+      }
+      const push = (RADIUS - d) + 0.002;
+      p.x += _capP.x / len * push;
+      p.z += _capP.z / len * push;
+      _seg.start.x = _seg.end.x = p.x;
+      _seg.start.z = _seg.end.z = p.z;
+      pushed = true;
+      return false;
+    });
+    if (!pushed) return;
+  }
+}
+// p（足元）に立ったとき、頭の上（体の高さの中）に天井や軒の裏がかぶさるか（低い所へ登らないように）
+function ceilingOver(p) {
+  capsuleAt(p);
+  let hit = false;
+  eachCapsuleHit((tri, d) => {
+    // 上から押される重なり（三角形がカプセルの芯より上にある）
+    if (_triP.y - _capP.y > (RADIUS - d) * 0.5 + 0.01 && _triP.y > _seg.start.y) hit = true;
+    return hit;
+  });
+  return hit;
+}
+// 当たった面が壁なら、その向き（横向き、dir と逆向きにそろえる）。床・天井・登れる斜面なら null（飛ばされたメカなどで使う）
 function hitNormal(hit, dir) {
-  if (Math.abs(hit.face.normal.y) > 0.6) return null;   // 床や登れる斜面は壁扱いしない
+  if (Math.abs(hit.face.normal.y) > 0.6) return null;
   _n.copy(hit.face.normal).setY(0);
-  if (_n.lengthSq() < 1e-6) return null;      // 床・天井は無視
+  if (_n.lengthSq() < 1e-6) return null;
   _n.normalize();
-  if (_n.dot(dir) > 0) _n.negate();           // 両面ポリゴンなので向きをそろえる
+  if (_n.dot(dir) > 0) _n.negate();   // 両面ポリゴンなので向きをそろえる
   return _n;
 }
-
-function moveHorizontal(delta) {
-  for (let iter = 0; iter < 3; iter++) {
-    const len = delta.length();
-    if (len < 1e-6) return;
-    _d.copy(delta).divideScalar(len);
-    let blocked = false;
-    for (const h of probeHeights()) {
-      _o.set(feet.x, feet.y + h, feet.z);
-      const hit = cast(_o, _d, len + RADIUS);
-      if (!hit) continue;
-      const n = hitNormal(hit, _d);
-      if (!n) continue;
-      // 壁の手前まで進み、残りは壁に沿った成分だけ残す
-      const allowed = Math.max(0, hit.distance - RADIUS);
-      feet.addScaledVector(_d, allowed);
-      delta.addScaledVector(_d, -allowed);
-      delta.addScaledVector(n, -delta.dot(n));
-      blocked = true;
-      break;
-    }
-    if (!blocked) { feet.add(delta); return; }
-  }
-}
-
-// 最後の安全策：このフレームの移動の前後を結んだ線が壁を横切っていたら、移動を取り消す。
-// 壁の判定は 3 つの高さの線だけなので、ひさしの斜めの面や壁の段差のところで、壁の向こうへ抜けてしまうことがある
-const CROSS_HEIGHTS = [STEP_HEIGHT + 0.1, 0.9, 1.25, 1.6];   // 登れる段差（STEP_HEIGHT）より上だけ
-function crossedWall(from, to) {
-  _d.set(to.x - from.x, 0, to.z - from.z);
-  const len = _d.length();
-  if (len < 1e-4) return false;
-  _d.divideScalar(len);
-  for (const h of CROSS_HEIGHTS) {
-    _o.set(from.x, from.y + h, from.z);
-    const hit = cast(_o, _d, len);
-    if (hit && hitNormal(hit, _d)) return true;
-  }
-  return false;
-}
-
-// 体（頭の高さまで）が、屋根の裏やひさしなどの斜めの面にめり込むか。
-// 斜めの面は壁として扱わないので、低空のジェットで屋根の下へもぐりこみ、家の中に落ちてしまうことがある
-const HEAD_FROM = STEP_HEIGHT + 0.1, HEAD_TOP = 1.5;
-const _hp = new THREE.Vector3();
-function headBlocked(p) {
-  _o.set(p.x, p.y + HEAD_FROM, p.z);
-  return !!cast(_o, UP, HEAD_TOP - HEAD_FROM);
-}
-
-// 石垣の上から、下の段の家の屋根の下へ落ちこむ動きか（地面が急に DROP_LIMIT より低くなり、すぐ上に屋根の裏がある）。
-// 石垣に背中をつけて建っている家は、石垣の上と軒の間に壁がないことがあり、そこから家の中へ落ちてしまう
-const DROP_LIMIT = 1.0, DROP_ROOF = 3;
-function dropUnderRoof(fromGround, toGround) {
-  if (fromGround === null || toGround > fromGround - DROP_LIMIT) return false;
-  _o.set(feet.x, feet.y + 0.5, feet.z);
-  const hit = cast(_o, UP, DROP_ROOF);
-  return !!hit && hit.face.normal.y < -0.3;
-}
-
-// 角などでめり込んだときに押し戻す
-const RADIAL = Array.from({ length: 8 }, (_, i) => new THREE.Vector3(Math.cos(i * Math.PI / 4), 0, Math.sin(i * Math.PI / 4)));
-function pushOut() {
-  for (const h of probeHeights()) {
-    for (const dir of RADIAL) {
-      _o.set(feet.x, feet.y + h, feet.z);
-      const hit = cast(_o, dir, RADIUS);
-      if (!hit) continue;
-      const n = hitNormal(hit, dir);
-      if (n) feet.addScaledVector(n, RADIUS - hit.distance);
-    }
-  }
+// 町の人などに押されて、横へずれる（壁の中へは入らない）
+const _nudgeFrom = new THREE.Vector3();
+function nudgePlayer(dx, dz) {
+  _nudgeFrom.copy(feet);
+  feet.x += dx; feet.z += dz;
+  slideCapsule(feet, _nudgeFrom);
+  if (groundBelow(feet) === null) { feet.x = _nudgeFrom.x; feet.z = _nudgeFrom.z; }
 }
 
 // 角度 a から b へ、最短の向きで rate の割合だけ近づける
@@ -5076,8 +5155,8 @@ const _fwd = new THREE.Vector3();
 const _right = new THREE.Vector3();
 const _move = new THREE.Vector3();
 const _prev = new THREE.Vector3();
-const _sub = new THREE.Vector3(), _subPrev = new THREE.Vector3(), _subMove = new THREE.Vector3();
-const MOVE_SUBSTEP = 0.2;   // これより長い移動は分けて進める（53°の斜面でも 1 回で 0.27m しか上がらない）
+const _sub = new THREE.Vector3(), _subPrev = new THREE.Vector3(), _hp = new THREE.Vector3();
+const MOVE_SUBSTEP = 0.2;   // これより長い移動は分けて進める（53°の斜面でも 1 回で 0.27m しか上がらない。体の半径より短いので、薄い壁もすり抜けない）
 
 function updatePlayer(dt) {
   // カメラの向きを基準に移動方向を決める
@@ -5149,18 +5228,13 @@ function updatePlayer(dt) {
   // 1 フレームで斜面が STEP_HEIGHT 以上高くなり、地面の下（山の中）へもぐってしまう
   const subN = Math.max(1, Math.ceil(_move.length() / MOVE_SUBSTEP));
   _sub.copy(_move).divideScalar(subN);
-  let subG = groundBelow(feet);
   for (let i = 0; i < subN; i++) {
     _subPrev.copy(feet);
-    _subMove.copy(_sub);
-    moveHorizontal(_subMove);
-    pushOut();
-    if (crossedWall(_subPrev, feet) || (headBlocked(feet) && !headBlocked(_subPrev))) { feet.x = _subPrev.x; feet.z = _subPrev.z; break; }
+    feet.x += _sub.x; feet.z += _sub.z;
+    slideCapsule(feet, _subPrev);   // 壁に重なった分だけ押し出す（壁に沿ってすべる）
     const g = groundBelow(feet);
-    if (g === null || dropUnderRoof(subG, g)) { feet.x = _subPrev.x; feet.z = _subPrev.z; break; }
-    // 登った先の頭の上に天井があるなら登らない（橋の下の低い岸に上がって、はさまってしまうため）
-    if (g > feet.y + 0.01 && headBlocked(_hp.set(feet.x, g, feet.z)) && !headBlocked(_subPrev)) { feet.x = _subPrev.x; feet.z = _subPrev.z; break; }
-    subG = g;
+    // 足元に何もない（地形の外）か、登った先で頭の上に天井がかぶさる（橋の下の低い岸など）なら、そこへは進まない
+    if (g === null || (g > feet.y + 0.01 && ceilingOver(_hp.set(feet.x, g, feet.z)))) { feet.x = _subPrev.x; feet.z = _subPrev.z; break; }
     if (g > feet.y) feet.y = g;   // 上り坂・段差を登る
   }
 
@@ -5387,6 +5461,7 @@ function updateCamera() {
 
 let daytime = null;
 function tick(dt, active) {
+  updateAmbient(active);
   // 一時停止中は時間を止める（見た目の切り替えには合わせ直す）。N を押している間は早送り
   waterUniforms.uTime.value += dt;
   updateSpray();
@@ -5419,7 +5494,7 @@ function tick(dt, active) {
   if (finale && active && finale.phase !== 'ending') { updateFinale(dt); releaseAll(); }
   if (storyStage >= 3 && !townCollapsed) preloadCollapsed().catch(() => {});   // 崩壊した町を裏で読んでおく
   if (bossIntro && active) { updateBossIntro(dt); releaseAll(); }
-  if (active && !talk.active && !knockout && !bossIntro && !collapse && !finale) { updatePlayer(dt); collideBoss(dt); updateTrap(dt); }
+  if (active && !talk.active && !knockout && !bossIntro && !collapse && !finale) { updatePlayer(dt); collideBoss(dt); }
   else moveSpeed = 0;
   collidePeople(active);
   updateAnimation(dt);
