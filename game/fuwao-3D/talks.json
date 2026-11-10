@@ -311,6 +311,17 @@
       ] }
     ]
   },
+  "equipped": {
+    "name": "工場長",
+    "portrait": "chief",
+    "talks": [
+      { "face": "fun", "lines": [
+        "どうじゃ、ぴったりじゃろう！",
+        { "text": "燃料の目盛りも、ほれ、こんなに伸びたぞい。", "face": "joy" },
+        "さあ、町のみんなが待っとる。行ってこい！"
+      ] }
+    ]
+  },
   "warning": {
     "name": "町長",
     "portrait": "mayor",

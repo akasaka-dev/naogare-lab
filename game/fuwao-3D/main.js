@@ -4346,7 +4346,22 @@ function updateChocoEquip(v) {
     sparkleBurst(_oc2, 26, 0.4);
     showToast(GIFT_TOASTS.choco);
   }
-  if (v.t >= CHOCO_EQUIP_END) leaveWorkshop();
+  if (v.t >= CHOCO_EQUIP_END) startEquippedTalk(v);
+}
+// 取り付けが終わったら、工場長がひとこと言ってから外へ（talks.json の equipped）。話し終わると advanceTalk で外へ出る
+function startEquippedTalk(v) {
+  const book = TALKS.equipped, chief = residents.find((r) => r.id === '0-1');
+  const t = book && chief && pickTalk(book.talks, chief);
+  if (!t) { leaveWorkshop(); return; }
+  (chief.talked ||= new Set()).add(t);
+  chief.lastTalk = t;
+  v.phase = 'talk';
+  v.equipCam = false;   // カメラを工場長へ戻す
+  talkRefill = talkGift = talkSummon = null;
+  talk.open({
+    name: t.name || book.name, portrait: null,
+    lines: t.lines.map((l) => ({ text: typeof l === 'string' ? l : l.text, portrait: portraitSrc(book.portrait, (typeof l === 'object' && l.face) || t.face) })),
+  });
 }
 function updateVisit(dt, active) {
   const v = visit;
@@ -4626,7 +4641,7 @@ function talkTarget() {
 // 合わないまとまりはコンソールに警告を出して使わない（キャラクターごと使えないときもある）
 // revive：からだが 0 になってパン工房で焼き直されたときの、工場長のセリフ（だれかに話しかけたときには使わない）
 // warning：魔法のパン種を付けてはじめて発射しようとしたとき、町長が止めに来るセリフ
-const TALK_KEY = /^((10|[0-9])-[1-9][0-9]?|grandpa|grandma|girl|mayor|baker|chief|revive|warning)$/;
+const TALK_KEY = /^((10|[0-9])-[1-9][0-9]?|grandpa|grandma|girl|mayor|baker|chief|revive|warning|equipped)$/;
 // セリフの人物画は portraits/<組>_<表情>.webp。組はキャラクターの portrait、表情は face（喜・怒・哀・楽。省略すると喜）
 const PORTRAIT_SETS = ['baker', 'mayor', 'chief'];
 const FACES = ['joy', 'angry', 'sad', 'fun'];
