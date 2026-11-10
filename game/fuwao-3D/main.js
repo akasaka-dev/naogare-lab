@@ -1042,7 +1042,7 @@ function clipsFromExtras(root, clips) {
 //   roll：転がって町へ来る（clip：転がるアニメ、start：転がり始め、speed：m/秒、loop：アニメ 1 回で進む距離 m）
 //   hard：体当たりしても押し戻せない（はね返されるだけ。撤退ラインも出さない）
 //   intro：出現シーンの最後に威嚇でするアニメ（ないときは attacks の最初）。camScale：出現シーンのカメラの引き（大きいボス用）
-//   roam：次のステージ（next）では、倒されるまで町の中を転げまわる（speed：m/秒、radius：町の真ん中から転がる範囲 m）。
+//   roam：次のステージ（next）では、倒されるまで町の中を転げまわる（speed：m/秒。行き先は廃墟の全区画から。pickRoamTarget）。
 //         転がっているときにふわおにぶつかると、つぶしてからだを 1/4 減らす
 // name は画面に出す名前（どのボスも「脅威」）。BOSSES の順に、バイ菌ボス・ヘドロボス・ロックボス
 const BOSSES = [
@@ -1052,7 +1052,7 @@ const BOSSES = [
     attacks: [['attack_slam', 92], ['attack_wave', 160]], bodyY: 7, sink: 0, needs: 'solidifier' },
   { name: '脅威', root: 'RB_Root', hit: 'RB_Hit_Body', stage: 3, summon: true, next: 4,
     attacks: [], bodyY: 21, sink: 0, roll: { clip: 'roll', start: 'roll_start', speed: 2.5, loop: 131.95 },
-    hard: true, intro: 'roll_start', camScale: 2.1, roam: { speed: 6, radius: 34 } },
+    hard: true, intro: 'roll_start', camScale: 2.1, roam: { speed: 6 } },
 ];
 const BOSS_IDLE_TIME = 6;   // 攻撃と攻撃のあいだの待機（秒）
 const BOSS_FADE = 0.25;
@@ -1985,6 +1985,7 @@ function enterCollapsed() {
       r.root.visible = true;
       continue;
     }
+    if (r.id === '1-1') { mayorToHill(r); continue; }   // 町長は、避難した丘に立っている
     r.state = 'gone';
     r.root.visible = false;
   }
@@ -1997,8 +1998,21 @@ function enterCollapsed() {
   }
   helps.length = 0;
 }
+// ---- 避難した丘（町が崩壊したあと） ----
+// 山の斜面の町のさらに上の草の丘。崩れた町と、転げまわる脅威を見下ろせる（脅威の行き先より外なので、ここまでは来ない）。
+// いまは町長だけが立っている
+const MAYOR_HILL = new THREE.Vector3(0, 0, -150);
+function mayorToHill(r) {
+  r.home = groundPoint(MAYOR_HILL);
+  r.root.position.copy(r.home);
+  r.root.rotation.y = 0;   // 町のほう（+Z）を向く
+  r.root.visible = true;
+  r.state = 'idle';
+  r.wait = 2;
+  r.leaving = false;
+}
 // ---- 町長の警告（魔法のパン種を付けて、はじめて発射しようとしたとき） ----
-// 山へ避難していた町長が、ふわおのところへ歩いてきて止める（talks.json の warning）。話し終わると山のほうへ去っていく
+// 丘へ避難していた町長が、ふわおのところへ歩いてきて止める（talks.json の warning）。話し終わると丘のほうへ去っていき、丘に戻る
 let mayorWarned = false;
 const MAYOR_COME_FROM = 14;       // 町長が歩いてくる距離（m）
 const MAYOR_WALK = 1.8;           // 歩いてくる速さ（m/秒）
@@ -2007,8 +2021,10 @@ function startMayorWarn() {
   const r = residents.find((x) => x.id === '1-1');
   if (!r || !TALKS.warning) return;
   mayorWarned = true;
-  // お城への坂道（山）のほうから歩いてくる
-  _rd.set(EVAC_TO.x - feet.x, 0, EVAC_TO.z - feet.z).normalize();
+  // 避難した丘のほうから歩いてくる
+  _rd.set(MAYOR_HILL.x - feet.x, 0, MAYOR_HILL.z - feet.z);
+  if (_rd.lengthSq() < 1) _rd.set(0, 0, -1);   // 丘の上にいるときは、さらに奥から
+  _rd.normalize();
   r.root.position.copy(groundPoint(_rm.set(feet.x + _rd.x * MAYOR_COME_FROM, 0, feet.z + _rd.z * MAYOR_COME_FROM)));
   r.root.visible = true;
   r.state = 'approach';
@@ -2029,11 +2045,11 @@ function mayorTalk(r) {
     lines: t.lines.map((l) => ({ text: typeof l === 'string' ? l : l.text, portrait: portraitSrc(book.portrait, (typeof l === 'object' && l.face) || t.face) })),
   });
 }
-// 話し終わった町長は、山のほうへ去っていく
+// 話し終わった町長は、丘のほうへ去っていく（見えなくなったら丘に戻っている）
 function mayorLeave(r) {
   r.leaveAfterTalk = false;
   r.leaving = true;
-  _rd.set(EVAC_TO.x - r.root.position.x, 0, EVAC_TO.z - r.root.position.z).normalize();
+  _rd.set(MAYOR_HILL.x - r.root.position.x, 0, MAYOR_HILL.z - r.root.position.z).normalize();
   r.evac = groundPoint(_rm.set(r.root.position.x + _rd.x * MAYOR_LEAVE, 0, r.root.position.z + _rd.z * MAYOR_LEAVE));
   r.evacDelay = 0.6;
   r.state = 'evac';
@@ -2339,20 +2355,41 @@ function setRolling(on) {
 function bossDistance() {
   return Math.hypot(boss.position.x - BOSS_TARGET.x, boss.position.z - BOSS_TARGET.z);
 }
-// 町を転げまわる：町の中の場所を次々に選んで、そこへ転がっていく
+// 町を転げまわる：廃墟の区画（山の斜面の町も）の中の場所を次々に選んで、そこへ転がっていく。
+// 区画はどれも同じ割合で選ぶ（広い山の斜面ばかりにならないように）。
+// パン工房のまわり（工場長が立っている）は、行き先にも、通り道にもしない
+const ROAM_AWAY = 25;       // 今いる所からこれ以上離れた場所を選ぶ（m）
+const ROAM_WORKSHOP = 8;    // パン工房の範囲（WORKSHOP_BOX）から、さらにこれだけ離れる（m）
 const _roam = new THREE.Vector3();
 let roamTarget = null, roamWait = 0;
+// 線分 (ax, az)-(bx, bz) が、パン工房のまわりの箱を通るか
+function roamHitsWorkshop(ax, az, bx, bz) {
+  const [x0, z0, x1, z1] = WORKSHOP_BOX, m = ROAM_WORKSHOP;
+  for (let i = 0; i <= 20; i++) {
+    const x = ax + (bx - ax) * i / 20, z = az + (bz - az) * i / 20;
+    if (x > x0 - m && x < x1 + m && z > z0 - m && z < z1 + m) return true;
+  }
+  return false;
+}
+function pickRoamTarget(pos) {
+  let best = null;
+  for (let i = 0; i < 40; i++) {
+    const a = ruinAreas[Math.floor(Math.random() * ruinAreas.length)];
+    const total = a.boxes.reduce((t, [x0, z0, x1, z1]) => t + (x1 - x0) * (z1 - z0), 0);
+    let r = Math.random() * total, box = a.boxes[0];
+    for (const b of a.boxes) { r -= (b[2] - b[0]) * (b[3] - b[1]); if (r <= 0) { box = b; break; } }
+    const x = THREE.MathUtils.lerp(box[0], box[2], Math.random()), z = THREE.MathUtils.lerp(box[1], box[3], Math.random());
+    if (roamHitsWorkshop(pos.x, pos.z, x, z)) continue;
+    best = _roam.set(x, 0, z);
+    if (Math.hypot(x - pos.x, z - pos.z) > ROAM_AWAY) break;
+  }
+  return best ? best.clone() : new THREE.Vector3(BOSS_TARGET.x, 0, BOSS_TARGET.z);
+}
 function roamBoss(dt) {
   const R = bossCfg.roam, pos = boss.position;
   if (!roamTarget || Math.hypot(roamTarget.x - pos.x, roamTarget.z - pos.z) < 3) {
     if (roamTarget) roamWait = 1 + Math.random() * 1.5;   // 着いたら少し止まって、次へ
-    // 今いる所から 25m 以上離れた、町の中の場所
-    for (let i = 0; i < 20; i++) {
-      const a = Math.random() * Math.PI * 2, d = R.radius * Math.sqrt(Math.random());
-      _roam.set(BOSS_TARGET.x + Math.cos(a) * d, 0, BOSS_TARGET.z + Math.sin(a) * d);
-      if (Math.hypot(_roam.x - pos.x, _roam.z - pos.z) > 25) break;
-    }
-    roamTarget = _roam.clone();
+    roamTarget = pickRoamTarget(pos);
   }
   _bd.set(roamTarget.x - pos.x, 0, roamTarget.z - pos.z);
   const dist = _bd.length();
@@ -3480,7 +3517,10 @@ function updateResidents(dt) {
         pos.addScaledVector(_rd.divideScalar(dist || 1), speed * dt);
         const gy = introGroundY(pos.x, pos.z, pos.y);
         pos.y += (gy - pos.y) * (1 - Math.exp(-12 * dt));
-        if (r.leaving && dist < 0.5) { r.leaving = false; r.state = 'gone'; r.root.visible = false; continue; }
+        if (r.leaving && dist < 0.5) {
+          if (r.id === '1-1' && townCollapsed) { mayorToHill(r); continue; }
+          r.leaving = false; r.state = 'gone'; r.root.visible = false; continue;
+        }
       }
       r.walkWeight += ((speed > 0.01 ? 1 : 0) - r.walkWeight) * (1 - Math.exp(-8 * dt));
       r.walk.setEffectiveWeight(r.walkWeight);
