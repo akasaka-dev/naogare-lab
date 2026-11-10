@@ -4154,6 +4154,16 @@ function placeRing(r) {
   return ring;
 }
 function placeSign(text) {
+  const sign = new THREE.Sprite(new THREE.SpriteMaterial({ depthTest: false, depthWrite: false, sizeAttenuation: false }));
+  sign.center.set(0.5, 0);
+  sign.renderOrder = 997;
+  sign.userData.noOutline = true;
+  setSignText(sign, text);
+  scene.add(sign);
+  return sign;
+}
+// 札の文字を書きかえる（吹き出しの形の絵を作り直す）
+function setSignText(sign, text) {
   const c = document.createElement('canvas');
   const x = c.getContext('2d');
   const font = 'bold 44px "Hiragino Maru Gothic ProN", "Yu Gothic UI", sans-serif';
@@ -4166,13 +4176,10 @@ function placeSign(text) {
   x.fillText(text, w / 2, 45);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
-  const sign = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, depthWrite: false, sizeAttenuation: false }));
-  sign.center.set(0.5, 0);
+  sign.material.map?.dispose();
+  sign.material.map = tex;
+  sign.material.needsUpdate = true;
   sign.scale.set(0.11 * w / h, 0.11, 1);
-  sign.renderOrder = 997;
-  sign.userData.noOutline = true;
-  scene.add(sign);
-  return sign;
 }
 // 輪と札をゆらす（光が強くなったり弱くなったり、札は上下に）
 function pulseMarker(ring, sign, y, signLift) {
@@ -4199,6 +4206,23 @@ function updateBakerMarker(active) {
   bakerSign.position.x = p.x; bakerSign.position.z = p.z;
   pulseMarker(bakerRing, bakerSign, p.y, r.height + 0.7);
 }
+// 避難した丘（町が崩壊したあと）にも、輪と「避難所」の札。札は山の向こうからでも見えるので、目印になる
+const HILL_RING_R = 2.5;
+let hillRing = null, hillSign = null, hillGround = null, hillSignDist = -1;
+const HILL_SIGN_NEAR = 25;   // これより近いと、距離は出さない（m）
+function updateHillMarker(active) {
+  const show = townCollapsed && !finale;
+  hillRing.visible = show;
+  hillSign.visible = show && active;
+  if (!show) return;
+  const g = hillGround ||= groundPoint(MAYOR_HILL);   // 崩れた町を読み込んだあとに一度だけ調べる
+  hillRing.position.set(g.x, g.y + 0.05, g.z + 2.5);   // 町長の少し町寄り
+  hillSign.position.x = g.x; hillSign.position.z = g.z;
+  pulseMarker(hillRing, hillSign, g.y, 4);
+  const d = Math.hypot(feet.x - g.x, feet.z - g.z);
+  const shown = d < HILL_SIGN_NEAR ? 0 : Math.round(d / 10) * 10;   // 10m ごと
+  if (shown !== hillSignDist) { hillSignDist = shown; setSignText(hillSign, shown ? `避難所 ${shown}m` : '避難所'); }
+}
 function setupDoor() {
   const ground = groundPoint(WORKSHOP_FRONT);
   doorRing = placeRing(DOOR_R);
@@ -4207,10 +4231,13 @@ function setupDoor() {
   doorIcon = placeSign('パン工房');
   doorIcon.position.copy(ground).setY(ground.y + 3.4);
   setupBakerMarker();
+  hillRing = placeRing(HILL_RING_R);
+  hillSign = placeSign('避難所');
 }
 function updateDoor(dt, active) {
   if (!doorRing) return;
   updateBakerMarker(active);
+  updateHillMarker(active);
   const open = doorOpen();
   doorRing.visible = open;
   doorIcon.visible = open && active;
