@@ -928,13 +928,22 @@ function setupAnimations(clips) {
   });
 }
 
+// 魔法のパン種を撃ってよいときか（撃てるのは一度きり）。条件はこれから決める
+function yeastShotReady() {
+  return false;
+}
 function fire() {
   if (firing || !fireAction || knockout || retreat) return;   // 地上でも空中（ジャンプ・ジェット中）でも撃てる
   // 魔法のパン種が砲口にくっついていると、パンは出ない。はじめてのときは町長が止めに来る
-  if (items.has('yeast')) {
+  if (items.has('yeast') && !items.has('flour')) {
     showToast('発射しない。種がくっついている');
     if (!mayorWarned && !finale && !talk.active) startMayorWarn();
     return;
+  }
+  // 打ち粉をまぶすと、パン種を撃てる。撃てるのは一度きりなので、ねらいが合うまでは撃たない
+  if (items.has('flour')) {
+    if (!yeastShotReady()) { showToast('今は発射すべきではない。チャンスは一度きりだ'); return; }
+    return;   // パン種を撃つところは、これから作る
   }
   firing = true;
   recoiled = false;
@@ -1063,7 +1072,9 @@ const SOLID_COLOR = new THREE.Color(0x9a9088);   // 固まった色（乾いた�
 // ふわおが手に入れた道具。solidifier：固形化パン（パン工房の工場長がくれる。ヘドロボスを固めて体当たりできる）
 // choco：板チョコ（ステージ 1 をクリアすると工房の展示台に並び、工場長がメカの背中にチョコ燃料タンクとして取り付けてくれる。燃料の最大が CHOCO_FUEL_MAX に）
 // yeast：魔法のパン種（町が崩壊したあと、パン工房の前の工場長が砲台に付けてくれる。脅威3 を倒す最後の武器）
-const ITEMS = { solidifier: '固形化パン', choco: '板チョコ', yeast: '魔法のパン種' };
+const ITEMS = { solidifier: '固形化パン', choco: '板チョコ', yeast: '魔法のパン種', flour: '秘伝の打ち粉' };
+// その道具は、先にこの道具を持っていないともらえない（打ち粉は、パン種に振りかけるもの）
+const ITEM_NEEDS = { flour: 'yeast' };
 const CHOCO_FUEL_MAX = 0.5;
 const items = new Set();
 let passToast = 0;   // すり抜けたときのお知らせを出してからの時間
@@ -1973,7 +1984,7 @@ async function collapseTown() {
   setupFoam(gltf.scene, townGroup);
   enterCollapsed();
 }
-// 崩壊したあと：町の人は山へ避難していない（工場長だけはパン工房の前にいる）。小バイ菌と助けを呼ぶ声もなくなる
+// 崩壊したあと：町の人は山の上の丘へ避難している（工場長だけはパン工房の前にいる）。小バイ菌と助けを呼ぶ声もなくなる
 function enterCollapsed() {
   for (const r of residents) {
     r.hungry = false;
@@ -1985,9 +1996,7 @@ function enterCollapsed() {
       r.root.visible = true;
       continue;
     }
-    if (r.id === '1-1') { mayorToHill(r); continue; }   // 町長は、避難した丘に立っている
-    r.state = 'gone';
-    r.root.visible = false;
+    toHill(r);   // ほかの人は、避難した丘にいる
   }
   for (const g of germs) { g.state = 'defeat'; g.done = true; g.target = null; scene.remove(g.root); }
   for (const h of helps) {
@@ -2000,16 +2009,28 @@ function enterCollapsed() {
 }
 // ---- 避難した丘（町が崩壊したあと） ----
 // 山の斜面の町のさらに上の草の丘。崩れた町と、転げまわる脅威を見下ろせる（脅威の行き先より外なので、ここまでは来ない）。
-// いまは町長だけが立っている
+// 町長を真ん中に、町のほう（+Z）を向いて集まっている。家には帰らず、丘の上を少しだけ歩く
 const MAYOR_HILL = new THREE.Vector3(0, 0, -150);
-function mayorToHill(r) {
-  r.home = groundPoint(MAYOR_HILL);
+const HILL_SPOTS = {   // 町長からの位置（x, z）
+  '1-1': [0, 0], '3-1': [6, 1], '4-1': [3, 3], '7-1': [-2, 5], '2-2': [-4, 4], '7-2': [-6, 5],   // 丘の西には木があるので、その手前
+};
+const HILL_ROAM = 1.5;   // 丘の上で歩きまわる範囲（m）
+function toHill(r) {
+  const [dx, dz] = HILL_SPOTS[r.id] || [Math.random() * 8 - 4, Math.random() * 4 - 1];
+  // 木の上に乗らないよう、丘の地面の少し上から下を調べる
+  const top = (hillGround ||= groundPoint(MAYOR_HILL)).y + 4;
+  _o.set(MAYOR_HILL.x + dx, top, MAYOR_HILL.z + dz);
+  const hit = cast(_o, DOWN, 20);
+  r.home = new THREE.Vector3(_o.x, hit ? hit.point.y : top - 4, _o.z);
   r.root.position.copy(r.home);
   r.root.rotation.y = 0;   // 町のほう（+Z）を向く
+  r.standFace = 0;
   r.root.visible = true;
   r.state = 'idle';
-  r.wait = 2;
+  r.wait = 1 + Math.random() * 2;
   r.leaving = false;
+  r.house = null;          // 夜も家には帰らない
+  r.roam = Math.min(r.roam, HILL_ROAM);
 }
 // ---- 町長の警告（魔法のパン種を付けて、はじめて発射しようとしたとき） ----
 // 丘へ避難していた町長が、ふわおのところへ歩いてきて止める（talks.json の warning）。話し終わると丘のほうへ去っていき、丘に戻る
@@ -3471,7 +3492,7 @@ function makeHungry() {
 }
 function updateHunger(dt, active) {
   const h = daytime.hour;
-  if (active && lastHour !== null && lastHour < HUNGER_HOUR && h >= HUNGER_HOUR && h - lastHour < 6) makeHungry();
+  if (active && !townCollapsed && lastHour !== null && lastHour < HUNGER_HOUR && h >= HUNGER_HOUR && h - lastHour < 6) makeHungry();
   lastHour = h;
   for (const r of residents) {
     if (!r.hungerIcon) continue;
@@ -3518,7 +3539,7 @@ function updateResidents(dt) {
         const gy = introGroundY(pos.x, pos.z, pos.y);
         pos.y += (gy - pos.y) * (1 - Math.exp(-12 * dt));
         if (r.leaving && dist < 0.5) {
-          if (r.id === '1-1' && townCollapsed) { mayorToHill(r); continue; }
+          if (r.id === '1-1' && townCollapsed) { toHill(r); continue; }
           r.leaving = false; r.state = 'gone'; r.root.visible = false; continue;
         }
       }
@@ -4197,7 +4218,7 @@ function setupBakerMarker() {
 }
 function updateBakerMarker(active) {
   const r = residents.find((x) => x.id === '3-1');
-  const show = !!r && r.root.visible && r.state !== 'gone' && r.state !== 'evac';   // 避難のカットでは出さない
+  const show = !!r && r.root.visible && r.state !== 'gone' && r.state !== 'evac' && !townCollapsed;   // 避難のカットと、丘へ避難したあとは出さない
   bakerRing.visible = show;
   bakerSign.visible = show && active;
   if (!show) return;
@@ -4231,13 +4252,14 @@ function setupDoor() {
   doorIcon = placeSign('パン工房');
   doorIcon.position.copy(ground).setY(ground.y + 3.4);
   setupBakerMarker();
-  hillRing = placeRing(HILL_RING_R);
-  hillSign = placeSign('避難所');
+  // 避難所の目印は、出すタイミングが決まるまで出さない
+  // hillRing = placeRing(HILL_RING_R);
+  // hillSign = placeSign('避難所');
 }
 function updateDoor(dt, active) {
   if (!doorRing) return;
   updateBakerMarker(active);
-  updateHillMarker(active);
+  // updateHillMarker(active);
   const open = doorOpen();
   doorRing.visible = open;
   doorIcon.visible = open && active;
@@ -4628,6 +4650,7 @@ const TALK_CHECKS = {
   face: (v) => FACES.includes(v),
   refill: (v) => REFILLS.includes(v),
   gift: (v) => v in ITEMS,
+  item: (v) => v in ITEMS,
   boss: (v) => isInt(v, 1, BOSSES.length),
   summon: (v) => isInt(v, 1, BOSSES.length) && !!BOSSES[v - 1].summon,
   lines: (v) => Array.isArray(v) && v.length >= 1 && v.length <= TALK_LINES_MAX && v.every((l) => {
@@ -4637,7 +4660,7 @@ const TALK_CHECKS = {
       && (l.face === undefined || FACES.includes(l.face));
   }),
 };
-const TALK_CONDITIONS = ['stage', 'town', 'area', 'areaTown', 'once', 'boss', 'summon'];
+const TALK_CONDITIONS = ['stage', 'town', 'area', 'areaTown', 'once', 'boss', 'summon', 'item'];
 function talkProblems(t) {
   if (!t || typeof t !== 'object') return ['まとまりがオブジェクトではない'];
   const bad = Object.keys(t).filter((k) => !TALK_CHECKS[k]).map((k) => `知らない項目 ${k}`);
@@ -4688,6 +4711,8 @@ const inList = (v, c) => c === undefined || (Array.isArray(c) ? c.includes(v) : 
 function talkFits(t, r, used) {
   if (t.once && used.has(t)) return false;
   if (t.gift && items.has(t.gift)) return false;   // もうもらった道具の話はしない
+  if (t.gift && ITEM_NEEDS[t.gift] && !items.has(ITEM_NEEDS[t.gift])) return false;   // 先に要る道具がまだ
+  if (t.item && !items.has(t.item)) return false;   // その道具を持っているときだけの話
   if (t.boss !== undefined && !(bossIndex + 1 === t.boss && (bossAppeared || retreat) && !bossGone)) return false;
   // ボスを呼ぶ話は、そのボスの番で、まだ現れていないときだけ（ステージもそのボスのステージ）
   if (t.summon !== undefined && !(bossIndex + 1 === t.summon && !bossAppeared && !bossIntro && !bossSummoned && !bossGone && storyStage === BOSSES[t.summon - 1].stage)) return false;
@@ -4767,6 +4792,7 @@ const GIFT_TOASTS = {
   solidifier: '固形化パンを手に入れた！ 脅威に体当たりすると、体が固まって押し戻せる',
   choco: '板チョコを手に入れた！ チョコ燃料タンクで、燃料の最大が 50% に上がった',
   yeast: '魔法のパン種を手に入れた！ 砲台の先に、光るパン種が付いた',
+  flour: '秘伝の打ち粉で、魔法のパン種が撃てるようになった！ 撃てるのは一度きり',
 };
 function advanceTalk() {
   if (!talk.advance()) return;
