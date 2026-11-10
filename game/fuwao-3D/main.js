@@ -4613,7 +4613,7 @@ function talkTarget() {
   let best = null, bestD = Infinity;
   const cx = window.innerWidth / 2, cy = window.innerHeight / 2, lim = window.innerHeight * TALK_AIM;
   for (const r of residents) {
-    if (r.root.position.distanceTo(feet) > TALK_NEAR || r.state === 'eat' || !r.root.visible) continue;
+    if (r.root.position.distanceTo(feet) > TALK_NEAR || r.state === 'eat' || !r.root.visible || !hasTalk(r)) continue;
     const p = screenOf(r, r.height * 0.6);
     if (!p) continue;
     const d = Math.hypot(p.x - cx, p.y - cy);
@@ -4708,7 +4708,10 @@ const AREA_ORDER = Object.keys(AREA_NAMES);
 function areaNumber(i) { return i >= 0 ? AREA_ORDER.indexOf(ruinAreas[i].name) + 1 : 0; }
 const inRange = (v, c) => c === undefined || (Array.isArray(c) ? v >= c[0] && v <= c[c.length - 1] : v === c);
 const inList = (v, c) => c === undefined || (Array.isArray(c) ? c.includes(v) : v === c);
+// ステージ 4（町が崩壊したあと）は、stage に 4 を含むまとまりだけ（条件なしの話は、崩壊する前の町の話なので出さない）
+const TALK_ONLY_STAGE = 4;
 function talkFits(t, r, used) {
+  if (storyStage >= TALK_ONLY_STAGE && (t.stage === undefined || !inRange(storyStage, t.stage))) return false;
   if (t.once && used.has(t)) return false;
   if (t.gift && items.has(t.gift)) return false;   // もうもらった道具の話はしない
   if (t.gift && ITEM_NEEDS[t.gift] && !items.has(ITEM_NEEDS[t.gift])) return false;   // 先に要る道具がまだ
@@ -4733,6 +4736,11 @@ function pickTalk(list, r) {
   let w = cands.reduce((s, t) => s + (t.weight ?? 1), 0) * Math.random();
   for (const t of cands) if ((w -= t.weight ?? 1) <= 0) return t;
   return cands[cands.length - 1];
+}
+// 話せるセリフがあるか（選ばずに調べるだけ）
+function hasTalk(r) {
+  const used = r.talked || new Set();
+  return [TALKS[r.id], TALKS[r.kindName]].some((b) => b && (b.talks ? b.talks.some((t) => talkFits(t, r, used)) : !!b.lines));
 }
 // その人の id の台本 → 種類（grandpa など）の台本、の順で、条件に合うセリフを選ぶ
 function talkScript(r) {
