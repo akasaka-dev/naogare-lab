@@ -3097,19 +3097,27 @@ function townProgress() {
 }
 // 会話・カットイン・暗転・工房の中・オープニングの間は、セリフと重ならないように出さずにためておき、
 // 終わってから順に出す（同じ文はまとめる。たまりすぎたら古いものから捨てる）。
-// 出ている途中で会話などが始まったら、いったん引っこめて、あとで出し直す
+// 出ている途中で会話などが始まったら、いったん引っこめて、あとで出し直す。
+// からだが 0 になってパン工房へ戻されるときは、それまでのメッセージは古くなるので捨てる（clearToasts）。
+// 長く待ったもの（TOAST_STALE 秒）も捨てる
 const TOAST_TIME = 3;          // 1 つを出しておく時間（秒）
 const TOAST_GAP = 0.4;         // 続けて出すときのすき間（秒）
 const TOAST_QUEUE_MAX = 4;
-const toastQueue = [];
+const TOAST_STALE = 45;
+const toastQueue = [];   // { text, at: ためた時刻（time.value） }
 let toastGap = 0;
 function toastBusy() {
   return talk.active || !!opening || !!visit || document.body.classList.contains('cutin') || fadeEl.classList.contains('on');
 }
 function queueToast(text) {
-  if (toastQueue.includes(text)) return;
-  toastQueue.push(text);
+  if (toastQueue.some((q) => q.text === text)) return;
+  toastQueue.push({ text, at: time.value });
   if (toastQueue.length > TOAST_QUEUE_MAX) toastQueue.shift();
+}
+function clearToasts() {
+  toastQueue.length = 0;
+  toastTime = 0;
+  toastEl.classList.remove('on');
 }
 function showToast(text) {
   if (toastBusy()) { queueToast(text); return; }
@@ -3120,7 +3128,7 @@ function showToast(text) {
 function updateToast(dt) {
   if (toastBusy()) {
     if (toastTime > 0) {
-      if (toastTime > 0.8) toastQueue.unshift(toastEl.textContent);   // ほとんど読めていないものは出し直す
+      if (toastTime > 0.8) toastQueue.unshift({ text: toastEl.textContent, at: time.value });   // ほとんど読めていないものは出し直す
       toastTime = 0;
       toastEl.classList.remove('on');
       toastGap = TOAST_GAP;
@@ -3131,7 +3139,8 @@ function updateToast(dt) {
     if ((toastTime -= dt) <= 0) { toastEl.classList.remove('on'); toastGap = TOAST_GAP; }
     return;
   }
-  if (toastQueue.length && (toastGap -= dt) <= 0) showToast(toastQueue.shift());
+  while (toastQueue.length && time.value - toastQueue[0].at > TOAST_STALE) toastQueue.shift();
+  if (toastQueue.length && (toastGap -= dt) <= 0) showToast(toastQueue.shift().text);
 }
 
 // ---- 助けを呼ぶ声と、その方向の 3D の矢印 ----
@@ -3349,13 +3358,13 @@ function hurtBody(msg) {
   void hurtEl.offsetWidth;
   hurtEl.classList.add('on');
   shake = Math.max(shake, 1.5);
-  if (body <= 0) knockout = { t: 0, moved: false };
+  if (body <= 0) { knockout = { t: 0, moved: false }; clearToasts(); }
   else if (msg) showToast(msg);
   return true;
 }
 function shaveBody() {
   body = Math.max(0, body - BODY_PER_SHOT);
-  if (body <= 0 && !knockout) knockout = { t: -0.8, moved: false };   // 撃ったパンが飛んでいくのを少し見せてから暗転
+  if (body <= 0 && !knockout) { knockout = { t: -0.8, moved: false }; clearToasts(); }   // 撃ったパンが飛んでいくのを少し見せてから暗転
 }
 function updateProgress(dt, active) {
   // 区画のゲージが満タンになったら、区画を元に戻す
@@ -3536,7 +3545,7 @@ function eatBread(b, mouth) {
 // このフレームに進む分だけ、見えているボスの体のメッシュへ線を飛ばして当たりを見る
 const BREAD_BOSS_NEAR = 16;
 const _bray = new THREE.Raycaster(), _bdir = new THREE.Vector3();
-let solidToast = 0;
+let solidToast = -Infinity;
 function breadHitsBoss(b, dt) {
   if (!boss || !bossAppeared || bossGone || retreat || !bossCfg.needs) return false;
   const p = b.root.position, o = boss.position;
