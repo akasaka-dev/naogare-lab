@@ -1018,7 +1018,7 @@ if (new URLSearchParams(location.search).has('debug')) {
     appear() { if (!bossAppeared && !bossIntro) startBossIntro(); },
     get collapse() { return collapse; }, get finale() { return finale; }, startFinale, startMayorWarn, get townCollapsed() { return townCollapsed; }, useBoss, get bossIndex() { return bossIndex; },
     get items() { return [...items]; }, giveItem(k) { items.add(k); }, noon: makeHungry, enterWorkshop, saveGame, readSave, clearSave, startGame, get visit() { return visit; }, get hungry() { return residents.filter((r) => r.hungry).map((r) => r.id); }, get intro() { return bossIntro; }, get appeared() { return bossAppeared; },
-    get retreating() { return !!retreat; }, get bossGone() { return bossGone; },
+    get retreating() { return !!retreat; }, get bossGone() { return bossGone; }, get bossSolid() { return bossSolid; },
     attackTown, get quake() { return quake; },
     get spots() { return ruinAreas.map((a, i) => [AREA_NAMES[a.name], areaGauge[i].spots.map((p) => [+p.x.toFixed(1), +p.z.toFixed(1)])]); },
     get helps() { return helps.map((h) => [AREA_NAMES[ruinAreas[h.area].name], Math.round(h.dist || 0)]); },
@@ -1067,7 +1067,8 @@ function clipsFromExtras(root, clips) {
 //   stage：このステージで現れる。appearAt：町の復興度がこれを超えると現れる。next：追い出したあとのステージ
 //   attacks：[クリップ名, 当たるフレーム]。bodyY：体の中心の高さ（根元から）。sink：落ちてきたときにめりこむ深さ
 //   rain：撤退するときに小バイ菌を町へふらせ、町の復興度をこれまで下げる
-//   needs：この道具（ITEMS）がないと、体当たりしてもすり抜けてしまう。道具があれば、ぶつかった所が固まって押し戻せる
+//   needs：この道具（ITEMS）がないと、体当たりしてもすり抜けてしまう。道具があれば、撃ったパンが当たると体が固まり（SOLID_TIME 秒）、
+//          固まっている間に体当たりすると押し戻せる。固まっていないときに体当たりすると、すり抜けてからだが減る
 //   summon：復興度では現れず、talks.json の summon のセリフを話し終わったときに現れる（ボス3 は、復興度 100% のあと町長と話すと）
 //   roll：転がって町へ来る（clip：転がるアニメ、start：転がり始め、speed：m/秒、loop：アニメ 1 回で進む距離 m）
 //   hard：体当たりしても押し戻せない（はね返されるだけ。撤退ラインも出さない）
@@ -1095,9 +1096,9 @@ const BOSS_IDLE_TIME = 6;   // 攻撃と攻撃のあいだの待機（秒）
 const BOSS_FADE = 0.25;
 let boss = null, bossMixer = null, bossActions = null, bossCfg = null, bossIndex = -1, bossModels = [];
 let bossIdleTime = 0, bossAttack = null, bossNext = 0, bossHitTimes = {}, bossMats = [], bossSolid = 0;
-const SOLID_TIME = 2.5;                      // 固形化パンで体当たりしたとき、固まっている時間（秒）
+const SOLID_TIME = 4;                        // 固形化パンを当てたとき、固まっている時間（秒）
 const SOLID_COLOR = new THREE.Color(0x9a9088);   // 固まった色（乾いた土）
-// ふわおが手に入れた道具。solidifier：固形化パン（パン工房の工場長がくれる。ヘドロボスを固めて体当たりできる）
+// ふわおが手に入れた道具。solidifier：固形化パン（パン工房の工場長がくれる。撃ったパンがヘドロボスに当たると固まり、体当たりできる）
 // choco：板チョコ（ステージ 1 をクリアすると工房の展示台に並び、工場長がメカの背中にチョコ燃料タンクとして取り付けてくれる。燃料の最大が CHOCO_FUEL_MAX に）
 // yeast：魔法のパン種（町が崩壊したあと、パン工房の前の工場長が砲台に付けてくれる。脅威3 を倒す最後の武器）
 const ITEMS = { solidifier: '固形化パン', choco: '板チョコ', yeast: '魔法のパン種', flour: '秘伝の打ち粉' };
@@ -2555,14 +2556,15 @@ function collideBoss(dt) {
   _bd.divideScalar(d || 1);
   // 体当たりの強さは、ボスへ向かう速さ
   const toward = -(jetVel.x * _bd.x + jetVel.z * _bd.z);
-  // 道具がないと、ヘドロの体をずぶずぶとすり抜けてしまう（押し出しもしない）
-  if (bossCfg.needs && !items.has(bossCfg.needs)) {
+  // 道具がないとき・パンで固めていないときは、ヘドロの体をずぶずぶとすり抜けてしまう（押し出しもしない）
+  if (bossCfg.needs && (!items.has(bossCfg.needs) || bossSolid <= 0)) {
     jetVel.multiplyScalar(Math.exp(-2.5 * dt));
     if (toward > RAM_MIN_SPEED * 0.5) {
       // ヘドロの体を通り抜けると、からだが溶かされて 1/4 減る
       const first = passToast > 6;
       if (first) passToast = 0;
-      hurtBody(first ? `${bossCfg.name}の体をすり抜けて、からだが溶かされた！ パン工房の工場長に相談しよう` : null);
+      const how = items.has(bossCfg.needs) ? 'パンを当てて固めてから、体当たりしよう' : 'パン工房の工場長に相談しよう';
+      hurtBody(first ? `${bossCfg.name}の体をすり抜けて、からだが溶かされた！ ${how}` : null);
     }
     return;
   }
@@ -2587,7 +2589,6 @@ function collideBoss(dt) {
   }
   if (!bossCfg.hard && ramCooldown <= 0 && toward > RAM_MIN_SPEED) {
     ramCooldown = RAM_COOLDOWN;
-    if (bossCfg.needs) solidifyBoss();   // ぶつかった所が固まる
     const k = THREE.MathUtils.clamp((toward - RAM_MIN_SPEED) / (JET_SPEED - RAM_MIN_SPEED), 0, 1);
     _rd.set(-_bd.x, 0, -_bd.z).normalize();   // ロボからボスへ（水平）
     // 勢いが RAM_PUSH_DAMP の割合で減っていくと、下がる距離は 勢い / RAM_PUSH_DAMP
@@ -3322,6 +3323,24 @@ function eatBread(b, mouth) {
   b.root.rotation.y = Math.atan2(-dz, dx);
   vanishBread(b, 60);
 }
+// 撃ったパンが脅威の体に入ったら、パンはヘドロにのみこまれて消える。
+// 固形化パンを持っていて、固めるボス（needs）なら、体が固まる。
+// 体はすそ野の広い山の形なので、当たり判定の球ではなく、足元からの円柱（半径 BREAD_BOSS_REACH、高さ BREAD_BOSS_TOP）で見る
+const BREAD_BOSS_REACH = 10.5;   // ヘドロのすそ野まで（m。見た目の幅は約 22m）
+const BREAD_BOSS_TOP = 15;       // 体の高さ（m）
+let solidToast = 0;
+function breadHitsBoss(b) {
+  if (!boss || !bossAppeared || bossGone || retreat || !bossCfg.needs) return false;
+  const p = b.root.position, o = boss.position;
+  if (Math.hypot(p.x - o.x, p.z - o.z) > BREAD_BOSS_REACH || p.y < o.y - 2 || p.y > o.y + BREAD_BOSS_TOP) return false;
+  vanishBread(b);
+  if (items.has(bossCfg.needs)) {
+    const first = bossSolid <= 0;
+    solidifyBoss();
+    if (first && time.value - solidToast > 20) { solidToast = time.value; showToast(`${bossCfg.name}の体が固まった！ 今のうちに体当たり！`); }
+  }
+  return true;
+}
 const EAT_TIME = (100 - 60) / ANIM_FPS;
 const _bstep = new THREE.Vector3();
 function updateBreads(dt) {
@@ -3329,6 +3348,8 @@ function updateBreads(dt) {
     b.time += dt;
     if (b.state === 'fly' && catchBread(b)) {
       // 人に受け止められた
+    } else if (b.state === 'fly' && breadHitsBoss(b)) {
+      // 脅威の体に当たった（固形化パンなら固まる）
     } else if (b.state === 'fly') {
       b.vel.y -= BREAD_GRAVITY * dt;
       _bstep.copy(b.vel).multiplyScalar(dt);
@@ -4884,7 +4905,7 @@ function startTalk(r) {
 }
 let talkRefill = null, talkGift = null, talkSummon = null;
 const GIFT_TOASTS = {
-  solidifier: '固形化パンを手に入れた！ 脅威に体当たりすると、体が固まって押し戻せる',
+  solidifier: '固形化パンを手に入れた！ 脅威にパンを当てて固めてから、体当たりで押し戻そう',
   choco: '板チョコを手に入れた！ チョコ燃料タンクで、燃料の最大が 50% に上がった',
   yeast: '魔法のパン種を手に入れた！ 砲台の先に、光るパン種が付いた',
   flour: '秘伝の打ち粉で、魔法のパン種が撃てるようになった！ 撃てるのは一度きり',
