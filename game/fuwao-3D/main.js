@@ -1018,7 +1018,7 @@ if (new URLSearchParams(location.search).has('debug')) {
     appear() { if (!bossAppeared && !bossIntro) startBossIntro(); },
     get collapse() { return collapse; }, get finale() { return finale; }, startFinale, startMayorWarn, get townCollapsed() { return townCollapsed; }, useBoss, get bossIndex() { return bossIndex; },
     get items() { return [...items]; }, giveItem(k) { items.add(k); }, noon: makeHungry, enterWorkshop, saveGame, readSave, clearSave, startGame, get visit() { return visit; }, get hungry() { return residents.filter((r) => r.hungry).map((r) => r.id); }, get intro() { return bossIntro; }, get appeared() { return bossAppeared; },
-    get retreating() { return !!retreat; }, get bossGone() { return bossGone; }, get bossSolid() { return bossSolid; },
+    get retreating() { return !!retreat; }, get bossGone() { return bossGone; }, get bossSolid() { return bossSolid; }, get groundUniforms() { return groundUniforms; },
     attackTown, get quake() { return quake; },
     get spots() { return ruinAreas.map((a, i) => [AREA_NAMES[a.name], areaGauge[i].spots.map((p) => [+p.x.toFixed(1), +p.z.toFixed(1)])]); },
     get helps() { return helps.map((h) => [AREA_NAMES[ruinAreas[h.area].name], Math.round(h.dist || 0)]); },
@@ -1075,6 +1075,7 @@ function clipsFromExtras(root, clips) {
 //   intro：出現シーンの最後に威嚇でするアニメ（ないときは attacks の最初）。camScale：出現シーンのカメラの引き（大きいボス用）
 //   roam：次のステージ（next）では、倒されるまで町の中を転げまわる（speed：m/秒。行き先は廃墟の全区画から。pickRoamTarget）。
 //         転がっているときにふわおにぶつかると、つぶしてからだを 1/4 減らす
+//   ground：どろどろの体。坂の上でも、体の下のほう（すそ）を地面に沿わせる（GROUND_VERT）
 //   strike：攻撃がふわおにも当たる。{ クリップ名: [当たり始めのフレーム, 終わりのフレーム, [当たり判定のノード名…], 広げる距離 m] }。
 //           広げる距離：たたきつけた地面のまわりにも当たるように、球の半径を足す（触手の先だけだと小さすぎて当たらない）。
 //           ノードは extras の collider が hit（球。radius）か hit_ring（地面の輪。radius × 親の拡大率、幅 width。ジャンプでかわせる）。strikePlayer
@@ -1083,7 +1084,7 @@ const BOSSES = [
   { name: '脅威', root: 'GB_Root', hit: 'GB_Hit_Spikes', stage: 1, appearAt: 0.8, next: 2,
     attacks: [['attack_slam', 92], ['attack_drill', 171]], bodyY: 14, sink: 8, rain: 0.3 },
   { name: '脅威', root: 'SB_Root', hit: 'SB_Hit_Body', stage: 2, appearAt: 0.6, next: 3,
-    attacks: [['attack_slam', 92], ['attack_wave', 160]], bodyY: 7, sink: 0, needs: 'solidifier',
+    attacks: [['attack_slam', 92], ['attack_wave', 160]], bodyY: 7, sink: 0, needs: 'solidifier', ground: true,
     strike: {
       attack_slam: [89, 98, ['SB_Hit_Tip_L', 'SB_Hit_Tip_R', 'SB_Hit_Forearm_L', 'SB_Hit_Forearm_R'], 3],
       attack_wave: [160, 185, ['SB_Hit_Wave']],
@@ -1118,9 +1119,77 @@ const solidUniforms = {
   uSolidR: { value: SOLID_SIZE },
   uSolidColor: { value: SOLID_COLOR },
 };
-// ヘドロボスの材質に、固まった所の色をのせる処理を足す（トゥーンの材質も元の材質の onBeforeCompile を呼ぶ）
-function addSolidShader(mat) {
+// ---- 地面に沿うすそ（cfg.ground） ----
+// ヘドロボスの底は平らなので、坂の上では下側のすそが浮き、上側が地面にもぐる。
+// ボスの足元のまわり 2 つの輪（GROUND_R1・GROUND_R2）の GROUND_BINS か所と真ん中で地面の高さを測り（updateGroundSamples）、
+// 体の下のほう（足元から GROUND_H まで）の頂点を、その真下の地面の高さの分だけシェーダーで上下させる。
+// 影の回（customDepthMaterial）と輪郭線の回（userData.normalMaterial。anime.js）にも同じ曲げ方を入れる。
+// 地面に広がるヘドロの波の輪（SB_Wave）も同じように曲がる
+const GROUND_BINS = 16, GROUND_R1 = 8, GROUND_R2 = 18, GROUND_H = 5;
+const groundUniforms = {
+  uGround: { value: new Float32Array(1 + GROUND_BINS * 2) },   // [真ん中, 内側の輪…, 外側の輪…]（ボスの根元からの高さ）
+  uGroundO: { value: new THREE.Vector3() },                     // ボスの根元（世界の座標）
+};
+const GROUND_VERT = `
+{
+  vec4 gw = modelMatrix * vec4(transformed, 1.0);
+  vec2 rel = gw.xz - uGroundO.xz;
+  float r = length(rel);
+  float t = fract(atan(rel.y, rel.x) / 6.2831853 + 1.0) * ${GROUND_BINS}.0;
+  int k0 = int(floor(t)) % ${GROUND_BINS};
+  int k1 = (k0 + 1) % ${GROUND_BINS};
+  float f = fract(t);
+  float g1 = mix(uGround[1 + k0], uGround[1 + k1], f);
+  float g2 = mix(uGround[1 + ${GROUND_BINS} + k0], uGround[1 + ${GROUND_BINS} + k1], f);
+  float off = r < ${GROUND_R1}.0 ? mix(uGround[0], g1, r / ${GROUND_R1}.0) : mix(g1, g2, clamp((r - ${GROUND_R1}.0) / ${GROUND_R2 - GROUND_R1}.0, 0.0, 1.0));
+  float w = 1.0 - smoothstep(0.0, ${GROUND_H}.0, gw.y - uGroundO.y);
+  gw.y += off * w;
+  transformed = (inverse(modelMatrix) * gw).xyz;
+}
+#include <project_vertex>`;
+function addGroundVertex(shader) {
+  Object.assign(shader.uniforms, groundUniforms);
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', `#include <common>
+uniform float uGround[${1 + GROUND_BINS * 2}];
+uniform vec3 uGroundO;`)
+    .replace('#include <project_vertex>', GROUND_VERT);
+}
+let groundDepthMat = null, groundNormalMat = null;
+function groundMaterials() {
+  if (groundDepthMat) return;
+  groundDepthMat = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
+  groundDepthMat.onBeforeCompile = addGroundVertex;
+  groundNormalMat = new THREE.MeshNormalMaterial({ side: THREE.DoubleSide });
+  groundNormalMat.onBeforeCompile = addGroundVertex;
+}
+// 地面の高さを測りなおす（ボスが見えている間、毎フレーム）
+function updateGroundSamples() {
+  if (!boss?.visible || !bossCfg?.ground) return;
+  const o = boss.position, g = groundUniforms.uGround.value;
+  groundUniforms.uGroundO.value.copy(o);
+  const at = (x, z) => { _o.set(x, o.y + 40, z); const h = cast(_o, DOWN, 120); return h ? h.point.y - o.y : 0; };
+  g[0] = at(o.x, o.z);
+  for (let k = 0; k < GROUND_BINS; k++) {
+    const a = (k / GROUND_BINS) * Math.PI * 2, c = Math.cos(a), sn = Math.sin(a);
+    groundRaw[k] = at(o.x + c * GROUND_R1, o.z + sn * GROUND_R1);
+    groundRaw[GROUND_BINS + k] = at(o.x + c * GROUND_R2, o.z + sn * GROUND_R2);
+  }
+  // 木や家の屋根に当たった飛び値をならす（となり 2 つとの真ん中の値）
+  for (let ring = 0; ring < 2; ring++) {
+    for (let k = 0; k < GROUND_BINS; k++) {
+      const i = ring * GROUND_BINS;
+      const a = groundRaw[i + (k + GROUND_BINS - 1) % GROUND_BINS], b = groundRaw[i + k], c = groundRaw[i + (k + 1) % GROUND_BINS];
+      g[1 + i + k] = Math.max(Math.min(a, b), Math.min(Math.max(a, b), c));
+    }
+  }
+}
+const groundRaw = new Float32Array(GROUND_BINS * 2);
+// ヘドロボスの材質に、地面に沿うすそ（ground）と固まった所の色（solid）を足す（トゥーンの材質も元の材質の onBeforeCompile を呼ぶ）
+function addBossShader(mat, { ground, solid }) {
   mat.onBeforeCompile = (shader) => {
+    if (ground) addGroundVertex(shader);
+    if (!solid) return;
     Object.assign(shader.uniforms, solidUniforms);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>
@@ -1158,7 +1227,7 @@ float solidNoise(vec3 p) {
   }
 }`);
   };
-  mat.customProgramCacheKey = () => 'boss-solid';
+  mat.customProgramCacheKey = () => `boss${ground ? '-ground' : ''}${solid ? '-solid' : ''}`;
   mat.needsUpdate = true;
 }
 const _sl = new THREE.Vector3();
@@ -1204,11 +1273,21 @@ function prepareBoss(gltf, cfg) {
   const root = gltf.scene;
   root.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   // 固めるボスは、体の材質（目・歯・波の輪のほか）に固まった所の色をのせる
-  if (cfg.needs) {
-    const mats = new Set();
-    root.traverse((o) => { if (o.isMesh && !/Wave/.test(o.name)) mats.add(o.material); });
-    for (const m of mats) if (m.color && !m.emissiveMap && !/eye|teeth/i.test(m.name)) addSolidShader(m);
-  }
+  // 地面に沿うボスは、全部の部品の材質・影・輪郭線の回に、すそを曲げる処理を足す
+  const mats = new Map();   // 材質 → 固まった色をのせるか
+  root.traverse((o) => {
+    if (!o.isMesh) return;
+    const solid = !!cfg.needs && !/Wave/.test(o.name) && !!o.material.color && !o.material.emissiveMap && !/eye|teeth/i.test(o.material.name);
+    mats.set(o.material, mats.get(o.material) || solid);
+    if (cfg.ground) {
+      groundMaterials();
+      o.customDepthMaterial = groundDepthMat;
+      o.userData.normalMaterial = groundNormalMat;
+      o.frustumCulled = false;   // 曲げた形は元の大きさの箱からはみ出すので、画面外の判定はしない
+    }
+  });
+  for (const [m, solid] of mats) if (solid || cfg.ground) addBossShader(m, { ground: !!cfg.ground, solid });
+  if (cfg.ground) style.ownNormal(root);
   _o.set(BOSS_POS.x, 400, BOSS_POS.z);
   const hit = cast(_o, DOWN, 800);
   root.position.set(BOSS_POS.x, hit ? hit.point.y : BOSS_POS.y, BOSS_POS.z);
@@ -1294,6 +1373,7 @@ function updateBoss(dt, active) {
     bossHitDone = false;
   }
   bossMixer.update(dt);
+  updateGroundSamples();
   // 固まった所（時間がたつとうすれて消える）
   updatePatches(dt);
   passToast += dt;
@@ -2594,7 +2674,7 @@ function moveBoss(dt) {
 // ロボとボスのトゲ：ぶつかったら押し出す。噴射で速く飛んでいたら体当たり
 // ボスの攻撃（触手のたたきつけ・ヘドロの波）がふわおに当たったら、からだが減ってはじき飛ばされる
 const STRIKE_BOUNCE = 11;      // はじき飛ばされる速さ（m/秒）
-const STRIKE_RING_HEIGHT = 1.5;   // 波の輪は、足元がこの高さより上（ジャンプ中）なら当たらない
+const STRIKE_RING_HEIGHT = 1.5;   // 波の輪は、足元が地面からこの高さより上（ジャンプ中）なら当たらない
 const _sk = new THREE.Vector3(), _ss = new THREE.Vector3();
 function strikePlayer() {
   const st = bossAttack && bossModels[bossIndex].strikes[bossAttack.getClip().name];
@@ -2607,7 +2687,11 @@ function strikePlayer() {
       o.parent.getWorldScale(_ss);
       const ring = r * _ss.x, half = (o.userData.width || 1.6) / 2;
       const d = Math.hypot(feet.x - _sk.x, feet.z - _sk.z);
-      hit = ring > 0.05 && Math.abs(d - ring) < half + RADIUS && feet.y - _sk.y < STRIKE_RING_HEIGHT;
+      // 高さは、輪の真ん中ではなく、ふわおの足元の地面から見る（波は地面に沿って広がる）
+      if (ring > 0.05 && Math.abs(d - ring) < half + RADIUS) {
+        const g = onGround ? feet.y : groundBelow(feet, 0.3);
+        hit = g !== null && feet.y - g < STRIKE_RING_HEIGHT;
+      }
     } else {
       hit = Math.hypot(feet.x - _sk.x, feet.y + ROBOT_HEIGHT / 2 - _sk.y, feet.z - _sk.z) < r + st.reach + RADIUS;
     }

@@ -212,6 +212,23 @@ export function createAnimeStyle({ renderer, scene, camera, sun, fill, hemi, sky
     });
   }
 
+  // 法線の回で、全体の差しかえ材質（normalMat）ではなく、部品ごとの userData.normalMaterial で描くまとまり
+  const ownNormalRoots = new Set();
+  const ownNormalSaved = [];
+  function drawOwnNormals() {
+    for (const root of ownNormalRoots) {
+      if (!root.visible || !root.parent) continue;
+      root.traverse((o) => {
+        if (!o.isMesh) return;
+        ownNormalSaved.push(o, o.material);
+        o.material = o.userData.normalMaterial || normalMat;
+      });
+      renderer.render(root, camera);
+      for (let i = 0; i < ownNormalSaved.length; i += 2) ownNormalSaved[i].material = ownNormalSaved[i + 1];
+      ownNormalSaved.length = 0;
+    }
+  }
+
   // ---- 後処理 ----
   const size = new THREE.Vector2();
   const colorRT = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
@@ -266,6 +283,8 @@ export function createAnimeStyle({ renderer, scene, camera, sun, fill, hemi, sky
     toon: (m) => toonOf.get(m),
     // あとからシーンに足したもの（発射したパンなど）を今の見た目に合わせる
     apply(root) { swapMaterials(style.enabled, root); },
+    // 法線の回を自分の材質（userData.normalMaterial。頂点をシェーダーで動かすもの）で描くまとまりを登録する
+    ownNormal(root) { ownNormalRoots.add(root); },
     setSize,
     render() {
       if (!style.enabled) {
@@ -284,12 +303,19 @@ export function createAnimeStyle({ renderer, scene, camera, sun, fill, hemi, sky
       scene.overrideMaterial = normalMat;
       sky.visible = false;
       // 輪郭線を付けないもの（キラキラなど。userData.noOutline）は、法線の回には描かない
-      const noOutline = scene.children.filter((o) => o.visible && o.userData.noOutline);
+      const noOutline = scene.children.filter((o) => o.visible && (o.userData.noOutline || ownNormalRoots.has(o)));
       for (const o of noOutline) o.visible = false;
       renderer.shadowMap.autoUpdate = false;
       renderer.setClearColor(flatNormal, 1);
       renderer.setRenderTarget(normalRT);
       renderer.render(scene, camera);
+      // 自分の法線材質で描くもの（地面に沿って曲がるボスなど）を、消さずに上から描き足す
+      const autoClear = renderer.autoClear;
+      renderer.autoClear = false;
+      for (const o of noOutline) if (ownNormalRoots.has(o)) o.visible = true;
+      drawOwnNormals();
+      for (const o of noOutline) if (ownNormalRoots.has(o)) o.visible = false;
+      renderer.autoClear = autoClear;
       renderer.setClearColor(_clear, clearAlpha);
       renderer.shadowMap.autoUpdate = true;
       sky.visible = true;
