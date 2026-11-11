@@ -933,7 +933,8 @@ function yeastShotReady() {
   return false;
 }
 function fire() {
-  if (firing || !fireAction || knockout || retreat) return;   // 地上でも空中（ジャンプ・ジェット中）でも撃てる
+  // 地上でも空中（ジャンプ・ジェット中）でも撃てる。パンが出たあとなら、発射アニメの途中でも次を撃てる（連射）
+  if ((firing && !shotSpawned) || !fireAction || knockout || retreat) return;
   // 魔法のパン種が砲口にくっついていると、パンは出ない。はじめてのときは町長が止めに来る
   if (items.has('yeast') && !items.has('flour')) {
     showToast('発射しない。種がくっついている');
@@ -3039,6 +3040,10 @@ function updateHelps(dt, active) {
     h.arrow.position.set(_ha.x + _hd.x / flat * ARROW_RING, _ha.y + bob, _ha.z + _hd.z / flat * ARROW_RING);
     h.arrow.quaternion.setFromUnitVectors(_hy, _hd);
   }
+  // 矢印がいくつも出るとうるさいので、いちばん近い小バイ菌への矢印だけ出す
+  let near = null;
+  for (const h of helps) if (h.arrow.visible && (!near || h.dist < near.dist)) near = h;
+  for (const h of helps) if (h !== near) h.arrow.visible = false;
 }
 
 function useFuel(amount) { fuel = Math.max(0, fuel - amount); }
@@ -5284,16 +5289,14 @@ function updatePlayer(dt) {
   _fwd.set(-Math.sin(view.yaw), 0, -Math.cos(view.yaw));
   _right.set(Math.cos(view.yaw), 0, -Math.sin(view.yaw));
   _move.set(0, 0, 0);
-  if (!firing) {
-    if (keys.has('KeyW') || keys.has('ArrowUp')) _move.add(_fwd);
-    if (keys.has('KeyS') || keys.has('ArrowDown')) _move.sub(_fwd);
-    if (keys.has('KeyD') || keys.has('ArrowRight')) _move.add(_right);
-    if (keys.has('KeyA') || keys.has('ArrowLeft')) _move.sub(_right);
-  }
+  if (keys.has('KeyW') || keys.has('ArrowUp')) _move.add(_fwd);
+  if (keys.has('KeyS') || keys.has('ArrowDown')) _move.sub(_fwd);
+  if (keys.has('KeyD') || keys.has('ArrowRight')) _move.add(_right);
+  if (keys.has('KeyA') || keys.has('ArrowLeft')) _move.sub(_right);
   // スマホのスティック：倒した向きへ。大きく倒すと走り、少しだけならゆっくり歩く
   const { stick } = touch;
   let stickRun = false, stickScale = 1;
-  if (!firing && stick.mag > 0) {
+  if (stick.mag > 0) {
     _move.addScaledVector(_fwd, -stick.y).addScaledVector(_right, stick.x);
     stickRun = stick.mag > STICK_RUN;
     stickScale = stickRun ? 1 : Math.max(0.4, stick.mag / STICK_RUN);
@@ -5301,6 +5304,11 @@ function updatePlayer(dt) {
   const fast = keys.has('ShiftLeft') || keys.has('ShiftRight') || stickRun;
   const speed = floating ? (fast ? PADDLE_SPEED_FAST : PADDLE_SPEED) : fast ? RUN_SPEED : WALK_SPEED;
   paddling = floating && !jetting && _move.lengthSq() > 0;
+  // 撃っている間は進まず、向きだけ変えられる（外れたら向き直してすぐ撃ち直せる）
+  if (firing && !jetting) {
+    if (view.thirdPerson && _move.lengthSq() > 0) heading = turnToward(heading, Math.atan2(_move.x, _move.z), 1 - Math.exp(-12 * dt));
+    _move.set(0, 0, 0);
+  }
   if (jetting) {
     // 噴射中はロボの正面へ進む。入力の方向（一人称ならカメラの正面）へ少しずつ旋回する
     const hasInput = _move.lengthSq() > 0;
