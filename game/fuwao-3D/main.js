@@ -1067,8 +1067,8 @@ function clipsFromExtras(root, clips) {
 //   stage：このステージで現れる。appearAt：町の復興度がこれを超えると現れる。next：追い出したあとのステージ
 //   attacks：[クリップ名, 当たるフレーム]。bodyY：体の中心の高さ（根元から）。sink：落ちてきたときにめりこむ深さ
 //   rain：撤退するときに小バイ菌を町へふらせ、町の復興度をこれまで下げる
-//   needs：この道具（ITEMS）がないと、体当たりしてもすり抜けてしまう。道具があれば、撃ったパンが当たると体が固まり（SOLID_TIME 秒）、
-//          固まっている間に体当たりすると押し戻せる。固まっていないときに体当たりすると、すり抜けてからだが減る
+//   needs：この道具（ITEMS）がないと、体当たりしてもすり抜けてしまう。道具があれば、撃ったパンが当たった所だけが固まり（SOLID_TIME 秒）、
+//          固まった所へ体当たりすると押し戻せる。固まっていない所に体当たりすると、すり抜けてからだが減る
 //   summon：復興度では現れず、talks.json の summon のセリフを話し終わったときに現れる（ボス3 は、復興度 100% のあと町長と話すと）
 //   roll：転がって町へ来る（clip：転がるアニメ、start：転がり始め、speed：m/秒、loop：アニメ 1 回で進む距離 m）
 //   hard：体当たりしても押し戻せない（はね返されるだけ。撤退ラインも出さない）
@@ -1095,9 +1095,11 @@ const BOSSES = [
 const BOSS_IDLE_TIME = 6;   // 攻撃と攻撃のあいだの待機（秒）
 const BOSS_FADE = 0.25;
 let boss = null, bossMixer = null, bossActions = null, bossCfg = null, bossIndex = -1, bossModels = [];
-let bossIdleTime = 0, bossAttack = null, bossNext = 0, bossHitTimes = {}, bossMats = [], bossSolid = 0;
-const SOLID_TIME = 4;                        // 固形化パンを当てたとき、固まっている時間（秒）
+let bossIdleTime = 0, bossAttack = null, bossNext = 0, bossHitTimes = {}, bossSolid = 0;
+const SOLID_TIME = 4;                        // 固形化パンが当たった所が、固まっている時間（秒）
 const SOLID_COLOR = new THREE.Color(0x9a9088);   // 固まった色（乾いた土）
+const SOLID_SIZE = 3;                        // 固まった所の大きさ（半径 m）
+const SOLID_ARC = 0.42;                      // 体当たりが固まった所に当たったとみなす、ボスの中心から見た左右の角度（ラジアン。約 24°）
 // ふわおが手に入れた道具。solidifier：固形化パン（パン工房の工場長がくれる。撃ったパンがヘドロボスに当たると固まり、体当たりできる）
 // choco：板チョコ（ステージ 1 をクリアすると工房の展示台に並び、工場長がメカの背中にチョコ燃料タンクとして取り付けてくれる。燃料の最大が CHOCO_FUEL_MAX に）
 // yeast：魔法のパン種（町が崩壊したあと、パン工房の前の工場長が砲台に付けてくれる。脅威3 を倒す最後の武器）
@@ -1107,20 +1109,38 @@ const ITEM_NEEDS = { flour: 'yeast' };
 const CHOCO_FUEL_MAX = 0.5;
 const items = new Set();
 let passToast = 0;   // すり抜けたときのお知らせを出してからの時間
-// 固まる：今のボスの材質（見た目の切り替え用の材質も）の元の色を覚えて、固まった色にする
-function solidifyBoss() {
-  const m = bossModels[bossIndex];
-  if (!m.mats) {
-    const mats = new Set();
-    boss.traverse((o) => {
-      if (!o.isMesh) return;
-      for (const x of [o.material, o.userData.pbrMaterial]) if (x?.color && !x.emissiveMap && !/eye|teeth/.test(x.name)) mats.add(x);
-    });
-    for (const x of mats) x.userData.baseColor = x.color.clone();
-    m.mats = [...mats];
-  }
-  bossMats = m.mats;
-  bossSolid = SOLID_TIME;
+// 固まる：パンが当たった所の体の表面に、乾いた土色のかたまりを貼る（ボスの子にするので、一緒に動く）。SOLID_TIME 秒で消える
+const bossPatches = [];
+const solidGeo = new THREE.SphereGeometry(1, 16, 10);
+const solidMat = new THREE.MeshLambertMaterial({ color: SOLID_COLOR });
+const _sn = new THREE.Vector3(), _sz = new THREE.Vector3(0, 0, 1);
+// hit：パンがボスの体のメッシュに当たったところ（Raycaster の結果）
+function solidifyAt(hit) {
+  const mesh = new THREE.Mesh(solidGeo, solidMat);
+  mesh.userData.solidPatch = true;
+  mesh.position.copy(hit.point);
+  if (hit.face) _sn.copy(hit.face.normal).transformDirection(hit.object.matrixWorld);
+  else _sn.set(hit.point.x - boss.position.x, 0, hit.point.z - boss.position.z).normalize();
+  mesh.quaternion.setFromUnitVectors(_sz, _sn);
+  mesh.scale.set(SOLID_SIZE, SOLID_SIZE, SOLID_SIZE * 0.35);
+  scene.add(mesh);
+  boss.attach(mesh);
+  bossPatches.push({ mesh, t: SOLID_TIME });
+}
+function clearPatches() {
+  for (const x of bossPatches) x.mesh.removeFromParent();
+  bossPatches.length = 0;
+  bossSolid = 0;
+}
+// ふわお（feet）の方向に、固まった所があるか（ボスの中心から見た左右の角度で見る）
+const _pw = new THREE.Vector3();
+function solidToward(x, z) {
+  const a = Math.atan2(x - boss.position.x, z - boss.position.z);
+  return bossPatches.some((s) => {
+    s.mesh.getWorldPosition(_pw);
+    const b = Math.atan2(_pw.x - boss.position.x, _pw.z - boss.position.z);
+    return Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b))) < SOLID_ARC;
+  });
 }
 // ボスを町の外（BOSS_POS）に置き、アニメーションを用意する（出現するまでは隠しておく）
 function prepareBoss(gltf, cfg) {
@@ -1180,8 +1200,7 @@ function useBoss(i) {
   bossHitTimes = m.hitTimes;
   bossSpikes = m.spikes;
   bossSpikeRadius = m.radius;
-  bossMats = [];
-  bossSolid = 0;
+  clearPatches();
   bossAttack = null;
   bossNext = 0;
   bossIdleTime = 0;
@@ -1213,10 +1232,15 @@ function updateBoss(dt, active) {
   }
   bossMixer.update(dt);
   // 固まった色から、少しずつ元の色へ
-  if (bossSolid > 0 || bossMats.some((m) => !m.color.equals(m.userData.baseColor))) {
-    bossSolid = Math.max(0, bossSolid - dt);
-    const k = Math.min(1, bossSolid / 0.8);
-    for (const m of bossMats) m.color.copy(m.userData.baseColor).lerp(SOLID_COLOR, k);
+  // 固まった所：時間がたつと小さくなって消える
+  bossSolid = 0;
+  for (let i = bossPatches.length - 1; i >= 0; i--) {
+    const x = bossPatches[i];
+    x.t -= dt;
+    if (x.t <= 0) { x.mesh.removeFromParent(); bossPatches.splice(i, 1); continue; }
+    const k = Math.min(1, x.t / 0.6);
+    x.mesh.scale.set(SOLID_SIZE * k, SOLID_SIZE * k, SOLID_SIZE * 0.35 * k);
+    bossSolid = Math.max(bossSolid, x.t);
   }
   passToast += dt;
   // 町に着いているときは、攻撃が当たった瞬間に町が攻撃される
@@ -2556,14 +2580,14 @@ function collideBoss(dt) {
   _bd.divideScalar(d || 1);
   // 体当たりの強さは、ボスへ向かう速さ
   const toward = -(jetVel.x * _bd.x + jetVel.z * _bd.z);
-  // 道具がないとき・パンで固めていないときは、ヘドロの体をずぶずぶとすり抜けてしまう（押し出しもしない）
-  if (bossCfg.needs && (!items.has(bossCfg.needs) || bossSolid <= 0)) {
+  // 道具がないとき・ぶつかった所がパンで固まっていないときは、ヘドロの体をずぶずぶとすり抜けてしまう（押し出しもしない）
+  if (bossCfg.needs && (!items.has(bossCfg.needs) || !solidToward(feet.x, feet.z))) {
     jetVel.multiplyScalar(Math.exp(-2.5 * dt));
     if (toward > RAM_MIN_SPEED * 0.5) {
       // ヘドロの体を通り抜けると、からだが溶かされて 1/4 減る
       const first = passToast > 6;
       if (first) passToast = 0;
-      const how = items.has(bossCfg.needs) ? 'パンを当てて固めてから、体当たりしよう' : 'パン工房の工場長に相談しよう';
+      const how = items.has(bossCfg.needs) ? 'パンを当てて固まった所へ、体当たりしよう' : 'パン工房の工場長に相談しよう';
       hurtBody(first ? `${bossCfg.name}の体をすり抜けて、からだが溶かされた！ ${how}` : null);
     }
     return;
@@ -3324,20 +3348,28 @@ function eatBread(b, mouth) {
   vanishBread(b, 60);
 }
 // 撃ったパンが脅威の体に入ったら、パンはヘドロにのみこまれて消える。
-// 固形化パンを持っていて、固めるボス（needs）なら、体が固まる。
-// 体はすそ野の広い山の形なので、当たり判定の球ではなく、足元からの円柱（半径 BREAD_BOSS_REACH、高さ BREAD_BOSS_TOP）で見る
-const BREAD_BOSS_REACH = 10.5;   // ヘドロのすそ野まで（m。見た目の幅は約 22m）
-const BREAD_BOSS_TOP = 15;       // 体の高さ（m）
+// 固形化パンを持っていて、固めるボス（needs）なら、当たった所が固まる（solidifyAt）。
+// 体はすそ野の広い山の形で、坂に座っていることもあるので、ボスの近く（BREAD_BOSS_NEAR）まで来たら、
+// このフレームに進む分だけ、見えているボスの体のメッシュへ線を飛ばして当たりを見る
+const BREAD_BOSS_NEAR = 16;
+const _bray = new THREE.Raycaster(), _bdir = new THREE.Vector3();
 let solidToast = 0;
-function breadHitsBoss(b) {
+function breadHitsBoss(b, dt) {
   if (!boss || !bossAppeared || bossGone || retreat || !bossCfg.needs) return false;
   const p = b.root.position, o = boss.position;
-  if (Math.hypot(p.x - o.x, p.z - o.z) > BREAD_BOSS_REACH || p.y < o.y - 2 || p.y > o.y + BREAD_BOSS_TOP) return false;
+  if (Math.hypot(p.x - o.x, p.z - o.z) > BREAD_BOSS_NEAR) return false;
+  const len = b.vel.length() * dt;
+  _bray.set(p, _bdir.copy(b.vel).divideScalar(b.vel.length() || 1));
+  _bray.far = len + 0.15 * BREAD_SCALE;
+  boss.updateMatrixWorld(true);
+  // 固まった所と、地面に広がる波の輪（SB_Wave）には当てない
+  const hit = _bray.intersectObject(boss, true).find((h) => h.object.visible && !h.object.userData.solidPatch && !/Wave/.test(h.object.name));
+  if (!hit) return false;
+  p.copy(hit.point);
   vanishBread(b);
   if (items.has(bossCfg.needs)) {
-    const first = bossSolid <= 0;
-    solidifyBoss();
-    if (first && time.value - solidToast > 20) { solidToast = time.value; showToast(`${bossCfg.name}の体が固まった！ 今のうちに体当たり！`); }
+    solidifyAt(hit);
+    if (time.value - solidToast > 20) { solidToast = time.value; showToast(`パンが当たった所が固まった！ そこへ体当たり！`); }
   }
   return true;
 }
@@ -3348,7 +3380,7 @@ function updateBreads(dt) {
     b.time += dt;
     if (b.state === 'fly' && catchBread(b)) {
       // 人に受け止められた
-    } else if (b.state === 'fly' && breadHitsBoss(b)) {
+    } else if (b.state === 'fly' && breadHitsBoss(b, dt)) {
       // 脅威の体に当たった（固形化パンなら固まる）
     } else if (b.state === 'fly') {
       b.vel.y -= BREAD_GRAVITY * dt;
