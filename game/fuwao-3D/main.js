@@ -1054,12 +1054,19 @@ function clipsFromExtras(root, clips) {
 //   intro：出現シーンの最後に威嚇でするアニメ（ないときは attacks の最初）。camScale：出現シーンのカメラの引き（大きいボス用）
 //   roam：次のステージ（next）では、倒されるまで町の中を転げまわる（speed：m/秒。行き先は廃墟の全区画から。pickRoamTarget）。
 //         転がっているときにふわおにぶつかると、つぶしてからだを 1/4 減らす
+//   strike：攻撃がふわおにも当たる。{ クリップ名: [当たり始めのフレーム, 終わりのフレーム, [当たり判定のノード名…], 広げる距離 m] }。
+//           広げる距離：たたきつけた地面のまわりにも当たるように、球の半径を足す（触手の先だけだと小さすぎて当たらない）。
+//           ノードは extras の collider が hit（球。radius）か hit_ring（地面の輪。radius × 親の拡大率、幅 width。ジャンプでかわせる）。strikePlayer
 // name は画面に出す名前（どのボスも「脅威」）。BOSSES の順に、バイ菌ボス・ヘドロボス・ロックボス
 const BOSSES = [
   { name: '脅威', root: 'GB_Root', hit: 'GB_Hit_Spikes', stage: 1, appearAt: 0.8, next: 2,
     attacks: [['attack_slam', 92], ['attack_drill', 171]], bodyY: 14, sink: 8, rain: 0.3 },
   { name: '脅威', root: 'SB_Root', hit: 'SB_Hit_Body', stage: 2, appearAt: 0.6, next: 3,
-    attacks: [['attack_slam', 92], ['attack_wave', 160]], bodyY: 7, sink: 0, needs: 'solidifier' },
+    attacks: [['attack_slam', 92], ['attack_wave', 160]], bodyY: 7, sink: 0, needs: 'solidifier',
+    strike: {
+      attack_slam: [89, 98, ['SB_Hit_Tip_L', 'SB_Hit_Tip_R', 'SB_Hit_Forearm_L', 'SB_Hit_Forearm_R'], 3],
+      attack_wave: [160, 185, ['SB_Hit_Wave']],
+    } },
   { name: '脅威', root: 'RB_Root', hit: 'RB_Hit_Body', stage: 3, summon: true, next: 4,
     attacks: [], bodyY: 21, sink: 0, roll: { clip: 'roll', start: 'roll_start', speed: 2.5, loop: 131.95 },
     hard: true, intro: 'roll_start', camScale: 2.1, roam: { speed: 6 } },
@@ -1132,7 +1139,14 @@ function prepareBoss(gltf, cfg) {
     bossIdleTime = 0;
   });
   const spikes = root.getObjectByName(cfg.hit);
-  return { cfg, root, mixer, actions: actions.idle ? actions : null, hitTimes, spikes, radius: spikes?.userData.radius || 9, mats: null };
+  // ふわおに当たる攻撃：クリップの中の時間（秒）と当たり判定のノード
+  const strikes = {};
+  for (const [name, [from, to, nodes, reach = 0]] of Object.entries(cfg.strike || {})) {
+    if (!ranges[name]) continue;
+    strikes[name] = { from: (from - ranges[name][0]) / ANIM_FPS, to: (to - ranges[name][0]) / ANIM_FPS, reach,
+      nodes: nodes.map((n) => root.getObjectByName(n)).filter((o) => o?.userData.radius) };
+  }
+  return { cfg, root, mixer, actions: actions.idle ? actions : null, hitTimes, spikes, radius: spikes?.userData.radius || 9, mats: null, strikes };
 }
 // i 番目のボスの番にする（まだ現れていない）
 function useBoss(i) {
@@ -2465,8 +2479,39 @@ function moveBoss(dt) {
   } else boss.scale.setScalar(1);
 }
 // ロボとボスのトゲ：ぶつかったら押し出す。噴射で速く飛んでいたら体当たり
+// ボスの攻撃（触手のたたきつけ・ヘドロの波）がふわおに当たったら、からだが減ってはじき飛ばされる
+const STRIKE_BOUNCE = 11;      // はじき飛ばされる速さ（m/秒）
+const STRIKE_RING_HEIGHT = 1.5;   // 波の輪は、足元がこの高さより上（ジャンプ中）なら当たらない
+const _sk = new THREE.Vector3(), _ss = new THREE.Vector3();
+function strikePlayer() {
+  const st = bossAttack && bossModels[bossIndex].strikes[bossAttack.getClip().name];
+  if (!st || bossAttack.time < st.from || bossAttack.time > st.to || bodyHitWait > 0) return;
+  for (const o of st.nodes) {
+    o.getWorldPosition(_sk);
+    const r = o.userData.radius;
+    let hit;
+    if (o.userData.collider === 'hit_ring') {
+      o.parent.getWorldScale(_ss);
+      const ring = r * _ss.x, half = (o.userData.width || 1.6) / 2;
+      const d = Math.hypot(feet.x - _sk.x, feet.z - _sk.z);
+      hit = ring > 0.05 && Math.abs(d - ring) < half + RADIUS && feet.y - _sk.y < STRIKE_RING_HEIGHT;
+    } else {
+      hit = Math.hypot(feet.x - _sk.x, feet.y + ROBOT_HEIGHT / 2 - _sk.y, feet.z - _sk.z) < r + st.reach + RADIUS;
+    }
+    if (!hit) continue;
+    const wave = o.userData.collider === 'hit_ring';
+    if (!hurtBody(wave ? `ヘドロの波にのまれた！ ジャンプでかわそう` : `${bossCfg.name}の触手にたたかれた！`)) return;
+    // ボスから離れる向きへはじき飛ばす
+    _sk.set(feet.x - boss.position.x, 0, feet.z - boss.position.z).normalize();
+    jetting = false; jetEndTime = 0; jetSpeed = 0;
+    jetVel.copy(_sk).multiplyScalar(STRIKE_BOUNCE);
+    velY = Math.max(velY, 6);
+    return;
+  }
+}
 function collideBoss(dt) {
   if (!bossSpikes || bossGone || retreat || !bossAppeared || finale) return;
+  strikePlayer();
   ramCooldown -= dt;
   // 魔法のパン種を付けたまま、町を転げまわる脅威の顔にジェットで体当たりすると、最後の演出へ。
   // 顔のまわり（玉の中心から見て、顔の向きから上下左右 FACE_HIT_ANGLE 以内）にぶつかったときだけ。顔は地面から 20m ほどの高さ
