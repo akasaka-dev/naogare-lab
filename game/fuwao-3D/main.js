@@ -3011,10 +3011,43 @@ function areaProgress(i) {
 function townProgress() {
   return areaGauge.length ? areaGauge.reduce((s, _, i) => s + areaProgress(i), 0) / areaGauge.length : 0;
 }
+// 会話・カットイン・暗転・工房の中・オープニングの間は、セリフと重ならないように出さずにためておき、
+// 終わってから順に出す（同じ文はまとめる。たまりすぎたら古いものから捨てる）。
+// 出ている途中で会話などが始まったら、いったん引っこめて、あとで出し直す
+const TOAST_TIME = 3;          // 1 つを出しておく時間（秒）
+const TOAST_GAP = 0.4;         // 続けて出すときのすき間（秒）
+const TOAST_QUEUE_MAX = 4;
+const toastQueue = [];
+let toastGap = 0;
+function toastBusy() {
+  return talk.active || !!opening || !!visit || document.body.classList.contains('cutin') || fadeEl.classList.contains('on');
+}
+function queueToast(text) {
+  if (toastQueue.includes(text)) return;
+  toastQueue.push(text);
+  if (toastQueue.length > TOAST_QUEUE_MAX) toastQueue.shift();
+}
 function showToast(text) {
+  if (toastBusy()) { queueToast(text); return; }
   toastEl.textContent = text;
   toastEl.classList.add('on');
-  toastTime = 3;
+  toastTime = TOAST_TIME;
+}
+function updateToast(dt) {
+  if (toastBusy()) {
+    if (toastTime > 0) {
+      if (toastTime > 0.8) toastQueue.unshift(toastEl.textContent);   // ほとんど読めていないものは出し直す
+      toastTime = 0;
+      toastEl.classList.remove('on');
+      toastGap = TOAST_GAP;
+    }
+    return;
+  }
+  if (toastTime > 0) {
+    if ((toastTime -= dt) <= 0) { toastEl.classList.remove('on'); toastGap = TOAST_GAP; }
+    return;
+  }
+  if (toastQueue.length && (toastGap -= dt) <= 0) showToast(toastQueue.shift());
 }
 
 // ---- 助けを呼ぶ声と、その方向の 3D の矢印 ----
@@ -3293,7 +3326,6 @@ function updateProgress(dt, active) {
   const still = active && !knockout && onGround && !jetting && !firing && moveSpeed < 0.2;
   stillTime = still ? stillTime + dt : 0;
   metersEl.classList.toggle('show', stillTime > METERS_IDLE);
-  if (toastTime > 0 && (toastTime -= dt) <= 0) toastEl.classList.remove('on');
   drawMeters();
 }
 let drawnMeters = '';
@@ -5782,6 +5814,7 @@ function tick(dt, active) {
   updateSpray();
   if (!visit) { updateSparks(dt); updateYeast(dt); }
   time.value += dt;
+  updateToast(dt);
   if (opening) { updateOpening(dt, active); return; }
   if (visit) { updateVisit(dt, active); return; }
   daytime.update(active ? dt : 0, active && keys.has('KeyN'));
