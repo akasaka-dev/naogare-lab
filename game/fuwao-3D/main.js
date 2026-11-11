@@ -3343,6 +3343,11 @@ const BODY_HIT_GUARD = 1.5;     // 続けて減らない時間（秒）
 let bodyHitWait = 0;
 // ゲームオーバー（いまは仮の画面。つづきからは、最後に保存したところから）
 const GAMEOVER_STAGE = 4;
+const KNOCK_FADE_OUT = 1.8;    // からだが 0 になったときの暗転の長さ（秒）
+const KNOCK_DARK = 0.4;        // 真っ暗なままの時間（秒）
+const KNOCK_FADE_IN = 1.4;     // 工房の中で明るくなる長さ（秒）
+// 暗転の長さを変える（null でふつうの FADE_TIME に戻す。CSS の transition）
+function setFadeTime(sec) { fadeEl.style.transitionDuration = sec ? `${sec}s` : ''; }
 function showGameOver() {
   knockout.gameover = true;
   savingOn = false;   // からだが 0 のまま保存しない
@@ -3388,29 +3393,18 @@ function updateProgress(dt, active) {
     if (refilling) fuel = Math.min(fuelMax, fuel + WORKSHOP_REFILL * dt);   // からだは戻らない（パン屋のお姉さんで戻る）
   }
 
-  // からだが 0：暗転 → パン工房の前へ → 明るくなる。
+  // からだが 0：ゆっくり暗転（KNOCK_FADE_OUT）→ パン工房の中でゆっくり明るくなり（KNOCK_FADE_IN）、工場長が話す → 外へ。
   // ステージ 4（町の崩壊のあと）は、魔法のパン種を工場長が窯から持ち出していて焼き直せないので、ゲームオーバー
   if (knockout) {
     knockout.t += dt;
-    if (knockout.t >= 0) fadeEl.classList.add('on');
+    if (knockout.t >= 0 && !fadeEl.classList.contains('on')) { setFadeTime(KNOCK_FADE_OUT); fadeEl.classList.add('on'); }
     if (knockout.gameover) return;
-    if (storyStage >= GAMEOVER_STAGE && knockout.t > FADE_TIME) { showGameOver(); return; }
-    if (!knockout.moved && knockout.t > FADE_TIME) {
-      knockout.moved = true;
-      feet.copy(groundPoint(WORKSHOP_FRONT));
+    if (knockout.t > KNOCK_FADE_OUT + KNOCK_DARK) {
+      if (storyStage >= GAMEOVER_STAGE) { setFadeTime(null); showGameOver(); return; }
       velY = 0; jetting = false; jetVel.set(0, 0, 0); recoilVel.set(0, 0, 0);
-      heading = 0;                     // 扉に背を向けて、町（+Z）のほうを向く
-      view.yaw = Math.PI;
-      view.pitch = view.thirdPerson ? 0.25 : 0;
-      snapToGround(true);
       fuel = fuelMax; body = 1;
-      doorArmed = false;   // 扉の輪の中に戻されるので、一度外へ出るまでは工房に入らない
-      if (!TALKS.revive) showToast('パン工房で焼き直してもらった！');
-    }
-    if (knockout.t > FADE_TIME + 0.6) {
-      fadeEl.classList.remove('on');
       knockout = null;
-      startReviveTalk();
+      reviveInWorkshop();
     }
   }
 
@@ -4586,6 +4580,15 @@ function updateDoor(dt, active) {
   if (active && doorArmed && d < DOOR_R && Math.abs(feet.y - doorRing.position.y) < 1.5
     && !talk.active && !bossIntro && !retreat && !knockout && !jetting) enterWorkshop();
 }
+// からだが 0 になったあと：真っ暗なまま工房の中へ入り、ゆっくり明るくする。工場長は焼き直しのセリフ（talks.json の revive）を話す
+function reviveInWorkshop() {
+  visit = { phase: 'in', t: FADE_TIME, revive: true };   // すぐに中を組み立てる（もう暗い）
+  doorArmed = false;
+  moveSpeed = 0;
+  releaseAll();
+  setFadeTime(KNOCK_FADE_IN);   // 外へ出るとき（leaveWorkshop）にふつうの長さへ戻す
+  document.body.classList.add('visiting');
+}
 function enterWorkshop() {
   visit = { phase: 'in', t: 0 };
   doorArmed = false;
@@ -4622,6 +4625,7 @@ function setupVisitRoom() {
   }
 }
 function leaveWorkshop() {
+  setFadeTime(null);
   visit.phase = 'out';
   visit.t = 0;
   fadeEl.classList.add('on');
@@ -4696,8 +4700,12 @@ function updateVisit(dt, active) {
   // 工場長と話す（ステージに合った話。固形化パンをくれる話などは talks.json の chief / 0-1）
   if (v.phase === 'look' && v.t > VISIT_LOOK) {
     const chief = residents.find((r) => r.id === '0-1');
-    const script = chief && talkScript(chief);
-    if (!script) { leaveWorkshop(); return; }
+    const script = v.revive ? reviveScript() : chief && talkScript(chief);
+    if (!script) {
+      if (v.revive) v.toast = 'パン工房で焼き直してもらった！';
+      leaveWorkshop();
+      return;
+    }
     v.phase = 'talk';
     talkRefill = script.refill;
     talkGift = script.gift;
@@ -5092,25 +5100,25 @@ function talkScript(r) {
   }
   return null;
 }
-// 焼き直されたあとの工場長のセリフ（talks.json の revive）。魔法のパン種がある限り、何度でも生き返れる
-function startReviveTalk() {
+// 焼き直されたあとの工場長のセリフ（talks.json の revive）。魔法のパン種がある限り、何度でも生き返れる。工房の中で話す（reviveInWorkshop）
+function reviveScript() {
   const book = TALKS.revive, chief = residents.find((r) => r.id === '0-1');
-  if (!book || !chief || talk.active) return;
+  if (!book || !chief) return null;
   // まだ話していない一度きりの話（はじめてやられたときの、くわしい話）を先に
   const used = chief.talked || (chief.talked = new Set());
   const first = book.talks.find((x) => x.once && talkFits(x, chief, used));
   const t = first || pickTalk(book.talks.filter((x) => !x.once), chief);
-  if (!t) return;
+  if (!t) return null;
   chief.talked.add(t);
   const lines = t.lines.map((l) => ({
     text: typeof l === 'string' ? l : l.text,
     portrait: portraitSrc(book.portrait, (typeof l === 'object' && l.face) || t.face),
   }));
   talkWith = null;
-  talkRefill = talkGift = talkSummon = null;
+  talkSummon = null;
   keys.clear();
   touch.reset();
-  talk.open({ name: t.name || book.name, portrait: null, lines });
+  return { name: t.name || book.name, portrait: null, lines };
 }
 function startTalk(r) {
   if (!r || opening || retreat || collapse || finale || talk.active || !onGround || floating || jetting) return;
