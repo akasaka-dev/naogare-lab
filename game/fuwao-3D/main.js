@@ -2862,6 +2862,8 @@ function showToast(text) {
 const ARROW_LIFT = 0.9;         // 矢印の輪の高さ（ロボの頭の上から）
 const ARROW_RING = 1.0;         // ロボの真上から、呼んでいる方向へずらす距離
 const ARROW_SIZE = 0.65;        // 矢印の大きさ（1 で長さ 0.86m）
+// ?nomark：矢印と頭の上のアイコン（バイ菌・パン）を出さない（携帯の重さを調べる用）
+const NO_MARK = new URLSearchParams(location.search).has('nomark');
 const _ha = new THREE.Vector3(), _hd = new THREE.Vector3(), _hf = new THREE.Vector3();
 const _hy = new THREE.Vector3(0, 1, 0);
 // 矢印（+Y 向き）。いつも手前に見えるように、奥行きを気にせず最後に描く。濃い茶色のふちどり付き
@@ -3016,7 +3018,7 @@ function updateHelps(dt, active) {
   const bob = Math.sin(performance.now() / 1000 * 4) * 0.06;
   for (const h of helps) {
     const g = helpTarget(h);
-    h.arrow.visible = active && !!g;
+    h.arrow.visible = !NO_MARK && active && !!g;
     // アイコン：出たときにぽんと大きくなって、あとはゆっくり上下する
     h.t += dt;
     const k = Math.min(1, h.t / 0.35) - 1;
@@ -3024,7 +3026,7 @@ function updateHelps(dt, active) {
     const s = HELP_ICON_SIZE * Math.max(0.01, pop);
     h.icon.scale.set(s, s, 1);
     const who = h.caller && h.caller.root.visible ? h.caller.root : g?.root;
-    h.icon.visible = active && !!who;
+    h.icon.visible = !NO_MARK && active && !!who;
     if (who) {
       const up = who === h.caller?.root ? h.caller.height + 0.35 : germBody + 1.2;
       h.icon.position.set(who.position.x, who.position.y + up + Math.sin(h.t * 3 + h.slot) * 0.08, who.position.z);
@@ -3492,7 +3494,7 @@ function updateHunger(dt, active) {
   lastHour = h;
   for (const r of residents) {
     if (!r.hungerIcon) continue;
-    const show = active && r.hungry && r.root.visible;
+    const show = !NO_MARK && active && r.hungry && r.root.visible;
     r.hungerIcon.visible = show;
     if (!show) continue;
     r.hungerT = (r.hungerT || 0) + dt;
