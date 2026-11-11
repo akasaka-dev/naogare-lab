@@ -1250,8 +1250,7 @@ function prepareBoss(gltf, cfg) {
     strikes[name] = { from: (from - ranges[name][0]) / ANIM_FPS, to: (to - ranges[name][0]) / ANIM_FPS, reach,
       nodes: nodes.map((n) => root.getObjectByName(n)).filter((o) => o?.userData.radius) };
   }
-  return { cfg, root, mixer, actions: actions.idle ? actions : null, hitTimes, spikes, radius: spikes?.userData.radius || 9, mats: null, strikes,
-    wave: makeGroundWave(root.getObjectByName('SB_Wave')) };
+  return { cfg, root, mixer, actions: actions.idle ? actions : null, hitTimes, spikes, radius: spikes?.userData.radius || 9, mats: null, strikes };
 }
 // i 番目のボスの番にする（まだ現れていない）
 function useBoss(i) {
@@ -1295,7 +1294,6 @@ function updateBoss(dt, active) {
     bossHitDone = false;
   }
   bossMixer.update(dt);
-  updateGroundWave(bossModels[bossIndex]?.wave);
   // 固まった所（時間がたつとうすれて消える）
   updatePatches(dt);
   passToast += dt;
@@ -2594,48 +2592,9 @@ function moveBoss(dt) {
   } else boss.scale.setScalar(1);
 }
 // ロボとボスのトゲ：ぶつかったら押し出す。噴射で速く飛んでいたら体当たり
-// ヘドロの波の輪（SB_Wave）は平らな輪なので、坂の上で広がると空中に浮いたり地面にもぐったりする。
-// 広がっている間、輪の頂点の高さを、その真下の地面に合わせて毎フレーム曲げる（角度ごとに WAVE_BINS か所の地面の高さを測る）
-const WAVE_BINS = 72;
-function makeGroundWave(mesh) {
-  if (!mesh?.isMesh) return null;
-  const pos = mesh.geometry.attributes.position;
-  const orig = Float32Array.from(pos.array);
-  const bin = new Float32Array(pos.count);   // 頂点の角度（ビンの番号、小数）
-  let r = 0;
-  for (let i = 0; i < pos.count; i++) {
-    const x = orig[i * 3], z = orig[i * 3 + 2];
-    bin[i] = ((Math.atan2(z, x) / (Math.PI * 2) + 1) % 1) * WAVE_BINS;
-    r += Math.hypot(x, z);
-  }
-  mesh.frustumCulled = false;
-  return { mesh, orig, bin, radius: r / pos.count, ground: new Float32Array(WAVE_BINS) };
-}
-const _wv = new THREE.Vector3(), _ww = new THREE.Vector3();
-function updateGroundWave(w) {
-  if (!w || w.mesh.scale.x < 0.01) return;
-  const m = w.mesh;
-  m.updateWorldMatrix(true, false);
-  m.getWorldPosition(_ww);
-  m.getWorldScale(_ss);
-  for (let k = 0; k < WAVE_BINS; k++) {
-    const a = (k / WAVE_BINS) * Math.PI * 2;
-    _wv.set(Math.cos(a) * w.radius, 0, Math.sin(a) * w.radius).applyMatrix4(m.matrixWorld);
-    _o.set(_wv.x, _ww.y + 40, _wv.z);
-    const hit = cast(_o, DOWN, 120);
-    w.ground[k] = hit ? hit.point.y - _ww.y : 0;
-  }
-  const pos = m.geometry.attributes.position, arr = pos.array;
-  for (let i = 0; i < pos.count; i++) {
-    const t = w.bin[i], k0 = Math.floor(t) % WAVE_BINS, k1 = (k0 + 1) % WAVE_BINS, f = t - Math.floor(t);
-    const dy = w.ground[k0] * (1 - f) + w.ground[k1] * f;
-    arr[i * 3 + 1] = w.orig[i * 3 + 1] + dy / (_ss.y || 1);
-  }
-  pos.needsUpdate = true;
-}
 // ボスの攻撃（触手のたたきつけ・ヘドロの波）がふわおに当たったら、からだが減ってはじき飛ばされる
 const STRIKE_BOUNCE = 11;      // はじき飛ばされる速さ（m/秒）
-const STRIKE_RING_HEIGHT = 1.5;   // 波の輪は、足元が地面からこの高さより上（ジャンプ中）なら当たらない
+const STRIKE_RING_HEIGHT = 1.5;   // 波の輪は、足元がこの高さより上（ジャンプ中）なら当たらない
 const _sk = new THREE.Vector3(), _ss = new THREE.Vector3();
 function strikePlayer() {
   const st = bossAttack && bossModels[bossIndex].strikes[bossAttack.getClip().name];
@@ -2648,11 +2607,7 @@ function strikePlayer() {
       o.parent.getWorldScale(_ss);
       const ring = r * _ss.x, half = (o.userData.width || 1.6) / 2;
       const d = Math.hypot(feet.x - _sk.x, feet.z - _sk.z);
-      // 高さは、輪の真ん中ではなく、ふわおの足元の地面から見る（波は地面に沿って広がる）
-      if (ring > 0.05 && Math.abs(d - ring) < half + RADIUS) {
-        const g = onGround ? feet.y : groundBelow(feet, 0.3);
-        hit = g !== null && feet.y - g < STRIKE_RING_HEIGHT;
-      }
+      hit = ring > 0.05 && Math.abs(d - ring) < half + RADIUS && feet.y - _sk.y < STRIKE_RING_HEIGHT;
     } else {
       hit = Math.hypot(feet.x - _sk.x, feet.y + ROBOT_HEIGHT / 2 - _sk.y, feet.z - _sk.z) < r + st.reach + RADIUS;
     }
