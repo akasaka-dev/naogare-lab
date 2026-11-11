@@ -5628,15 +5628,27 @@ function tick(dt, active) {
 // ---- ループ ----
 const clock = new THREE.Clock();
 let fpsAcc = 0, fpsFrames = 0;
+// ?perf：スマホでも左上に fps と、1 フレームの計算・描画の時間（ms）、描画の回数を出す（重さを調べるとき用）
+const PERF = new URLSearchParams(location.search).has('perf');
+if (PERF) { document.body.classList.add('perf'); renderer.info.autoReset = false; }   // 輪郭線などの何回かの描画をまとめて数える
+let perfTick = 0, perfDraw = 0, fpsReal = 0;
 renderer.setAnimationLoop(() => {
-  const dt = Math.min(clock.getDelta(), 0.05);
+  const raw = clock.getDelta(), dt = Math.min(raw, 0.05);
+  const t0 = performance.now();
   if (ready) tick(dt, playing);
+  const t1 = performance.now();
+  if (PERF) renderer.info.reset();
   style.render();
+  perfTick += t1 - t0; perfDraw += performance.now() - t1;
 
-  fpsAcc += dt; fpsFrames++;
+  fpsAcc += dt; fpsReal += raw; fpsFrames++;
   if (fpsAcc > 0.5) {
-    hud.textContent = ready ? `${daytime.clock}  ·  ${Math.round(fpsFrames / fpsAcc)} fps  ·  ${style.enabled ? 'アニメ調' : '元の見た目'}  ·  x ${feet.x.toFixed(1)}  y ${feet.y.toFixed(2)}  z ${feet.z.toFixed(1)}` : '';
-    fpsAcc = 0; fpsFrames = 0;
+    const fps = Math.round(fpsFrames / fpsReal);
+    if (PERF) {
+      const info = renderer.info.render;
+      hud.textContent = `${fps} fps  ·  計算 ${(perfTick / fpsFrames).toFixed(1)}ms  ·  描画 ${(perfDraw / fpsFrames).toFixed(1)}ms  ·  ${info.calls}回 ${Math.round(info.triangles / 1000)}k  ·  音 ${soundOn.bgm ? 'BGM' : '-'}/${soundOn.sfx ? '効果' : '-'}`;
+    } else hud.textContent = ready ? `${daytime.clock}  ·  ${fps} fps  ·  ${style.enabled ? 'アニメ調' : '元の見た目'}  ·  x ${feet.x.toFixed(1)}  y ${feet.y.toFixed(2)}  z ${feet.z.toFixed(1)}` : '';
+    fpsAcc = 0; fpsReal = 0; fpsFrames = 0; perfTick = 0; perfDraw = 0;
   }
 });
 
