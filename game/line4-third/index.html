@@ -4101,7 +4101,7 @@
     const flows = {};           // particle streams: flows[1], flows[2] (per player) and flows.gold (the winning line)
     const occupied = new Set();
     let ghostCell = -1, ghostPlayer = 1;
-    let ghostFlame = null, ghostGlow = null, ghostRunners = null, guide = null, rings = null, guideH = null;
+    let ghostFlame = null, ghostGlow = null, ghostRunners = null, rays = null, ghostT0 = 0;
     let glowTex = null, flameTex = null;
     let dimmed = false;
     let marks = {};   // idx -> 'seal' (wall) | 'hint' | 'cand' | 'pick': cells marked by a trump card
@@ -4565,36 +4565,49 @@
       ghostFlame = makeFlame();
       ghostGlow = makeGlow();
       scene.add(ghostGlow);
-      // depth guide: a thin vertical line of light through the ghost's whole column,
-      // with a ring at each end of it
-      guide = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.03, 0.03, 1, 8),
-        new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false })
-      );
-      guide.visible = false;
-      scene.add(guide);
-      // the same for the two horizontal directions (along x and along z), fainter than the vertical one
-      guideH = [0, 1].map((k) => {
-        const m = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.022, 0.022, 1, 8),
-          new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.45, blending: THREE.AdditiveBlending, depthWrite: false })
-        );
-        if (k === 0) m.rotation.z = Math.PI / 2; else m.rotation.x = Math.PI / 2;
-        m.visible = false;
-        scene.add(m);
-        return m;
+      // depth rays: from the cell about to be played, light shoots out along all six axis directions to the
+      // edges of the block (see setGhost / tick), so its position in the cube can be read from any side
+      const rayTex = makeRayTexture();
+      rays = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]].map((d) => {
+        const dir = new THREE.Vector3(d[0], d[1], d[2]);
+        const grp = new THREE.Group();
+        for (let k = 0; k < 2; k++) {   // two crossed strips look like a glowing ray from any side
+          const geo = new THREE.PlaneGeometry(0.3, 1);
+          geo.translate(0, 0.5, 0);      // one end at the origin (the cell), the other at y = 1 (scaled to the ray's length)
+          const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+            map: rayTex, color: 0xffffff, transparent: true, opacity: 1, side: THREE.DoubleSide,
+            blending: THREE.AdditiveBlending, depthWrite: false,
+          }));
+          m.rotation.y = k * Math.PI / 2;
+          grp.add(m);
+        }
+        grp.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+        grp.visible = false;
+        scene.add(grp);
+        const flare = makeGlow();
+        scene.add(flare);
+        return { grp, flare, dir, len: 1 };
       });
-      rings = [];
-      for (let k = 0; k < 2; k++) {
-        const r = new THREE.Mesh(
-          new THREE.RingGeometry(0.4, 0.55, 32),
-          new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false })
-        );
-        r.rotation.x = -Math.PI / 2;
-        r.visible = false;
-        scene.add(r);
-        rings.push(r);
+    }
+
+    // a ray's texture: a hot narrow core inside a soft glow across; bright at the cell end, fading toward the far end
+    function makeRayTexture() {
+      const W = 32, H = 128, c = document.createElement('canvas');
+      c.width = W; c.height = H;
+      const g = c.getContext('2d'), img = g.createImageData(W, H);
+      for (let y = 0; y < H; y++) {
+        const t = (H - 1 - y) / (H - 1);   // 0 at the cell end (bottom row: the texture is flipped), 1 at the far end
+        const along = Math.pow(1 - t, 1.25) * Math.min(1, t / 0.03 + 0.35);
+        for (let x = 0; x < W; x++) {
+          const u = Math.abs((x + 0.5) / W * 2 - 1);
+          const a = Math.min(1, 0.45 * Math.pow(1 - u, 1.8) + 0.9 * Math.pow(1 - u, 8)) * along;
+          const i = (y * W + x) * 4;
+          img.data[i] = img.data[i + 1] = img.data[i + 2] = 255;
+          img.data[i + 3] = Math.round(a * 255);
+        }
       }
+      g.putImageData(img, 0, 0);
+      return new THREE.CanvasTexture(c);
     }
 
     // The EMPTY cell nearest to this screen point (within PICK_RADIUS of the view
@@ -4812,6 +4825,14 @@
         const u = ghostPh;
         placeRunner(ghostRunners[0], cellPosArr[ghostCell], u, 1);
         placeRunner(ghostRunners[1], cellPosArr[ghostCell], u + 4, 1);
+        // the rays shoot out from the cell and reach the edges of the block
+        const e0 = Math.min(1, (now - ghostT0) / 300), e = 1 - Math.pow(1 - e0, 3);
+        rays.forEach((r) => {
+          r.grp.scale.set(1, Math.max(0.001, r.len * e), 1);
+          r.flare.position.copy(cellPosArr[ghostCell]).addScaledVector(r.dir, r.len * e);
+          r.flare.scale.setScalar(e0 < 1 ? 0.5 : 0.72 + 0.14 * Math.sin(now / 170));   // the tip, then a flare where it landed
+          r.flare.material.opacity = e0 < 1 ? 0.9 : 0.75;
+        });
       }
       updateEmbers(dts, now);
       updateFx(dts);
@@ -4826,9 +4847,8 @@
       ghostCell = -1;
       if (ghostFlame) {
         setFlameVisible(ghostFlame, false);
-        ghostGlow.visible = guide.visible = false;
-        guideH.forEach((m) => { m.visible = false; });
-        rings.forEach((r) => { r.visible = false; });
+        ghostGlow.visible = false;
+        rays.forEach((r) => { r.grp.visible = false; r.flare.visible = false; });
         setRunnersVisible(ghostRunners, false);
       }
     }
@@ -4934,6 +4954,7 @@
       setGhost(idx, player) {
         if (!ready || !ghostFlame) return;
         if (idx < 0) { hideGhost(); refreshView(); return; }
+        const prevCell = ghostCell, prevPlayer = ghostPlayer;
         ghostCell = idx;
         ghostPlayer = player;
         const p = cellXYZ(idx);
@@ -4944,21 +4965,21 @@
         ghostGlow.visible = true;
         setRunnersColor(ghostRunners, lightColor(player, 0.55));
         setRunnersVisible(ghostRunners, true);
-        guide.material.color.copy(lightColor(player, 0.3));
-        // the whole column through this cell: from just below its lowest cell to just above its highest
-        const yLo = levelY(0) - CELL / 2 - 0.1, yHi = levelY(3) + CELL / 2 + 0.1;
-        guide.position.set(p.x, (yLo + yHi) / 2, p.z);
-        guide.scale.set(1, yHi - yLo, 1);
-        guide.visible = true;
-        // and along x / z through the cell, across the whole block
+        // rays out to the six faces of the block
         const lo = -1.5 * SP - CELL / 2 - 0.1, hi = 1.5 * SP + CELL / 2 + 0.1;
-        guideH[0].position.set((lo + hi) / 2, p.y, p.z); guideH[0].scale.set(1, hi - lo, 1);
-        guideH[1].position.set(p.x, p.y, (lo + hi) / 2); guideH[1].scale.set(1, hi - lo, 1);
-        guideH.forEach((m) => { m.material.color.copy(lightColor(player, 0.3)); m.visible = true; });
-        rings.forEach((r, k) => {
-          r.material.color.copy(lightColor(player, 0.3));
-          r.position.set(p.x, k === 0 ? yLo : yHi, p.z);
-          r.visible = true;
+        const yLo = levelY(0) - CELL / 2 - 0.1, yHi = levelY(3) + CELL / 2 + 0.1;
+        const col = lightColor(player, 0.35);
+        if (ghostCell !== prevCell || prevPlayer !== player) ghostT0 = performance.now();   // a new cell: shoot again
+        rays.forEach((r) => {
+          const d = r.dir;
+          r.len = d.x > 0 ? hi - p.x : d.x < 0 ? p.x - lo
+            : d.y > 0 ? yHi - p.y : d.y < 0 ? p.y - yLo
+            : d.z > 0 ? hi - p.z : p.z - lo;
+          r.grp.position.copy(p);
+          r.grp.children.forEach((m) => { m.material.color.copy(col); });
+          r.flare.material.color.copy(col);
+          r.grp.visible = true;
+          r.flare.visible = true;
         });
         refreshView();
       },
