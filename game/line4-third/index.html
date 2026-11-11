@@ -4383,7 +4383,7 @@
       const i = fxGroups.indexOf(g);
       if (i >= 0) fxGroups.splice(i, 1);
       g.parts.forEach((p) => {
-        [p.glow, p.flash, p.ring, p.pillar].forEach((o) => {
+        [p.glow, p.flash, p.pillar].forEach((o) => {
           scene.remove(o);
           if (o.material) o.material.dispose();
           if (o.geometry && !o.isSprite) o.geometry.dispose();
@@ -4428,13 +4428,11 @@
           if (v < 0) {   // charging: a halo grows in the cell
             const q = (fxClock - g.t0) / (g.ti - g.t0);
             p.glow.visible = true; p.glow.scale.setScalar(0.4 + 2.8 * q * q); p.glow.material.opacity = 0.3 + 0.7 * q;
-            p.flash.visible = p.ring.visible = p.pillar.visible = false;
-          } else {       // impact: flash, shock ring, pillar of light
+            p.flash.visible = p.pillar.visible = false;
+          } else {       // impact: flash and a pillar of light
             p.glow.visible = false;
             const fl = Math.max(0, 1 - v / 0.6);
             p.flash.visible = fl > 0; p.flash.scale.setScalar(3 + 6 * Math.min(1, v / 0.3)); p.flash.material.opacity = fl;
-            const rq = Math.min(1, v / 0.9);
-            p.ring.visible = rq < 1; p.ring.scale.setScalar(1 + 9 * (1 - Math.pow(1 - rq, 2))); p.ring.material.opacity = (1 - rq) * 0.9;
             const pq = Math.min(1, v / 1.4);
             p.pillar.visible = pq < 1; p.pillar.material.opacity = (1 - pq) * 0.7; p.pillar.scale.set(1 + pq * 1.5, 1, 1 + pq * 1.5);
           }
@@ -4480,11 +4478,9 @@
           const glow = mkGlow(0.3), flash = mkGlow(1);
           flash.material.color.lerp(white, 0.5);
           const mat = (o) => new THREE.MeshBasicMaterial({ color: base.clone().lerp(white, 0.3), transparent: true, opacity: o, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false });
-          const ring = new THREE.Mesh(new THREE.RingGeometry(0.35, 0.5, 48), mat(0.9));
-          ring.rotation.x = -Math.PI / 2; ring.position.copy(c); ring.visible = false; scene.add(ring);
           const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 8, 12, 1, true), mat(0.7));
           pillar.position.copy(c); pillar.visible = false; scene.add(pillar);
-          g.parts.push({ glow, flash, ring, pillar });
+          g.parts.push({ glow, flash, pillar });
         });
         fxGroups.push(g);
         setTimeout(() => { if (fxGroups.includes(g)) fxEnd(g); }, (gather + 2) * 1000);   // safety (a paused tab)
