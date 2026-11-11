@@ -2152,6 +2152,7 @@
     if (!r.ok) { refreshMarks(); flashStatus(K('このカードは使えませんでした', 'このカードはつかえませんでした')); return; }
     boardWrap.classList.add('locked');
     refreshMarks(prevSealed);
+    updateStatus(`🃏 ${cardName(effLv)}${K('を使った！', 'をつかった！')}`);   // replaces the "tap a target" prompt
     presentCard(p, lv, effLv, r, prevSealed, () => {
       boardWrap.classList.remove('locked');
       const said = `🃏 ${cardName(effLv)}${K('を使った！', 'をつかった！')}`;
@@ -4379,15 +4380,34 @@
       scene.add(pts);
       return f;
     }
+    // a vertical beam texture: a hot narrow core inside a soft glow, fading out toward both ends
+    let beamTex = null;
+    function beamTexture() {
+      if (beamTex) return beamTex;
+      const W = 64, H = 256, c = document.createElement('canvas');
+      c.width = W; c.height = H;
+      const g = c.getContext('2d'), img = g.createImageData(W, H);
+      for (let y = 0; y < H; y++) {
+        const v = Math.abs((y + 0.5) / H * 2 - 1);
+        for (let x = 0; x < W; x++) {
+          const u = Math.abs((x + 0.5) / W * 2 - 1);
+          const a = Math.min(1, 0.5 * Math.pow(1 - u, 1.6) + 0.95 * Math.pow(1 - u, 7)) * Math.pow(1 - v, 1.3);
+          const i = (y * W + x) * 4;
+          img.data[i] = img.data[i + 1] = img.data[i + 2] = 255;
+          img.data[i + 3] = Math.round(a * 255);
+        }
+      }
+      g.putImageData(img, 0, 0);
+      beamTex = new THREE.CanvasTexture(c);
+      return beamTex;
+    }
     function fxEnd(g) {
       const i = fxGroups.indexOf(g);
       if (i >= 0) fxGroups.splice(i, 1);
       g.parts.forEach((p) => {
-        [p.glow, p.flash, p.pillar].forEach((o) => {
-          scene.remove(o);
-          if (o.material) o.material.dispose();
-          if (o.geometry && !o.isSprite) o.geometry.dispose();
-        });
+        [p.glow, p.flash].forEach((o) => { scene.remove(o); o.material.dispose(); });
+        scene.remove(p.pillar);
+        p.pillar.children.forEach((m) => { m.geometry.dispose(); m.material.dispose(); });
       });
       if (!g.fired) { g.fired = true; if (g.onImpact) g.onImpact(); }
       if (!g.resolved) { g.resolved = true; g.resolve(); }
@@ -4433,8 +4453,13 @@
             p.glow.visible = false;
             const fl = Math.max(0, 1 - v / 0.6);
             p.flash.visible = fl > 0; p.flash.scale.setScalar(3 + 6 * Math.min(1, v / 0.3)); p.flash.material.opacity = fl;
-            const pq = Math.min(1, v / 1.4);
-            p.pillar.visible = pq < 1; p.pillar.material.opacity = (1 - pq) * 0.7; p.pillar.scale.set(1 + pq * 1.5, 1, 1 + pq * 1.5);
+            // the beam shoots up through the cell, then thins out and fades
+            const pq = Math.min(1, v / 1.3);
+            const w = 1.15 - 0.85 * pq;
+            p.pillar.visible = pq < 1;
+            p.pillar.scale.set(w, Math.min(1, v / 0.12 + 0.05), w);
+            const bo = Math.pow(1 - pq, 1.3);
+            p.pillar.children.forEach((m) => { m.material.opacity = bo; });
           }
         });
         if (v >= 1.2) fxEnd(g);
@@ -4477,8 +4502,16 @@
           const mkGlow = (op) => { const s2 = makeGlow(); s2.position.copy(c); s2.material.color.copy(base); s2.material.opacity = op; scene.add(s2); return s2; };
           const glow = mkGlow(0.3), flash = mkGlow(1);
           flash.material.color.lerp(white, 0.5);
-          const mat = (o) => new THREE.MeshBasicMaterial({ color: base.clone().lerp(white, 0.3), transparent: true, opacity: o, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false });
-          const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 8, 12, 1, true), mat(0.7));
+          // a beam of light: two crossed soft-edged strips (look like a glowing column from any side)
+          const pillar = new THREE.Group();
+          for (let k = 0; k < 2; k++) {
+            const strip = new THREE.Mesh(
+              new THREE.PlaneGeometry(1.6, 9.5),
+              new THREE.MeshBasicMaterial({ map: beamTexture(), color: base.clone().lerp(white, 0.35), transparent: true, opacity: 0, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false })
+            );
+            strip.rotation.y = k * Math.PI / 2;
+            pillar.add(strip);
+          }
           pillar.position.copy(c); pillar.visible = false; scene.add(pillar);
           g.parts.push({ glow, flash, pillar });
         });
