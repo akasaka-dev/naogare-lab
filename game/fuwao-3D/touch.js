@@ -126,7 +126,6 @@ export function createTouchControls({ press, release, fire, look, tap, recenter,
   tapButton(root.querySelector('.btn-fire'), fire);
   tapButton(root.querySelector('.btn-view'), toggleView);
   tapButton(root.querySelector('.btn-front'), recenter);   // カメラをロボの正面へ
-  tapButton(root.querySelector('.btn-reset'), respawn);
   tapButton(root.querySelector('.btn-pause'), pause);
 
   // 一時停止したり画面から離れたりしたら、押しっぱなしの扱いを全部やめる
