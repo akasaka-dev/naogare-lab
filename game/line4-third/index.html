@@ -4101,7 +4101,7 @@
     const flows = {};           // particle streams: flows[1], flows[2] (per player) and flows.gold (the winning line)
     const occupied = new Set();
     let ghostCell = -1, ghostPlayer = 1;
-    let ghostFlame = null, ghostGlow = null, ghostRunners = null, guide = null, rings = null;
+    let ghostFlame = null, ghostGlow = null, ghostRunners = null, guide = null, rings = null, guideH = null;
     let glowTex = null, flameTex = null;
     let dimmed = false;
     let marks = {};   // idx -> 'seal' (wall) | 'hint' | 'cand' | 'pick': cells marked by a trump card
@@ -4573,6 +4573,17 @@
       );
       guide.visible = false;
       scene.add(guide);
+      // the same for the two horizontal directions (along x and along z), fainter than the vertical one
+      guideH = [0, 1].map((k) => {
+        const m = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.022, 0.022, 1, 8),
+          new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.45, blending: THREE.AdditiveBlending, depthWrite: false })
+        );
+        if (k === 0) m.rotation.z = Math.PI / 2; else m.rotation.x = Math.PI / 2;
+        m.visible = false;
+        scene.add(m);
+        return m;
+      });
       rings = [];
       for (let k = 0; k < 2; k++) {
         const r = new THREE.Mesh(
@@ -4816,6 +4827,7 @@
       if (ghostFlame) {
         setFlameVisible(ghostFlame, false);
         ghostGlow.visible = guide.visible = false;
+        guideH.forEach((m) => { m.visible = false; });
         rings.forEach((r) => { r.visible = false; });
         setRunnersVisible(ghostRunners, false);
       }
@@ -4938,6 +4950,11 @@
         guide.position.set(p.x, (yLo + yHi) / 2, p.z);
         guide.scale.set(1, yHi - yLo, 1);
         guide.visible = true;
+        // and along x / z through the cell, across the whole block
+        const lo = -1.5 * SP - CELL / 2 - 0.1, hi = 1.5 * SP + CELL / 2 + 0.1;
+        guideH[0].position.set((lo + hi) / 2, p.y, p.z); guideH[0].scale.set(1, hi - lo, 1);
+        guideH[1].position.set(p.x, p.y, (lo + hi) / 2); guideH[1].scale.set(1, hi - lo, 1);
+        guideH.forEach((m) => { m.material.color.copy(lightColor(player, 0.3)); m.visible = true; });
         rings.forEach((r, k) => {
           r.material.color.copy(lightColor(player, 0.3));
           r.position.set(p.x, k === 0 ? yLo : yHi, p.z);
