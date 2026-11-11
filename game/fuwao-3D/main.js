@@ -1109,36 +1109,93 @@ const ITEM_NEEDS = { flour: 'yeast' };
 const CHOCO_FUEL_MAX = 0.5;
 const items = new Set();
 let passToast = 0;   // すり抜けたときのお知らせを出してからの時間
-// 固まる：パンが当たった所の体の表面に、乾いた土色のかたまりを貼る（ボスの子にするので、一緒に動く）。SOLID_TIME 秒で消える
-const bossPatches = [];
-const solidGeo = new THREE.SphereGeometry(1, 16, 10);
-const solidMat = new THREE.MeshLambertMaterial({ color: SOLID_COLOR });
-const _sn = new THREE.Vector3(), _sz = new THREE.Vector3(0, 0, 1);
+// 固まる：パンが当たった所のまわり（半径 SOLID_SIZE）の体の表面を、シェーダーで乾いた土の色にする（ひびの模様つき）。
+// 場所はボスの中の座標で覚えて、毎フレーム世界の座標にしてシェーダーへ渡す（ボスと一緒に動く）。SOLID_TIME 秒でうすれて消える
+const SOLID_MAX = 6;                          // 同時に固まっていられる所の数
+const bossPatches = [];                       // { local: ボスの中の座標, t: 残り秒 }
+const solidUniforms = {
+  uSolid: { value: Array.from({ length: SOLID_MAX }, () => new THREE.Vector4()) },   // xyz：世界の座標、w：固まり具合（0〜1）
+  uSolidR: { value: SOLID_SIZE },
+  uSolidColor: { value: SOLID_COLOR },
+};
+// ヘドロボスの材質に、固まった所の色をのせる処理を足す（トゥーンの材質も元の材質の onBeforeCompile を呼ぶ）
+function addSolidShader(mat) {
+  mat.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, solidUniforms);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', `#include <common>
+varying vec3 vSolidW;`)
+      .replace('#include <project_vertex>', `#include <project_vertex>
+vSolidW = (modelMatrix * vec4(transformed, 1.0)).xyz;`);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+varying vec3 vSolidW;
+uniform vec4 uSolid[${SOLID_MAX}];
+uniform float uSolidR;
+uniform vec3 uSolidColor;
+float solidHash(vec3 p) { return fract(sin(dot(floor(p), vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
+float solidNoise(vec3 p) {
+  vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(solidHash(i), solidHash(i + vec3(1, 0, 0)), f.x), mix(solidHash(i + vec3(0, 1, 0)), solidHash(i + vec3(1, 1, 0)), f.x), f.y),
+             mix(mix(solidHash(i + vec3(0, 0, 1)), solidHash(i + vec3(1, 0, 1)), f.x), mix(solidHash(i + vec3(0, 1, 1)), solidHash(i + vec3(1, 1, 1)), f.x), f.y), f.z);
+}`)
+      .replace('#include <color_fragment>', `#include <color_fragment>
+{
+  float amt = 0.0;
+  float edge = (solidNoise(vSolidW * 0.9) - 0.5) * uSolidR * 0.6;   // ふちをでこぼこに
+  for (int i = 0; i < ${SOLID_MAX}; i++) {
+    vec4 s = uSolid[i];
+    if (s.w <= 0.0) continue;
+    float d = distance(vSolidW, s.xyz) + edge;
+    amt = max(amt, s.w * (1.0 - smoothstep(uSolidR * 0.75, uSolidR, d)));
+  }
+  if (amt > 0.0) {
+    // 乾いてひび割れた土：まだらの明るさと、細いひびの線
+    float n = solidNoise(vSolidW * 2.3);
+    float crack = smoothstep(0.06, 0.0, abs(solidNoise(vSolidW * 1.4) - 0.5)) * 0.55;
+    vec3 dry = uSolidColor * (0.85 + 0.3 * n) * (1.0 - crack);
+    diffuseColor.rgb = mix(diffuseColor.rgb, dry, amt);
+  }
+}`);
+  };
+  mat.customProgramCacheKey = () => 'boss-solid';
+  mat.needsUpdate = true;
+}
+const _sl = new THREE.Vector3();
 // hit：パンがボスの体のメッシュに当たったところ（Raycaster の結果）
 function solidifyAt(hit) {
-  const mesh = new THREE.Mesh(solidGeo, solidMat);
-  mesh.userData.solidPatch = true;
-  mesh.position.copy(hit.point);
-  if (hit.face) _sn.copy(hit.face.normal).transformDirection(hit.object.matrixWorld);
-  else _sn.set(hit.point.x - boss.position.x, 0, hit.point.z - boss.position.z).normalize();
-  mesh.quaternion.setFromUnitVectors(_sz, _sn);
-  mesh.scale.set(SOLID_SIZE, SOLID_SIZE, SOLID_SIZE * 0.35);
-  scene.add(mesh);
-  boss.attach(mesh);
-  bossPatches.push({ mesh, t: SOLID_TIME });
+  boss.updateMatrixWorld(true);
+  const local = boss.worldToLocal(hit.point.clone());
+  if (bossPatches.length >= SOLID_MAX) bossPatches.sort((a, b) => b.t - a.t).pop();   // いちばん古いものと入れかえる
+  bossPatches.push({ local, t: SOLID_TIME });
 }
 function clearPatches() {
-  for (const x of bossPatches) x.mesh.removeFromParent();
   bossPatches.length = 0;
   bossSolid = 0;
+  for (const v of solidUniforms.uSolid.value) v.w = 0;
+}
+// 固まった所を、うすれさせながらシェーダーへ渡す
+function updatePatches(dt) {
+  bossSolid = 0;
+  for (let i = bossPatches.length - 1; i >= 0; i--) {
+    bossPatches[i].t -= dt;
+    if (bossPatches[i].t <= 0) bossPatches.splice(i, 1);
+  }
+  solidUniforms.uSolid.value.forEach((v, i) => {
+    const x = bossPatches[i];
+    if (!x) { v.w = 0; return; }
+    _sl.copy(x.local).applyMatrix4(boss.matrixWorld);
+    const age = SOLID_TIME - x.t;
+    v.set(_sl.x, _sl.y, _sl.z, Math.min(1, age / 0.15, x.t / 0.6));   // さっと固まって、最後の 0.6 秒でうすれる
+    bossSolid = Math.max(bossSolid, x.t);
+  });
 }
 // ふわお（feet）の方向に、固まった所があるか（ボスの中心から見た左右の角度で見る）
-const _pw = new THREE.Vector3();
 function solidToward(x, z) {
   const a = Math.atan2(x - boss.position.x, z - boss.position.z);
   return bossPatches.some((s) => {
-    s.mesh.getWorldPosition(_pw);
-    const b = Math.atan2(_pw.x - boss.position.x, _pw.z - boss.position.z);
+    _sl.copy(s.local).applyMatrix4(boss.matrixWorld);
+    const b = Math.atan2(_sl.x - boss.position.x, _sl.z - boss.position.z);
     return Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b))) < SOLID_ARC;
   });
 }
@@ -1146,6 +1203,12 @@ function solidToward(x, z) {
 function prepareBoss(gltf, cfg) {
   const root = gltf.scene;
   root.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  // 固めるボスは、体の材質（目・歯・波の輪のほか）に固まった所の色をのせる
+  if (cfg.needs) {
+    const mats = new Set();
+    root.traverse((o) => { if (o.isMesh && !/Wave/.test(o.name)) mats.add(o.material); });
+    for (const m of mats) if (m.color && !m.emissiveMap && !/eye|teeth/i.test(m.name)) addSolidShader(m);
+  }
   _o.set(BOSS_POS.x, 400, BOSS_POS.z);
   const hit = cast(_o, DOWN, 800);
   root.position.set(BOSS_POS.x, hit ? hit.point.y : BOSS_POS.y, BOSS_POS.z);
@@ -1231,17 +1294,8 @@ function updateBoss(dt, active) {
     bossHitDone = false;
   }
   bossMixer.update(dt);
-  // 固まった色から、少しずつ元の色へ
-  // 固まった所：時間がたつと小さくなって消える
-  bossSolid = 0;
-  for (let i = bossPatches.length - 1; i >= 0; i--) {
-    const x = bossPatches[i];
-    x.t -= dt;
-    if (x.t <= 0) { x.mesh.removeFromParent(); bossPatches.splice(i, 1); continue; }
-    const k = Math.min(1, x.t / 0.6);
-    x.mesh.scale.set(SOLID_SIZE * k, SOLID_SIZE * k, SOLID_SIZE * 0.35 * k);
-    bossSolid = Math.max(bossSolid, x.t);
-  }
+  // 固まった所（時間がたつとうすれて消える）
+  updatePatches(dt);
   passToast += dt;
   // 町に着いているときは、攻撃が当たった瞬間に町が攻撃される
   if (bossAttack && !bossHitDone && bossAttack.time >= (bossHitTimes[bossAttack.getClip().name] ?? bossAttack.getClip().duration * 0.45)) {
@@ -2488,6 +2542,20 @@ function roamBoss(dt) {
   const hit = cast(_o, DOWN, 800);
   if (hit) pos.y += (hit.point.y - pos.y) * (1 - Math.exp(-4 * dt));
 }
+// ボスの足元の地面の高さ。真ん中と、まわり BOSS_FOOT の 4 か所の高さの真ん中の値を使う
+// （足元の 1 か所だけだと、木や塀の上に乗ってしまう）
+const BOSS_FOOT = 6;
+function bossGroundY(pos) {
+  const ys = [];
+  for (const [dx, dz] of [[0, 0], [BOSS_FOOT, 0], [-BOSS_FOOT, 0], [0, BOSS_FOOT], [0, -BOSS_FOOT]]) {
+    _o.set(pos.x + dx, 400, pos.z + dz);
+    const hit = cast(_o, DOWN, 800);
+    if (hit) ys.push(hit.point.y);
+  }
+  if (!ys.length) return null;
+  ys.sort((a, b) => a - b);
+  return ys[Math.floor(ys.length / 2)];
+}
 const bossRoaming = () => bossCfg?.roam && storyStage >= bossCfg.next && bossAppeared && !bossGone && !finale;
 function moveBoss(dt) {
   if (!boss || bossGone || retreat || !bossAppeared || finale) return;
@@ -2512,9 +2580,8 @@ function moveBoss(dt) {
   if (d > BOSS_FAR) { pos.x = BOSS_TARGET.x + (pos.x - BOSS_TARGET.x) * BOSS_FAR / d; pos.z = BOSS_TARGET.z + (pos.z - BOSS_TARGET.z) * BOSS_FAR / d; }
   if (d >= BOSS_RETREAT - 0.01) startRetreat();
   // 地面の高さに合わせる（斜面を上り下りする）
-  _o.set(pos.x, 400, pos.z);
-  const hit = cast(_o, DOWN, 800);
-  if (hit) pos.y += (hit.point.y - pos.y) * (1 - Math.exp(-4 * dt));
+  const gy = bossGroundY(pos);
+  if (gy !== null) pos.y += (gy - pos.y) * (1 - Math.exp(-4 * dt));
   boss.rotation.y = turnToward(boss.rotation.y, Math.atan2(_bd.x, _bd.z), 1 - Math.exp(-BOSS_TURN * dt));
   // 体当たりされると、ぷるんと揺れる
   if (bossWobble > 0.001) {
@@ -3362,8 +3429,8 @@ function breadHitsBoss(b, dt) {
   _bray.set(p, _bdir.copy(b.vel).divideScalar(b.vel.length() || 1));
   _bray.far = len + 0.15 * BREAD_SCALE;
   boss.updateMatrixWorld(true);
-  // 固まった所と、地面に広がる波の輪（SB_Wave）には当てない
-  const hit = _bray.intersectObject(boss, true).find((h) => h.object.visible && !h.object.userData.solidPatch && !/Wave/.test(h.object.name));
+  // 地面に広がる波の輪（SB_Wave）には当てない
+  const hit = _bray.intersectObject(boss, true).find((h) => h.object.visible && !/Wave/.test(h.object.name));
   if (!hit) return false;
   p.copy(hit.point);
   vanishBread(b);
