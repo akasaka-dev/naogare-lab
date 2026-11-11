@@ -2544,7 +2544,7 @@ function collideBoss(dt) {
 // ---- 子バイ菌（町人の敵） ----
 // 町人を見つけて跳ねながら近づき、体にくっつく（くっついている間は待機。噛みつきのアニメは町人には使わない）。
 // ふわおのジェット体当たり（RAM_MIN_SPEED より速く飛んでいるとき）が当たると、やられアニメで縮んで消える。
-// 町人が助けを呼んだ区画に、その区画の場所（GERM_TEST の場所を優先し、足りない分は区画の中の地面）へ出てくる
+// 町人が助けを呼んだ区画に、その区画の中の地面から選んだ場所（setupProgress。ページを開くたびに変わる）へ出てくる
 const GERM_SPEED = 1.1;        // 跳ねて進む速さ（m/秒）
 const GERM_DROP = 1.0;         // これより低い段差へは降りない（川の岸から川へ落ちないように）
 const GERM_SEE = 25;           // この距離の町人をねらう
@@ -2557,13 +2557,6 @@ const GERM_HIT_BELOW = 1.2;
 const GERM_BOUNCE = 6;         // 体当たりしたロボがはね返される速さ（m/秒。ボスは RAM_BOUNCE）
 // 低空で飛んでいるときに、階段や段の少し上にいる子バイ菌にも当たるように、上にも広げる（ロボの頭の上からこの高さまで）
 const GERM_HIT_ABOVE = 1.5;
-const GERM_TEST = [
-  [26, 6], [12, 7.5], [-2, 7], [36, 8],   // 表通り（スタート地点、パン屋の前、川の東）
-  [-12, 15], [-22, 13],                   // 広場
-  [12, 30],                               // 南の裏通り
-  [12, -12], [30, -10],                   // 北の裏通り
-  [-14, -30],                             // 奥の段（パン工房の段）
-];
 let germTemplate = null, germClips = null;
 const germs = [];
 const _gp = new THREE.Vector3();
@@ -2731,7 +2724,7 @@ const FUEL_JET = 1 / 15;        // 噴射で減る燃料（1 秒あたり。最�
 const FUEL_RAM = 0.04;          // ボスに体当たりすると減る燃料
 const FUEL_REGEN = 1 / 30;      // 地面に立っている間に戻る燃料（1 秒あたり。最初のタンクなら空から満タンまで 10 秒）
 const FUEL_MIN_START = 0.02;    // これより少ないと噴射を始められない
-const BODY_PER_SHOT = 0.05;     // パン 1 個で削れるからだ（満タンで 20 発）
+const BODY_PER_SHOT = 0.07;     // パン 1 個で削れるからだ（満タンで約 14 発）
 const WORKSHOP_FRONT = new THREE.Vector3(-7.7, 12, -25.2);   // パン工房の扉（町の中、北の奥の段）の前
 const WORKSHOP_REFILL_R = 6;    // 扉の前のこの距離の中で地面にいると補給される
 const WORKSHOP_REFILL = 0.5;    // 補給の速さ（1 秒あたり、燃料だけ）
@@ -2773,7 +2766,7 @@ const SPOT_RULES = [
   { flatR: 2, flat: 0.35, room: 4, dirs: 3 },
   { flatR: 1.2, flat: 0.6, room: 2.5, dirs: 2 },
 ];
-// 区画の中の、歩ける地面の上の場所をさがす（毎回同じ場所になるように、決まった乱数で）
+// 区画の中の、歩ける地面の上の場所をさがす（rand は setupProgress の乱数。ページを開くたびに変わる）
 function areaSpot(a, rand, avoid, rule) {
   const boxes = a.boxes, total = boxes.reduce((s, [x0, z0, x1, z1]) => s + (x1 - x0) * (z1 - z0), 0);
   for (let tries = 0; tries < 300; tries++) {
@@ -2822,8 +2815,9 @@ function areaSpot(a, rand, avoid, rule) {
   }
   return null;
 }
+// 小バイ菌の出る場所は、ページを開くたびに区画の中から選び直す（つづきから遊ぶときは、セーブした場所に戻す。loadGame）
 function setupProgress() {
-  let seed = 20261105;
+  let seed = (Math.random() * 2 ** 32) | 0;
   const rand = () => {   // mulberry32
     seed = (seed + 0x6D2B79F5) | 0;
     let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
@@ -2831,10 +2825,6 @@ function setupProgress() {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
   ruinAreas.forEach(() => areaGauge.push({ spots: [], germs: [], residents: [], called: false, done: false }));
-  for (const [x, z] of GERM_TEST) {
-    const i = areaAt(x, z);
-    if (i >= 0 && areaGauge[i].spots.length < GERMS_PER_AREA) areaGauge[i].spots.push({ x, z });
-  }
   ruinAreas.forEach((a, i) => {
     const spots = areaGauge[i].spots;
     for (const rule of SPOT_RULES) {
@@ -3471,8 +3461,11 @@ function updateHouse(r) {
   r.placed = true;
 }
 // パンを食べる町人は、はじめはみんなおなかをすかせていて、頭の上にパンのアイコンを出す（食べさせると区画の復興度が進む）。
-// お昼（HUNGER_HOUR）になると、またみんなおなかがすく（そのときは町の復興度には関係しない）
-const HUNGER_HOUR = 12;
+// お昼と、おやつ（子どもが帰ってくる前）の時刻になると、またみんなおなかがすく（そのときは町の復興度には関係しない）
+const HUNGER_TIMES = [
+  { hour: 12, text: 'お昼になった！ おなかをすかせた町人が、パンを待っている' },
+  { hour: 15, text: 'おやつの時間！ おなかをすかせた町人が、パンを待っている' },
+];
 const HUNGER_COLOR = 0xf08a24;
 let lastHour = null;
 function setHungry(r) {
@@ -3481,18 +3474,21 @@ function setHungry(r) {
   setFace(r, 'sad');
   if (r.hungryIdle && r.idle !== r.hungryIdle && !r.oneShot) { r.idle.stop(); r.idle = r.hungryIdle.play(); }
 }
-function makeHungry() {
+function makeHungry(text = HUNGER_TIMES[0].text) {
   let n = 0;
   for (const r of residents) {
     if (!r.eat || r.hungry) continue;
     setHungry(r);
     n++;
   }
-  if (n) showToast('お昼になった！ おなかをすかせた町人が、パンを待っている');
+  if (n) showToast(text);
 }
 function updateHunger(dt, active) {
   const h = daytime.hour;
-  if (active && !townCollapsed && lastHour !== null && lastHour < HUNGER_HOUR && h >= HUNGER_HOUR && h - lastHour < 6) makeHungry();
+  if (active && !townCollapsed && lastHour !== null) {
+    const due = HUNGER_TIMES.find((x) => lastHour < x.hour && h >= x.hour && h - lastHour < 6);
+    if (due) makeHungry(due.text);
+  }
   lastHour = h;
   for (const r of residents) {
     if (!r.hungerIcon) continue;
@@ -3869,7 +3865,8 @@ function saveGame() {
     stage: storyStage, boss: bossIndex, bossAppeared, bossGone,
     bossPos: boss ? [+boss.position.x.toFixed(2), +boss.position.z.toFixed(2)] : null,
     items: [...items], mayorWarned, fuelMax, fuel: +fuel.toFixed(3), body: +body.toFixed(3), hour: +daytime.hour.toFixed(3),
-    areas: areaGauge.map((g) => ({ called: g.called, done: g.done, gone: g.germs.map((x) => (germGone(x) ? 1 : 0)) })),
+    areas: areaGauge.map((g) => ({ called: g.called, done: g.done, gone: g.germs.map((x) => (germGone(x) ? 1 : 0)),
+      spots: g.spots.map((p) => [+p.x.toFixed(2), +p.z.toFixed(2)]) })),
     residents: Object.fromEntries(residents.map((r) => [r.id, {
       fed: !!r.fed, hungry: !!r.hungry,
       once: [...(r.talked || [])].filter((t) => t.once).map((t) => talkIndex(r, t)).filter(Boolean),
@@ -3906,6 +3903,7 @@ function loadGame(d) {
   (d.areas || []).forEach((a, i) => {
     const g = areaGauge[i];
     if (!g) return;
+    if (Array.isArray(a.spots) && a.spots.length) g.spots = a.spots.map(([x, z]) => ({ x, z }));   // セーブした出る場所
     g.called = !!a.called;
     if (g.called) {
       g.spots.forEach((p, k) => {
@@ -4318,10 +4316,11 @@ function endVisit() {
   camera.fov = 70;
   camera.updateProjectionMatrix();
   respawn();   // 扉の前に出て、町のほうを向く
+  const toast = visit.toast;
   visit = null;
   document.body.classList.remove('visiting');
   saveGame();   // 道具をもらったあとなど
-  setTimeout(() => fadeEl.classList.remove('on'), 200);
+  setTimeout(() => { fadeEl.classList.remove('on'); if (toast) showToast(toast); }, 200);
 }
 function startChocoEquip() {
   visit.phase = 'equip';
@@ -4344,7 +4343,7 @@ function updateChocoEquip(v) {
     v.done = true;
     applyChoco();
     sparkleBurst(_oc2, 26, 0.4);
-    showToast(GIFT_TOASTS.choco);
+    v.toast = GIFT_TOASTS.choco;   // 工場長の話と重ならないよう、外へ出てから出す（endVisit）
   }
   if (v.t >= CHOCO_EQUIP_END) startEquippedTalk(v);
 }
