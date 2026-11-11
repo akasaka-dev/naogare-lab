@@ -191,7 +191,7 @@
     #speechBubble { min-height: 92px; padding: 18px 12px 10px 10px; gap: 9px; }
     #bubbleAvatar { width: 44px; height: 44px; }
     #speechBubble .bubble-text { font-size: 0.85rem; line-height: 1.5; }
-    #cardDeck { width: 64px; height: 90px; }
+    .deck { width: 64px; height: 90px; }
     body:has(#gameScreen:not(.hidden)) #status { margin-bottom: 6px; }
     #board-wrap #board {
       /* also capped by what's left under the bubble/labels, so short screens shrink the board instead of clipping the bubble */
@@ -841,7 +841,18 @@
     gap: 16px;
     margin-top: 14px;
   }
-  #dock:has(#speechBubble.hidden) { display: none; }   /* pvp / online: no dock */
+  #dock:has(#speechBubble.hidden):not(.pvp) { display: none; }   /* online: no dock */
+  #dock.pvp { justify-content: space-between; padding: 0 10px; box-sizing: border-box; }   /* pvp: just the two decks, one at each side */
+  #dock.pvp .deck { align-self: center; }
+  .deck.owner1 .deck-card { border-color: #ff4fa3; }
+  .deck.owner2 .deck-card { border-color: #3df2d8; }
+  .deck.owner1.ready .deck-card { animation-name: deckPulse1; }
+  .deck.owner2.ready .deck-card { animation-name: deckPulse2; }
+  @keyframes deckPulse1 { 0%, 100% { box-shadow: 0 0 12px rgba(255, 79, 163, 0.7), 0 6px 16px rgba(0, 0, 0, 0.6); } 50% { box-shadow: 0 0 24px rgba(255, 79, 163, 0.95), 0 6px 16px rgba(0, 0, 0, 0.6); } }
+  @keyframes deckPulse2 { 0%, 100% { box-shadow: 0 0 12px rgba(61, 242, 216, 0.7), 0 6px 16px rgba(0, 0, 0, 0.6); } 50% { box-shadow: 0 0 24px rgba(61, 242, 216, 0.95), 0 6px 16px rgba(0, 0, 0, 0.6); } }
+  #oppCardLine { font-size: 0.74rem; color: #fde68a; opacity: 0.9; margin: -2px 0 2px; text-align: center; }
+  #oppCardLine.used { opacity: 0.5; text-decoration: line-through; }
+
   #speechBubble {
     flex: 1;
     min-width: 0;
@@ -894,7 +905,7 @@
   }
 
   /* the card deck: a small stack of cards; the top one shows the held card */
-  #cardDeck {
+  .deck {
     position: relative;
     flex: none;
     width: 76px;
@@ -908,8 +919,8 @@
     -webkit-tap-highlight-color: transparent;
     transition: transform 0.2s ease;
   }
-  #cardDeck.hidden { display: none; }
-  #cardDeck::before, #cardDeck::after {
+  .deck.hidden { display: none; }
+  .deck::before, .deck::after {
     content: '';
     position: absolute;
     inset: 0;
@@ -918,12 +929,12 @@
     border: 1.5px solid rgba(167, 139, 250, 0.5);
     box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
   }
-  #cardDeck::before { transform: translate(7px, 5px) rotate(5deg); opacity: 0.75; }
-  #cardDeck::after { transform: translate(3.5px, 2.5px) rotate(2.5deg); opacity: 0.9; }
-  #cardDeck.empty::before, #cardDeck.empty::after { display: none; }
-  #cardDeck:hover { transform: translateY(-4px); }
-  #cardDeck.used, #cardDeck.empty { cursor: default; }
-  #cardDeck.used:hover, #cardDeck.empty:hover { transform: none; }
+  .deck::before { transform: translate(7px, 5px) rotate(5deg); opacity: 0.75; }
+  .deck::after { transform: translate(3.5px, 2.5px) rotate(2.5deg); opacity: 0.9; }
+  .deck.empty::before, .deck.empty::after { display: none; }
+  .deck:hover { transform: translateY(-4px); }
+  .deck.used, .deck.empty { cursor: default; }
+  .deck.used:hover, .deck.empty:hover { transform: none; }
   .deck-card {
     position: absolute;
     inset: 0;
@@ -946,8 +957,8 @@
     mix-blend-mode: screen;
     pointer-events: none;
   }
-  #cardDeck.ready .deck-card { animation: deckPulse 2.2s ease-in-out infinite; }
-  #cardDeck.ready .deck-card::after { animation: deckSheen 3.4s ease-in-out infinite; }
+  .deck.ready .deck-card { animation: deckPulse 2.2s ease-in-out infinite; }
+  .deck.ready .deck-card::after { animation: deckSheen 3.4s ease-in-out infinite; }
   @keyframes deckPulse {
     0%, 100% { box-shadow: 0 0 14px rgba(251, 191, 36, 0.7), 0 6px 16px rgba(0, 0, 0, 0.6); }
     50% { box-shadow: 0 0 26px rgba(251, 191, 36, 0.95), 0 6px 16px rgba(0, 0, 0, 0.6); }
@@ -997,9 +1008,9 @@
     color: #e2e8f0;
     background: rgba(5, 4, 14, 0.55);
   }
-  #cardDeck.used .deck-used { display: flex; }
-  #cardDeck.used .deck-art { filter: grayscale(0.9) brightness(0.55); }
-  #cardDeck.empty .deck-card {
+  .deck.used .deck-used { display: flex; }
+  .deck.used .deck-art { filter: grayscale(0.9) brightness(0.55); }
+  .deck.empty .deck-card {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1012,8 +1023,8 @@
     background: rgba(15, 23, 42, 0.45);
     box-shadow: none;
   }
-  #cardDeck.empty .deck-card::after { display: none; }
-  #cardDeck.deal { animation: deckDeal 0.65s cubic-bezier(0.2, 0.9, 0.3, 1.2); }
+  .deck.empty .deck-card::after { display: none; }
+  .deck.deal { animation: deckDeal 0.65s cubic-bezier(0.2, 0.9, 0.3, 1.2); }
   @keyframes deckDeal {
     from { transform: translateY(-40px) rotate(-12deg) scale(0.7); opacity: 0; }
     to { transform: none; opacity: 1; }
@@ -1244,6 +1255,7 @@
   <!-- Game screen -->
   <div id="gameScreen" class="hidden">
     <div id="modeLabel"></div>
+    <div id="oppCardLine" class="hidden"></div>
     <div id="status"></div>
     <div id="turnTimeoutWarning" class="hidden"></div>
     <div id="board-wrap">
@@ -1258,7 +1270,8 @@
           <div class="bubble-text" id="bubbleText"></div>
         </div>
       </div>
-      <button id="cardDeck" class="empty" type="button" aria-label="カード"></button>
+      <button id="cardDeck" class="deck empty" type="button" aria-label="カード"></button>
+      <button id="cardDeck2" class="deck empty hidden" type="button" aria-label="カード"></button>
     </div>
     <div id="onlineEmoteBar" class="hidden">
       <div id="emoteScroller">
@@ -1643,7 +1656,7 @@
     document.getElementById('onlineJoinConfirmBtn').textContent = K('開始する', 'かいしする');
     document.getElementById('onlineJoinCancelBtn').textContent = 'キャンセル';
     renderJoinConfirmText();
-    deckShown = undefined; updateCardButton();
+    deckShown[1] = deckShown[2] = undefined; updateCardButton();
     document.getElementById('storyHint').textContent = K('タップして進む', 'タップですすむ');
     document.getElementById('storySkipBtn').textContent = K('スキップ ≫', 'スキップ ≫');
     document.getElementById('endingHint').textContent = K('ドラッグで読み返せます／クリックでタイトルへ', 'ドラッグでよみかえせます／クリックでタイトルへ');
@@ -1705,7 +1718,7 @@
   // (a winning move is always taken regardless, so weaker levels never look "broken").
   const CHARACTERS = [
     { level: 1, name: 'からくり騎士', stars: 2, img: 'chara/LV1.webp', emoji: '⚙️',
-      desc: '', depth: 1, wildness: 0.6, // 3D: tuned offline so a beginner wins ~40-50%
+      desc: '', depth: 1, wildness: 0.6, cardChance: 0.1, // 3D: tuned offline so a beginner wins ~40-50%
       // TODO: placeholder lines until the real dialogue is written
       lines: {
         normal: ['まだ台詞がありません。'],
@@ -1722,7 +1735,7 @@
         defeat: 'まだせりふがありません。',
       } },
     { level: 2, name: '鏡の魔女', stars: 3, img: 'chara/LV2.webp', emoji: '🪞',
-      desc: '', depth: 2, wildness: 0.25,
+      desc: '', depth: 2, wildness: 0.25, cardChance: 0.1,
       // TODO: placeholder lines until the real dialogue is written
       lines: {
         normal: ['まだ台詞がありません。'],
@@ -1739,7 +1752,7 @@
         defeat: 'まだせりふがありません。',
       } },
     { level: 3, name: '夢喰いの鴉', stars: 4, img: 'chara/LV3.webp', emoji: '🐦‍⬛',
-      desc: '', depth: 3, wildness: 0.15,
+      desc: '', depth: 3, wildness: 0.15, cardChance: 0.1,
       // TODO: placeholder lines until the real dialogue is written
       lines: {
         normal: ['まだ台詞がありません。'],
@@ -1756,7 +1769,7 @@
         defeat: 'まだせりふがありません。',
       } },
     { level: 4, name: '封印の修道女', stars: 4, img: 'chara/LV4.webp', emoji: '✝️',
-      desc: '', depth: 4, wildness: 0.05,
+      desc: '', depth: 4, wildness: 0.05, cardChance: 0.1,
       // TODO: placeholder lines until the real dialogue is written
       lines: {
         normal: ['まだ台詞がありません。'],
@@ -1773,7 +1786,7 @@
         defeat: 'まだせりふがありません。',
       } },
     { level: 5, name: '無貌の王', stars: 5, img: 'chara/LV5.webp', emoji: '👑',
-      desc: '', depth: 5, wildness: 0, // free-placement board: depth 6 takes ~2s per move, 5 about 0.4s
+      desc: '', depth: 5, wildness: 0, cardChance: 0.1, // free-placement board: depth 6 takes ~2s per move, 5 about 0.4s
       // TODO: placeholder lines until the real dialogue is written
       lines: {
         normal: ['まだ台詞がありません。'],
@@ -1815,136 +1828,251 @@
   let ladderOutcomeTimer = null;
 
   // ---------- Trump cards ----------
-  // Beat a challenger and you may turn them into a card (only one is carried;
-  // a new one replaces it, and a fresh LV1 run starts with none). Once per
-  // match, on your own turn, playing it costs no turn. CPU matches only, and
-  // the CPU never uses cards - the same rules apply whoever moves first.
+  // CPU matches: beat a challenger and you may turn them into a card (one is carried; a new one
+  // replaces it, and a fresh LV1 run starts with none). Each CPU plays its OWN card (cpuTryCard).
+  // PvP: two different cards are dealt at random at the start of every match; both decks show.
+  // One use per match, on your own turn. Online matches have no cards. The rules live in the
+  // pure block (CARD_RULES / applyCard / cardChoices / wantsCard), shared with sim/balance-sim.js.
   const CARDS = {
     1: { id: 'gear', name: '歯車の一撃', nameKana: 'はぐるまのいちげき',
          desc: '相手の球を1個、ランダムに消す', descKana: 'あいてのたまを1こ、ランダムにけす' },
-    2: { id: 'mirror', name: '鏡の予知', nameKana: 'かがみのよち',
-         desc: 'CPUがいま一番打ちたい場所を光らせて教える', descKana: 'CPUがいまいちばんうちたいばしょをひからせておしえる' },
-    3: { id: 'nightmare', name: '悪夢', nameKana: 'あくむ',
-         desc: 'CPUの次の一手がランダムになる', descKana: 'CPUのつぎのいってがランダムになる' },
+    2: { id: 'breaker', name: '鏡砕き', nameKana: 'かがみくだき',
+         desc: '相手の球がランダムに2個光る。そのうち1個をえらんで消す',
+         descKana: 'あいてのたまがランダムに2こひかる。そのうち1こをえらんでけす' },
+    3: { id: 'raven', name: '黒羽の降臨', nameKana: 'くろばねのこうりん',
+         desc: '自分の球が、ランダムな2か所に降りてくる', descKana: 'じぶんのたまが、ランダムな2かしょにおりてくる' },
     4: { id: 'seal', name: '封印', nameKana: 'ふういん',
-         desc: 'CPUが一番打ちたい場所を、CPUが2回打つあいだ使えなくする', descKana: 'CPUがいちばんうちたいばしょを、CPUが2かいうつあいだつかえなくする' },
+         desc: '好きな場所に壁を置く。壁はずっと残り、だれもそこに置けない',
+         descKana: 'すきなばしょにかべをおく。かべはずっとのこり、だれもそこにおけない' },
     5: { id: 'usurp', name: '簒奪', nameKana: 'さんだつ',
-         desc: '相手の球を1個、ランダムに自分の色に変える', descKana: 'あいてのたまを1こ、ランダムにじぶんのいろにかえる' },
+         desc: '相手の球がランダムに3個光る。そのうち1個をえらんで、自分の色にする',
+         descKana: 'あいてのたまがランダムに3こひかる。そのうち1こをえらんで、じぶんのいろにする' },
   };
   const cardName = (lv) => K(CARDS[lv].name, CARDS[lv].nameKana);
   const cardDesc = (lv) => K(CARDS[lv].desc, CARDS[lv].descKana);
-  let heldCard = null;     // level of the challenger the player carries as a card (null = none)
-  let cardUsed = false;    // spent in the current match
-  let sealedCells = [];    // [{ cell, left }]: nobody can play these; `left` counts CPU moves
-  let nightmareNext = false;
-  let hintCell = -1;
-  const cardBtn = document.getElementById('cardDeck');
+  const cardEndsTurn = (lv) => !!CARD_RULES.cost[CARDS[lv].id];
+  const cardTurnNote = (lv) => cardEndsTurn(lv)
+    ? K('（使うと自分の番が終わります）', '（つかうとじぶんのばんがおわります）')
+    : K('（使っても自分の番は終わりません）', '（つかってもじぶんのばんはおわりません）');
+  let heldCard = null;                    // CPU matches: level of the challenger the player carries as a card
+  let pvpCards = { 1: null, 2: null };    // PvP: the card (a level number) each player was dealt
+  let cs = newCardState();                // this match's card state: who spent a card, walls
+  let targeting = null;                   // { player, id, cands, picked } while a card waits for its target
+  const dockEl = document.getElementById('dock');
+  const deckEls = { 1: document.getElementById('cardDeck'), 2: document.getElementById('cardDeck2') };
+  const cardBtn = deckEls[1];
+  const oppCardEl = document.getElementById('oppCardLine');
 
-  function isSealed(i) { return sealedCells.some((sc) => sc.cell === i); }
+  // the card level player p holds in this match, or null
+  function cardLevelOf(p) {
+    if (mode === 'pvp') return pvpCards[p];
+    if (mode === 'cpu') return p === 1 ? heldCard : (currentChar ? currentChar.level : null);
+    return null;
+  }
+  function dealPvpCards() {
+    const a = shuffled([1, 2, 3, 4, 5]);
+    pvpCards = { 1: a[0], 2: a[1] };
+  }
+  function isSealed(i) { return cs.sealed.some((sc) => sc.cell === i); }
+  const playableCells = () => getEmptyCells(wallGrid(grid, cs));
   function refreshMarks() {
     const m = {};
-    sealedCells.forEach((sc) => { m[sc.cell] = 'seal'; });
-    if (hintCell >= 0 && grid[hintCell] === 0) m[hintCell] = 'hint';
+    cs.sealed.forEach((sc) => { m[sc.cell] = 'seal'; });
+    if (targeting && targeting.cands) targeting.cands.forEach((c) => { m[c] = c === targeting.picked ? 'pick' : 'cand'; });
     Board3D.setMarks(m);
   }
-  // The deck in the bottom dock: empty slot / ready (gold glow + sheen) / used (greyed).
-  let deckShown;   // which card the deck currently draws (undefined = redraw)
-  function renderDeck() {
-    if (heldCard === null) {
-      cardBtn.innerHTML = `<span class="deck-card">${K('カードなし', 'カードなし')}</span>`;
+  // The decks in the bottom dock: empty slot / ready (glow + sheen) / used (greyed).
+  const deckShown = { 1: undefined, 2: undefined };   // which card each deck currently draws (undefined = redraw)
+  function renderDeck(el, lv) {
+    if (lv === null) {
+      el.innerHTML = `<span class="deck-card">${K('カードなし', 'カードなし')}</span>`;
       return;
     }
-    const ch = CHARACTERS[heldCard - 1];
-    cardBtn.innerHTML = `<span class="deck-card">
+    const ch = CHARACTERS[lv - 1];
+    el.innerHTML = `<span class="deck-card">
       <img class="deck-art" src="${ch.img}" alt="" draggable="false">
       <span class="deck-lv">LV.${ch.level}</span>
-      <span class="deck-name">${cardName(heldCard)}</span>
+      <span class="deck-name">${cardName(lv)}</span>
       <span class="deck-used">${K('使用済み', 'しようずみ')}</span>
     </span>`;
   }
-  function updateCardButton() {
-    const inCpu = mode === 'cpu';
-    cardBtn.classList.toggle('hidden', !inCpu);
-    if (!inCpu) return;
-    const has = heldCard !== null;
-    cardBtn.classList.toggle('empty', !has);
-    cardBtn.classList.toggle('used', has && cardUsed);
-    cardBtn.classList.toggle('ready', has && !cardUsed);
-    if (deckShown !== heldCard) {
-      renderDeck();
-      if (has) { cardBtn.classList.remove('deal'); void cardBtn.offsetWidth; cardBtn.classList.add('deal'); }
-      deckShown = heldCard;
+  function updateDeck(p) {
+    const el = deckEls[p];
+    const show = mode === 'pvp' || (mode === 'cpu' && p === 1);
+    el.classList.toggle('hidden', !show);
+    if (!show) { deckShown[p] = undefined; return; }
+    const lv = cardLevelOf(p);
+    const has = lv !== null;
+    el.classList.toggle('owner1', mode === 'pvp' && p === 1);
+    el.classList.toggle('owner2', mode === 'pvp' && p === 2);
+    el.classList.toggle('empty', !has);
+    el.classList.toggle('used', has && cs.used[p]);
+    el.classList.toggle('ready', has && !cs.used[p]);
+    if (deckShown[p] !== lv) {
+      renderDeck(el, lv);
+      if (has) { el.classList.remove('deal'); void el.offsetWidth; el.classList.add('deal'); }
+      deckShown[p] = lv;
     }
-    cardBtn.setAttribute('aria-label', has ? `${K('カード', 'カード')}: ${cardName(heldCard)}` : K('カードなし', 'カードなし'));
+    el.setAttribute('aria-label', has ? `${K('カード', 'カード')}: ${cardName(lv)}` : K('カードなし', 'カードなし'));
+  }
+  function updateCardButton() {
+    dockEl.classList.toggle('pvp', mode === 'pvp');
+    updateDeck(1);
+    updateDeck(2);
+    // CPU matches: the opponent's card is known from the start
+    const oppLv = mode === 'cpu' ? cardLevelOf(2) : null;
+    oppCardEl.classList.toggle('hidden', oppLv === null);
+    oppCardEl.classList.toggle('used', oppLv !== null && cs.used[2]);
+    if (oppLv !== null) oppCardEl.textContent = `🃏 ${K('相手のカード', 'あいてのカード')}: ${cardName(oppLv)}${cs.used[2] ? K('（使用済み）', '（しようずみ）') : ''}`;
   }
   function resetCardState() {
-    cardUsed = false; sealedCells = []; nightmareNext = false; hintCell = -1;
+    cs = newCardState();
+    targeting = null;
+    Board3D.setPickSet(null);
     updateCardButton();
   }
   function flashStatus(msg) {
     updateStatus(msg);
-    setTimeout(() => { if (!gameOver && !cpuThinking && currentPlayer !== undefined) updateStatus(); }, 1800);
+    setTimeout(() => { if (!gameOver && !cpuThinking && currentPlayer !== undefined && !targeting) updateStatus(); }, 1800);
   }
-  // The cell the CPU would play right now if it played its best (no random slips).
-  function cpuIdealCell() {
-    const w = findImmediateWin(grid, 2);
-    if (w !== null) return w;
-    let depth = currentChar ? currentChar.depth : 3;
-    if (grid.filter((v) => v !== 0).length < 4) depth = Math.min(depth, 3);
-    return chooseCpuCell(grid, 2, depth);
+  function endAsDraw() {
+    gameOver = true;
+    statusEl.innerHTML = '';
+    hideBubble();
+    SoundMgr.seDraw();
+    if (mode === 'cpu' && currentChar) {
+      ladderOutcomeTimer = setTimeout(() => handleLadderOutcome('draw'), 1000);
+    }
   }
 
-  cardBtn.addEventListener('click', () => {
+  // why player p cannot play their card right now ('' = they can)
+  function cardBlocker(p) {
+    if (cs.used[p]) return K('このカードは、この対戦ではもう使いました', 'このカードは、このたいせんではもうつかいました');
+    if (!humanCanMove() || p !== currentPlayer) return K('自分の番に使えます', 'じぶんのばんにつかえます');
+    if (playableCells().length <= 2) return K('盤面の空きが少なくて使えません', 'ばんめんのあきがすくなくてつかえません');
+    return '';
+  }
+  deckEls[1].addEventListener('click', () => onDeckClick(1));
+  deckEls[2].addEventListener('click', () => onDeckClick(2));
+  function onDeckClick(p) {
     SoundMgr.seClick();
-    if (mode !== 'cpu') return;
-    if (heldCard === null) { flashStatus(K('敵に勝つとカードが手に入ります', 'てきにかつとカードがてにはいります')); return; }
-    if (cardUsed) { flashStatus(K('このカードは、この対戦ではもう使いました', 'このカードは、このたいせんではもうつかいました')); return; }
-    if (!humanCanMove()) { flashStatus(K('自分の番に使えます', 'じぶんのばんにつかえます')); return; }
-    const ch = CHARACTERS[heldCard - 1];
+    if (mode !== 'cpu' && mode !== 'pvp') return;
+    if (targeting) { cancelTargeting(); return; }
+    const lv = cardLevelOf(p);
+    if (lv === null) { flashStatus(K('敵に勝つとカードが手に入ります', 'てきにかつとカードがてにはいります')); return; }
+    const ch = CHARACTERS[lv - 1];
+    const blocker = cardBlocker(p);
+    const buttons = [];
+    if (!blocker) buttons.push({ label: K('使う', 'つかう'), primary: true, onClick: () => startCardUse(p) });
+    buttons.push({ label: blocker ? K('とじる', 'とじる') : K('やめる', 'やめる'), onClick: () => {} });
     showResultOverlay({
-      title: `🃏 ${cardName(heldCard)}`,
-      message: `${cardDesc(heldCard)}\n${K('（使っても自分の番は終わりません）', '（つかってもじぶんのばんはおわりません）')}`,
+      title: `🃏 ${cardName(lv)}`,
+      message: `${cardDesc(lv)}\n${cardTurnNote(lv)}${blocker ? `\n\n${blocker}` : ''}`,
       portraitImg: ch.img,
       portraitEmoji: ch.emoji,
-      buttons: [
-        { label: K('使う', 'つかう'), primary: true, onClick: playCard },
-        { label: K('やめる', 'やめる'), onClick: () => {} },
-      ],
+      buttons,
     });
-  });
+  }
 
-  function playCard() {
-    if (heldCard === null || cardUsed || !humanCanMove()) return;
-    const c = CARDS[heldCard];
-    if (c.id === 'gear' || c.id === 'usurp') {
-      const theirs = [];
-      grid.forEach((v, i) => { if (v === 2) theirs.push(i); });
-      if (!theirs.length) { flashStatus(K('相手の球がまだありません', 'あいてのたまがまだありません')); return; }
-      const idx = theirs[Math.floor(Math.random() * theirs.length)];
-      grid[idx] = c.id === 'gear' ? 0 : 1;
-      cardUsed = true;
-      pendingCell = -1;
-      Board3D.clearGhost();
-      Board3D.sync(grid);
-      SoundMgr.seCard();
-      updateCardButton();
-      const win = c.id === 'usurp' ? winningLine(grid, idx, 1) : null;
-      if (win) { handleWin(1, win); return; }
+  function startCardUse(p) {
+    const lv = cardLevelOf(p);
+    if (lv === null || cardBlocker(p)) return;
+    const id = CARDS[lv].id;
+    const choices = cardChoices(id, p, grid, cs);
+    if (id === 'breaker' || id === 'usurp') {
+      if (!choices.length) { flashStatus(K('相手の球がまだありません', 'あいてのたまがまだありません')); return; }
+      beginTargeting(p, id, choices);
+    } else if (id === 'seal') {
+      beginTargeting(p, id, null);
     } else {
-      if (c.id === 'mirror') { hintCell = cpuIdealCell(); }
-      else if (c.id === 'nightmare') { nightmareNext = true; }
-      else if (c.id === 'seal') {
-        const cell = cpuIdealCell();
-        if (cell !== null) sealedCells.push({ cell, left: 2 });
-      }
-      cardUsed = true;
-      pendingCell = -1;
-      Board3D.clearGhost();
-      refreshMarks();
-      SoundMgr.seCard();
-      updateCardButton();
+      commitCard(p, {});
     }
-    flashStatus(`🃏 ${cardName(heldCard)}${K('を使った！', 'をつかった！')}`);
+  }
+  function beginTargeting(p, id, cands) {
+    targeting = { player: p, id, cands, picked: -1 };
+    pendingCell = -1;
+    Board3D.clearGhost();
+    Board3D.setPickSet(cands);
+    refreshMarks();
+    const how = id === 'breaker' ? K('消す球を', 'けすたまを')
+      : id === 'usurp' ? K('自分の色にする球を', 'じぶんのいろにするたまを')
+      : K('壁を置く場所を', 'かべをおくばしょを');
+    updateStatus(`🃏 ${how}${K('タップ（カードをもう一度タップでやめる）', 'タップ（カードをもういちどタップでやめる）')}`);
+  }
+  function cancelTargeting() {
+    targeting = null;
+    Board3D.setPickSet(null);
+    Board3D.clearGhost();
+    pendingCell = -1;
+    refreshMarks();
+    updateStatus();
+  }
+  // a tap while a card waits for its target
+  function handleTargetTap(cell, pointerType) {
+    const t = targeting;
+    if (t.cands) {   // pick one of the lit balls (touch: tap once to mark it, again to confirm)
+      if (cell < 0 || !t.cands.includes(cell)) return;
+      if (pointerType === 'mouse' || t.picked === cell) { commitCard(t.player, { target: cell }); return; }
+      t.picked = cell;
+      refreshMarks();
+      updateStatus(`🃏 ${K('もう一度タップで決定', 'もういちどタップできめる')}`);
+      return;
+    }
+    // a wall: any free cell
+    if (cell < 0 || grid[cell] !== 0 || isSealed(cell)) { pendingCell = -1; Board3D.clearGhost(); return; }
+    if (pointerType === 'mouse' || pendingCell === cell) { pendingCell = -1; Board3D.clearGhost(); commitCard(t.player, { target: cell }); return; }
+    pendingCell = cell;
+    Board3D.setGhost(cell, t.player);
+  }
+  // Plays player p's card (with the chosen target, if any) and moves the game on.
+  function commitCard(p, o) {
+    const lv = cardLevelOf(p);
+    const t = targeting;
+    targeting = null;
+    Board3D.setPickSet(null);
+    const r = applyCard(CARDS[lv].id, p, grid, cs, {
+      depth: currentChar ? currentChar.depth : 3, smart: false, cands: t ? t.cands : undefined, target: o.target,
+    });
+    pendingCell = -1;
+    Board3D.clearGhost();
+    if (!r.ok) { refreshMarks(); flashStatus(K('このカードは使えませんでした', 'このカードはつかえませんでした')); return; }
+    Board3D.sync(grid);
+    refreshMarks();
+    SoundMgr.seCard();
+    updateCardButton();
+    const said = `🃏 ${cardName(lv)}${K('を使った！', 'をつかった！')}`;
+    if (r.win) { handleWin(p, r.win); return; }
+    if (noPlayableCell()) { endAsDraw(); return; }
+    if (r.endsTurn) {   // the card was this turn's move
+      currentPlayer = 3 - p;
+      updateStatus(said);
+      if (mode === 'cpu' && !gameOver) triggerCpuMove();
+      else setTimeout(() => { if (!gameOver) updateStatus(); }, 1500);
+      return;
+    }
+    flashStatus(said);
+  }
+  const noPlayableCell = () => playableCells().length === 0;
+
+  // The CPU plays its own character's card (once per match): to stop a threat, or now and then.
+  // Returns false (not played), true (played), 'turn' (it was the CPU's move) or 'win' (it completed a line).
+  function cpuTryCard() {
+    const ch = currentChar;
+    if (!ch || mode !== 'cpu' || gameOver) return false;
+    if (playableCells().length <= 2) return false;
+    const id = CARDS[ch.level].id;
+    if (!wantsCard(id, grid, cs, 2, ch.cardChance)) return false;
+    const r = applyCard(id, 2, grid, cs, { depth: 3, smart: true });
+    if (!r.ok) return false;
+    Board3D.sync(grid);
+    refreshMarks();
+    SoundMgr.seCard();
+    updateCardButton();
+    showSingleLine(ch.name, `「${cardName(ch.level)}」！`);
+    updateStatus(`🃏 ${escapeHtml(ch.name)}${K('は', 'は')}「${cardName(ch.level)}」${K('を使った！', 'をつかった！')}`);
+    if (r.win) { handleWin(2, r.win); return 'win'; }
+    if (noPlayableCell()) { endAsDraw(); return 'win'; }
+    return r.endsTurn ? 'turn' : true;
   }
 
   // ---------- Title screen wiring ----------
@@ -2550,6 +2678,7 @@
     gameScreen.classList.remove('hidden');
     titleBtn.classList.remove('hidden');
     document.getElementById('speechBubble').classList.add('hidden');
+    updateCardButton();   // online matches have no cards: hides the decks
     restoreEmoteBarPosition();
     document.getElementById('onlineEmoteBar').classList.remove('hidden', 'postgame');
     document.getElementById('resultNote').textContent = '';
@@ -2775,7 +2904,10 @@
     online = null;
     gameScreen.classList.add('hidden');
     titleBtn.classList.add('hidden');
-    cardBtn.classList.add('hidden');
+    deckEls[1].classList.add('hidden');
+    deckEls[2].classList.add('hidden');
+    dockEl.classList.remove('pvp');
+    oppCardEl.classList.add('hidden');
     onlineScreenEl.classList.add('hidden');
     titleScreen.classList.remove('hidden');
     restoreEmoteBarPosition();
@@ -3215,6 +3347,7 @@
     grid = newGrid();
     gameOver = false;
     cpuThinking = false;
+    if (mode === 'pvp') dealPvpCards();
     resetCardState();
     buildBoard();
     hideBubble();
@@ -3332,12 +3465,7 @@
     Board3D.placeBall(idx, player);
     SoundMgr.seDrop();
 
-    // card bookkeeping: a hint lasts until the player moves; a seal until the CPU has moved twice
-    if (player === 1 && hintCell >= 0) hintCell = -1;
-    if (player === 2 && sealedCells.length) {
-      sealedCells.forEach((sc) => { sc.left--; });
-      sealedCells = sealedCells.filter((sc) => sc.left > 0);
-    }
+    afterMove(cs, player, idx);   // remembers the last move; seals count down by the moves of the side they target
 
     const winCells = winningLine(grid, idx, player);
     if (winCells) {
@@ -3346,18 +3474,10 @@
       return true;
     }
 
-    // never leave the only empty cells sealed (nobody could move)
-    if (sealedCells.length && getEmptyCells(grid).every(isSealed)) sealedCells = [];
     refreshMarks();
 
-    if (isBoardFull(grid)) {
-      gameOver = true;
-      statusEl.innerHTML = '';
-      hideBubble();
-      SoundMgr.seDraw();
-      if (mode === 'cpu' && currentChar) {
-        ladderOutcomeTimer = setTimeout(() => handleLadderOutcome('draw'), 1000);
-      }
+    if (noPlayableCell()) {   // the board is full (walls count as full)
+      endAsDraw();
       return true;
     }
 
@@ -3444,14 +3564,31 @@
       : `<span class="turn-indicator" style="background:var(--p2)"></span>`;
     updateStatus(`${thinkingAvatar} ${escapeHtml(player2Label())}${K('が考え中...', 'がかんがえちゅう...')}`);
     setTimeout(() => {
-      const col = getCpuMove();
-      cpuThinking = false;
-      boardWrap.classList.remove('locked');
-      if (col !== null) dropPiece(col, 2);
+      const played = cpuTryCard();   // its own trump card first (costs no turn)
+      if (played === 'win') { cpuThinking = false; boardWrap.classList.remove('locked'); return; }
+      if (played === 'turn') {   // its card was this turn's move: hand the turn back
+        setTimeout(() => {
+          if (gameOver) return;
+          currentPlayer = 1;
+          cpuThinking = false;
+          boardWrap.classList.remove('locked');
+          updateStatus();
+        }, 1600);
+        return;
+      }
+      const go = () => {
+        if (gameOver) return;
+        const col = pickMove(grid, cs, 2, currentChar ? currentChar.depth : 3, currentChar ? currentChar.wildness : 0);
+        cpuThinking = false;
+        boardWrap.classList.remove('locked');
+        if (col !== null) dropPiece(col, 2);
+      };
+      if (played) setTimeout(go, 1600); else go();
     }, 700); // long enough for the player's own ball to land before the (blocking) search runs
   }
 
 
+  // <PURE-RULES-BEGIN> (no DOM below this line: sim/balance-sim.js loads this block as-is)
   // ---------- 4x4x4 free-placement board: pure game logic (no DOM) ----------
   // A ball can go in ANY empty cell (no gravity). Cells are indexed
   // idx = level*16 + y*4 + x (level 0 = bottom); `grid` is a flat array of 64
@@ -3519,6 +3656,7 @@
   // more such cells = lost) - that keeps the 64-way branching manageable.
   const LINE_WEIGHT = [0, 1, 5, 30]; // by ball count 0-3 (4 = already won)
   const WIN_SCORE = 100000;
+  let lastSearchValue = 0;   // value (for the side that moved) of the move chooseCpuCell returned last
   const POS_WEIGHT = Array.from({ length: CELL_COUNT }, (_, i) => LINES_THROUGH[i].length * 0.15);
   // Cells on the most lines (corners and the 8 inner cells) first: better pruning.
   const CELL_ORDER = Array.from({ length: CELL_COUNT }, (_, i) => i)
@@ -3539,7 +3677,9 @@
     let score = 0; // from player 1's point of view
     for (let i = 0; i < CELL_COUNT; i++) {
       const v = board[i];
-      if (v) {
+      if (v === 3) {   // a sealed cell (neutral wall): every line through it is dead for both sides
+        for (const li of LINES_THROUGH[i]) { cnt[1][li] += 10; cnt[2][li] += 10; }
+      } else if (v) {
         score += v === 1 ? POS_WEIGHT[i] : -POS_WEIGHT[i];
         for (const li of LINES_THROUGH[i]) cnt[v][li]++;
       }
@@ -3598,7 +3738,7 @@
     }
 
     const rootMoves = CELL_ORDER.filter((i) => board[i] === 0);
-    if (rootMoves.length === 0) return null;
+    if (rootMoves.length === 0) { lastSearchValue = 0; return null; }
     // Shuffle so equally-scored cells are picked at random.
     for (let i = rootMoves.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -3617,8 +3757,202 @@
       }
       if (v > bestVal) { bestVal = v; bestCell = i; }
     }
+    lastSearchValue = bestVal;
     return bestCell;
   }
+
+  // ---------- Trump cards: pure rules ----------
+  // The five cards (id: effect). `cost[id]` = using it uses up the turn.
+  //   gear    random opponent ball is removed            (free)
+  //   breaker one of 2 random opponent balls (your pick) is removed (free)
+  //   raven   two balls of yours land on random free cells (free)
+  //   seal    a neutral wall on a cell of your choice    (free)
+  //   usurp   an opponent ball turns your colour         (costs the turn)
+  const CARD_RULES = {
+    cost: { gear: false, breaker: false, raven: false, seal: false, usurp: true },
+    usurp: 'pick3',      // which balls may be taken: 'random' (1 random) | 'pick3' (choose from 3 random) | 'choose' (any)
+    breaker: 'pick2',    // which balls may be removed: same options
+    ravenCount: 2,       // how many balls a raven drops
+    wallLife: Infinity,  // how many moves of the opponent a wall stands
+  };
+  // Card state of one match. `used[p]`: p has spent their card. `sealed`: neutral walls
+  // [{ cell, target, left }] - nobody may play `cell`; `left` counts down with the moves
+  // of the side it targets (Infinity = for good).
+  function newCardState() {
+    return { used: { 1: false, 2: false }, sealed: [] };
+  }
+  // Scratch copy in which walls are neutral cells (value 3: nobody's, never a legal move).
+  function wallGrid(g, cs) {
+    const w = g.slice();
+    cs.sealed.forEach((sc) => { w[sc.cell] = 3; });
+    return w;
+  }
+  function randomCell(g, cs) {
+    const e = getEmptyCells(wallGrid(g, cs));
+    return e.length ? e[Math.floor(Math.random() * e.length)] : null;
+  }
+  // The cell p would play right now when playing its best (no random slips).
+  function idealCell(g, cs, p, depth) {
+    const w = wallGrid(g, cs);
+    const win = findImmediateWin(w, p);
+    if (win !== null) return win;
+    // The opening has 60+ near-equal moves and no tactics to find: searching deep
+    // there only freezes the page (~2s at depth 5), so keep it shallow.
+    const d = w.filter((v) => v !== 0).length < 4 ? Math.min(depth, 3) : depth;
+    return chooseCpuCell(w, p, d);
+  }
+  // One move for p: a winning cell is always taken; otherwise `wildness` is the chance
+  // of a random slip, else the search result (`depth` plies).
+  function pickMove(g, cs, p, depth, wildness) {
+    const w = wallGrid(g, cs);
+    const empty = getEmptyCells(w);
+    if (empty.length === 0) return null;
+    const win = findImmediateWin(w, p);
+    if (win !== null) return win;
+    if (wildness > 0 && Math.random() < wildness) return empty[Math.floor(Math.random() * empty.length)];
+    const d = w.filter((v) => v !== 0).length < 4 ? Math.min(depth, 3) : depth;
+    const cell = chooseCpuCell(w, p, d);
+    return cell === null ? empty[0] : cell;
+  }
+  function afterMove(cs, p) {
+    cs.sealed.forEach((sc) => { if (sc.target === p) sc.left--; });
+    cs.sealed = cs.sealed.filter((sc) => sc.left > 0);
+  }
+  // How good is position g (after a card) for `user`, searching `depth` plies?
+  // The opponent moves next when the card used up the turn.
+  function valueAfter(g, cs, user, endsTurn, depth) {
+    const w = wallGrid(g, cs);
+    const mover = endsTurn ? 3 - user : user;
+    if (getEmptyCells(w).length === 0) return 0;
+    chooseCpuCell(w, mover, depth);
+    return mover === user ? lastSearchValue : -lastSearchValue;
+  }
+  function randomOf(list) { return list[Math.floor(Math.random() * list.length)]; }
+  function shuffled(list) {
+    const a = list.slice();
+    for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+    return a;
+  }
+  // 'choose' = any ball, 'pickN' = N random balls to choose from, 'random' = one random ball
+  function candidatesOf(mode, balls) {
+    if (!balls.length) return [];
+    if (mode === 'choose') return balls;
+    const m = /^pick(\d)$/.exec(mode);
+    return m ? shuffled(balls).slice(0, +m[1]) : [randomOf(balls)];
+  }
+  // Which cells could a wall go to?  Ranked by how much the opponent's open lines through
+  // them outweigh the user's own; returns the best few.
+  function wallCandidates(g, cs, user, count) {
+    const opp = 3 - user;
+    const w = wallGrid(g, cs);
+    const rows = [];
+    for (let i = 0; i < CELL_COUNT; i++) {
+      if (w[i] !== 0) continue;
+      let sc = 0;
+      for (const li of LINES_THROUGH[i]) {
+        let mine = 0, theirs = 0, dead = false;
+        for (const c of LINES[li]) { if (w[c] === user) mine++; else if (w[c] === opp) theirs++; else if (w[c] === 3) dead = true; }
+        if (dead) continue;
+        if (mine === 0) sc += theirs * theirs;
+        if (theirs === 0) sc -= mine * mine * 0.5;
+      }
+      rows.push([sc + Math.random() * 0.01, i]);
+    }
+    rows.sort((x, y) => y[0] - x[0]);
+    return rows.slice(0, count).map((r) => r[1]);
+  }
+  // The balls the user may pick from for breaker / usurp (null for the other cards).
+  function cardChoices(id, user, g, cs, ruleOverrides) {
+    const rules = Object.assign({}, CARD_RULES, ruleOverrides || {});
+    const theirs = [];
+    g.forEach((v, i) => { if (v === 3 - user) theirs.push(i); });
+    if (id === 'breaker') return candidatesOf(rules.breaker, theirs);
+    if (id === 'usurp') return candidatesOf(rules.usurp, theirs);
+    return null;
+  }
+  // Plays card `id` for `user` (1 | 2): mutates g / cs. Returns { ok, cell?, win?, endsTurn? }.
+  // opts.depth: search depth when judging targets; opts.smart: judge them (else the pick is
+  // naive: a random one, or the opponent's best cell for a wall); opts.rules: overrides of CARD_RULES.
+  function applyCard(id, user, g, cs, opts) {
+    const opp = 3 - user;
+    const depth = (opts && opts.depth) || 3;
+    const smart = !!(opts && opts.smart);
+    const rules = Object.assign({}, CARD_RULES, (opts && opts.rules) || {});
+    const endsTurn = !!Object.assign({}, CARD_RULES.cost, rules.cost || {})[id];
+    const theirs = [];
+    g.forEach((v, i) => { if (v === opp) theirs.push(i); });
+    // best of `cands` by the position after `effect(copy, cell)`
+    const bestOf = (cands, effect) => {
+      let best = null, bv = -Infinity;
+      for (const c of shuffled(cands)) {
+        const t = g.slice();
+        const tcs = { sealed: cs.sealed.slice() };
+        effect(t, tcs, c);
+        const v = valueAfter(t, tcs, user, endsTurn, depth);
+        if (v > bv) { bv = v; best = c; }
+      }
+      return best;
+    };
+    const done = (cell, win) => { cs.used[user] = true; return { ok: true, cell, win: win || null, endsTurn }; };
+
+    if (id === 'gear') {
+      if (!theirs.length) return { ok: false };
+      const cell = randomOf(theirs);
+      g[cell] = 0;
+      return done(cell);
+    }
+    if (id === 'breaker') {
+      if (!theirs.length) return { ok: false };
+      const cands = (opts && opts.cands) || candidatesOf(rules.breaker, theirs);
+      const cell = opts && opts.target != null ? opts.target
+        : smart && cands.length > 1 ? bestOf(cands, (t, tcs, c) => { t[c] = 0; }) : randomOf(cands);
+      if (g[cell] !== opp) return { ok: false };
+      g[cell] = 0;
+      return done(cell);
+    }
+    if (id === 'usurp') {
+      if (!theirs.length) return { ok: false };
+      const cands = (opts && opts.cands) || candidatesOf(rules.usurp, theirs);
+      const cell = opts && opts.target != null ? opts.target
+        : smart && cands.length > 1 ? bestOf(cands, (t, tcs, c) => { t[c] = user; }) : randomOf(cands);
+      if (g[cell] !== opp) return { ok: false };
+      g[cell] = user;
+      return done(cell, winningLine(g, cell, user));
+    }
+    if (id === 'raven') {
+      let cell = null, win = null;
+      for (let k = 0; k < (rules.ravenCount || 1); k++) {
+        const c = randomCell(g, cs);
+        if (c === null) break;
+        g[c] = user;
+        cell = c;
+        win = win || winningLine(g, c, user);
+      }
+      if (cell === null) return { ok: false };
+      return done(cell, win);
+    }
+    if (id === 'seal') {
+      const free = getEmptyCells(wallGrid(g, cs));
+      if (free.length < 2) return { ok: false };   // never wall in the last free cell
+      const wall = (t, tcs, c) => { tcs.sealed.push({ cell: c, target: opp, left: rules.wallLife }); };
+      const cell = opts && opts.target != null ? opts.target
+        : smart ? bestOf(wallCandidates(g, cs, user, 6), wall) : idealCell(g, cs, opp, depth);
+      if (cell === null || g[cell] !== 0 || cs.sealed.some((sc) => sc.cell === cell)) return { ok: false };
+      cs.sealed.push({ cell, target: opp, left: rules.wallLife });
+      return done(cell);
+    }
+    return { ok: false };
+  }
+  // When an AI plays its card: at once when the opponent threatens to win (and it can't
+  // win itself right now), otherwise with probability `chance` per turn once the board has filled a bit.
+  function wantsCard(id, g, cs, p, chance) {
+    if (cs.used[p]) return false;
+    if (findImmediateWin(g, p) !== null) return false;
+    if (id !== 'raven' && findImmediateWin(g, 3 - p) !== null) return true;   // a random ball can't stop a threat
+    if (g.filter((v) => v !== 0).length < 8) return false;
+    return Math.random() < chance;
+  }
+  // <PURE-RULES-END>
 
   // ---------- 3D board (three.js) ----------
   // A 4x4x4 block of glass cells, like a Rubik's cube pulled apart a little.
@@ -3650,7 +3984,8 @@
     let ghostFlame = null, ghostGlow = null, ghostRunners = null, guide = null, rings = null;
     let glowTex = null, flameTex = null;
     let dimmed = false;
-    let marks = {};   // idx -> 'seal' | 'hint': empty cells outlined by a trump card
+    let marks = {};   // idx -> 'seal' (wall) | 'hint' | 'cand' | 'pick': cells marked by a trump card
+    let pickSet = null;   // while a card waits for its target: the only cells a tap can pick (balls included)
     // one closed walk along 8 of a cube's 12 edges; sparks of light run around it
     const CYC = [[-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1], [-1, 1, 1], [1, 1, 1], [1, -1, 1], [-1, -1, 1]];
     // a thin, slow spark with a long fading tail of 6 tiny glows
@@ -3973,11 +4308,11 @@
     function pickCell(clientX, clientY) {
       const rect = renderer.domElement.getBoundingClientRect();
       const mx = clientX - rect.left, my = clientY - rect.top;
-      const maxD = PICK_RADIUS * rect.width;
+      const maxD = PICK_RADIUS * rect.width * (pickSet ? 1.8 : 1);
       camera.updateMatrixWorld();
       let best = -1, bestD = Infinity, bestZ = Infinity;
       for (let i = 0; i < 64; i++) {
-        if (occupied.has(i)) continue;
+        if (pickSet ? !pickSet.has(i) : occupied.has(i)) continue;
         tA.copy(cellXYZ(i)).project(camera);
         const dd = Math.hypot((tA.x + 1) / 2 * rect.width - mx, (1 - tA.y) / 2 * rect.height - my);
         if (dd > maxD) continue;
@@ -4080,12 +4415,16 @@
           edgeCol = lightColor(c.player, 0.1).getHex();
           edgeOp = 1; faceOp = 0.22;
         }
-        const mk = lit ? null : marks[i];
-        if (mk) { edgeCol = mk === 'seal' ? 0xc084fc : 0xfde047; edgeOp = 1; faceOp = 0.5; }
-        if (i === ghostCell) { edgeCol = lightColor(ghostPlayer, 0.2).getHex(); edgeOp = 1; faceOp = 0.18; }
+        const mk = marks[i];
+        let faceCol = -1;
+        if (mk === 'seal' && !lit) { edgeCol = 0xc084fc; edgeOp = 1; faceOp = 0.9; faceCol = 0x1b0f36; }   // a wall: a dark solid block
+        else if (mk === 'hint' && !lit) { edgeCol = 0xfde047; edgeOp = 1; faceOp = 0.5; faceCol = edgeCol; }
+        else if (mk === 'cand') { edgeCol = 0xfde047; edgeOp = 1; faceOp = 0.42; faceCol = edgeCol; }   // a ball a card may take
+        else if (mk === 'pick') { edgeCol = 0xffffff; edgeOp = 1; faceOp = 0.7; faceCol = edgeCol; }
+        if (i === ghostCell) { edgeCol = lightColor(ghostPlayer, 0.2).getHex(); edgeOp = 1; faceOp = 0.18; faceCol = -1; }
         c.edgeMat.color.setHex(edgeCol);
         c.edgeMat.opacity = c.edgeBase = edgeOp;
-        c.faceMat.color.setHex(lit || mk || i === ghostCell ? edgeCol : EDGE_BASE);
+        c.faceMat.color.setHex(faceCol >= 0 ? faceCol : (lit || i === ghostCell ? edgeCol : EDGE_BASE));
         c.faceMat.opacity = faceOp;
         // how bright this light burns: dimmed after a win, faded when another layer is being aimed at
         c.m = dimmed ? (c.win ? 1 : 0.22) : (gl < 0 || inGl ? 1 : 0.5);
@@ -4211,6 +4550,8 @@
       stop() { running = false; cancelAnimationFrame(rafId); },
       // trump-card outlines on empty cells
       setMarks(m) { marks = m || {}; if (ready) refreshView(); },
+      // taps may only pick these cells (occupied ones too); null = any empty cell again
+      setPickSet(a) { pickSet = a ? new Set(a) : null; },
       // redraw every light from a grid (after a card removed / recoloured a ball), without replaying ignitions
       sync(g) {
         if (!ready) return;
@@ -4229,6 +4570,7 @@
       reset() {
         if (!ready) return;
         marks = {};
+        pickSet = null;
         occupied.clear();
         cells.forEach((c) => {
           c.player = 0; c.win = false; c.m = 1; setFlameVisible(c.flame, false); c.glow.visible = false;
@@ -4339,46 +4681,17 @@
   }
   Board3D.onTap((cell, pointerType) => {
     if (!humanCanMove()) return;
+    if (targeting) { handleTargetTap(cell, pointerType); return; }
     if (cell < 0 || grid[cell] !== 0 || isSealed(cell)) { pendingCell = -1; Board3D.clearGhost(); return; }
     if (pointerType === 'mouse' || pendingCell === cell) { handleCellClick(cell); return; }
     pendingCell = cell;
     Board3D.setGhost(cell, currentPlayer);
   });
   Board3D.onHover((cell) => {
-    if (pendingCell >= 0) return;
+    if (pendingCell >= 0 || targeting) return;
     if (cell < 0 || !humanCanMove() || grid[cell] !== 0 || isSealed(cell)) { Board3D.setGhost(-1); return; }
     Board3D.setGhost(cell, currentPlayer);
   });
-
-  // `currentChar.depth` is the search depth in plies; `wildness` is the chance
-  // of dropping on a random cell instead. A winning cell is always taken.
-  function getCpuMove() {
-    // sealed cells are treated as walls (filled with the opponent's colour) in a scratch copy
-    const g = grid.slice();
-    sealedCells.forEach((sc) => { g[sc.cell] = 1; });
-    const empty = getEmptyCells(g);
-    if (empty.length === 0) return null;
-
-    if (nightmareNext) {   // 悪夢: this one move is blind
-      nightmareNext = false;
-      return empty[Math.floor(Math.random() * empty.length)];
-    }
-
-    const winCell = findImmediateWin(g, 2);
-    if (winCell !== null) return winCell;
-
-    const wildness = currentChar ? currentChar.wildness : 0;
-    if (wildness > 0 && Math.random() < wildness) {
-      return empty[Math.floor(Math.random() * empty.length)];
-    }
-
-    let depth = currentChar ? currentChar.depth : 3;
-    // The opening has 60+ near-equal moves and no tactics to find: searching deep
-    // there only freezes the page (~2s at depth 5), so keep it shallow.
-    if (grid.filter((v) => v !== 0).length < 4) depth = Math.min(depth, 3);
-    const cell = chooseCpuCell(g, 2, depth);
-    return cell === null ? empty[0] : cell;
-  }
 
   applyKanaMode(); // render the title/online screens in the persisted mode
 })();
