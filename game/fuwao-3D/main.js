@@ -391,6 +391,22 @@ const AMB_PAN = 0.7;       // 左右の振り分けの強さ（1 で片耳だけ
 const AMB_SMOOTH = 0.15;   // 音量が変わるときのなめらかさ（秒）
 const AMB_EDGE = 0.06;     // MP3 の頭と終わりのすき間を飛ばしてくり返す（秒）
 let audioCtx = null, riverPts = [], fallPts = [];
+// 効果音（1 回鳴らす音）。右上の効果音ボタンで切れる。ゲームを始めたときに読みこんでおく（initAudio）
+//   jump：ジャンプしたとき / bossLand：脅威1・2 が空から落ちてきて地面にぶつかったとき
+const SFX = {
+  jump: { file: 'sounds/jump.mp3', vol: 0.5 },
+  bossLand: { file: 'sounds/boss_land.mp3', vol: 1 },
+};
+function playSfx(name) {
+  const a = SFX[name];
+  if (!audioCtx || !a?.buf || !soundOn.sfx) return;
+  const src = audioCtx.createBufferSource();
+  src.buffer = a.buf;
+  const g = audioCtx.createGain();
+  g.gain.value = a.vol;
+  src.connect(g).connect(audioCtx.destination);
+  src.start();
+}
 // BGM：ステージごとの曲（いまはステージ 1・2 の曲だけ）。長いので、全部をほどいて持たずに少しずつ読みながら流す（<audio>）。
 // 一時停止中・エンディング・ゲームオーバーでは消えていき、消えたら止める（つづきは止めたところから）。工房の中では小さめ
 const BGM = [{ file: 'sounds/bgm_stage1-2.mp3', stages: [1, 2] }];
@@ -459,6 +475,10 @@ function initAudio() {
       src.connect(a.gain);
       src.start(0, AMB_EDGE + Math.random() * (buf.duration - 3 * AMB_EDGE));   // 2 つの音の頭をずらす
     }).catch((e) => console.warn('環境音を読めませんでした', a.file, e));
+  }
+  for (const a of Object.values(SFX)) {
+    fetch(a.file).then((r) => r.arrayBuffer()).then((b) => new Promise((ok, ng) => audioCtx.decodeAudioData(b, ok, ng)))
+      .then((buf) => { a.buf = buf; }).catch((e) => console.warn('効果音を読めませんでした', a.file, e));
   }
 }
 document.addEventListener('visibilitychange', () => {
@@ -1674,6 +1694,7 @@ function updateBossIntro(dt) {
       I.landed = true;
       pos.y = home.y - bossCfg.sink;
       quake = 2.2;
+      playSfx('bossLand');
       const ds = bossCfg.camScale || 1;
       I.dust.push({ mesh: dustRing(home, 0xd9c6a5, 55 * ds), t: 0, life: 1.6 }, { mesh: dustRing(home, 0xb9a284, 34 * ds), t: -0.15, life: 1.4 },
         { mesh: dustCloud(home), t: 0, life: 2.4, cloud: true, size: ds });
@@ -5435,7 +5456,7 @@ function updatePlayer(dt) {
   const spacePressed = space && !spaceHeld;
   spaceHeld = space;
   if (!space) jumpLocked = false;
-  if (onGround && !firing && space && !jumpLocked) { velY = JUMP_SPEED; onGround = false; }
+  if (onGround && !firing && space && !jumpLocked) { velY = JUMP_SPEED; onGround = false; playSfx('jump'); }
   else if (!onGround && spacePressed && !jetting && fuel > FUEL_MIN_START) { jetting = true; jetTime = 0; jetSpeed = moveSpeed; velY = Math.min(velY, JET_START_UP); }
   if (jetting && !space) { jetting = false; jetEndTime = 0; }
 
