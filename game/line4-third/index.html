@@ -1855,7 +1855,7 @@
     1: { id: 'gear', name: '歯車の一撃', nameKana: 'はぐるまのいちげき',
          desc: '相手の球を1個、ランダムに消す', descKana: 'あいてのたまを1こ、ランダムにけす' },
     2: { id: 'copy', name: '鏡写し', nameKana: 'かがみうつし',
-         desc: '相手のカードを見て、同じ効果を自分も使う', descKana: 'あいてのカードをみて、おなじこうかをじぶんもつかう' },
+         desc: '相手のまだ使っていないカードを見て、同じ効果を自分も使う', descKana: 'あいてのまだつかっていないカードをみて、おなじこうかをじぶんもつかう' },
     3: { id: 'raven', name: '黒羽の降臨', nameKana: 'くろばねのこうりん',
          desc: '自分の球が、ランダムな2か所に降りてくる', descKana: 'じぶんのたまが、ランダムな2かしょにおりてくる' },
     4: { id: 'seal', name: '封印', nameKana: 'ふういん',
@@ -1977,6 +1977,8 @@
     if (cs.used[p]) return K('このカードは、この対戦ではもう使いました', 'このカードは、このたいせんではもうつかいました');
     if (!humanCanMove() || p !== currentPlayer) return K('自分の番に使えます', 'じぶんのばんにつかえます');
     if (playableCells().length <= 2) return K('盤面の空きが少なくて使えません', 'ばんめんのあきがすくなくてつかえません');
+    const lv = cardLevelOf(p);
+    if (lv !== null && CARDS[lv].id === 'copy' && copiedLevel(p) === null) return K('写せるカードがありません（相手のカードは使用済み、または写せません）', 'うつせるカードがありません（あいてのカードはしようずみ、またはうつせません）');
     return '';
   }
   deckEls[1].addEventListener('click', () => onDeckClick(1));
@@ -2006,7 +2008,7 @@
   // 鏡写し: the level of the card player p would be copying (null = nothing to copy)
   function copiedLevel(p) {
     const olv = cardLevelOf(3 - p);
-    return olv === null || CARDS[olv].id === 'copy' ? null : olv;
+    return olv === null || CARDS[olv].id === 'copy' || cs.used[3 - p] ? null : olv;   // only a card not yet played
   }
   function startCardUse(p) {
     const lv = cardLevelOf(p);
@@ -4014,7 +4016,7 @@
     const done = (cell, win, cells) => { cs.used[user] = true; return { ok: true, cell, cells: cells || [cell], win: win || null, endsTurn }; };
     if (id === 'copy') {   // the effect of the opponent's card (opts.copyOf = its id)
       const eff = opts && opts.copyOf;
-      if (!eff || eff === 'copy') return { ok: false };
+      if (!eff || eff === 'copy' || cs.used[3 - user]) return { ok: false };   // a card already played can't be copied
       const r = applyCard(eff, user, g, cs, opts);
       if (r.ok) r.effectId = eff;
       return r;
