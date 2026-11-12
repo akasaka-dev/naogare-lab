@@ -948,9 +948,9 @@ function setupAnimations(clips) {
   });
 }
 
-// 魔法のパン種を撃ってよいときか（撃てるのは一度きり）。条件はこれから決める
+// 魔法のパン種を撃ってよいときか（撃てるのは一度きり）：脅威3 の顔の正面で、顔と同じ高さにいるとき（yeastAim）
 function yeastShotReady() {
-  return false;
+  return yeastAim(_yf);
 }
 function fire() {
   // 地上でも空中（ジャンプ・ジェット中）でも撃てる。パンが出たあとなら、発射アニメの途中でも次を撃てる（連射）
@@ -963,8 +963,10 @@ function fire() {
   }
   // 打ち粉をまぶすと、パン種を撃てる。撃てるのは一度きりなので、ねらいが合うまでは撃たない
   if (items.has('flour')) {
-    if (!yeastShotReady()) { showToast('今は発射すべきではない。チャンスは一度きりだ'); return; }
-    return;   // パン種を撃つところは、これから作る
+    if (finale) return;
+    if (!yeastShotReady()) { showToast('今は発射すべきではない。脅威の顔の正面、同じ高さで撃とう。チャンスは一度きりだ'); return; }
+    startYeastShot();
+    return;
   }
   firing = true;
   recoiled = false;
@@ -1367,7 +1369,7 @@ function startBossAttack(name) {
 }
 function updateBoss(dt, active) {
   if (!bossMixer) return;
-  if (bossActions && bossAppeared && !bossAttack && !retreat && bossCfg.attacks.length && (bossIdleTime += dt) > BOSS_IDLE_TIME) {
+  if (bossActions && bossAppeared && !bossAttack && !retreat && !finale && bossCfg.attacks.length && (bossIdleTime += dt) > BOSS_IDLE_TIME) {
     startBossAttack(bossCfg.attacks[bossNext][0]);
     bossNext = (bossNext + 1) % bossCfg.attacks.length;
     bossHitDone = false;
@@ -2351,8 +2353,22 @@ function startFinale() {
   jetVel.set(0, 0, 0); recoilVel.set(0, 0, 0); velY = 0;
   finale.fly = { vel: out.clone().multiplyScalar(7).setY(6), rx: 0, rz: 0, spinX: -3, spinZ: 1.5, rest: false, settle: [0, 0] };
   yeastGun.visible = false;
-  // 脅威は転がるのをやめて、砕けるクリップの 211 フレームで止める（時刻はこちらで進める）
-  for (const a of Object.values(bossActions)) a.stop();
+  beginShatterGlow();
+  quake = Math.max(quake, 1.5);
+  // カメラ：ボスのふわお側の斜め前、引き気味に（破片は 35m の高さ、60m 先まで飛ぶ）
+  const side = new THREE.Vector3(-out.z, 0, out.x);
+  // 真横寄りに置いて、はじけたあと飛ばされるメカが画面を横切るようにする
+  finale.cam = boss.position.clone().addScaledVector(out, 30).addScaledVector(side, 85);
+  finale.cam.y = Math.max(introGroundY(finale.cam.x, finale.cam.z, boss.position.y), boss.position.y) + 18;
+  finale.look.copy(boss.position).setY(boss.position.y + 21);
+  cutinEl.querySelector('.caption').textContent = '魔法のパン種が、脅威の顔にめりこんだ！';
+  document.body.classList.add('cutin');
+  releaseAll();
+}
+// パン種が顔に入った：脅威は転がるのをやめて、砕けるクリップの 211 フレームで止める（時刻はこちらで進める）。
+// すき間の光る材質を集めておく（体当たりでも、撃っても同じ）
+function beginShatterGlow() {
+  for (const a of Object.values(bossActions)) { a.stop(); a.paused = false; }
   const sh = bossActions.shatter;
   sh.reset().play();
   sh.paused = true;
@@ -2366,20 +2382,14 @@ function startFinale() {
   });
   boss.getObjectByName('RB_Hurt_Face').getWorldPosition(_oc2);
   sparkleBurst(_oc2, 30, 1.2);
-  quake = Math.max(quake, 1.5);
-  // カメラ：ボスのふわお側の斜め前、引き気味に（破片は 35m の高さ、60m 先まで飛ぶ）
-  const side = new THREE.Vector3(-out.z, 0, out.x);
-  // 真横寄りに置いて、はじけたあと飛ばされるメカが画面を横切るようにする
-  finale.cam = boss.position.clone().addScaledVector(out, 30).addScaledVector(side, 85);
-  finale.cam.y = Math.max(introGroundY(finale.cam.x, finale.cam.z, boss.position.y), boss.position.y) + 18;
-  finale.look.copy(boss.position).setY(boss.position.y + 21);
-  cutinEl.querySelector('.caption').textContent = '魔法のパン種が、脅威の顔にめりこんだ！';
-  document.body.classList.add('cutin');
-  releaseAll();
 }
 function updateFinale(dt) {
   const F = finale;
   F.t += dt;
+  if (F.mode === 'shot') {
+    updateBeam(dt);
+    if (F.phase === 'charge' || F.phase === 'fire' || F.phase === 'beam') { updateYeastShot(dt); return; }
+  }
   if (F.phase !== 'wreck') flyRobot(dt);
   const t = F.t, caption = cutinEl.querySelector('.caption');
   const sh = bossActions.shatter;
@@ -2394,8 +2404,11 @@ function updateFinale(dt) {
     if (t >= FINALE_GLOW[1]) {
       // はじける！
       F.phase = 'burst';
-      F.fly = { vel: F.out.clone().multiplyScalar(FINALE_BLAST[0]).setY(FINALE_BLAST[1]), rx: F.fly?.rx || 0, rz: F.fly?.rz || 0,
-        spinX: FINALE_BLAST_SPIN[0], spinZ: FINALE_BLAST_SPIN[1], rest: false, settle: WRECK_TILT };
+      // 撃ったときは、ロボは爆風で少し飛ばされて、立ったまま着地する（体当たりのときは大きく飛ばされて壊れる）
+      F.fly = F.mode === 'shot'
+        ? { vel: F.out.clone().multiplyScalar(SHOT_BLAST[0]).setY(SHOT_BLAST[1]), rx: 0, rz: 0, spinX: -1.2, spinZ: 0.6, rest: false, settle: [0, 0] }
+        : { vel: F.out.clone().multiplyScalar(FINALE_BLAST[0]).setY(FINALE_BLAST[1]), rx: F.fly?.rx || 0, rz: F.fly?.rz || 0,
+          spinX: FINALE_BLAST_SPIN[0], spinZ: FINALE_BLAST_SPIN[1], rest: false, settle: WRECK_TILT };
       sh.time = 8 / ANIM_FPS;
       sh.paused = false;
       sh.timeScale = FINALE_BURST_SPEED;
@@ -2410,8 +2423,9 @@ function updateFinale(dt) {
   }
   if (F.phase === 'burst') {
     for (const m of F.glowMats) m.emissiveIntensity *= Math.exp(-3 * dt);
+    if (F.mode === 'shot' && t > SHOT_END_SAY && !F.saidEnd) { F.saidEnd = true; caption.textContent = '町に、静けさがもどった……'; }
     if (!F.faded && t >= FINALE_WRECK - FADE_TIME) { F.faded = true; fadeEl.classList.add('on'); }
-    if (t >= FINALE_WRECK) setupWreck();
+    if (t >= FINALE_WRECK) { if (F.mode === 'shot') showEnding(); else setupWreck(); }
   }
   if (F.phase === 'wreck') {
     // 煙が細く上がり続ける
@@ -2487,7 +2501,8 @@ function wreckCameraDir(look) {
 }
 function finaleCamera(dt) {
   const F = finale;
-  if (F.phase === 'wreck' || F.phase === 'ending') {
+  if (F.mode === 'shot') shotCamera(dt);
+  else if (F.phase === 'wreck' || F.phase === 'ending') {
     // メカへゆっくり寄っていく
     const k = THREE.MathUtils.smoothstep(F.t, FINALE_WRECK, FINALE_END);
     camera.position.copy(F.look).addScaledVector(F.camDir, THREE.MathUtils.lerp(WRECK_CAM[0], WRECK_CAM[1], k));
@@ -2514,6 +2529,247 @@ function finaleCamera(dt) {
   }
   sky.position.copy(camera.position);
 }
+// ---- 魔法のパン種を撃つ（秘伝の打ち粉をまぶしたあと。一度きり） ----
+// 脅威3 の顔の正面で、顔と同じ高さにいるときに発射ボタンを押すと：
+//   溜め（パン種がふくらみ、まわりから光が集まる）→ 発射（金色の光線が顔までのびる。光の輪が光線を走る）
+//   → 命中（閃光）→ すき間が金色に脈打つ → はじける（体当たりの演出と同じ。ここから先は updateFinale）
+//   → ロボは爆風で少し飛ばされて着地 → 暗転してエンディング（ふわおは生きて帰る）
+const YEAST_AIM_HEIGHT = 4;                                  // 顔の高さとの差がこれ以内（m。ロボの胸の高さで比べる）
+const YEAST_AIM_ANGLE = THREE.MathUtils.degToRad(30);        // 顔の向きから左右この角度以内
+const YEAST_AIM_RANGE = [3, 60];                             // 顔からの水平の距離（m）
+const YEAST_AIM_HINT = 8;                                    // 「今だ！」のメッセージの間隔（秒）
+const YEAST_CHARGE = 3.2;      // 溜めの長さ（秒）
+const YEAST_BEAM_GROW = 0.25;  // 光線が顔までのびる時間（秒）
+const YEAST_BEAM = 2.6;        // 光線が出ている時間（のびはじめから。秒）
+const YEAST_BEAM_FADE = 0.6;   // 光線が細くなって消える時間（秒）
+const SHOT_BLAST = [6, 4];     // はじけたときにロボが飛ばされる速さ（横、上。m/秒）。体当たりより弱い
+const SHOT_END_SAY = 8.5;      // 「静けさがもどった」の字幕の時刻（命中から。秒）
+const _ya = new THREE.Vector3(), _yn = new THREE.Vector3(), _yd = new THREE.Vector3(), _yf = new THREE.Vector3();
+let yeastAimHint = -Infinity, yeastAimed = false, doughMats = null;
+// 顔の正面・同じ高さにいるか。face に顔の中心（RB_Hurt_Face）を入れて返す
+function yeastAim(face) {
+  if (!items.has('flour') || !boss || !bossRoaming() || knockout) return false;
+  const hurt = boss.getObjectByName('RB_Hurt_Face'), ball = boss.getObjectByName('RB_Ball');
+  if (!hurt || !ball) return false;
+  hurt.getWorldPosition(face);
+  ball.getWorldPosition(_ya);
+  _yn.subVectors(face, _ya).normalize();      // 玉の中心から顔へ（転がると顔も回る）
+  if (Math.abs(_yn.y) > 0.6) return false;    // 顔が上や下を向いているときはだめ
+  if (Math.abs(feet.y + ROBOT_HEIGHT / 2 - face.y) > YEAST_AIM_HEIGHT) return false;
+  _yd.set(feet.x - face.x, 0, feet.z - face.z);
+  const d = _yd.length();
+  if (d < YEAST_AIM_RANGE[0] || d > YEAST_AIM_RANGE[1]) return false;
+  _yn.setY(0).normalize();
+  return _yd.dot(_yn) / d > Math.cos(YEAST_AIM_ANGLE);
+}
+// パン種の光る材質（アニメ調の材質と元の材質の両方）
+function yeastDoughMats() {
+  if (doughMats) return doughMats;
+  doughMats = [];
+  yeastGun?.traverse((o) => {
+    if (!o.isMesh) return;
+    for (const m of new Set([o.material, o.userData.pbrMaterial])) if (m && /YS_dough/i.test(m.name)) { m.userData.baseGlow ??= m.emissiveIntensity; doughMats.push(m); }
+  });
+  return doughMats;
+}
+function setDoughGlow(k) { for (const m of yeastDoughMats()) m.emissiveIntensity = m.userData.baseGlow * k; }
+// ねらいが合っている間は、パン種が強く脈打つ。合ったときに「今だ！」
+function updateYeastAim() {
+  if (!items.has('flour') || finale || !yeastGun?.visible) { if (yeastAimed) { yeastAimed = false; setDoughGlow(1); } return; }
+  const on = yeastAim(_yf);
+  if (on) setDoughGlow(2.2 + 1.3 * Math.sin(time.value * 9));
+  else if (yeastAimed) setDoughGlow(1);
+  if (on && !yeastAimed && time.value - yeastAimHint > YEAST_AIM_HINT && !talk.active) {
+    yeastAimHint = time.value;
+    showToast('脅威の顔の正面だ！ 今なら撃てる！');
+  }
+  yeastAimed = on;
+}
+// 光の筋（ふちのない筒。+Z の向きに長さ 1。scale.z で長さを変える）
+function beamPart(r, color, opacity) {
+  const g = new THREE.CylinderGeometry(r, r, 1, 20, 1, true);
+  g.rotateX(Math.PI / 2);
+  g.translate(0, 0, 0.5);
+  const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
+  m.userData.opacity = opacity;
+  m.renderOrder = 997;
+  return m;
+}
+function glowSprite(size, opacity = 1) {
+  sparkleBurst(_ya.set(0, -1000, 0), 0);   // 星のテクスチャを作っておく
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: sparkTex, color: 0xffffff, transparent: true, opacity, depthWrite: false, blending: THREE.AdditiveBlending }));
+  sp.scale.setScalar(size);
+  sp.renderOrder = 999;
+  sp.userData.size = size;
+  return sp;
+}
+// まわりから光の粒が集まってくる（sparks の速さは減っていくので、着く速さで打ち出す）
+function sparkleInto(to, n, radius, size) {
+  sparkleBurst(_ya.set(0, -1000, 0), 0);
+  for (let i = 0; i < n; i++) {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: sparkTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+    _yd.randomDirection().multiplyScalar(radius * (0.6 + Math.random() * 0.4));
+    sp.position.copy(to).add(_yd);
+    sp.userData = { vel: _yd.clone().multiplyScalar(-2.6), t: 0, life: 0.9 + Math.random() * 0.4, size: size * (0.6 + Math.random() * 0.8), spin: (Math.random() - 0.5) * 6 };
+    sp.renderOrder = 998;
+    sparkGroup.add(sp);
+    sparks.push(sp);
+  }
+}
+function startYeastShot() {
+  const target = new THREE.Vector3();
+  if (!yeastAim(target)) return;
+  const aim = new THREE.Vector3(target.x - feet.x, 0, target.z - feet.z).normalize();   // ロボから顔へ（水平）
+  const out = aim.clone().negate();                                                    // 顔からロボへ
+  finale = { mode: 'shot', t: 0, phase: 'charge', out, aim, side: new THREE.Vector3(-aim.z, 0, aim.x), target,
+    look: new THREE.Vector3(feet.x, feet.y + 1, feet.z), camPos: camera.position.clone(),
+    faded: false, burst: false, wreck: false, puff: 0, dust: [], fly: null, glowMats: [], beam: null };
+  savingOn = false;   // つづきからは、撃つ前から
+  yeastAimed = false;
+  jetting = false; jetEndTime = 0; jetSpeed = 0;
+  jetVel.set(0, 0, 0); recoilVel.set(0, 0, 0); velY = 0;
+  // 脅威はその場で止まる（顔がずれないように、転がるアニメも止める）
+  for (const a of Object.values(bossActions)) a.paused = true;
+  // 溜め：パン種がだんだん速く脈打ちながらふくらむ
+  yeastGunActs.idle?.stop();
+  const ch = yeastGunActs.charge;
+  if (ch) { ch.reset().play(); ch.timeScale = ch.getClip().duration / YEAST_CHARGE; }
+  cutinEl.querySelector('.caption').textContent = '魔法のパン種に、光が集まっていく……';
+  document.body.classList.add('cutin');
+  releaseAll();
+}
+// 溜め → 発射 → 光線がのびる → 命中
+function updateYeastShot(dt) {
+  const F = finale, t = F.t, caption = cutinEl.querySelector('.caption');
+  // ロボは顔のほうへ向き直る
+  heading = turnToward(heading, Math.atan2(F.aim.x, F.aim.z), 1 - Math.exp(-8 * dt));
+  muzzle.updateWorldMatrix(true, false);
+  muzzle.getWorldPosition(_yf);
+  if (F.phase === 'charge') {
+    const u = Math.min(1, t / YEAST_CHARGE);
+    setDoughGlow(1.5 + 5 * u * u + Math.sin(t * (8 + 30 * u)) * (0.5 + 1.5 * u));
+    // まわりから光の粒が集まる（だんだん多く）
+    F.gather = (F.gather || 0) + dt * (14 + 50 * u);
+    const n = Math.floor(F.gather);
+    if (n) { F.gather -= n; sparkleInto(_yf, n, 2.2 + 1.5 * (1 - u), 0.35 + 0.25 * u); }
+    quake = Math.max(quake, 0.25 * u);
+    if (t >= YEAST_CHARGE) {
+      // 発射！ ロボの発射アニメと、パン種の発射クリップを同じ時刻で
+      F.phase = 'fire';
+      F.fireT = t;
+      firing = true; shotSpawned = true; recoiled = true; fireDone = false;
+      fireAction.reset().setEffectiveWeight(1).play();
+      const fa = yeastGunActs.fire;
+      if (fa) { yeastGunActs.charge?.stop(); fa.reset().play(); fa.timeScale = fireAction.timeScale; }
+      caption.textContent = 'いけっ！ 魔法のパン種！';
+    }
+    return;
+  }
+  if (F.phase === 'fire' && t - F.fireT >= (muzzleFrame - 100) / ANIM_FPS / fireAction.timeScale) {
+    // 砲口から光線
+    F.phase = 'beam';
+    F.beamT = t;
+    makeBeam(_yf);
+    sparkleBurst(_yf, 30, 0.9);
+    quake = Math.max(quake, 1.2);   // 画面全体の閃光は、はじけるときだけ（光線が白く飛んでしまうので）
+  }
+  if (F.phase === 'beam' && t - F.beamT >= YEAST_BEAM_GROW) {
+    // 命中：顔にパン種がとどいた → すき間が金色に脈打ちはじめる（ここからは体当たりの演出と同じ）
+    F.phase = 'glow';
+    F.hitT = t;
+    F.t = 0;
+    F.beam.hit.visible = true;
+    beginShatterGlow();
+    caption.textContent = '魔法のパン種が、脅威の顔をつらぬいた！';
+    // カメラ：はじけるところと、飛ばされるロボが入る、横からの引きの位置へ
+    F.cam = boss.position.clone().addScaledVector(F.out, 30).addScaledVector(F.side, 85);
+    F.cam.y = Math.max(introGroundY(F.cam.x, F.cam.z, boss.position.y), boss.position.y) + 18;
+  }
+}
+function makeBeam(from) {
+  const F = finale;
+  const g = new THREE.Group();
+  g.userData.noOutline = true;
+  const core = beamPart(0.55, 0xffffff, 1), glow = beamPart(1.4, 0xffc444, 0.75), haze = beamPart(3.2, 0xffe2a0, 0.18);
+  g.add(core, glow, haze);
+  const flare = glowSprite(6), hit = glowSprite(16);
+  hit.visible = false;
+  scene.add(g, flare, hit);
+  flare.userData.noOutline = true; hit.userData.noOutline = true;
+  F.beam = { group: g, parts: [core, glow, haze], flare, hit, rings: [], ringWait: 0, from: from.clone(), len: from.distanceTo(F.target) };
+}
+// 光線：根もとは砲口、先は顔。光の輪が根もとから顔へ走る。終わりは細くなって消える
+function updateBeam(dt) {
+  const F = finale, B = F.beam;
+  if (!B) return;
+  const age = (F.hitT !== undefined ? F.hitT - F.beamT + F.t : F.t - F.beamT);
+  const out = THREE.MathUtils.clamp((age - YEAST_BEAM) / YEAST_BEAM_FADE, 0, 1);
+  if (out >= 1) {
+    for (const o of [B.group, B.flare, B.hit, ...B.rings.map((r) => r.mesh)]) { scene.remove(o); o.traverse?.((m) => { m.geometry?.dispose(); m.material?.dispose(); }); }
+    F.beam = null;
+    return;
+  }
+  const grow = THREE.MathUtils.clamp(age / YEAST_BEAM_GROW, 0, 1);
+  B.group.position.copy(B.from);
+  B.group.lookAt(F.target);
+  B.group.scale.set(1, 1, Math.max(1e-3, B.len * grow));
+  const w = (1 - out) * (1 + 0.18 * Math.sin(age * 40) + 0.08 * Math.sin(age * 73));
+  for (const p of B.parts) { p.scale.set(w, w, 1); p.material.opacity = p.userData.opacity * (1 - out * 0.5); }
+  B.flare.position.copy(B.from);
+  B.flare.scale.setScalar(B.flare.userData.size * w * (1 + 0.25 * Math.sin(age * 31)));
+  B.flare.material.rotation += dt * 2;
+  B.hit.position.copy(F.target);
+  B.hit.scale.setScalar(B.hit.userData.size * w * (1 + 0.3 * Math.sin(age * 23)));
+  B.hit.material.rotation -= dt * 1.5;
+  // 光の輪（金色の輪が光線にそって顔へ走り、広がりながら消える）
+  if (out === 0 && (B.ringWait -= dt) <= 0) {
+    B.ringWait = 0.09;
+    const mesh = new THREE.Mesh(new THREE.TorusGeometry(1, 0.08, 6, 32), new THREE.MeshBasicMaterial({ color: 0xffd66a, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending }));
+    mesh.userData.noOutline = true;
+    mesh.renderOrder = 998;
+    scene.add(mesh);
+    B.rings.push({ mesh, t: 0 });
+  }
+  for (let i = B.rings.length - 1; i >= 0; i--) {
+    const r = B.rings[i];
+    r.t += dt;
+    const u = r.t / 0.5;
+    if (u >= 1) { scene.remove(r.mesh); r.mesh.geometry.dispose(); r.mesh.material.dispose(); B.rings.splice(i, 1); continue; }
+    r.mesh.position.lerpVectors(B.from, F.target, Math.min(u * grow, 1));
+    r.mesh.quaternion.copy(B.group.quaternion);
+    r.mesh.scale.setScalar(0.8 + 2.2 * u);
+    r.mesh.material.opacity = 0.9 * (1 - u) * (1 - out);
+  }
+  // 光線にそってキラキラ
+  if (out < 1) sparkleBurst(_yd.lerpVectors(B.from, F.target, Math.random() * grow), 2, 0.9);
+  if (F.hitT !== undefined && Math.random() < 0.5) sparkleBurst(F.target, 3, 2.2);
+}
+// 撃つ演出のカメラ：溜めはロボの斜め後ろから顔のほうを、光線は横から全体を、命中のあとは引きの位置へ
+function shotCamera(dt) {
+  const F = finale;
+  const chest = _ya.set(feet.x, feet.y + ROBOT_HEIGHT / 2, feet.z);
+  if (F.phase === 'charge' || F.phase === 'fire') {
+    const u = Math.min(1, F.t / YEAST_CHARGE);
+    _yd.copy(chest).addScaledVector(F.aim, -(5.5 - 1.5 * u)).addScaledVector(F.side, 2.6).setY(chest.y + 1.3);
+    _yn.lerpVectors(chest, F.target, 0.12 + 0.1 * u);
+  } else if (F.phase === 'beam' || (F.hitT !== undefined && F.t < 1.4)) {
+    const len = chest.distanceTo(F.target);
+    _yn.lerpVectors(chest, F.target, 0.5);
+    _yd.copy(_yn).addScaledVector(F.side, len * 0.85 + 10).setY(_yn.y + 3);
+  } else {
+    _yd.copy(F.cam);
+    boss.getObjectByName('RB_Ball').getWorldPosition(_il);
+    if (F.phase === 'glow') _yn.copy(_il);
+    else _yn.copy(_il).lerp(feet, 0.5);
+  }
+  const k = F.phase === 'charge' ? 4 : 2.2;
+  F.camPos.lerp(_yd, 1 - Math.exp(-k * dt));
+  F.look.lerp(_yn, 1 - Math.exp(-k * dt));
+  camera.position.copy(F.camPos);
+  camera.lookAt(F.look);
+  model.visible = true;
+  if (F.fly) model.rotation.set(F.fly.rx, 0, F.fly.rz);
+}
 // エンディング：画面の向きで絵と動きを使い分ける
 //   縦長の画面：縦の絵（ending1.webp）を、煙の立つ空から下のメカとパン屋のお姉さんまでスクロールする
 //   横長の画面：横の絵（ending1h.webp）を、左の崩れたパン工房から右のメカとお姉さんまで横に流す
@@ -2530,6 +2786,8 @@ function showEnding() {
   finale.phase = 'ending';
   document.body.classList.remove('cutin');
   endingEl.classList.add('on');
+  // 撃って勝ったとき（ふわおは生きて帰る）：絵はまだないので、文字だけ
+  if (finale.mode === 'shot') { endingEl.classList.add('plain'); setTimeout(() => endingEl.classList.add('done'), ENDING_WAIT * 1000); return; }
   const img = document.getElementById('endingImg');
   const src = endingSrc();
   const run = () => {
@@ -4861,6 +5119,7 @@ function startYeastFly(chief) {
 function updateYeast(dt) {
   yeastPotMixer?.update(dt);
   if (yeastGun?.visible) yeastGunMixer.update(dt);
+  updateYeastAim();
   if (!yeastFly) return;
   yeastFly.t += dt;
   const u = Math.min(1, yeastFly.t / YEAST_FLY), e = u * u * (3 - 2 * u);

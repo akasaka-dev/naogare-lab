@@ -223,6 +223,12 @@
     opacity: 0; transition: opacity 2.5s; pointer-events: none; text-shadow: 0 2px 8px rgba(0, 0, 0, 0.6); }
   #ending.done .credit { opacity: 1; pointer-events: auto; }
   #ending .title { font-size: clamp(24px, 6vw, 40px); letter-spacing: 0.1em; }
+  /* 魔法のパン種を撃って勝ったとき（ふわおは生きて帰る）。絵はまだないので、あたたかい色の上に文字だけ */
+  #ending .lead { display: none; font-size: clamp(16px, 4vw, 22px); }
+  #ending.plain { background: radial-gradient(circle at 50% 60%, #f6c46a 0%, #d9793a 45%, #5a2c1e 100%); }
+  #ending.plain img { display: none; }
+  #ending.plain .credit { top: 50%; transform: translateY(-50%); }
+  #ending.plain .lead { display: block; }
   #ending .start { pointer-events: auto; cursor: pointer; font: inherit; font-size: 18px; padding: 10px 28px; border: none; border-radius: 999px; background: #e8973c; color: #fff; }
   #talk .talk-portrait { display: none; position: absolute; bottom: 0; left: calc(2vw + env(safe-area-inset-left));
     height: min(52vh, 440px); max-width: 45vw; object-fit: contain; object-position: bottom; pointer-events: none;
@@ -333,7 +339,7 @@
 <div id="fade"></div>
 <div id="flash"></div>
 <div id="gameover"><div class="title">ゲームオーバー</div><button class="start" onclick="location.reload()">タイトルにもどる</button></div>
-<div id="ending"><img id="endingImg" alt=""><div class="credit"><div class="title">たすけあいヒーロー ふわお</div><button class="start" onclick="location.reload()">タイトルにもどる</button></div></div>
+<div id="ending"><img id="endingImg" alt=""><div class="credit"><div class="lead">ふわおは、町を守りきった！</div><div class="title">たすけあいヒーロー ふわお</div><button class="start" onclick="location.reload()">タイトルにもどる</button></div></div>
 <div id="hud"></div>
 <script type="module" src="main.js"></script>
 </body>
