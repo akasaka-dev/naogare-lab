@@ -1008,7 +1008,7 @@ if (new URLSearchParams(location.search).has('debug')) {
     get opening() { return opening; },
     get room() { return room; },
     get meters() {
-      return { town: townProgress(), fuel, fuelMax, body, knockout,
+      return { town: townProgress(), fuel, fuelMax, body, gen: fuwaoNo, knockout,
         areas: ruinAreas.map((a, i) => `${AREA_NAMES[a.name]} ${Math.round(areaProgress(i) * 100)}% (spots ${areaGauge[i].spots.length}, out ${areaGauge[i].germs.length}, residents ${areaGauge[i].residents.length})`) };
     },
     get stage() { return storyStage; }, set stage(v) { storyStage = v; },
@@ -1022,7 +1022,7 @@ if (new URLSearchParams(location.search).has('debug')) {
     attackTown, get quake() { return quake; },
     get spots() { return ruinAreas.map((a, i) => [AREA_NAMES[a.name], areaGauge[i].spots.map((p) => [+p.x.toFixed(1), +p.z.toFixed(1)])]); },
     get helps() { return helps.map((h) => [AREA_NAMES[ruinAreas[h.area].name], Math.round(h.dist || 0)]); },
-    setFuel(v) { fuel = v; }, setBody(v) { body = v; }, raiseFuelMax,
+    setFuel(v) { fuel = v; }, setBody(v) { body = v; }, hurt: hurtBody, raiseFuelMax,
     germSpots() { return germs.map((g) => [g.area, ...g.root.position.toArray().map((v) => +v.toFixed(1))]); },
     endOpening() { if (opening) endOpening(); },
     // 例: __fuwao.talk(3)（residents の番号の人と話す）
@@ -2972,6 +2972,7 @@ const WORKSHOP_FRONT = new THREE.Vector3(-7.7, 12, -25.2);   // パン工房の�
 const WORKSHOP_REFILL_R = 6;    // 扉の前のこの距離の中で地面にいると補給される
 const WORKSHOP_REFILL = 0.5;    // 補給の速さ（1 秒あたり、燃料だけ）
 let fuelMax = FUEL_MAX_START, fuel = fuelMax, body = 1;
+let fuwaoNo = 1;   // 何人目のふわおか。からだが 0 になって工場長に焼き直してもらうたびに 1 ふえる（お姉さんの回復ではふえない）
 let knockout = null;            // からだが 0 になって、パン工房へ戻されている途中 { t, moved }
 const areaGauge = [];           // 区画ごと { spots: [小バイ菌の出る場所], germs: [出てきた小バイ菌], residents: [町人], called, done }
 const helps = [];               // 助けを呼んでいる区画 { area, slot, arrow }
@@ -3402,7 +3403,7 @@ function updateProgress(dt, active) {
     if (knockout.t > KNOCK_FADE_OUT + KNOCK_DARK) {
       if (storyStage >= GAMEOVER_STAGE) { setFadeTime(null); showGameOver(); return; }
       velY = 0; jetting = false; jetVel.set(0, 0, 0); recoilVel.set(0, 0, 0);
-      fuel = fuelMax; body = 1;
+      fuel = fuelMax; body = 1; fuwaoNo++;
       knockout = null;
       reviveInWorkshop();
     }
@@ -3420,13 +3421,14 @@ function drawMeters() {
   const here = areaAt(feet.x, feet.z);
   const town = townProgress();
   const helpText = helps.map((h) => `${h.slot}:${h.area}:${Math.round((h.dist || 0) / 5) * 5}`).join(',');
-  const key = `${town.toFixed(3)}|${fuel.toFixed(3)}|${fuelMax}|${body.toFixed(3)}|${here}|${here >= 0 ? areaProgress(here).toFixed(3) : ''}|${refilling}|${helpText}`;
+  const key = `${town.toFixed(3)}|${fuel.toFixed(3)}|${fuelMax}|${body.toFixed(3)}|${here}|${here >= 0 ? areaProgress(here).toFixed(3) : ''}|${refilling}|${helpText}|${fuwaoNo}`;
   if (key === drawnMeters) return;
   drawnMeters = key;
   const set = (name, v) => { metersEl.querySelector(`.meter-${name} .fill`).style.transform = `scaleX(${v})`; };
   set('town', town);
   set('fuel', fuel);
   set('body', body);
+  metersEl.querySelector('.meter-body .gen').textContent = `${fuwaoNo}人目`;
   metersEl.querySelector('.meter-town .num').textContent = `${Math.round(town * 100)}%`;
   // 燃料のバーは最大のタンクの長さで、まだ大きくなっていない分は斜線で埋めておく
   metersEl.querySelector('.meter-fuel .cap').style.width = `${(1 - fuelMax) * 100}%`;
@@ -4176,7 +4178,7 @@ function saveGame() {
     v: SAVE_VERSION, at: Date.now(),
     stage: storyStage, boss: bossIndex, bossAppeared, bossGone,
     bossPos: boss ? [+boss.position.x.toFixed(2), +boss.position.z.toFixed(2)] : null,
-    items: [...items], mayorWarned, fuelMax, fuel: +fuel.toFixed(3), body: +body.toFixed(3), hour: +daytime.hour.toFixed(3),
+    items: [...items], mayorWarned, fuelMax, fuel: +fuel.toFixed(3), body: +body.toFixed(3), gen: fuwaoNo, hour: +daytime.hour.toFixed(3),
     areas: areaGauge.map((g) => ({ called: g.called, done: g.done, gone: g.germs.map((x) => (germGone(x) ? 1 : 0)),
       spots: g.spots.map((p) => [+p.x.toFixed(2), +p.z.toFixed(2)]) })),
     residents: Object.fromEntries(residents.map((r) => [r.id, {
@@ -4211,6 +4213,7 @@ function loadGame(d) {
   if (d.fuelMax) fuelMax = d.fuelMax;
   fuel = Math.min(fuelMax, d.fuel ?? fuelMax);
   body = d.body ?? 1;
+  fuwaoNo = Math.max(1, d.gen | 0);
   if (Number.isFinite(d.hour)) daytime.set(d.hour);
   (d.areas || []).forEach((a, i) => {
     const g = areaGauge[i];
