@@ -1148,11 +1148,23 @@ const SOLID_ARC = 0.42;                      // 体当たりが固まった所�
 // ふわおが手に入れた道具。solidifier：固形化パン（パン工房の工場長がくれる。撃ったパンがヘドロボスに当たると固まり、体当たりできる）
 // choco：板チョコ（ステージ 1 をクリアすると工房の展示台に並び、工場長がメカの背中にチョコ燃料タンクとして取り付けてくれる。燃料の最大が CHOCO_FUEL_MAX に）
 // yeast：魔法のパン種（町が崩壊したあと、パン工房の前の工場長が砲台に付けてくれる。脅威3 を倒す最後の武器）
-// wings：ジェットの羽（西の丘のお城の女の子がくれる。メカの胴体の左右に翼が付き、ジェットでしばらく飛ぶと開く。効果はまだ決めていない）
+// wings：ジェットの羽（西の丘のお城の女の子がくれる。メカの胴体の左右に翼が付き、ジェットでしばらく飛ぶと開く。燃料の最大が WINGS_FUEL_UP 上がる）
 const ITEMS = { solidifier: '固形化パン', choco: '板チョコ', yeast: '魔法のパン種', flour: '秘伝の打ち粉', wings: 'ジェットの羽' };
 // その道具は、先にこの道具を持っていないともらえない（打ち粉は、パン種に振りかけるもの）
 const ITEM_NEEDS = { flour: 'yeast' };
 const CHOCO_FUEL_MAX = 0.5;
+const WINGS_FUEL_UP = 0.5;   // ジェットの羽で、燃料の最大がこれだけ上がる（最大 1。板チョコとそろえば満タン）
+// 持っている道具で決まる燃料の最大（板チョコで CHOCO_FUEL_MAX、羽でさらに WINGS_FUEL_UP）。もらう順番によらず、両方あれば 1
+function fuelMaxFor(list) {
+  const has = (k) => (list.has ? list.has(k) : list.includes(k));
+  return Math.min(1, (has('choco') ? CHOCO_FUEL_MAX : FUEL_MAX_START) + (has('wings') ? WINGS_FUEL_UP : 0));
+}
+// 道具をもらったとき：燃料の最大を道具で決まる大きさまで上げて、満タンにする
+function raiseFuelMaxForItems() {
+  const want = fuelMaxFor(items);
+  if (fuelMax < want) raiseFuelMax(want - fuelMax);
+  fuel = fuelMax;
+}
 const items = new Set();
 let passToast = 0;   // すり抜けたときのお知らせを出してからの時間
 // 固まる：パンが当たった所のまわり（半径 SOLID_SIZE）の体の表面を、シェーダーで乾いた土の色にする（ひびの模様つき）。
@@ -5102,7 +5114,7 @@ function setupChoco(chocoGltf, tankGltf) {
 // ジェットを WING_OPEN_AFTER 秒ふかし続けると開く（JW_Deploy）。開いたまま飛んでいる間は JW_Boost（9〜25 フレームをくり返す）、
 // ジェットを止めると JW_Idle。着地して WING_CLOSE_AFTER 秒たつと、JW_Deploy を逆に再生してたたむ。
 // 3 つのクリップは同じもの（翼の付け根の回転と炎の大きさ）を動かすので、重みを少しずつ入れ替えてつなぐ（WING_BLEND）。
-// 効果（速くなる など）はまだ決めていない
+// 効果：燃料の最大が WINGS_FUEL_UP 上がって、満タンになる（もらったときだけ。セーブには上がった fuelMax が残る）
 const WING_OPEN_AFTER = 0.8;      // ジェットをこの秒数ふかし続けると、翼が開く
 const WING_CLOSE_AFTER = 1.5;     // 着地してこの秒数たつと、翼をたたむ
 const WING_BLEND = 8;             // クリップの重みを入れ替える速さ
@@ -5187,8 +5199,7 @@ function updateWings(dt) {
 // 板チョコの効果：タンクが付いて、燃料の最大が上がり、満タンになる
 function applyChoco() {
   chocoTank.visible = true;
-  if (fuelMax < CHOCO_FUEL_MAX) raiseFuelMax(CHOCO_FUEL_MAX - fuelMax);
-  fuel = fuelMax;
+  raiseFuelMaxForItems();
 }
 // キラキラ星（取り付けた瞬間など）。画面の大きさは距離で変わる
 let sparkTex = null;
@@ -5565,7 +5576,7 @@ const GIFT_TOASTS = {
   choco: '板チョコを手に入れた！ チョコ燃料タンクで、燃料の最大が 50% に上がった',
   yeast: '魔法のパン種を手に入れた！ 砲台の先に、光るパン種が付いた',
   flour: '秘伝の打ち粉で、魔法のパン種が撃てるようになった！ 撃てるのは一度きり',
-  wings: 'ジェットの羽を手に入れた！ ジェットでしばらく飛ぶと、翼が開く',
+  wings: 'ジェットの羽を手に入れた！ 燃料の最大が 50% 上がった。ジェットでしばらく飛ぶと、翼が開く',
 };
 function advanceTalk() {
   if (!talk.advance()) return;
@@ -5583,7 +5594,7 @@ function advanceTalk() {
     items.add(g);
     if (g === 'choco' && visit) { startChocoEquip(); return; }   // 工房の中：展示台から飛んできて、背中に付く
     if (g === 'choco') { applyChoco(); sparkleBurst(_rm.set(feet.x, feet.y + 1.4, feet.z)); }
-    if (g === 'wings') { applyWings(); sparkleBurst(_rm.set(feet.x, feet.y + 1.4, feet.z)); }
+    if (g === 'wings') { applyWings(); raiseFuelMaxForItems(); sparkleBurst(_rm.set(feet.x, feet.y + 1.4, feet.z)); }
     if (g === 'yeast' && talkWith) startYeastFly(talkWith);   // 着いたときにお知らせを出す
     else showToast(GIFT_TOASTS[g] || `${ITEMS[g]}を手に入れた！`);
   }
@@ -5657,7 +5668,7 @@ const DEBUG_STARTS = [
   { label: 'ステージ4：パン種あり（町長の警告と最後の演出の前）', stage: 4, boss: 2, items: ['solidifier', 'choco', 'yeast'], roaming: true },
 ];
 function debugSave(p) {
-  const fuelMaxOf = p.items?.includes('choco') ? CHOCO_FUEL_MAX : FUEL_MAX_START;
+  const fuelMaxOf = fuelMaxFor(p.items || []);
   const pos = BOSS_TARGET.clone().add(_rd.set(BOSS_POS.x - BOSS_TARGET.x, 0, BOSS_POS.z - BOSS_TARGET.z).normalize().multiplyScalar(BOSS_STOP));
   return {
     v: SAVE_VERSION, at: Date.now(), stage: p.stage, boss: p.boss,
