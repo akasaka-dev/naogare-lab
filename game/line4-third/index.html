@@ -2382,7 +2382,51 @@
     return el;
   }
   function maybeShowStory(onDone) {
-    const lines = kanaMode ? PROLOGUE_LINES_KANA : PROLOGUE_LINES;
+    runStory(kanaMode ? PROLOGUE_LINES_KANA : PROLOGUE_LINES, onDone);
+  }
+
+  // After beating a ladder foe: the memory that flows into the player (black screen, white text,
+  // one line per tap / key). Keyed by the foe's level; levels without an entry have no story yet.
+  const MEMORY_STORIES = {
+    1: (n) => [
+      `${n}の頭の中に彼の記憶が流れ込んでくる。`,
+      'からくり騎士の記憶',
+      '「俺が、守る。」',
+      '華のような笑顔の令嬢だった。',
+      'なぜ、彼女がこのような呪いにかからなければならないのか。',
+      '親も亡くし、無感情の檻に閉じ込められた彼女を救えるのは、俺しかいない。',
+      '何度剣を振るおうとも、ヤツは傷ひとつ負わなかった。',
+      '彼女の笑顔は、少しずつ失われていった。',
+      'それでも、俺は誓った。',
+      '「俺が、守る。」',
+      'たとえこの身が朽ち果てようとも。',
+      `${n}の脳内に強い想いが刻み込まれた。`,
+    ],
+  };
+  const MEMORY_STORIES_KANA = {
+    1: (n) => [
+      `${n}のあたまのなかに、かれのきおくがながれこんでくる。`,
+      'からくりきしのきおく',
+      '「おれが、まもる。」',
+      'はなのようなえがおのれいじょうだった。',
+      'なぜ、かのじょがこのようなのろいにかからなければならないのか。',
+      'おやもなくし、むかんじょうのおりにとじこめられたかのじょをすくえるのは、おれしかいない。',
+      'なんどつるぎをふるおうとも、ヤツはきずひとつおわなかった。',
+      'かのじょのえがおは、すこしずつうしなわれていった。',
+      'それでも、おれはちかった。',
+      '「おれが、まもる。」',
+      'たとえこのみがくちはてようとも。',
+      `${n}ののうないにつよいおもいがきざみこまれた。`,
+    ],
+  };
+  // Shows the memory of the foe of `level`, then calls onDone; calls it at once when there is none.
+  function showMemoryStory(level, onDone) {
+    const table = kanaMode ? MEMORY_STORIES_KANA : MEMORY_STORIES;
+    if (!table[level]) { onDone(); return; }
+    runStory(table[level](getPlayerName()), onDone);
+  }
+
+  function runStory(lines, onDone) {
     const overlay = document.getElementById('storyOverlay');
     storyLineIndex = 0;
     storyTransitioning = false;
@@ -2398,6 +2442,7 @@
       overlay.classList.add('hidden');
       overlay.onclick = null;
       skipBtn.onclick = null;
+      document.removeEventListener('keydown', onKey, true);
       onDone();
     };
     skipBtn.onclick = (e) => {
@@ -2405,6 +2450,12 @@
       SoundMgr.seClick();
       finish();
     };
+    const onKey = (e) => {   // any key (but a bare modifier) advances like a tap
+      if (e.repeat || ['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) return;
+      e.preventDefault();
+      overlay.onclick();
+    };
+    document.addEventListener('keydown', onKey, true);
     overlay.onclick = () => {
       if (storyTransitioning) return; // ignore taps mid-fade
       SoundMgr.seClick();
@@ -3518,8 +3569,10 @@
 
     const beaten = currentChar;
     const next = CHARACTERS[ladderIndex + 1];
-    if (heldCard === beaten.level) { showNextOpponent(next); return; }
-    showSealScreen(beaten, next);
+    const afterStory = () => {
+      if (heldCard === beaten.level) showNextOpponent(next); else showSealScreen(beaten, next);
+    };
+    showMemoryStory(beaten.level, afterStory);
   }
 
   // "A new foe appears": the screen after the seal question (or straight after the win).
