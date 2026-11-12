@@ -449,6 +449,72 @@
     opacity: 0.7;
   }
 
+
+  /* ---- After a win: "seal the defeated foe into a card?" (see showSealScreen()) ---- */
+  #sealScreen {
+    position: fixed; inset: 0; z-index: 8;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 14px; padding: 24px 20px 70px; box-sizing: border-box; overflow: hidden;
+    background: radial-gradient(ellipse at 50% 38%, #2a1659 0%, #120a2c 48%, #04030c 100%);
+    color: #f3e9ff; font-family: "Hiragino Mincho ProN", "Yu Mincho", YuMincho, "MS PMincho", serif;
+    animation: sealIn 0.9s ease-out;
+  }
+  #sealScreen.hidden { display: none; }
+  #sealScreen.leaving { opacity: 0; transition: opacity 0.45s ease; pointer-events: none; }
+  @keyframes sealIn { from { opacity: 0; } to { opacity: 1; } }
+  .seal-embers { position: absolute; inset: 0; pointer-events: none; }
+  .seal-embers i {
+    position: absolute; bottom: -12px; border-radius: 50%; opacity: 0;
+    background: radial-gradient(circle, #fff6d0 0%, #fbbf24 45%, transparent 72%);
+    animation: sealEmber linear infinite;
+  }
+  @keyframes sealEmber {
+    0% { transform: translate(0, 0) scale(0.6); opacity: 0; }
+    15% { opacity: 0.9; }
+    100% { transform: translate(var(--dx, 20px), -105vh) scale(1.1); opacity: 0; }
+  }
+  .seal-stage { position: relative; width: min(74vw, 46vh, 320px); aspect-ratio: 1; flex: none; }
+  .seal-circle { position: absolute; inset: -6%; width: 112%; height: 112%; color: #d4af37; opacity: 0.8;
+    filter: drop-shadow(0 0 6px rgba(251, 191, 36, 0.65)); }
+  .seal-circle g { transform-box: fill-box; transform-origin: center; }
+  .seal-circle .spin-a { animation: sealSpin 38s linear infinite; }
+  .seal-circle .spin-b { animation: sealSpin 24s linear infinite reverse; }
+  @keyframes sealSpin { to { transform: rotate(360deg); } }
+  .seal-portrait {
+    position: absolute; left: 21%; right: 21%; top: 9%; bottom: 9%;
+    border-radius: 999px 999px 16px 16px; overflow: hidden;
+    border: 2px solid #d4af37; background: #0b0a1a;
+    box-shadow: 0 0 22px rgba(251, 191, 36, 0.45), 0 0 60px rgba(124, 58, 237, 0.5), inset 0 0 30px rgba(0, 0, 0, 0.7);
+    transition: transform 0.9s cubic-bezier(0.6, 0, 0.9, 0.4), opacity 0.9s ease, filter 0.9s ease;
+  }
+  .seal-portrait img { width: 100%; height: 100%; object-fit: cover; object-position: top center; display: block;
+    filter: grayscale(0.35) brightness(0.9); }
+  #sealScreen.sealing .seal-portrait { transform: scale(0.22) rotate(8deg); opacity: 0; filter: brightness(4) blur(3px); }
+  #sealScreen.sealing .seal-circle .spin-a { animation-duration: 3s; }
+  #sealScreen.sealing .seal-circle .spin-b { animation-duration: 2s; }
+  #sealScreen.sealing .seal-circle { opacity: 1; filter: drop-shadow(0 0 16px rgba(255, 236, 160, 1)); }
+  .seal-flash { position: absolute; inset: -40%; border-radius: 50%; opacity: 0; pointer-events: none;
+    background: radial-gradient(circle, rgba(255, 250, 220, 1) 0%, rgba(251, 191, 36, 0.6) 30%, transparent 66%); }
+  #sealScreen.flash .seal-flash { animation: sealFlash 0.9s ease-out; }
+  @keyframes sealFlash { 0% { opacity: 0; transform: scale(0.3); } 25% { opacity: 1; } 100% { opacity: 0; transform: scale(1.1); } }
+  .seal-cardwrap { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+  .seal-card { position: relative; width: 84px; height: 118px; flex: none; opacity: 0; transform: scale(0.3) rotateY(180deg);
+    transition: transform 0.85s cubic-bezier(0.2, 0.9, 0.3, 1.15), opacity 0.4s ease; }
+  .seal-card .deck-card { box-shadow: 0 0 26px 6px rgba(251, 191, 36, 0.85), 0 0 90px 20px rgba(124, 58, 237, 0.55); }
+  .seal-card .deck-name { font-size: 0.7rem; }
+  #sealScreen.sealed .seal-card { opacity: 1; transform: scale(1.95) rotateY(0); }
+  .seal-text, .seal-sub, .seal-actions { position: relative; z-index: 1; text-align: center; }
+  .seal-text { font-size: 1.25rem; letter-spacing: 0.08em; line-height: 1.8; text-shadow: 0 0 14px rgba(167, 139, 250, 0.9); min-height: 2.2em;
+    white-space: pre-line; }
+  .seal-sub { font-size: 0.88rem; line-height: 1.7; opacity: 0.82; max-width: 340px; white-space: pre-line; min-height: 3.4em; }
+  .seal-text, .seal-sub { transition: opacity 0.5s ease; }
+  .seal-text.off, .seal-sub.off { opacity: 0; }
+  .seal-actions { display: flex; flex-direction: column; gap: 10px; width: min(300px, 100%); transition: opacity 0.5s ease; }
+  .seal-actions.off { opacity: 0; pointer-events: none; }
+  .seal-actions button { font-family: inherit; letter-spacing: 0.1em; border-radius: 999px; padding: 11px 20px; }
+  .seal-actions .go { background: linear-gradient(180deg, #fde68a, #d4af37); color: #2a1659; box-shadow: 0 0 18px rgba(251, 191, 36, 0.6); }
+  .seal-actions .no { background: transparent; border: 1.5px solid rgba(167, 139, 250, 0.6); color: #e9ddff; }
+
   /* ---- おまけ: post-clear slideshow (see openOmake()) ---- */
   #omakeBtn.hidden { display: none; }
   #omakeScreen {
@@ -1298,6 +1364,23 @@
       <div class="result-actions" id="resultActions"></div>
       <div class="result-note" id="resultNote"></div>
     </div>
+  </div>
+
+  <div id="sealScreen" class="hidden">
+    <div class="seal-embers" id="sealEmbers"></div>
+    <div class="seal-stage">
+      <svg class="seal-circle" viewBox="-100 -100 200 200" fill="none" stroke="currentColor" aria-hidden="true">
+        <g class="spin-a"><circle r="96" stroke-width="1.2"/><circle r="90" stroke-width="0.6" stroke-dasharray="2 4"/>
+          <polygon points="0,-80 69.3,40 -69.3,40" stroke-width="1"/><polygon points="0,80 69.3,-40 -69.3,-40" stroke-width="1"/></g>
+        <g class="spin-b"><circle r="68" stroke-width="0.8" stroke-dasharray="10 5"/><circle r="60" stroke-width="0.5"/></g>
+      </svg>
+      <div class="seal-portrait"><img id="sealImg" alt="" draggable="false"></div>
+      <div class="seal-cardwrap"><div class="seal-card" id="sealCard"></div></div>
+      <div class="seal-flash"></div>
+    </div>
+    <div class="seal-text off" id="sealText"></div>
+    <div class="seal-sub off" id="sealSub"></div>
+    <div class="seal-actions off" id="sealActions"></div>
   </div>
 
   <!-- Turn-order coin toss: brief animation shown before every match starts -->
@@ -2999,6 +3082,7 @@
     document.getElementById('incomingEmote').classList.remove('show');
     setCharBackground(null);
     hideBubble();
+    hideSealScreen();
   }
 
   // ---------- おまけ: post-clear slideshow ----------
@@ -3396,31 +3480,98 @@
 
     const beaten = currentChar;
     const next = CHARACTERS[ladderIndex + 1];
-    const taken = !!(opts && opts.cardTaken);
-    const cardLine = taken
-      ? `🃏 ${cardName(beaten.level)} ${K('を手に入れた！', 'をてにいれた！')}\n${cardDesc(beaten.level)}`
-      : `${K('カードにできる', 'カードにできる')}: 🃏 ${cardName(beaten.level)}\n${cardDesc(beaten.level)}`;
-    const buttons = [
-      { label: K('対戦開始', 'たいせんかいし'), primary: true, onClick: () => {
-          ladderIndex++;
-          currentChar = next;
-          startGame('cpu');
-        } },
-    ];
-    if (!taken && heldCard !== beaten.level) {
-      buttons.push({
-        label: `🃏 ${K('カードにする', 'カードにする')}${heldCard !== null ? K('（今のカードと入れ替え）', '（いまのカードといれかえ）') : ''}`,
-        onClick: () => { heldCard = beaten.level; handleLadderOutcome('win', { cardTaken: true }); },
-      });
-    }
-    buttons.push({ label: K('ここでやめる（タイトルへ）', 'ここでやめる（タイトルへ）'), onClick: goToTitle });
+    if (heldCard === beaten.level) { showNextOpponent(next); return; }
+    showSealScreen(beaten, next);
+  }
+
+  // "A new foe appears": the screen after the seal question (or straight after the win).
+  function showNextOpponent(next) {
     showResultOverlay({
-      title: `LV.${beaten.level} ${beaten.name} ${K('撃破！', 'げきは！')}`,
-      message: `${cardLine}\n\n${K('次の刺客が現れた……', 'つぎのしかくがあらわれた……')}\nLV.${next.level} ${next.name}`,
+      title: K('次の刺客が現れた……', 'つぎのしかくがあらわれた……'),
+      message: `LV.${next.level} ${next.name}`,
       portraitImg: next.img,
       portraitEmoji: next.emoji,
-      buttons,
+      buttons: [
+        { label: K('対戦開始', 'たいせんかいし'), primary: true, onClick: () => {
+            ladderIndex++;
+            currentChar = next;
+            startGame('cpu');
+          } },
+        { label: K('ここでやめる（タイトルへ）', 'ここでやめる（タイトルへ）'), onClick: goToTitle },
+      ],
     });
+  }
+
+  // After beating a foe: a dark, quiet screen asks whether to seal them into a card. Yes: the
+  // portrait is drawn into the circle and comes out as the card, which replaces the one held.
+  let sealTimers = [];
+  function hideSealScreen() {
+    sealTimers.forEach(clearTimeout); sealTimers = [];
+    document.getElementById('sealScreen').classList.add('hidden');
+  }
+  function showSealScreen(beaten, next) {
+    const scr = document.getElementById('sealScreen');
+    const textEl = document.getElementById('sealText');
+    const subEl = document.getElementById('sealSub');
+    const actEl = document.getElementById('sealActions');
+    const embers = document.getElementById('sealEmbers');
+    const later = (fn, ms) => { sealTimers.push(setTimeout(fn, ms)); };
+    sealTimers.forEach(clearTimeout); sealTimers = [];
+
+    if (!embers.children.length) {   // drifting sparks, laid out once
+      for (let i = 0; i < 26; i++) {
+        const e = document.createElement('i');
+        const size = 3 + Math.random() * 5;
+        e.style.cssText = `left:${(Math.random() * 100).toFixed(1)}%;width:${size.toFixed(1)}px;height:${size.toFixed(1)}px;` +
+          `animation-duration:${(7 + Math.random() * 8).toFixed(1)}s;animation-delay:${(-Math.random() * 12).toFixed(1)}s;--dx:${(Math.random() * 60 - 30).toFixed(0)}px`;
+        embers.appendChild(e);
+      }
+    }
+    scr.classList.remove('hidden', 'leaving', 'sealing', 'sealed', 'flash');
+    scr.style.animation = 'none'; void scr.offsetWidth; scr.style.animation = '';
+    document.getElementById('sealImg').src = beaten.img;
+    document.getElementById('sealCard').innerHTML = deckFaceHTML(beaten.level);
+    [textEl, subEl, actEl].forEach((el) => el.classList.add('off'));
+    actEl.innerHTML = '';
+    textEl.textContent = K(`${beaten.name}を倒した。\nこの者を、カードに封印しますか？`, `${beaten.name}をたおした。\nこのものを、カードにふういんしますか？`);
+    subEl.textContent = `🃏 ${cardName(beaten.level)}\n${cardDesc(beaten.level)}` +
+      (heldCard !== null ? `\n${K('今のカード', 'いまのカード')}「${cardName(heldCard)}」${K('と入れ替わります', 'といれかわります')}` : '');
+
+    const leave = (after) => {
+      scr.classList.add('leaving');
+      later(() => { hideSealScreen(); after(); }, 480);
+    };
+    const mk = (cls, label, fn) => {
+      const b = document.createElement('button');
+      b.className = cls; b.textContent = label;
+      b.addEventListener('click', () => { SoundMgr.seClick(); fn(); });
+      actEl.appendChild(b);
+      return b;
+    };
+    const goNext = () => leave(() => showNextOpponent(next));
+    const doSeal = () => {
+      actEl.classList.add('off');
+      [textEl, subEl].forEach((el) => el.classList.add('off'));
+      heldCard = beaten.level;
+      scr.classList.add('sealing');
+      later(() => {                       // the portrait has been drawn in: flash, the card appears
+        scr.classList.add('flash', 'sealed');
+        SoundMgr.seBurst();
+      }, 850);
+      later(() => {
+        textEl.textContent = K('封印した……', 'ふういんした……');
+        subEl.textContent = `🃏 ${cardName(beaten.level)}\n${cardDesc(beaten.level)}`;
+        actEl.innerHTML = '';
+        mk('go', K('次へ', 'つぎへ'), goNext);
+        [textEl, subEl, actEl].forEach((el) => el.classList.remove('off'));
+      }, 2300);
+    };
+    mk('go', K('封印する', 'ふういんする'), doSeal);
+    mk('no', K('封印しない', 'ふういんしない'), goNext);
+
+    later(() => textEl.classList.remove('off'), 900);
+    later(() => subEl.classList.remove('off'), 1700);
+    later(() => actEl.classList.remove('off'), 2300);
   }
 
   // ---------- Core game ----------
