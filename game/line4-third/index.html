@@ -744,41 +744,10 @@
     justify-content: center;
     background: rgba(5, 8, 18, 0.82);
   }
-  .turn-decide-card {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 18px;
-  }
-  .coin-wrap { perspective: 400px; }
-  .coin {
-    width: 72px;
-    height: 72px;
-    border-radius: 50%;
-    background: var(--p1);
-    box-shadow: 0 0 20px 6px rgba(255,255,255,0.18), 0 8px 20px rgba(0,0,0,0.5);
-    animation: coinSpin 0.15s linear infinite;
-  }
-  .coin.settled { animation: coinSettle 0.4s cubic-bezier(0.34, 1.56, 0.64, 1); }
-  @keyframes coinSpin {
-    0%, 100% { transform: scaleX(1); }
-    50% { transform: scaleX(0.12); }
-  }
-  @keyframes coinSettle {
-    0% { transform: scaleX(0.12); }
-    55% { transform: scaleX(1.18) scaleY(0.85); }
-    75% { transform: scaleX(0.92) scaleY(1.06); }
-    100% { transform: scaleX(1) scaleY(1); }
-  }
-  .turn-decide-text {
-    font-size: 1.1rem;
-    font-weight: 700;
-    color: var(--text);
-    opacity: 0;
-    transition: opacity 0.25s ease;
-    text-align: center;
-  }
-  .turn-decide-text.show { opacity: 1; }
+  /* the toss uses the same two orbs as the turn display, just bigger: they spin, then settle with the first mover in front */
+  .turn-decide-orbs { transform: scale(2); }
+  .turn-decide-orbs.pop { animation: orbsPop 0.45s ease-out; }
+  @keyframes orbsPop { 0% { transform: scale(2); } 40% { transform: scale(2.3); } 100% { transform: scale(2); } }
 
   /* ---- Game screen ---- */
   #gameScreen {
@@ -1333,10 +1302,7 @@
 
   <!-- Turn-order coin toss: brief animation shown before every match starts -->
   <div id="turnDecideOverlay" class="hidden">
-    <div class="turn-decide-card">
-      <div class="coin-wrap"><div class="coin" id="turnCoin"></div></div>
-      <div class="turn-decide-text" id="turnDecideText"></div>
-    </div>
+    <div class="turn-decide-orbs" id="turnDecideOrbs"><span class="turn-orbs" aria-hidden="true"><span class="orb orb1"><i></i></span><span class="orb orb2"><i></i></span></span></div>
   </div>
 
   <!-- Opponent's emote pops up here briefly when it arrives via polling -->
@@ -2809,7 +2775,7 @@
     cellEls = [];
     buildBoard();
     hideBubble();
-    updateStatus(K('先攻・後攻を決めています…', 'せんこう・こうこうをきめています…'));
+    statusEl.innerHTML = '';   // the toss overlay speaks for itself
     boardWrap.classList.add('locked');
     online.rev = state.rev;
     online.emoteRev = state.emoteRev || 0;
@@ -3467,7 +3433,7 @@
     resetCardState();
     buildBoard();
     hideBubble();
-    updateStatus(K('先攻・後攻を決めています…', 'せんこう・こうこうをきめています…'));
+    statusEl.innerHTML = '';   // the toss overlay speaks for itself
     boardWrap.classList.add('locked');
     decideStartingPlayer((starter) => {
       currentPlayer = starter;
@@ -3479,40 +3445,40 @@
     });
   }
 
-  // Brief (~2s) coin-toss animation deciding who moves first, run before
-  // every match (fresh game, reset, and each new CPU ladder opponent).
+  // Brief (~2s) toss deciding who moves first, run before every match (fresh game, reset, and each
+  // new CPU ladder opponent): the two turn orbs spin around each other and slow down until the
+  // first mover is in front. Same look as the turn display; no text.
   function decideStartingPlayer(onDone, forcedStarter) {
     const overlay = document.getElementById('turnDecideOverlay');
-    const coin = document.getElementById('turnCoin');
-    const textEl = document.getElementById('turnDecideText');
+    const wrap = document.getElementById('turnDecideOrbs');
+    const root = wrap.querySelector('.turn-orbs');
     const starter = forcedStarter != null ? forcedStarter : (Math.random() < 0.5 ? 1 : 2);
-    const starterLabel = starter === 1 ? player1Label() : player2Label();
+    const home = (starter === 1 ? Math.PI / 2 : Math.PI * 1.5) - TURN_TILT;
+    const start = home - 4 * Math.PI;   // two full turns, ending exactly on `home`
+    const SPIN_MS = 1400, HOLD_MS = 700;
 
-    coin.classList.remove('settled');
-    coin.style.background = 'var(--p1)';
-    textEl.classList.remove('show');
-    textEl.textContent = K('先攻・後攻を決めています…', 'せんこう・こうこうをきめています…');
+    wrap.classList.remove('pop');
+    placeTurnOrbs(root, start);
     overlay.classList.remove('hidden');
 
-    let flip = 0;
-    const flickerTimer = setInterval(() => {
-      flip++;
-      coin.style.background = flip % 2 === 0 ? 'var(--p1)' : 'var(--p2)';
-    }, 110);
-
-    setTimeout(() => {
-      clearInterval(flickerTimer);
-      coin.style.background = starter === 1 ? 'var(--p1)' : 'var(--p2)';
-      coin.classList.add('settled');
-      SoundMgr.seDrop();
-      textEl.textContent = `${starterLabel}${K('の先攻です！', 'のせんこうです！')}`;
-      textEl.classList.add('show');
-    }, 1250);
+    const t0 = performance.now();
+    let settled = false;
+    (function frame(now) {
+      const k = Math.min(1, (now - t0) / SPIN_MS);
+      placeTurnOrbs(root, start + (home - start) * (1 - Math.pow(1 - k, 3)));
+      if (k < 1) { requestAnimationFrame(frame); return; }
+      if (!settled) {
+        settled = true;
+        void wrap.offsetWidth; wrap.classList.add('pop');
+        SoundMgr.seDrop();
+      }
+    })(t0);
 
     setTimeout(() => {
       overlay.classList.add('hidden');
+      turnOrbs.front = 0;      // the turn display starts on the first mover without a swap
       onDone(starter);
-    }, 2000);
+    }, SPIN_MS + HOLD_MS);
   }
 
   function buildBoard() {
@@ -3539,9 +3505,9 @@
   // when the turn changes they swap places in a half orbit, like shuffled cards. No text, no pictures.
   const TURN_TILT = 0.38;   // the orbit is seen at an angle so the orb behind peeks out beside the one in front
   const turnOrbs = { ang: Math.PI / 2 - TURN_TILT, target: Math.PI / 2 - TURN_TILT, front: 0, raf: 0, t0: 0, from: 0 };
-  function placeTurnOrbs(root) {
+  function placeTurnOrbs(root, ang = turnOrbs.ang) {
     const R = 46;
-    [[1, turnOrbs.ang], [2, turnOrbs.ang + Math.PI]].forEach(([pl, a]) => {
+    [[1, ang], [2, ang + Math.PI]].forEach(([pl, a]) => {
       const el = root.querySelector('.orb' + pl);
       if (!el) return;
       const z = Math.sin(a);                 // +1 = in front, -1 = behind
