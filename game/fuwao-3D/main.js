@@ -455,6 +455,9 @@ function initAudio() {
   if (audioCtx) { audioCtx.resume?.(); updateBgm(true); return; }   // 再開も押したときなので、ここで鳴らし直す
   const Ctx = window.AudioContext || window.webkitAudioContext;
   if (!Ctx) return;
+  // iPhone：Web Audio の音は、ふだんはマナーモードのスイッチで消える。BGM（<audio>）が流れている間だけは鳴るので、
+  // BGM のないステージ 3 からは効果音まで消えていた。ゲームの音は「再生」の種類にして、BGM がなくても鳴るようにする（iOS 16.4〜）
+  try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch { /* 対応していない環境 */ }
   audioCtx = new Ctx();
   audioCtx.resume?.();
   // BGM は <audio> を Web Audio につないで、大きさを変える
