@@ -394,12 +394,15 @@ const AMB_EDGE = 0.06;     // MP3 の頭と終わりのすき間を飛ばして�
 let audioCtx = null, riverPts = [], fallPts = [];
 // 効果音（1 回鳴らす音）。右上の効果音ボタンで切れる。ゲームを始めたときに読みこんでおく（initAudio）
 //   jump：ジャンプしたとき / bossLand：脅威1・2 が空から落ちてきて地面にぶつかったとき /
-//   shot：パンが砲口から出たとき / explode：脅威3 がはじけ飛んだとき（最後の演出）
+//   shot：パンが砲口から出たとき / explode：脅威3 がはじけ飛んだとき（最後の演出） /
+//   equip：板チョコのタンク・魔法のパン種が、ロボに付いた瞬間
 const SFX = {
   jump: { file: 'sounds/jump.mp3', vol: 0.5 },
   bossLand: { file: 'sounds/boss_land.mp3', vol: 1 },
   shot: { file: 'sounds/shot.mp3', vol: 0.6 },
   explode: { file: 'sounds/explode.mp3', vol: 1 },
+  equip: { file: 'sounds/equip.mp3', vol: 0.7 },
+  jet: { file: 'sounds/jet.mp3', vol: 0.8 },   // ジェット（updateJetSound で鳴らす。1 回鳴らす音ではない）
 };
 function playSfx(name) {
   const a = SFX[name];
@@ -410,6 +413,32 @@ function playSfx(name) {
   g.gain.value = a.vol;
   src.connect(g).connect(audioCtx.destination);
   src.start();
+}
+// ジェットの音：噴射し始めたら頭から鳴らし（だんだん強くなる音）、そのまま噴射している間は終わりの JET_LOOP をくり返す。
+// 噴射をやめたら JET_FADE でしぼんで止まる
+const JET_LOOP = [4.3, 4.79];   // くり返す所（秒）。音の大きさがそろっている終わりの所（MP3 の最後のすき間は使わない）
+const JET_FADE = 0.25;
+let jetSnd = null;   // { src, gain }
+function updateJetSound(active) {
+  const a = SFX.jet;
+  const on = !!(active && jetting && audioCtx && a.buf && soundOn.sfx && !finale && !knockout);
+  if (on && !jetSnd) {
+    const src = audioCtx.createBufferSource();
+    src.buffer = a.buf;
+    src.loop = true;
+    src.loopStart = JET_LOOP[0];
+    src.loopEnd = Math.min(JET_LOOP[1], a.buf.duration);
+    const gain = audioCtx.createGain();
+    gain.gain.value = a.vol;
+    src.connect(gain).connect(audioCtx.destination);
+    src.start();
+    jetSnd = { src, gain };
+  } else if (!on && jetSnd) {
+    const t = audioCtx.currentTime;
+    jetSnd.gain.gain.setTargetAtTime(0, t, JET_FADE / 3);
+    jetSnd.src.stop(t + JET_FADE * 1.5);
+    jetSnd = null;
+  }
 }
 // BGM：ステージごとの曲（いまはステージ 1・2 の曲だけ）。長いので、全部をほどいて持たずに少しずつ読みながら流す（<audio>）。
 // 一時停止中・エンディング・ゲームオーバーでは消えていき、消えたら止める（つづきは止めたところから）。工房の中では小さめ
@@ -4957,6 +4986,7 @@ function updateChocoEquip(v) {
     v.done = true;
     applyChoco();
     sparkleBurst(_oc2, 26, 0.4);
+    playSfx('equip');
     v.toast = GIFT_TOASTS.choco;   // 工場長の話と重ならないよう、外へ出てから出す（endVisit）
   }
   if (v.t >= CHOCO_EQUIP_END) startEquippedTalk(v);
@@ -5164,6 +5194,7 @@ function updateYeast(dt) {
     yeastPot.visible = false;
     applyYeast();
     sparkleBurst(_oc2, 26, 0.4);
+    playSfx('equip');
     showToast(GIFT_TOASTS.yeast);
   }
 }
@@ -6209,6 +6240,7 @@ function tick(dt, active) {
   if (!visit) { updateSparks(dt); updateYeast(dt); }
   time.value += dt;
   updateToast(dt);
+  updateJetSound(active && !opening && !visit);   // 工房に入ったときなども止める（このあと return する場面があるので先に）
   if (opening) { updateOpening(dt, active); return; }
   if (visit) { updateVisit(dt, active); return; }
   daytime.update(active ? dt : 0, active && keys.has('KeyN'));
