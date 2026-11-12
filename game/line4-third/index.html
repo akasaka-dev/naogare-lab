@@ -3537,10 +3537,10 @@
 
   // Turn display: a pink and a mint orb circle each other. The one to move sits in front (big, bright);
   // when the turn changes they swap places in a half orbit, like shuffled cards. No text, no pictures.
-  const TURN_TILT = 0.8;   // the orbit is seen at an angle so the orb behind peeks out beside the one in front
+  const TURN_TILT = 0.38;   // the orbit is seen at an angle so the orb behind peeks out beside the one in front
   const turnOrbs = { ang: Math.PI / 2 - TURN_TILT, target: Math.PI / 2 - TURN_TILT, front: 0, raf: 0, t0: 0, from: 0 };
   function placeTurnOrbs(root) {
-    const R = 40;
+    const R = 46;
     [[1, turnOrbs.ang], [2, turnOrbs.ang + Math.PI]].forEach(([pl, a]) => {
       const el = root.querySelector('.orb' + pl);
       if (!el) return;
