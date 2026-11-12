@@ -390,7 +390,7 @@
     "name": "お城の女の子",
     "portrait": null,
     "talks": [
-      { "stage": [1, 4], "gift": "present", "face": "joy", "lines": [
+      { "stage": [1, 4], "gift": "wings", "face": "joy", "lines": [
         "あら、すごい！こんなところまで来るなんて。。しっかり遊んでくれたお礼にプレゼントするわ！"
       ] }
     ]

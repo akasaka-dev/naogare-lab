@@ -580,7 +580,7 @@ const crosshair = document.getElementById('crosshair');
 // ?collapsed：ボス3の後の倒壊した町（town_collapsed.glb）に差し替えて見る（テスト用）。
 // 廃墟の部品（ヘドロ・ガレキ）は重ねず、区画の分け方とくすみだけ使う
 const COLLAPSED = new URLSearchParams(location.search).has('collapsed');
-const FILES = [COLLAPSED ? 'models/town_collapsed.glb' : 'models/town.glb', 'models/distant.glb', 'models/pancannon.glb', 'models/germboss.glb', 'models/bread.glb', 'models/grandpa.glb', 'models/girl.glb', 'models/grandma.glb', 'models/town_ruin.glb', 'models/mayor.glb', 'models/germmini.glb', 'models/workshop.glb', 'models/chief.glb', 'models/baker.glb', 'models/sludgeboss.glb', 'models/rockboss.glb', 'models/choco.glb', 'models/choco_tank.glb', 'models/yeast.glb', 'models/yeast_cannon.glb', 'models/mecha_wreck.glb'];
+const FILES = [COLLAPSED ? 'models/town_collapsed.glb' : 'models/town.glb', 'models/distant.glb', 'models/pancannon.glb', 'models/germboss.glb', 'models/bread.glb', 'models/grandpa.glb', 'models/girl.glb', 'models/grandma.glb', 'models/town_ruin.glb', 'models/mayor.glb', 'models/germmini.glb', 'models/workshop.glb', 'models/chief.glb', 'models/baker.glb', 'models/sludgeboss.glb', 'models/rockboss.glb', 'models/choco.glb', 'models/choco_tank.glb', 'models/yeast.glb', 'models/yeast_cannon.glb', 'models/mecha_wreck.glb', 'models/jet_wings_item.glb', 'models/jet_wings.glb'];
 const loaded = {}, total = {};
 // 公開版のモデルは meshopt で圧縮してある（25MB を超えるファイルは置けないため）
 const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
@@ -1060,6 +1060,7 @@ if (new URLSearchParams(location.search).has('debug')) {
     retreat() { if (!retreat && !bossGone) startRetreat(); },
     appear() { if (!bossAppeared && !bossIntro) startBossIntro(); },
     get collapse() { return collapse; }, get finale() { return finale; }, startFinale, startMayorWarn, get townCollapsed() { return townCollapsed; }, useBoss, get bossIndex() { return bossIndex; },
+    get wings() { return { mode: wingState.mode, jet: +wingState.jet.toFixed(2), rest: +wingState.rest.toFixed(2), w: Object.fromEntries(Object.entries(wingState.w).map(([k, v]) => [k, +v.toFixed(2)])), deployT: wingActs && +wingActs.deploy.time.toFixed(2), boostT: wingActs && +wingActs.boost.time.toFixed(2), equipped: !!wings?.visible, show: !!wingsShow?.visible }; },
     get items() { return [...items]; }, giveItem(k) { items.add(k); }, noon: makeHungry, enterWorkshop, saveGame, readSave, clearSave, startGame, get visit() { return visit; }, get hungry() { return residents.filter((r) => r.hungry).map((r) => r.id); }, get intro() { return bossIntro; }, get appeared() { return bossAppeared; },
     get retreating() { return !!retreat; }, get bossGone() { return bossGone; }, get bossSolid() { return bossSolid; }, get groundUniforms() { return groundUniforms; },
     attackTown, get quake() { return quake; },
@@ -1147,8 +1148,8 @@ const SOLID_ARC = 0.42;                      // 体当たりが固まった所�
 // ふわおが手に入れた道具。solidifier：固形化パン（パン工房の工場長がくれる。撃ったパンがヘドロボスに当たると固まり、体当たりできる）
 // choco：板チョコ（ステージ 1 をクリアすると工房の展示台に並び、工場長がメカの背中にチョコ燃料タンクとして取り付けてくれる。燃料の最大が CHOCO_FUEL_MAX に）
 // yeast：魔法のパン種（町が崩壊したあと、パン工房の前の工場長が砲台に付けてくれる。脅威3 を倒す最後の武器）
-// present：お城の女の子のプレゼント（西の丘のお城まで来るともらえる。中身は作り中で、装備の見た目は PRESENT_MODEL に書くと付く）
-const ITEMS = { solidifier: '固形化パン', choco: '板チョコ', yeast: '魔法のパン種', flour: '秘伝の打ち粉', present: 'お城のプレゼント' };
+// wings：ジェットの羽（西の丘のお城の女の子がくれる。メカの胴体の左右に翼が付き、ジェットでしばらく飛ぶと開く。効果はまだ決めていない）
+const ITEMS = { solidifier: '固形化パン', choco: '板チョコ', yeast: '魔法のパン種', flour: '秘伝の打ち粉', wings: 'ジェットの羽' };
 // その道具は、先にこの道具を持っていないともらえない（打ち粉は、パン種に振りかけるもの）
 const ITEM_NEEDS = { flour: 'yeast' };
 const CHOCO_FUEL_MAX = 0.5;
@@ -3958,7 +3959,7 @@ const RESIDENTS = [
   { id: '0-1', kind: 'chief', home: new THREE.Vector3(-5.2, 12, -24.4), radius: 0, face: -0.7 },
   // 西の丘のお城の塀の中（天守の南東の中庭）に立つ女の子。町の人ではないので guest：
   // おなかはすかず（パンを食べない）、町が崩壊しても丘へ避難せず、話すのは自分の台本（talks.json の castle）だけ。
-  // 町のほう（東、+X）を向いて立っている。話すとプレゼント（ITEMS.present）をくれる
+  // 町のほう（東、+X）を向いて立っている。話すとジェットの羽（ITEMS.wings）をくれる。展示用の羽は女の子の横に浮かんでいる（WINGS_SHOW）
   { id: 'castle', kind: 'girl', home: new THREE.Vector3(-272, 52.3, 18), radius: 0, face: Math.PI / 2, guest: true },
 ];
 const RES_HOME_HURRY = 1.25;     // 家へ帰るときは少し急ぐ
@@ -4395,7 +4396,7 @@ function catchBread(b) {
 async function init() {
   const talksLoaded = loadTalks();   // 模型と同時に読む
   preloadPortraits();
-  const [town, distant, pancannon, germboss, bread, grandpa, girl, grandma, townRuin, mayor, germmini, workshop, chief, baker, sludgeboss, rockboss, choco, chocoTankGltf, yeastGltf, yeastCannonGltf, mechaWreck] = await Promise.all(FILES.map(load));
+  const [town, distant, pancannon, germboss, bread, grandpa, girl, grandma, townRuin, mayor, germmini, workshop, chief, baker, sludgeboss, rockboss, choco, chocoTankGltf, yeastGltf, yeastCannonGltf, mechaWreck, jetWingsItem, jetWingsGltf] = await Promise.all(FILES.map(load));
   await talksLoaded;
   statusEl.textContent = 'シーンを組み立て中…';
   await new Promise((r) => setTimeout(r, 0));
@@ -4450,7 +4451,7 @@ async function init() {
   setupChoco(choco, chocoTankGltf);
   setupYeast(yeastGltf, yeastCannonGltf);
   setupWreckModel(mechaWreck);
-  setupPresent();   // 待たない（モデルがなくても、ゲームは始められる）
+  setupWings(jetWingsItem, jetWingsGltf);
   // 夜に明るくする窓と街灯（廃墟の崩れた家の窓も含む）
   const glowMats = new Set();
   scene.traverse((o) => { if (o.isMesh && /BK_glass/.test(o.material.name)) glowMats.add(o.material); });
@@ -4532,11 +4533,11 @@ function loadGame(d) {
     bossAppeared = true;
     if (retreatLine && !bossCfg.hard) retreatLine.visible = true;
   }
-  for (const k of d.items || []) if (k in ITEMS) items.add(k);
+  for (const k of d.items || []) { const key = k === 'present' ? 'wings' : k; if (key in ITEMS) items.add(key); }   // present は、ジェットの羽の前の仮の名前
   mayorWarned = !!d.mayorWarned;
   if (items.has('choco')) chocoTank.visible = true;
   if (items.has('yeast')) applyYeast();
-  if (items.has('present')) applyPresent();
+  if (items.has('wings')) applyWings();
   if (d.fuelMax) fuelMax = d.fuelMax;
   fuel = Math.min(fuelMax, d.fuel ?? fuelMax);
   body = d.body ?? 1;
@@ -5095,32 +5096,93 @@ function setupChoco(chocoGltf, tankGltf) {
   chocoTank.rotation.set(0.2443, 0, 0);   // 上を少し体の方へ傾ける
   chocoTank.visible = false;
 }
-// ---- お城の女の子のプレゼント（作り中） ----
-// 装備のモデルができたら PRESENT_MODEL に書くと、もらったときにメカに付く。null のあいだは、もらうだけで見た目は変わらない。
-//   file：モデルのファイル、root：glb の中のメカに付けるノードの名前、parent：メカ（pancannon.glb）のどのノードの子にするか、
-//   position / rotation：parent から見た位置と回転（Three.js の値。glb の root の位置・回転は使わない）
-// 例: { file: 'models/xxx.glb', root: 'XX_Root', parent: 'PC_Rig_Body', position: [0, 0, 0], rotation: [0, 0, 0] }
-// 動き（アニメーション）や、装備したときの効果（速くなる など）も、モデルができてからここに足す
-const PRESENT_MODEL = null;
-let presentObj = null;
-async function setupPresent() {
-  if (!PRESENT_MODEL) return;
-  try {
-    const gltf = await loader.loadAsync(PRESENT_MODEL.file);
-    const obj = gltf.scene.getObjectByName(PRESENT_MODEL.root) || gltf.scene;
-    obj.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-    model.getObjectByName(PRESENT_MODEL.parent || 'PC_Rig_Body').add(obj);
-    obj.position.fromArray(PRESENT_MODEL.position || [0, 0, 0]);
-    obj.rotation.fromArray(PRESENT_MODEL.rotation || [0, 0, 0]);
-    presentObj = obj;
-    presentObj.visible = items.has('present');   // セーブから続けたときは、読み込みが終わった時点で付ける
-  } catch (e) {
-    console.warn('プレゼントのモデルを読み込めませんでした', PRESENT_MODEL.file, e);
-  }
+// ---- パワーアップアイテム「ジェットの羽」（jet_wings_item.glb / jet_wings.glb。くわしくは docs/scene-notes.md） ----
+// 西の丘のお城の女の子の横に、展示用の小さなジェット機（jet_wings_item.glb）が浮かんでいる。女の子と話すともらえて、展示は消える。
+// もらうと、メカの胴体の左右に翼（jet_wings.glb）が付く。ふだんはたたんでいて（JW_Deploy の最初の姿勢）、
+// ジェットを WING_OPEN_AFTER 秒ふかし続けると開く（JW_Deploy）。開いたまま飛んでいる間は JW_Boost（9〜25 フレームをくり返す）、
+// ジェットを止めると JW_Idle。着地して WING_CLOSE_AFTER 秒たつと、JW_Deploy を逆に再生してたたむ。
+// 3 つのクリップは同じもの（翼の付け根の回転と炎の大きさ）を動かすので、重みを少しずつ入れ替えてつなぐ（WING_BLEND）。
+// 効果（速くなる など）はまだ決めていない
+const WING_OPEN_AFTER = 0.8;      // ジェットをこの秒数ふかし続けると、翼が開く
+const WING_CLOSE_AFTER = 1.5;     // 着地してこの秒数たつと、翼をたたむ
+const WING_BLEND = 8;             // クリップの重みを入れ替える速さ
+const WING_BOOST_LOOP = 8 / ANIM_FPS;   // JW_Boost は 9 フレーム目（0 から数えて 8）から最後までをくり返す
+// 展示の位置：お城の女の子の右横（女の子は +X を向いて立っている）。offset は女の子の足元から。機首は女の子と同じ +X。
+// 元の大きさ（翼の端から端まで約0.44m）では目立たないので、scale 倍にする
+const WINGS_SHOW = { offset: new THREE.Vector3(0.25, 0.4, -0.9), yaw: Math.PI / 2, scale: 2 };
+let wingsShow = null, wingsShowMixer = null, wings = null, wingsMixer = null, wingActs = null;
+const wingState = { mode: 'folded', jet: 0, rest: 0, w: { deploy: 1, idle: 0, boost: 0 } };
+function setupWings(itemGltf, wingsGltf) {
+  // 展示用
+  wingsShow = itemGltf.scene.getObjectByName('JI_Root') || itemGltf.scene;
+  wingsShow.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  const girl = residents.find((r) => r.id === 'castle');
+  if (girl) wingsShow.position.copy(girl.home).add(WINGS_SHOW.offset);
+  wingsShow.rotation.set(0, WINGS_SHOW.yaw, 0);
+  wingsShow.scale.setScalar(WINGS_SHOW.scale);
+  wingsShow.visible = !!girl && !items.has('wings');
+  scene.add(wingsShow);
+  wingsShowMixer = new THREE.AnimationMixer(wingsShow);
+  for (const c of itemGltf.animations) wingsShowMixer.clipAction(c).play();
+  // 装備（PC_Rig_Body の原点そのもの。位置も回転も 0 のまま）
+  wings = wingsGltf.scene.getObjectByName('JW_Root');
+  wings.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  model.getObjectByName('PC_Rig_Body').add(wings);
+  wings.position.set(0, 0, 0);
+  wings.rotation.set(0, 0, 0);
+  wings.visible = false;
+  wingsMixer = new THREE.AnimationMixer(wings);
+  // JW_Deploy と JW_Boost は、時間をこちらで動かす（timeScale 0）。JW_Idle だけはふつうにループ
+  const act = (name, manual) => {
+    const a = wingsMixer.clipAction(THREE.AnimationClip.findByName(wingsGltf.animations, name));
+    a.play();
+    if (manual) a.setEffectiveTimeScale(0);
+    return a;
+  };
+  wingActs = { deploy: act('JW_Deploy', true), idle: act('JW_Idle', false), boost: act('JW_Boost', true) };
+  for (const [n, a] of Object.entries(wingActs)) a.setEffectiveWeight(wingState.w[n]);
+  wingsMixer.update(0);
 }
-// プレゼントをもらったとき（セーブから続けたときも）
-function applyPresent() {
-  if (presentObj) presentObj.visible = true;
+// もらったとき（セーブから続けたときも）。翼はたたんだまま付く
+function applyWings() {
+  wings.visible = true;
+  wingsShow.visible = false;
+  Object.assign(wingState, { mode: 'folded', jet: 0, rest: 0, w: { deploy: 1, idle: 0, boost: 0 } });
+  wingActs.deploy.time = 0;
+  wingActs.boost.time = 0;
+}
+function updateWings(dt) {
+  if (wingsShow?.visible) wingsShowMixer.update(dt);
+  if (!wings?.visible) return;
+  const s = wingState, A = wingActs;
+  const dur = A.deploy.getClip().duration, bdur = A.boost.getClip().duration;
+  s.jet = jetting ? s.jet + dt : 0;
+  s.rest = jetting || !onGround ? 0 : s.rest + dt;
+  if (s.mode === 'folded' && s.jet >= WING_OPEN_AFTER) s.mode = 'opening';
+  if (s.mode === 'closing' && jetting) s.mode = 'opening';   // たたんでいる途中でまたふかしたら、そこから開き直す
+  if (s.mode === 'opening') {
+    A.deploy.time = Math.min(dur, A.deploy.time + dt);
+    if (A.deploy.time >= dur) s.mode = 'open';
+  } else if (s.mode === 'closing') {
+    A.deploy.time = Math.max(0, A.deploy.time - dt);
+    if (A.deploy.time <= 0) s.mode = 'folded';
+  } else if (s.mode === 'open' && s.rest >= WING_CLOSE_AFTER) {
+    s.mode = 'closing';
+    A.deploy.time = dur;   // 開き終わりの姿勢（JW_Idle の最初と同じ）から逆にたどる
+  }
+  const open = s.mode === 'open', boosting = open && jetting;
+  if (boosting) {
+    A.boost.time += dt;
+    if (A.boost.time >= bdur) A.boost.time = WING_BOOST_LOOP + ((A.boost.time - bdur) % (bdur - WING_BOOST_LOOP));
+  }
+  const target = { deploy: open ? 0 : 1, idle: open && !jetting ? 1 : 0, boost: boosting ? 1 : 0 };
+  const k = 1 - Math.exp(-WING_BLEND * dt);
+  for (const n in target) {
+    s.w[n] += (target[n] - s.w[n]) * k;
+    A[n].setEffectiveWeight(s.w[n]);
+  }
+  if (!boosting && s.w.boost < 0.01) A.boost.time = 0;   // 次にふかしたときは、最初（炎が伸びるところ）から
+  wingsMixer.update(dt);
 }
 // 板チョコの効果：タンクが付いて、燃料の最大が上がり、満タンになる
 function applyChoco() {
@@ -5503,7 +5565,7 @@ const GIFT_TOASTS = {
   choco: '板チョコを手に入れた！ チョコ燃料タンクで、燃料の最大が 50% に上がった',
   yeast: '魔法のパン種を手に入れた！ 砲台の先に、光るパン種が付いた',
   flour: '秘伝の打ち粉で、魔法のパン種が撃てるようになった！ 撃てるのは一度きり',
-  present: 'お城の女の子から、プレゼントをもらった！',
+  wings: 'ジェットの羽を手に入れた！ ジェットでしばらく飛ぶと、翼が開く',
 };
 function advanceTalk() {
   if (!talk.advance()) return;
@@ -5521,7 +5583,7 @@ function advanceTalk() {
     items.add(g);
     if (g === 'choco' && visit) { startChocoEquip(); return; }   // 工房の中：展示台から飛んできて、背中に付く
     if (g === 'choco') { applyChoco(); sparkleBurst(_rm.set(feet.x, feet.y + 1.4, feet.z)); }
-    if (g === 'present') { applyPresent(); sparkleBurst(_rm.set(feet.x, feet.y + 1.4, feet.z)); }
+    if (g === 'wings') { applyWings(); sparkleBurst(_rm.set(feet.x, feet.y + 1.4, feet.z)); }
     if (g === 'yeast' && talkWith) startYeastFly(talkWith);   // 着いたときにお知らせを出す
     else showToast(GIFT_TOASTS[g] || `${ITEMS[g]}を手に入れた！`);
   }
@@ -6278,6 +6340,7 @@ function tick(dt, active) {
   waterUniforms.uTime.value += dt;
   updateSpray();
   if (!visit) { updateSparks(dt); updateYeast(dt); }
+  updateWings(dt);
   time.value += dt;
   updateToast(dt);
   updateJetSound(active && !opening && !visit);   // 工房に入ったときなども止める（このあと return する場面があるので先に）
