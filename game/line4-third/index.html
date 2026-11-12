@@ -457,10 +457,10 @@
     gap: 14px; padding: 24px 20px 70px; box-sizing: border-box; overflow: hidden;
     background: radial-gradient(ellipse at 50% 38%, #2a1659 0%, #120a2c 48%, #04030c 100%);
     color: #f3e9ff; font-family: "Hiragino Mincho ProN", "Yu Mincho", YuMincho, "MS PMincho", serif;
-    animation: sealIn 0.9s ease-out;
   }
+  #sealScreen .seal-stage, #sealScreen .seal-embers { animation: sealIn 1s ease-out; }
   #sealScreen.hidden { display: none; }
-  #sealScreen.leaving { opacity: 0; transition: opacity 0.45s ease; pointer-events: none; }
+  #sealScreen.leaving { pointer-events: none; }
   @keyframes sealIn { from { opacity: 0; } to { opacity: 1; } }
   .seal-embers { position: absolute; inset: 0; pointer-events: none; }
   .seal-embers i {
@@ -514,6 +514,30 @@
   .seal-actions button { font-family: inherit; letter-spacing: 0.1em; border-radius: 999px; padding: 11px 20px; }
   .seal-actions .go { background: linear-gradient(180deg, #fde68a, #d4af37); color: #2a1659; box-shadow: 0 0 18px rgba(251, 191, 36, 0.6); }
   .seal-actions .no { background: transparent; border: 1.5px solid rgba(167, 139, 250, 0.6); color: #e9ddff; }
+
+
+  /* ---- "A new foe appears" (after the seal screen): opaque and frameless, so nothing of the last board shows ---- */
+  #foeScreen {
+    position: fixed; inset: 0; z-index: 9;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 10px; padding: 24px 20px 70px; box-sizing: border-box; overflow: hidden;
+    background: radial-gradient(ellipse at 50% 38%, #2a1659 0%, #120a2c 48%, #04030c 100%);
+    color: #f3e9ff; font-family: "Hiragino Mincho ProN", "Yu Mincho", YuMincho, "MS PMincho", serif;
+    animation: foeIn 0.6s ease-out;
+  }
+  #foeScreen.hidden { display: none; }
+  #foeScreen.leaving { opacity: 0; transition: opacity 0.5s ease; pointer-events: none; }
+  @keyframes foeIn { from { opacity: 0; } to { opacity: 1; } }
+  .foe-art { width: min(80vw, 46vh, 340px); aspect-ratio: 3 / 4; flex: none; overflow: hidden;
+    -webkit-mask-image: radial-gradient(ellipse 62% 60% at 50% 46%, #000 52%, transparent 100%);
+            mask-image: radial-gradient(ellipse 62% 60% at 50% 46%, #000 52%, transparent 100%); }
+  .foe-art img { width: 100%; height: 100%; object-fit: cover; object-position: top center; display: block; filter: brightness(0.95); }
+  .foe-lead { font-size: 1.05rem; letter-spacing: 0.12em; opacity: 0.85; text-shadow: 0 0 12px rgba(167, 139, 250, 0.9); }
+  .foe-name { font-size: 1.5rem; font-weight: 700; letter-spacing: 0.1em; margin-bottom: 10px; text-shadow: 0 0 18px rgba(251, 191, 36, 0.55); }
+  .foe-actions { display: flex; flex-direction: column; gap: 10px; width: min(300px, 100%); }
+  .foe-actions button { font-family: inherit; letter-spacing: 0.1em; border-radius: 999px; padding: 11px 20px; }
+  .foe-actions .go { background: linear-gradient(180deg, #fde68a, #d4af37); color: #2a1659; box-shadow: 0 0 18px rgba(251, 191, 36, 0.6); }
+  .foe-actions .no { background: transparent; border: 1.5px solid rgba(167, 139, 250, 0.6); color: #e9ddff; }
 
   /* ---- おまけ: post-clear slideshow (see openOmake()) ---- */
   #omakeBtn.hidden { display: none; }
@@ -1192,6 +1216,7 @@
     transition: opacity 0.4s ease;
   }
   #storyText.show { opacity: 1; }
+  #storyText.compact { font-size: 0.9rem; line-height: 2; }   /* a whole scene on one screen */
   #storySkipBtn {
     position: absolute;
     top: max(12px, env(safe-area-inset-top));
@@ -1383,6 +1408,13 @@
     <div class="seal-text off" id="sealText"></div>
     <div class="seal-sub off" id="sealSub"></div>
     <div class="seal-actions off" id="sealActions"></div>
+  </div>
+
+  <div id="foeScreen" class="hidden">
+    <div class="foe-art"><img id="foeImg" alt="" draggable="false"></div>
+    <div class="foe-lead" id="foeLead"></div>
+    <div class="foe-name" id="foeName"></div>
+    <div class="foe-actions" id="foeActions"></div>
   </div>
 
   <!-- Turn-order coin toss: brief animation shown before every match starts -->
@@ -2328,6 +2360,12 @@
     'それとも、恐怖だろうか。',
     '「……いいわ。今度こそ、見つけてあげる。」',
     '黒薔薇が、静かに揺れた。',
+    '盤面にはかつて鍵がかかっていて開けられなかった扉が示されている。',
+    '「……開いた」',
+    '部屋の中の古びた人形が、軋む音を立てて立ち上がる。',
+    '「この先へは、行かせん。」',
+    '何かを守ろうとしているのだろうか。',
+    'その答えを、騎士は語らない。',
   ];
   // Hiragana version, line-for-line parallel to PROLOGUE_LINES (used in kana mode).
   const PROLOGUE_LINES_KANA = [
@@ -2362,6 +2400,12 @@
     'それとも、きょうふだろうか。',
     '「……いいわ。こんどこそ、みつけてあげる。」',
     'くろばらが、しずかにゆれた。',
+    'ばんめんには、かつてかぎがかかっていてあけられなかったとびらがしめされている。',
+    '「……あいた」',
+    'へやのなかのふるびたにんぎょうが、きしむおとをたててたちあがる。',
+    '「このさきへは、いかせん。」',
+    'なにかをまもろうとしているのだろうか。',
+    'そのこたえを、きしはかたらない。',
   ];
   let storyLineIndex = 0;
   let storyTransitioning = false;
@@ -2419,6 +2463,34 @@
       `${n}ののうないにつよいおもいがきざみこまれた。`,
     ],
   };
+  // The scene that plays after "対戦開始" on the next-foe screen, right before the match with the foe of `level`.
+  const INTRO_STORIES = {
+    2: [
+      '部屋の奥に、大きな鏡が置かれている。',
+      '鏡の中には、銀髪の少女が映っていた。',
+      '振り返る。しかし、そこには誰もいない。',
+      '再び鏡を見ると、少女がこちらを見つめている。',
+      '「とうとう、来たのね。」',
+      '鏡の表面が波紋のように揺れる。',
+      '少女は鏡の中から、ゆっくりと姿を現した。',
+    ],
+  };
+  const INTRO_STORIES_KANA = {
+    2: [
+      'へやのおくに、おおきなかがみがおかれている。',
+      'かがみのなかには、ぎんぱつのしょうじょがうつっていた。',
+      'ふりかえる。しかし、そこにはだれもいない。',
+      'ふたたびかがみをみると、しょうじょがこちらをみつめている。',
+      '「とうとう、きたのね。」',
+      'かがみのひょうめんがはもんのようにゆれる。',
+      'しょうじょはかがみのなかから、ゆっくりとすがたをあらわした。',
+    ],
+  };
+  function showIntroStory(level, onDone) {
+    const lines = (kanaMode ? INTRO_STORIES_KANA : INTRO_STORIES)[level];
+    if (!lines) { onDone(); return; }
+    runStory([lines.join(String.fromCharCode(10))], onDone);   // short: the whole scene on one screen, one tap to leave
+  }
   // Shows the memory of the foe of `level`, then calls onDone; calls it at once when there is none.
   function showMemoryStory(level, onDone) {
     const table = kanaMode ? MEMORY_STORIES_KANA : MEMORY_STORIES;
@@ -2430,6 +2502,7 @@
     const overlay = document.getElementById('storyOverlay');
     storyLineIndex = 0;
     storyTransitioning = false;
+    document.getElementById('storyText').classList.toggle('compact', lines.length === 1);
     const firstEl = freshStoryTextEl(lines[0]);
     overlay.classList.remove('hidden');
     fadeStoryTextIn(firstEl);
@@ -3172,6 +3245,7 @@
     setCharBackground(null);
     hideBubble();
     hideSealScreen();
+    hideFoeScreen();
   }
 
   // ---------- おまけ: post-clear slideshow ----------
@@ -3576,21 +3650,32 @@
   }
 
   // "A new foe appears": the screen after the seal question (or straight after the win).
+  function hideFoeScreen() { document.getElementById('foeScreen').classList.add('hidden'); }
   function showNextOpponent(next) {
-    showResultOverlay({
-      title: K('次の刺客が現れた……', 'つぎのしかくがあらわれた……'),
-      message: `LV.${next.level} ${next.name}`,
-      portraitImg: next.img,
-      portraitEmoji: next.emoji,
-      buttons: [
-        { label: K('対戦開始', 'たいせんかいし'), primary: true, onClick: () => {
-            ladderIndex++;
-            currentChar = next;
-            startGame('cpu');
-          } },
-        { label: K('ここでやめる（タイトルへ）', 'ここでやめる（タイトルへ）'), onClick: goToTitle },
-      ],
+    const scr = document.getElementById('foeScreen');
+    const actEl = document.getElementById('foeActions');
+    scr.classList.remove('hidden', 'leaving');
+    scr.style.animation = 'none'; void scr.offsetWidth; scr.style.animation = '';
+    document.getElementById('foeImg').src = next.img;
+    document.getElementById('foeLead').textContent = K('次の刺客が現れた……', 'つぎのしかくがあらわれた……');
+    document.getElementById('foeName').textContent = `LV.${next.level} ${next.name}`;
+    actEl.innerHTML = '';
+    const mk = (cls, label, fn) => {
+      const b = document.createElement('button');
+      b.className = cls; b.textContent = label;
+      b.addEventListener('click', () => { SoundMgr.seClick(); fn(); });
+      actEl.appendChild(b);
+    };
+    mk('go', K('対戦開始', 'たいせんかいし'), () => {
+      showIntroStory(next.level, () => {     // the foe's entrance scene, if it has one
+        ladderIndex++;
+        currentChar = next;
+        startGame('cpu');                    // the toss starts underneath while this screen fades away
+        scr.classList.add('leaving');
+        setTimeout(() => { if (scr.classList.contains('leaving')) hideFoeScreen(); }, 520);
+      });
     });
+    mk('no', K('ここでやめる（タイトルへ）', 'ここでやめる（タイトルへ）'), () => { hideFoeScreen(); goToTitle(); });
   }
 
   // After beating a foe: a dark, quiet screen asks whether to seal them into a card. Yes: the
@@ -3619,7 +3704,7 @@
       }
     }
     scr.classList.remove('hidden', 'leaving', 'sealing', 'sealed', 'flash');
-    scr.style.animation = 'none'; void scr.offsetWidth; scr.style.animation = '';
+    scr.querySelectorAll('.seal-stage, .seal-embers').forEach((el) => { el.style.animation = 'none'; void el.offsetWidth; el.style.animation = ''; });
     document.getElementById('sealImg').src = beaten.img;
     document.getElementById('sealCard').innerHTML = deckFaceHTML(beaten.level);
     [textEl, subEl, actEl].forEach((el) => el.classList.add('off'));
@@ -3628,10 +3713,6 @@
     subEl.textContent = `🃏 ${cardName(beaten.level)}\n${cardDesc(beaten.level)}` +
       (heldCard !== null ? `\n${K('今のカード', 'いまのカード')}「${cardName(heldCard)}」${K('と入れ替わります', 'といれかわります')}` : '');
 
-    const leave = (after) => {
-      scr.classList.add('leaving');
-      later(() => { hideSealScreen(); after(); }, 480);
-    };
     const mk = (cls, label, fn) => {
       const b = document.createElement('button');
       b.className = cls; b.textContent = label;
@@ -3639,7 +3720,7 @@
       actEl.appendChild(b);
       return b;
     };
-    const goNext = () => leave(() => showNextOpponent(next));
+    const goNext = () => { showNextOpponent(next); later(hideSealScreen, 700); };
     const doSeal = () => {
       actEl.classList.add('off');
       [textEl, subEl].forEach((el) => el.classList.add('off'));
