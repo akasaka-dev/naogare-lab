@@ -397,7 +397,7 @@ let audioCtx = null, riverPts = [], fallPts = [];
 //   shot：パンが砲口から出たとき / explode：脅威3 がはじけ飛んだとき（最後の演出） /
 //   equip：板チョコのタンク・魔法のパン種が、ロボに付いた瞬間
 const SFX = {
-  jump: { file: 'sounds/jumper.mp3', vol: 0.5 },
+  jump: { file: 'sounds/jump_small.mp3', vol: 0.6 },
   bossLand: { file: 'sounds/boss_land.mp3', vol: 1 },
   shot: { file: 'sounds/shot.mp3', vol: 0.6 },
   explode: { file: 'sounds/explode.mp3', vol: 1 },
