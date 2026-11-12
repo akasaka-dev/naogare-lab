@@ -385,6 +385,7 @@ const _sprayWhite = new THREE.Color(1, 1, 1);
 const AMB = {
   stream: { file: 'sounds/stream.mp3', vol: 0.45, near: 2, far: 16 },      // 川のいちばん近い点からの距離（m）
   waterfall: { file: 'sounds/waterfall.mp3', vol: 0.9, near: 3, far: 28 }, // 滝からの距離（m）
+  rumble: { file: 'sounds/rumble.mp3', vol: 0.6, near: 20, far: 100 },     // 脅威3 の地ひびき（町の崩壊の場面と、転がっている脅威3 からの距離（m））
 };
 const AMB_CELL = 2.5;      // 川の点の間隔（m）
 const AMB_PAN = 0.7;       // 左右の振り分けの強さ（1 で片耳だけ）
@@ -392,10 +393,13 @@ const AMB_SMOOTH = 0.15;   // 音量が変わるときのなめらかさ（秒�
 const AMB_EDGE = 0.06;     // MP3 の頭と終わりのすき間を飛ばしてくり返す（秒）
 let audioCtx = null, riverPts = [], fallPts = [];
 // 効果音（1 回鳴らす音）。右上の効果音ボタンで切れる。ゲームを始めたときに読みこんでおく（initAudio）
-//   jump：ジャンプしたとき / bossLand：脅威1・2 が空から落ちてきて地面にぶつかったとき
+//   jump：ジャンプしたとき / bossLand：脅威1・2 が空から落ちてきて地面にぶつかったとき /
+//   shot：パンが砲口から出たとき / explode：脅威3 がはじけ飛んだとき（最後の演出）
 const SFX = {
   jump: { file: 'sounds/jump.mp3', vol: 0.5 },
   bossLand: { file: 'sounds/boss_land.mp3', vol: 1 },
+  shot: { file: 'sounds/shot.mp3', vol: 0.6 },
+  explode: { file: 'sounds/explode.mp3', vol: 1 },
 };
 function playSfx(name) {
   const a = SFX[name];
@@ -526,6 +530,11 @@ function updateAmbient(on) {
     if (v > fv) { fv = v; fat = f.at; }
   }
   setAmb(AMB.waterfall, AMB.waterfall.vol * fv, fat ? ambPan(fat) : 0);
+  // 脅威3 の地ひびき：町の崩壊の場面ではだんだん大きく。町を転がっている間は、近いほど大きく
+  let rv = 0, rat = null;
+  if (!quiet && collapse) rv = [0.45, 0.75, 1][Math.max(0, collapse.cut)] ?? 1;
+  else if (!quiet && boss && bossRoaming() && rolling > 0) { rat = boss.position; rv = ambFalloff(Math.hypot(rat.x - feet.x, rat.z - feet.z), AMB.rumble); }
+  setAmb(AMB.rumble, AMB.rumble.vol * rv, rat ? ambPan(rat) : 0);
 }
 
 // ---- 読み込み ----
@@ -999,7 +1008,7 @@ if (new URLSearchParams(location.search).has('debug')) {
     get breads() { return breads; },
     get residents() { return residents; },
     // 環境音の様子（川の点の数、滝の場所と高さ、いまの音量）
-    get ambient() { return { ctx: audioCtx?.state, bgm: bgm.now?.file, bgmVol: bgm.gain?.gain.value, bgmPlaying: bgm.el ? !bgm.el.paused : null, bgmTime: bgm.el?.currentTime, river: riverPts.length, falls: fallPts.map((f) => [...f.at.toArray().map((v) => +v.toFixed(1)), +f.drop.toFixed(1)]), stream: AMB.stream.gain?.gain.value, waterfall: AMB.waterfall.gain?.gain.value }; },
+    get ambient() { return { ctx: audioCtx?.state, bgm: bgm.now?.file, bgmVol: bgm.gain?.gain.value, bgmPlaying: bgm.el ? !bgm.el.paused : null, bgmTime: bgm.el?.currentTime, river: riverPts.length, falls: fallPts.map((f) => [...f.at.toArray().map((v) => +v.toFixed(1)), +f.drop.toFixed(1)]), stream: AMB.stream.gain?.gain.value, waterfall: AMB.waterfall.gain?.gain.value, rumble: AMB.rumble.gain?.gain.value, sfx: Object.fromEntries(Object.entries(SFX).map(([k, a]) => [k, !!a.buf])) }; },
     get waterCollider() { return waterCollider; },
     // 例: __fuwao.restore('Plaza')。区画の名前は __fuwao.ruinAreas
     get ruinAreas() { return ruinAreas.map((a) => `${a.name}${a.restored ? '（戻した）' : ''}`); },
@@ -2413,6 +2422,7 @@ function updateFinale(dt) {
       sh.paused = false;
       sh.timeScale = FINALE_BURST_SPEED;
       quake = 3;
+      playSfx('explode');
       flashEl.classList.remove('on'); void flashEl.offsetWidth; flashEl.classList.add('on');
       const c = boss.position.clone().setY(boss.position.y + 21);
       for (let i = 0; i < 6; i++) sparkleBurst(_rm.set(c.x + (Math.random() - 0.5) * 30, c.y + (Math.random() - 0.5) * 20, c.z + (Math.random() - 0.5) * 30), 24, 2.5);
@@ -3763,6 +3773,7 @@ function setupBread(gltf) {
 }
 function spawnBread() {
   if (!breadTemplate || !muzzle) return;
+  playSfx('shot');
   muzzle.updateWorldMatrix(true, false);
   muzzle.getWorldPosition(_bp);
   muzzle.getWorldQuaternion(_bq);
