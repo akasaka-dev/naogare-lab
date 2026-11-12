@@ -1147,7 +1147,8 @@ const SOLID_ARC = 0.42;                      // 体当たりが固まった所�
 // ふわおが手に入れた道具。solidifier：固形化パン（パン工房の工場長がくれる。撃ったパンがヘドロボスに当たると固まり、体当たりできる）
 // choco：板チョコ（ステージ 1 をクリアすると工房の展示台に並び、工場長がメカの背中にチョコ燃料タンクとして取り付けてくれる。燃料の最大が CHOCO_FUEL_MAX に）
 // yeast：魔法のパン種（町が崩壊したあと、パン工房の前の工場長が砲台に付けてくれる。脅威3 を倒す最後の武器）
-const ITEMS = { solidifier: '固形化パン', choco: '板チョコ', yeast: '魔法のパン種', flour: '秘伝の打ち粉' };
+// present：お城の女の子のプレゼント（西の丘のお城まで来るともらえる。中身は作り中で、装備の見た目は PRESENT_MODEL に書くと付く）
+const ITEMS = { solidifier: '固形化パン', choco: '板チョコ', yeast: '魔法のパン種', flour: '秘伝の打ち粉', present: 'お城のプレゼント' };
 // その道具は、先にこの道具を持っていないともらえない（打ち粉は、パン種に振りかけるもの）
 const ITEM_NEEDS = { flour: 'yeast' };
 const CHOCO_FUEL_MAX = 0.5;
@@ -2226,6 +2227,7 @@ async function collapseTown() {
 function enterCollapsed() {
   for (const r of residents) {
     r.hungry = false;
+    if (r.guest) continue;   // お城の女の子は、お城にいたまま
     if (r.id === '0-1') {
       // 工場長だけは山へ避難せず、半分崩れたパン工房の前に立っている（魔法のパン種をくれる）
       r.state = 'idle';
@@ -3954,6 +3956,10 @@ const RESIDENTS = [
   { id: '3-1', kind: 'baker', home: new THREE.Vector3(-1.2, 4.28, 3.45), radius: 0, face: 0.245, under: true },
   // パン工房の扉の横（スタート地点の右前）。ふわおのほうを向いて立つ。外に出てくるのは町が崩壊したステージ 4 から（CHIEF_OUT_STAGE。それまでは工房の中）
   { id: '0-1', kind: 'chief', home: new THREE.Vector3(-5.2, 12, -24.4), radius: 0, face: -0.7 },
+  // 西の丘のお城の塀の中（天守の南東の中庭）に立つ女の子。町の人ではないので guest：
+  // おなかはすかず（パンを食べない）、町が崩壊しても丘へ避難せず、話すのは自分の台本（talks.json の castle）だけ。
+  // 町のほう（東、+X）を向いて立っている。話すとプレゼント（ITEMS.present）をくれる
+  { id: 'castle', kind: 'girl', home: new THREE.Vector3(-272, 52.3, 18), radius: 0, face: Math.PI / 2, guest: true },
 ];
 const RES_HOME_HURRY = 1.25;     // 家へ帰るときは少し急ぐ
 const RES_HURRY = 1.6;           // パンへ向かうときは少し急ぐ（速さもアニメもこの倍）
@@ -3966,8 +3972,8 @@ const residents = [];
 const _rd = new THREE.Vector3();
 const _rm = new THREE.Vector3();
 function placeResidents(models) {
-  for (const { id, kind, home, radius, house, face, under } of RESIDENTS) {
-    const gltf = models[kind], k = RESIDENT_KINDS[kind];
+  for (const { id, kind, home, radius, house, face, under, guest } of RESIDENTS) {
+    const gltf = models[kind], k = guest ? { ...RESIDENT_KINDS[kind], hungry: false } : RESIDENT_KINDS[kind];
     const clip = (name) => THREE.AnimationClip.findByName(gltf.animations, name);
     const root = cloneSkinned(gltf.scene);
     root.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false; } });
@@ -4017,6 +4023,7 @@ function placeResidents(models) {
       if (r.fed && r.idle !== idle) { r.idle.stop(); r.idle = idle.play(); }
       r.idle.time = 0;
     });
+    if (guest) { r.guest = true; r.eat = null; }   // パンを食べない（受け止めない・探しに行かない）
     residents.push(r);
     if (r.eat) setHungry(r);   // まだパンを食べていない町人は、はじめからおなかをすかせている
   }
@@ -4308,7 +4315,7 @@ function updateResidents(dt) {
     if (r.talkA) r.talkA.setEffectiveWeight(r.oneShot ? 0 : (1 - r.walkWeight) * r.talkWeight);
     r.walk.timeScale = walking ? speed / r.kind.speed : 1;
     // Eat で顔を上げる所から笑顔
-    if (r.kind.smileAt && r.oneShot === r.eat && r.eat.time >= r.kind.smileAt / ANIM_FPS) setFace(r, 'smile');
+    if (r.kind.smileAt && r.eat && r.oneShot === r.eat && r.eat.time >= r.kind.smileAt / ANIM_FPS) setFace(r, 'smile');
     r.mixer.update(dt);
   }
 }
@@ -4443,6 +4450,7 @@ async function init() {
   setupChoco(choco, chocoTankGltf);
   setupYeast(yeastGltf, yeastCannonGltf);
   setupWreckModel(mechaWreck);
+  setupPresent();   // 待たない（モデルがなくても、ゲームは始められる）
   // 夜に明るくする窓と街灯（廃墟の崩れた家の窓も含む）
   const glowMats = new Set();
   scene.traverse((o) => { if (o.isMesh && /BK_glass/.test(o.material.name)) glowMats.add(o.material); });
@@ -4528,6 +4536,7 @@ function loadGame(d) {
   mayorWarned = !!d.mayorWarned;
   if (items.has('choco')) chocoTank.visible = true;
   if (items.has('yeast')) applyYeast();
+  if (items.has('present')) applyPresent();
   if (d.fuelMax) fuelMax = d.fuelMax;
   fuel = Math.min(fuelMax, d.fuel ?? fuelMax);
   body = d.body ?? 1;
@@ -5086,6 +5095,33 @@ function setupChoco(chocoGltf, tankGltf) {
   chocoTank.rotation.set(0.2443, 0, 0);   // 上を少し体の方へ傾ける
   chocoTank.visible = false;
 }
+// ---- お城の女の子のプレゼント（作り中） ----
+// 装備のモデルができたら PRESENT_MODEL に書くと、もらったときにメカに付く。null のあいだは、もらうだけで見た目は変わらない。
+//   file：モデルのファイル、root：glb の中のメカに付けるノードの名前、parent：メカ（pancannon.glb）のどのノードの子にするか、
+//   position / rotation：parent から見た位置と回転（Three.js の値。glb の root の位置・回転は使わない）
+// 例: { file: 'models/xxx.glb', root: 'XX_Root', parent: 'PC_Rig_Body', position: [0, 0, 0], rotation: [0, 0, 0] }
+// 動き（アニメーション）や、装備したときの効果（速くなる など）も、モデルができてからここに足す
+const PRESENT_MODEL = null;
+let presentObj = null;
+async function setupPresent() {
+  if (!PRESENT_MODEL) return;
+  try {
+    const gltf = await loader.loadAsync(PRESENT_MODEL.file);
+    const obj = gltf.scene.getObjectByName(PRESENT_MODEL.root) || gltf.scene;
+    obj.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+    model.getObjectByName(PRESENT_MODEL.parent || 'PC_Rig_Body').add(obj);
+    obj.position.fromArray(PRESENT_MODEL.position || [0, 0, 0]);
+    obj.rotation.fromArray(PRESENT_MODEL.rotation || [0, 0, 0]);
+    presentObj = obj;
+    presentObj.visible = items.has('present');   // セーブから続けたときは、読み込みが終わった時点で付ける
+  } catch (e) {
+    console.warn('プレゼントのモデルを読み込めませんでした', PRESENT_MODEL.file, e);
+  }
+}
+// プレゼントをもらったとき（セーブから続けたときも）
+function applyPresent() {
+  if (presentObj) presentObj.visible = true;
+}
 // 板チョコの効果：タンクが付いて、燃料の最大が上がり、満タンになる
 function applyChoco() {
   chocoTank.visible = true;
@@ -5290,7 +5326,7 @@ function talkTarget() {
 // 合わないまとまりはコンソールに警告を出して使わない（キャラクターごと使えないときもある）
 // revive：からだが 0 になってパン工房で焼き直されたときの、工場長のセリフ（だれかに話しかけたときには使わない）
 // warning：魔法のパン種を付けてはじめて発射しようとしたとき、町長が止めに来るセリフ
-const TALK_KEY = /^((10|[0-9])-[1-9][0-9]?|grandpa|grandma|girl|mayor|baker|chief|revive|warning|equipped)$/;
+const TALK_KEY = /^((10|[0-9])-[1-9][0-9]?|grandpa|grandma|girl|mayor|baker|chief|revive|warning|equipped|castle)$/;
 // セリフの人物画は portraits/<組>_<表情>.webp。組はキャラクターの portrait、表情は face（喜・怒・哀・楽。省略すると喜）
 const PORTRAIT_SETS = ['baker', 'mayor', 'chief'];
 const FACES = ['joy', 'angry', 'sad', 'fun'];
@@ -5404,11 +5440,13 @@ function pickTalk(list, r) {
 // 話せるセリフがあるか（選ばずに調べるだけ）
 function hasTalk(r) {
   const used = r.talked || new Set();
-  return [TALKS[r.id], TALKS[r.kindName]].some((b) => b && (b.talks ? b.talks.some((t) => talkFits(t, r, used)) : !!b.lines));
+  return talkBooks(r).some((b) => b && (b.talks ? b.talks.some((t) => talkFits(t, r, used)) : !!b.lines));
 }
-// その人の id の台本 → 種類（grandpa など）の台本、の順で、条件に合うセリフを選ぶ
+// その人の id の台本 → 種類（grandpa など）の台本。guest（お城の女の子）は自分の台本だけ（町の女の子の話はしない）
+const talkBooks = (r) => (r.guest ? [TALKS[r.id]] : [TALKS[r.id], TALKS[r.kindName]]);
+// talkBooks の順で、条件に合うセリフを選ぶ
 function talkScript(r) {
-  for (const book of [TALKS[r.id], TALKS[r.kindName]]) {
+  for (const book of talkBooks(r)) {
     if (!book) continue;
     if (!book.talks) return book.lines ? book : null;   // 昔の書き方（lines だけ）
     const t = pickTalk(book.talks, r);
@@ -5465,6 +5503,7 @@ const GIFT_TOASTS = {
   choco: '板チョコを手に入れた！ チョコ燃料タンクで、燃料の最大が 50% に上がった',
   yeast: '魔法のパン種を手に入れた！ 砲台の先に、光るパン種が付いた',
   flour: '秘伝の打ち粉で、魔法のパン種が撃てるようになった！ 撃てるのは一度きり',
+  present: 'お城の女の子から、プレゼントをもらった！',
 };
 function advanceTalk() {
   if (!talk.advance()) return;
@@ -5482,6 +5521,7 @@ function advanceTalk() {
     items.add(g);
     if (g === 'choco' && visit) { startChocoEquip(); return; }   // 工房の中：展示台から飛んできて、背中に付く
     if (g === 'choco') { applyChoco(); sparkleBurst(_rm.set(feet.x, feet.y + 1.4, feet.z)); }
+    if (g === 'present') { applyPresent(); sparkleBurst(_rm.set(feet.x, feet.y + 1.4, feet.z)); }
     if (g === 'yeast' && talkWith) startYeastFly(talkWith);   // 着いたときにお知らせを出す
     else showToast(GIFT_TOASTS[g] || `${ITEMS[g]}を手に入れた！`);
   }
