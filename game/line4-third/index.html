@@ -3446,7 +3446,7 @@
   }
 
   // Brief (~2s) toss deciding who moves first, run before every match (fresh game, reset, and each
-  // new CPU ladder opponent): the two turn orbs spin around each other and slow down until the
+  // new CPU ladder opponent): the two turn orbs spin fast around each other and slow down until the
   // first mover is in front. Same look as the turn display; no text.
   function decideStartingPlayer(onDone, forcedStarter) {
     const overlay = document.getElementById('turnDecideOverlay');
@@ -3454,7 +3454,7 @@
     const root = wrap.querySelector('.turn-orbs');
     const starter = forcedStarter != null ? forcedStarter : (Math.random() < 0.5 ? 1 : 2);
     const home = (starter === 1 ? Math.PI / 2 : Math.PI * 1.5) - TURN_TILT;
-    const start = home - 4 * Math.PI;   // two full turns, ending exactly on `home`
+    const start = home - 8 * Math.PI;   // four full turns (fast), ending exactly on `home`
     const SPIN_MS = 1400, HOLD_MS = 700;
 
     wrap.classList.remove('pop');
