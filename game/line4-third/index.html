@@ -816,7 +816,8 @@
     object-position: top center;
     box-shadow: 0 0 0 2px var(--p2);
   }
-  #modeLabel {
+  #modeLabel { display: none; }          /* names/mode text are gone: only the turn indicator stays (online keeps its room label) */
+  #modeLabel.show {
     font-size: 0.85rem;
     opacity: 0.7;
     margin-bottom: 6px;
@@ -864,7 +865,7 @@
     background: radial-gradient(circle at 50% 40%, #4b2f99, #120e2b 72%);
   }
   .deck-card.back .back-mark { font-size: 1.7rem; color: #fde68a; text-shadow: 0 0 12px rgba(251, 191, 36, 0.9); }
-  #oppCardLine { font-size: 0.74rem; color: #fde68a; opacity: 0.9; margin: -2px 0 2px; text-align: center; }
+  #oppCardLine { position: fixed; left: 10px; bottom: calc(8px + env(safe-area-inset-bottom, 0px)); z-index: 50; font-size: 0.74rem; color: #fde68a; opacity: 0.9; text-align: left; pointer-events: none; }
   #oppCardLine.used { opacity: 0.5; text-decoration: line-through; }
 
   #speechBubble {
@@ -1683,8 +1684,9 @@
     // If a match is already up, refresh what's currently on screen too.
     if (!gameScreen.classList.contains('hidden')) {
       if (mode === 'pvp') {
-        modeLabelEl.textContent = K('対人戦モード', 'たいじんせんモード');
+        modeLabelEl.classList.remove('show');
       } else if (mode === 'online' && online) {
+        modeLabelEl.classList.add('show');
         modeLabelEl.textContent = `${K('オンライン対戦', 'オンラインたいせん')}（${K('部屋', 'へや')}: ${online.code}） ／ ${K('あなたは', 'あなたは')}${online.myPlayer === 1 ? K('ピンク', 'ぴんく') : K('ミント', 'みんと')}`;
       }
       if (typeof currentPlayer !== 'undefined' && !gameOver) updateStatus();
@@ -2805,6 +2807,7 @@
     document.getElementById('resultNote').textContent = '';
     setCharBackground(null);
     SoundMgr.playTrack('game');
+    modeLabelEl.classList.add('show');
     modeLabelEl.textContent = `${K('オンライン対戦', 'オンラインたいせん')}（${K('部屋', 'へや')}: ${online.code}） ／ ${K('あなたは', 'あなたは')}${online.myPlayer === 1 ? K('ピンク', 'ぴんく') : K('ミント', 'みんと')}`
       + (opponentStreak > 0 ? `（${K('相手は', 'あいては')}${opponentStreak}${K('連勝中', 'れんしょうちゅう')}）` : '');
 
@@ -2978,16 +2981,15 @@
     const speechBubbleEl = document.getElementById('speechBubble');
     if (mode === 'cpu' && currentChar) {
       SoundMgr.playLevelTrack(currentChar.level);
-      modeLabelEl.innerHTML = `
-        <img id="opponentAvatar" src="${currentChar.img}" alt=""
-             onerror="this.style.display='none'">
-        LV.${currentChar.level}/5 ${currentChar.name}（${starString(currentChar.stars)}） ／ ${K('あなたはピンク', 'あなたはぴんく')}`;
+      modeLabelEl.classList.remove('show');
+      modeLabelEl.innerHTML = '';
       setCharBackground(currentChar);
       document.getElementById('bubbleAvatar').src = currentChar.img;
       speechBubbleEl.classList.remove('hidden');
     } else {
       SoundMgr.playTrack('game');
-      modeLabelEl.textContent = K('対人戦モード', 'たいじんせんモード');
+      modeLabelEl.classList.remove('show');
+      modeLabelEl.textContent = '';
       setCharBackground(null);
       speechBubbleEl.classList.add('hidden');
     }
