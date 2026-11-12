@@ -3428,7 +3428,7 @@ function drawMeters() {
   set('town', town);
   set('fuel', fuel);
   set('body', body);
-  metersEl.querySelector('.meter-body .gen').textContent = `${fuwaoNo}人目`;
+  metersEl.querySelector('.meter-body .gen').textContent = `🤍${fuwaoNo}`;   // 何人目かは言わない。焼き直されるたびに数だけふえていく
   metersEl.querySelector('.meter-town .num').textContent = `${Math.round(town * 100)}%`;
   // 燃料のバーは最大のタンクの長さで、まだ大きくなっていない分は斜線で埋めておく
   metersEl.querySelector('.meter-fuel .cap').style.width = `${(1 - fuelMax) * 100}%`;
