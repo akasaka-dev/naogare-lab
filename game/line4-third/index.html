@@ -830,6 +830,8 @@
     gap: 8px;
     font-weight: 600;
   }
+  .outcome-hint { font-size: 0.95rem; letter-spacing: 0.1em; color: #fde68a; text-shadow: 0 0 10px rgba(251, 191, 36, 0.7); animation: hintBlink 1.8s ease-in-out infinite; }
+  @keyframes hintBlink { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
   #turnTimeoutWarning {
     font-size: 0.85rem;
     font-weight: 700;
@@ -1887,6 +1889,42 @@
   // initGame() — otherwise clicking "retry" while it's still pending lets it
   // fire mid-way through the NEW match and pop up a stale result overlay.
   let ladderOutcomeTimer = null;
+  // After a CPU match ends, the result screen waits for a tap or a key so the final board can be
+  // looked at as long as needed (dragging to rotate does not count as a tap).
+  let outcomeWait = null;
+  function cancelOutcomeWait() {
+    if (ladderOutcomeTimer) { clearTimeout(ladderOutcomeTimer); ladderOutcomeTimer = null; }
+    if (outcomeWait) {
+      document.removeEventListener('pointerdown', outcomeWait.down, true);
+      document.removeEventListener('pointermove', outcomeWait.move, true);
+      document.removeEventListener('pointerup', outcomeWait.up, true);
+      document.removeEventListener('keydown', outcomeWait.key, true);
+      outcomeWait = null;
+    }
+  }
+  function waitThenOutcome(result, minMs) {
+    cancelOutcomeWait();
+    ladderOutcomeTimer = setTimeout(() => {
+      ladderOutcomeTimer = null;
+      statusEl.innerHTML = `<span class="outcome-hint">${K('タップかキーで次へ', 'タップかキーでつぎへ')}</span>`;
+      let sx = 0, sy = 0, down = false, moved = false;
+      const go = () => { cancelOutcomeWait(); statusEl.innerHTML = ''; handleLadderOutcome(result); };
+      outcomeWait = {
+        down: (e) => { if (down) moved = true; else { down = true; moved = false; sx = e.clientX; sy = e.clientY; } },
+        move: (e) => { if (down && Math.hypot(e.clientX - sx, e.clientY - sy) > 8) moved = true; },
+        up: (e) => {
+          const clean = down && !moved;
+          down = false;
+          if (clean && !(e.target.closest && e.target.closest('#audioControls'))) go();
+        },
+        key: (e) => { if (!e.repeat && !['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) go(); },
+      };
+      document.addEventListener('pointerdown', outcomeWait.down, true);
+      document.addEventListener('pointermove', outcomeWait.move, true);
+      document.addEventListener('pointerup', outcomeWait.up, true);
+      document.addEventListener('keydown', outcomeWait.key, true);
+    }, minMs);
+  }
 
   // ---------- Trump cards ----------
   // CPU matches: beat a challenger and you may turn them into a card (one is carried; a new one
@@ -2012,7 +2050,7 @@
     hideBubble();
     SoundMgr.seDraw();
     if (mode === 'cpu' && currentChar) {
-      ladderOutcomeTimer = setTimeout(() => handleLadderOutcome('draw'), 1000);
+      waitThenOutcome('draw', 1000);
     }
   }
 
@@ -3061,7 +3099,7 @@
   }
 
   function goToTitle() {
-    if (ladderOutcomeTimer) { clearTimeout(ladderOutcomeTimer); ladderOutcomeTimer = null; }
+    cancelOutcomeWait();
     stopEndingCrawl();
     Board3D.stop();
     SoundMgr.playTrack('title');
@@ -3576,7 +3614,7 @@
 
   // ---------- Core game ----------
   function initGame() {
-    if (ladderOutcomeTimer) { clearTimeout(ladderOutcomeTimer); ladderOutcomeTimer = null; }
+    cancelOutcomeWait();
     grid = newGrid();
     gameOver = false;
     cpuThinking = false;
@@ -3717,7 +3755,7 @@
     if (mode === 'cpu' && currentChar) {
       if (player === 2) SoundMgr.seLose(); else SoundMgr.seWin();
       const spokenMs = speak(currentChar, player === 2 ? 'victory' : 'defeat');
-      ladderOutcomeTimer = setTimeout(() => handleLadderOutcome(player === 1 ? 'win' : 'lose'), Math.max(1800, spokenMs + 600));
+      waitThenOutcome(player === 1 ? 'win' : 'lose', Math.max(1800, spokenMs + 600));
     } else {
       SoundMgr.seWin();
     }
