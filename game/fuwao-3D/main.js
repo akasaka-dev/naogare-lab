@@ -2538,23 +2538,33 @@ const YEAST_AIM_HEIGHT = 4;                                  // 顔の高さと�
 const YEAST_AIM_ANGLE = THREE.MathUtils.degToRad(30);        // 顔の向きから左右この角度以内
 const YEAST_AIM_RANGE = [3, 60];                             // 顔からの水平の距離（m）
 const YEAST_AIM_HINT = 8;                                    // 「今だ！」のメッセージの間隔（秒）
+const YEAST_AIM_TILT = 0.35;                                 // 顔がこれより上や下を向いているときは撃てない（向きの上下の成分）
+// ねらう点：顔の板（RB_Plate_Face）の中で、目（上 2.8m）と口（下 1.6m）のまん中あたり、板の表面より少し前。
+// 当たり判定の中心（RB_Hurt_Face、上 0.3m）だと、見た目には顔の下のほうに当たって見える
+const FACE_AIM_LOCAL = new THREE.Vector3(0, 0.7, 1.2);
+const SHOT_GLIDE = 5;           // 溜めの間に、ロボが顔の真正面へ寄っていく速さ（1/秒）
 const YEAST_CHARGE = 3.2;      // 溜めの長さ（秒）
 const YEAST_BEAM_GROW = 0.25;  // 光線が顔までのびる時間（秒）
 const YEAST_BEAM = 2.6;        // 光線が出ている時間（のびはじめから。秒）
 const YEAST_BEAM_FADE = 0.6;   // 光線が細くなって消える時間（秒）
 const SHOT_BLAST = [6, 4];     // はじけたときにロボが飛ばされる速さ（横、上。m/秒）。体当たりより弱い
 const SHOT_END_SAY = 8.5;      // 「静けさがもどった」の字幕の時刻（命中から。秒）
-const _ya = new THREE.Vector3(), _yn = new THREE.Vector3(), _yd = new THREE.Vector3(), _yf = new THREE.Vector3();
+const _ya = new THREE.Vector3(), _yn = new THREE.Vector3(), _yd = new THREE.Vector3(), _yf = new THREE.Vector3(), _yq = new THREE.Quaternion();
+// 顔のねらう点（face）と、顔の正面の向き（normal。板のローカル +Z）
+function faceAimPoint(face, normal) {
+  const plate = boss?.getObjectByName('RB_Plate_Face');
+  if (!plate) return false;
+  plate.updateWorldMatrix(true, false);
+  face.copy(FACE_AIM_LOCAL).applyMatrix4(plate.matrixWorld);
+  if (normal) normal.set(0, 0, 1).applyQuaternion(plate.getWorldQuaternion(_yq)).normalize();
+  return true;
+}
 let yeastAimHint = -Infinity, yeastAimed = false, doughMats = null;
 // 顔の正面・同じ高さにいるか。face に顔の中心（RB_Hurt_Face）を入れて返す
 function yeastAim(face) {
   if (!items.has('flour') || !boss || !bossRoaming() || knockout) return false;
-  const hurt = boss.getObjectByName('RB_Hurt_Face'), ball = boss.getObjectByName('RB_Ball');
-  if (!hurt || !ball) return false;
-  hurt.getWorldPosition(face);
-  ball.getWorldPosition(_ya);
-  _yn.subVectors(face, _ya).normalize();      // 玉の中心から顔へ（転がると顔も回る）
-  if (Math.abs(_yn.y) > 0.6) return false;    // 顔が上や下を向いているときはだめ
+  if (!faceAimPoint(face, _yn)) return false;   // 顔の正面の向き（転がると顔も回る）
+  if (Math.abs(_yn.y) > YEAST_AIM_TILT) return false;    // 顔が上や下を向いているときはだめ
   if (Math.abs(feet.y + ROBOT_HEIGHT / 2 - face.y) > YEAST_AIM_HEIGHT) return false;
   _yd.set(feet.x - face.x, 0, feet.z - face.z);
   const d = _yd.length();
@@ -2617,11 +2627,16 @@ function sparkleInto(to, n, radius, size) {
   }
 }
 function startYeastShot() {
-  const target = new THREE.Vector3();
+  const target = new THREE.Vector3(), normal = new THREE.Vector3();
   if (!yeastAim(target)) return;
-  const aim = new THREE.Vector3(target.x - feet.x, 0, target.z - feet.z).normalize();   // ロボから顔へ（水平）
+  faceAimPoint(target, normal);
+  // 顔の真正面からまっすぐ撃ちこむ：砲口を、顔の正面の向きの線の上（今と同じ距離）へ寄せていく
+  muzzle.updateWorldMatrix(true, false);
+  muzzle.getWorldPosition(_yf);
+  const shotFrom = target.clone().addScaledVector(normal, _yf.distanceTo(target));
+  const aim = new THREE.Vector3(-normal.x, 0, -normal.z).normalize();   // ロボから顔へ（水平）
   const out = aim.clone().negate();                                                    // 顔からロボへ
-  finale = { mode: 'shot', t: 0, phase: 'charge', out, aim, side: new THREE.Vector3(-aim.z, 0, aim.x), target,
+  finale = { mode: 'shot', t: 0, phase: 'charge', out, aim, side: new THREE.Vector3(-aim.z, 0, aim.x), target, shotFrom,
     look: new THREE.Vector3(feet.x, feet.y + 1, feet.z), camPos: camera.position.clone(),
     faded: false, burst: false, wreck: false, puff: 0, dust: [], fly: null, glowMats: [], beam: null };
   savingOn = false;   // つづきからは、撃つ前から
@@ -2645,6 +2660,8 @@ function updateYeastShot(dt) {
   heading = turnToward(heading, Math.atan2(F.aim.x, F.aim.z), 1 - Math.exp(-8 * dt));
   muzzle.updateWorldMatrix(true, false);
   muzzle.getWorldPosition(_yf);
+  // 溜めの間に、砲口が顔の真正面の線の上へ来るよう、ロボを寄せる
+  if (F.phase === 'charge') feet.addScaledVector(_yd.subVectors(F.shotFrom, _yf), 1 - Math.exp(-SHOT_GLIDE * dt));
   if (F.phase === 'charge') {
     const u = Math.min(1, t / YEAST_CHARGE);
     setDoughGlow(1.5 + 5 * u * u + Math.sin(t * (8 + 30 * u)) * (0.5 + 1.5 * u));
