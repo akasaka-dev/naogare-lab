@@ -670,6 +670,10 @@ const isPassThrough = (mat) => /ivy|leaf|flower|lily|foam|wheat/i.test(mat.name)
 let collider = null;
 let colliders = [];      // collider と、廃墟の区画ごとに変わる部分（ruinCollider）
 let waterCollider = null, leafCollider = null;
+// 木（EXP_DS_tree。distant.glb / town.glb / town_collapsed.glb の木だけに使われている材質）を除いた当たり。
+// ヘドロボスの地面に沿うすそ（GROUND_VERT）で、近くの木のてっぺんを地面の高さと誤認しないように使う（木はそのまま当たり判定には残る）
+let groundOnlyCollider = null;
+const isTreeMat = (mat) => mat.name === 'EXP_DS_tree';
 function bvhMesh(meshes) {
   const geo = mergeGeometries(meshes.map((m) => {
     const g = new THREE.BufferGeometry();
@@ -709,6 +713,7 @@ function buildCollider(groups, extraWater = [], extraSolid = []) {
   collider = bvhMesh([...all.filter((m) => !isWater(m.material) && !isPassThrough(m.material)), ...extraSolid]);
   waterCollider = bvhMesh([...all, ...extraWater].filter((m) => isWater(m.material)));
   colliders = [collider];
+  groundOnlyCollider = bvhMesh([...all.filter((m) => !isWater(m.material) && !isPassThrough(m.material) && !isTreeMat(m.material)), ...extraSolid]);
   const leaves = all.filter((m) => /leaf/i.test(m.material.name));
   leafCollider = leaves.length ? bvhMesh(leaves) : null;   // 木の葉（すり抜けるが、カメラの見通しはさえぎる）
 }
@@ -1225,7 +1230,8 @@ function updateGroundSamples() {
   if (!boss?.visible || !bossCfg?.ground) return;
   const o = boss.position, g = groundUniforms.uGround.value;
   groundUniforms.uGroundO.value.copy(o);
-  const at = (x, z) => { _o.set(x, o.y + 40, z); const h = cast(_o, DOWN, 120); return h ? h.point.y - o.y : 0; };
+  // 木を除いた当たりで測る（近くの木のてっぺんを地面と誤認して、体がめくれないように。groundOnlyCollider）
+  const at = (x, z) => { _o.set(x, o.y + 40, z); const h = cast(_o, DOWN, 120, [groundOnlyCollider]); return h ? h.point.y - o.y : 0; };
   g[0] = at(o.x, o.z);
   for (let k = 0; k < GROUND_BINS; k++) {
     const a = (k / GROUND_BINS) * Math.PI * 2, c = Math.cos(a), sn = Math.sin(a);
