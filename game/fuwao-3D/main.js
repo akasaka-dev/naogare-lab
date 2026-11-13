@@ -5077,7 +5077,8 @@ function updateVisit(dt, active) {
     _oc.y += 0.3;
     const k = v.phase === 'look' ? Math.min(1, v.t / VISIT_LOOK) : 1;
     const e = k * k * (3 - 2 * k);
-    openingShot('chief');
+    // 工場長が展示台の道具を紹介するセリフ（talks.json の shot: "item"）では、工場長ではなく展示台のカメラへ
+    openingShot(talk.active && talk.line?.shot === 'item' ? 'item' : 'chief');
     _oc2.copy(_oc); _ot2.copy(_ot);
     openingShot(null);
     _oc.y += 0.3;
@@ -5446,9 +5447,10 @@ const TALK_CHECKS = {
   summon: (v) => isInt(v, 1, BOSSES.length) && !!BOSSES[v - 1].summon,
   lines: (v) => Array.isArray(v) && v.length >= 1 && v.length <= TALK_LINES_MAX && v.every((l) => {
     if (typeof l === 'string') return l.length >= 1 && l.length <= TALK_LINE_MAX;
-    return l && typeof l === 'object' && Object.keys(l).every((k) => k === 'text' || k === 'face')
+    return l && typeof l === 'object' && Object.keys(l).every((k) => k === 'text' || k === 'face' || k === 'shot')
       && typeof l.text === 'string' && l.text.length >= 1 && l.text.length <= TALK_LINE_MAX
-      && (l.face === undefined || FACES.includes(l.face));
+      && (l.face === undefined || FACES.includes(l.face))
+      && (l.shot === undefined || l.shot === 'item');   // 工房の中（工場長との話）で、カメラを展示台へ向ける
   }),
 };
 const TALK_CONDITIONS = ['stage', 'town', 'area', 'areaTown', 'once', 'boss', 'summon', 'item'];
@@ -5547,7 +5549,7 @@ function talkScript(r) {
     // 人物画は、セリフごとの face → まとまりの face → 喜 の順で表情を決める
     const lines = t.lines.map((l) => {
       const text = typeof l === 'string' ? l : l.text;
-      return { text, portrait: portraitSrc(book.portrait, (typeof l === 'object' && l.face) || t.face) };
+      return { text, portrait: portraitSrc(book.portrait, (typeof l === 'object' && l.face) || t.face), shot: typeof l === 'object' ? l.shot : null };
     });
     return { name: t.name || book.name, portrait: null, lines, refill: t.refill, gift: t.gift, summon: t.summon };
   }
