@@ -3835,7 +3835,7 @@ function setupSolidShow() {
   solidShow.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   style.apply(solidShow);
   solidShow.scale.setScalar(BREAD_SCALE);
-  room.getObjectByName('WI_ItemSlot_0').add(solidShow);
+  room.getObjectByName('WI_ItemSlot_1').add(solidShow);   // チョコと同じ真ん中。固形化パンをもらう頃には、たいていチョコはもう受け取っている
   solidShow.visible = false;
   solidShowMixer = new THREE.AnimationMixer(solidShow);
   solidShowMixer.clipAction(breadClips.float).play();
