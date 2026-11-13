@@ -2360,12 +2360,6 @@
     'それとも、恐怖だろうか。',
     '「……いいわ。今度こそ、見つけてあげる。」',
     '黒薔薇が、静かに揺れた。',
-    '盤面にはかつて鍵がかかっていて開けられなかった扉が示されている。',
-    '「……開いた」',
-    '部屋の中の古びた人形が、軋む音を立てて立ち上がる。',
-    '「この先へは、行かせん。」',
-    '何かを守ろうとしているのだろうか。',
-    'その答えを、騎士は語らない。',
   ];
   // Hiragana version, line-for-line parallel to PROLOGUE_LINES (used in kana mode).
   const PROLOGUE_LINES_KANA = [
@@ -2400,12 +2394,6 @@
     'それとも、きょうふだろうか。',
     '「……いいわ。こんどこそ、みつけてあげる。」',
     'くろばらが、しずかにゆれた。',
-    'ばんめんには、かつてかぎがかかっていてあけられなかったとびらがしめされている。',
-    '「……あいた」',
-    'へやのなかのふるびたにんぎょうが、きしむおとをたててたちあがる。',
-    '「このさきへは、いかせん。」',
-    'なにかをまもろうとしているのだろうか。',
-    'そのこたえを、きしはかたらない。',
   ];
   let storyLineIndex = 0;
   let storyTransitioning = false;
@@ -2425,8 +2413,11 @@
     old.replaceWith(el);
     return el;
   }
+  // The prologue, then the knight's entrance (one screen). Skipping the prologue skips both.
   function maybeShowStory(onDone) {
-    runStory(kanaMode ? PROLOGUE_LINES_KANA : PROLOGUE_LINES, onDone);
+    runStory(kanaMode ? PROLOGUE_LINES_KANA : PROLOGUE_LINES, (skipped) => {
+      if (skipped) onDone(); else showIntroStory(1, onDone);
+    });
   }
 
   // After beating a ladder foe: the memory that flows into the player (black screen, white text,
@@ -2465,6 +2456,14 @@
   };
   // The scene that plays after "対戦開始" on the next-foe screen, right before the match with the foe of `level`.
   const INTRO_STORIES = {
+    1: [
+      '盤面にはかつて鍵がかかっていて開けられなかった扉が示されている。',
+      '「……開いた」',
+      '部屋の中の古びた人形が、軋む音を立てて立ち上がる。',
+      '「この先へは、行かせん。」',
+      '何かを守ろうとしているのだろうか。',
+      'その答えを、騎士は語らない。',
+    ],
     2: [
       '部屋の奥に、大きな鏡が置かれている。',
       '鏡の中には、銀髪の少女が映っていた。',
@@ -2476,6 +2475,14 @@
     ],
   };
   const INTRO_STORIES_KANA = {
+    1: [
+      'ばんめんには、かつてかぎがかかっていてあけられなかったとびらがしめされている。',
+      '「……あいた」',
+      'へやのなかのふるびたにんぎょうが、きしむおとをたててたちあがる。',
+      '「このさきへは、いかせん。」',
+      'なにかをまもろうとしているのだろうか。',
+      'そのこたえを、きしはかたらない。',
+    ],
     2: [
       'へやのおくに、おおきなかがみがおかれている。',
       'かがみのなかには、ぎんぱつのしょうじょがうつっていた。',
@@ -2509,19 +2516,19 @@
     // One-shot exit shared by "last line dismissed" and the skip button.
     let finished = false;
     const skipBtn = document.getElementById('storySkipBtn');
-    const finish = () => {
+    const finish = (skipped) => {
       if (finished) return;
       finished = true;
       overlay.classList.add('hidden');
       overlay.onclick = null;
       skipBtn.onclick = null;
       document.removeEventListener('keydown', onKey, true);
-      onDone();
+      onDone(skipped === true);
     };
     skipBtn.onclick = (e) => {
       e.stopPropagation();
       SoundMgr.seClick();
-      finish();
+      finish(true);
     };
     const onKey = (e) => {   // any key (but a bare modifier) advances like a tap
       if (e.repeat || ['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) return;
