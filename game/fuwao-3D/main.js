@@ -3809,6 +3809,7 @@ const BREAD_MAX = 10;         // 同時に出ているパンの数
 const BREAD_VANISH_FROM = 90; // 「食べられる」の終わり（92 で煙玉 → 100 で消える）だけを消えるときに使う
 let breadTemplate = null, breadClips = null, muzzle = null, muzzleFrame = 110;
 let shotSpawned = false;
+let solidShow = null, solidShowMixer = null;   // 工房の展示台に置く「固形化パン」（発射しているパンと同じ見た目。room ができてから setupSolidShow で作る）
 const breads = [];
 const _bp = new THREE.Vector3();
 const _bq = new THREE.Quaternion();
@@ -3825,6 +3826,19 @@ function setupBread(gltf) {
   breadClips = clipsFromExtras(breadTemplate.getObjectByName('BR_Root') || breadTemplate, gltf.animations);
   muzzle = model.getObjectByName('PC_Muzzle');
   if (muzzle?.userData.spawn_frame) muzzleFrame = muzzle.userData.spawn_frame;
+}
+// 工房の展示台に置く「固形化パン」。専用のモデルはなく、発射しているパンと同じ見た目（bread.glb）を浮かべて使う。
+// room（工房）ができてから呼ぶので、setupOpening のあと
+function setupSolidShow() {
+  if (!breadTemplate || !breadClips.float) return;
+  solidShow = breadTemplate.clone();
+  solidShow.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  style.apply(solidShow);
+  solidShow.scale.setScalar(BREAD_SCALE);
+  room.getObjectByName('WI_ItemSlot_0').add(solidShow);
+  solidShow.visible = false;
+  solidShowMixer = new THREE.AnimationMixer(solidShow);
+  solidShowMixer.clipAction(breadClips.float).play();
 }
 function spawnBread() {
   if (!breadTemplate || !muzzle) return;
@@ -4468,6 +4482,7 @@ async function init() {
   player.add(lamp);
   playerLamp = lamp;
   setupOpening(workshop, mayor, chief);
+  setupSolidShow();
   setupChoco(choco, chocoTankGltf);
   setupYeast(yeastGltf, yeastCannonGltf);
   setupWreckModel(mechaWreck);
@@ -4975,6 +4990,10 @@ function setupVisitRoom() {
     chocoShow.scale.setScalar(1);
     chocoShow.visible = storyStage >= 2 && !items.has('choco');
   }
+  // 展示台の固形化パン（ヘドロボスが町に来ている間だけ並ぶ。talks.json の gift: solidifier と同じ条件。もらったらない）
+  if (solidShow) {
+    solidShow.visible = bossIndex === 1 && (bossAppeared || retreat) && !bossGone && !items.has('solidifier');
+  }
 }
 function leaveWorkshop() {
   setFadeTime(null);
@@ -5069,6 +5088,7 @@ function updateVisit(dt, active) {
   chiefPlay(talking ? 'Talk' : v.phase === 'equip' ? 'Laugh' : 'Idle');
   roomChiefMixer.update(dt);
   chocoMixer?.update(dt);
+  if (solidShow?.visible) solidShowMixer.update(dt);
   render();
   // shot: "item" の間は、吹き出しが展示台にかぶらないように、画面の下のまんなかへ出す（頭の場所は使わない）
   if (talk.active) talk.update(dt, talk.line?.shot === 'item' ? { x: 0, y: 0, visible: false } : openingHead('chief'));
