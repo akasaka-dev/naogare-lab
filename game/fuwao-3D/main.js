@@ -4625,6 +4625,7 @@ let roomChief = null, roomChiefMixer = null, roomChiefActs = {}, roomChiefNow = 
 let roomMecha = null;
 let openingFov = OPENING_FOV;
 const _oc2 = new THREE.Vector3(), _ot2 = new THREE.Vector3();
+const _oc3 = new THREE.Vector3(), _ot3 = new THREE.Vector3();   // 取り付け演出：展示台 → メカの背中、のカメラの切り替え用
 const _oc = new THREE.Vector3(), _ot = new THREE.Vector3(), _oq = new THREE.Quaternion();
 const fadeEl = document.getElementById('fade');
 function setupOpening(workshopGltf, mayorGltf, chiefGltf) {
@@ -4740,7 +4741,7 @@ function openingShot(who, jump, shot) {
     _ot.y = roomFuwao.userData.baseY - 0.1;
     return;
   }
-  const name = who === 'mayor' ? 'Mayor' : who === 'chief' ? 'Chief' : 'Overview';
+  const name = who === 'mayor' ? 'Mayor' : who === 'chief' ? 'Chief' : who === 'item' ? 'Item' : 'Overview';
   room.getObjectByName(`WI_Cam_${name}`).getWorldPosition(_oc);
   room.getObjectByName(`WI_Cam_${name}_Target`).getWorldPosition(_ot);
 }
@@ -5083,11 +5084,18 @@ function updateVisit(dt, active) {
     _oc.lerp(_oc2, e); _ot.lerp(_ot2, e);
     const fov = OPENING_WIDE_FOV + (OPENING_FOV - OPENING_WIDE_FOV) * e;
     if (v.phase === 'equip' || v.equipCam) {
-      // 取り付け：メカの横の高い所から、背中のタンクを見下ろす（メカのすぐ後ろは入口の壁）
       v.equipCam = true;
+      // 取り付け：はじめは展示台が見える WI_Cam_Item（道具が飛び立つところを見せる）。
+      // 少ししたら、メカの横の高い所から背中のタンクを見下ろすカメラへなめらかに切り替える（メカのすぐ後ろは入口の壁）
+      openingShot('item');
+      _oc3.copy(_oc); _ot3.copy(_ot);
       const h = player.rotation.y, fx = Math.sin(h), fz = Math.cos(h);
       _oc.set(fz * 2.4 - fx * 1.2, 2.2, -fx * 2.4 - fz * 1.2).add(player.position);
       _ot.set(-fx * 0.25, 1.15, -fz * 0.25).add(player.position);
+      const ek = THREE.MathUtils.clamp((v.t - EQUIP_ITEM_SHOT) / EQUIP_CAM_BLEND, 0, 1);
+      const ee = ek * ek * (3 - 2 * ek);
+      _oc.lerp(_oc3, 1 - ee);
+      _ot.lerp(_ot3, 1 - ee);
     }
     if (camera.fov !== fov) { camera.fov = fov; camera.updateProjectionMatrix(); }
     camera.position.copy(_oc);
@@ -5101,6 +5109,8 @@ function updateVisit(dt, active) {
 // もらうと、メカの背中にチョコ燃料タンク（choco_tank.glb）が付いて、燃料の最大が上がる
 const CHOCO_FLY = 1.0;            // 展示台からメカの背中へ飛んでいく時間（秒）
 const CHOCO_EQUIP_END = 2.6;      // 取り付けの場面の長さ（そのあと工房の外へ）
+const EQUIP_ITEM_SHOT = 0.55;     // 取り付けの演出で、展示台のカメラ（WI_Cam_Item）を見せている時間（秒）
+const EQUIP_CAM_BLEND = 0.35;     // そこから、メカの背中を見下ろすカメラへなめらかに切り替わるまで（秒）
 let chocoShow = null, chocoMixer = null, chocoTank = null;
 function setupChoco(chocoGltf, tankGltf) {
   chocoShow = chocoGltf.scene;
