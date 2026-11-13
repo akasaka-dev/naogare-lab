@@ -385,7 +385,7 @@ const _sprayWhite = new THREE.Color(1, 1, 1);
 const AMB = {
   stream: { file: 'sounds/stream.mp3', vol: 0.45, near: 2, far: 16 },      // 川のいちばん近い点からの距離（m）
   waterfall: { file: 'sounds/waterfall.mp3', vol: 0.9, near: 3, far: 28 }, // 滝からの距離（m）
-  rumble: { file: 'sounds/rumble.mp3', vol: 0.6, near: 20, far: 100 },     // 脅威3 の地ひびき（町の崩壊の場面と、転がっている脅威3 からの距離（m））
+  rumble: { file: 'sounds/rumble.mp3', vol: 0.6, near: 20, far: 100 },     // アラシ3 の地ひびき（町の崩壊の場面と、転がっているアラシ3 からの距離（m））
 };
 const AMB_CELL = 2.5;      // 川の点の間隔（m）
 const AMB_PAN = 0.7;       // 左右の振り分けの強さ（1 で片耳だけ）
@@ -393,8 +393,8 @@ const AMB_SMOOTH = 0.15;   // 音量が変わるときのなめらかさ（秒�
 const AMB_EDGE = 0.06;     // MP3 の頭と終わりのすき間を飛ばしてくり返す（秒）
 let audioCtx = null, riverPts = [], fallPts = [];
 // 効果音（1 回鳴らす音）。右上の効果音ボタンで切れる。ゲームを始めたときに読みこんでおく（initAudio）
-//   jump：ジャンプしたとき / bossLand：脅威1・2 が空から落ちてきて地面にぶつかったとき /
-//   shot：パンが砲口から出たとき / explode：脅威3 がはじけ飛んだとき（最後の演出） /
+//   jump：ジャンプしたとき / bossLand：アラシ1・2 が空から落ちてきて地面にぶつかったとき /
+//   shot：パンが砲口から出たとき / explode：アラシ3 がはじけ飛んだとき（最後の演出） /
 //   equip：板チョコのタンク・魔法のパン種が、ロボに付いた瞬間
 const SFX = {
   jump: { file: 'sounds/jump_small.mp3', vol: 0.6 },
@@ -565,7 +565,7 @@ function updateAmbient(on) {
     if (v > fv) { fv = v; fat = f.at; }
   }
   setAmb(AMB.waterfall, AMB.waterfall.vol * fv, fat ? ambPan(fat) : 0);
-  // 脅威3 の地ひびき：町の崩壊の場面ではだんだん大きく。町を転がっている間は、近いほど大きく
+  // アラシ3 の地ひびき：町の崩壊の場面ではだんだん大きく。町を転がっている間は、近いほど大きく
   let rv = 0, rat = null;
   if (!quiet && collapse) rv = [0.45, 0.75, 1][Math.max(0, collapse.cut)] ?? 1;
   else if (!quiet && boss && bossRoaming() && rolling > 0) { rat = boss.position; rv = ambFalloff(Math.hypot(rat.x - feet.x, rat.z - feet.z), AMB.rumble); }
@@ -871,7 +871,7 @@ function restoreArea(name) {
   return true;
 }
 
-// 元に戻した区画を、また廃墟にする（脅威の攻撃で崩れたとき）。部品はすっと現れ、色もくすんでいく
+// 元に戻した区画を、また廃墟にする（アラシの攻撃で崩れたとき）。部品はすっと現れ、色もくすんでいく
 const RUIN_BACK = 1.2;        // 廃墟の部品が現れるまで・色がくすむまで（秒）
 function unrestoreArea(i) {
   const a = ruinAreas[i];
@@ -911,7 +911,7 @@ function updateRuin(dt) {
     a.ruin.traverse((o) => {
       if (o.isMesh) for (const m of new Set([o.material, o.userData.pbrMaterial])) if (m) m.opacity = 1 - k;
     });
-    if (k >= 1) scene.remove(a.ruin);   // 部品は捨てずに取っておく（脅威の攻撃で、また崩れることがある）
+    if (k >= 1) scene.remove(a.ruin);   // 部品は捨てずに取っておく（アラシの攻撃で、また崩れることがある）
   }
 }
 
@@ -997,7 +997,7 @@ function setupAnimations(clips) {
   });
 }
 
-// 魔法のパン種を撃ってよいときか（撃てるのは一度きり）：脅威3 の顔の正面で、顔と同じ高さにいるとき（yeastAim）
+// 魔法のパン種を撃ってよいときか（撃てるのは一度きり）：アラシ3 の顔の正面で、顔と同じ高さにいるとき（yeastAim）
 function yeastShotReady() {
   return yeastAim(_yf);
 }
@@ -1013,7 +1013,7 @@ function fire() {
   // 打ち粉をまぶすと、パン種を撃てる。撃てるのは一度きりなので、ねらいが合うまでは撃たない
   if (items.has('flour')) {
     if (finale) return;
-    if (!yeastShotReady()) { showToast('今は発射すべきではない。脅威の顔の正面、同じ高さで撃とう。チャンスは一度きりだ'); return; }
+    if (!yeastShotReady()) { showToast('今は発射すべきではない。アラシの顔の正面、同じ高さで撃とう。チャンスは一度きりだ'); return; }
     startYeastShot();
     return;
   }
@@ -1118,7 +1118,7 @@ function clipsFromExtras(root, clips) {
 // *_Hit_* / *_Hurt_* は当たり判定用の空のオブジェクト（extras に collider・radius・damage）。今は体の球（hit）だけを体当たりに使う
 //   stage：このステージで現れる。appearAt：町の復興度がこれを超えると現れる。next：追い出したあとのステージ
 //   attacks：[クリップ名, 当たるフレーム]。bodyY：体の中心の高さ（根元から）。sink：落ちてきたときにめりこむ深さ
-//   rain：撤退するときに小バイ菌を町へふらせ、町の復興度をこれまで下げる
+//   rain：撤退するときにヨゴレを町へふらせ、町の復興度をこれまで下げる
 //   needs：この道具（ITEMS）がないと、体当たりしてもすり抜けてしまう。道具があれば、撃ったパンが当たった所だけが固まり（SOLID_TIME 秒）、
 //          固まった所へ体当たりすると押し戻せる。固まっていない所に体当たりすると、すり抜けてからだが減る
 //   summon：復興度では現れず、talks.json の summon のセリフを話し終わったときに現れる（ボス3 は、復興度 100% のあと町長と話すと）
@@ -1131,17 +1131,17 @@ function clipsFromExtras(root, clips) {
 //   strike：攻撃がふわおにも当たる。{ クリップ名: [当たり始めのフレーム, 終わりのフレーム, [当たり判定のノード名…], 広げる距離 m] }。
 //           広げる距離：たたきつけた地面のまわりにも当たるように、球の半径を足す（触手の先だけだと小さすぎて当たらない）。
 //           ノードは extras の collider が hit（球。radius）か hit_ring（地面の輪。radius × 親の拡大率、幅 width。ジャンプでかわせる）。strikePlayer
-// name は画面に出す名前（どのボスも「脅威」）。BOSSES の順に、バイ菌ボス・ヘドロボス・ロックボス
+// name は画面に出す名前（どのボスも「アラシ」）。BOSSES の順に、バイ菌ボス・ヘドロボス・ロックボス
 const BOSSES = [
-  { name: '脅威', root: 'GB_Root', hit: 'GB_Hit_Spikes', stage: 1, appearAt: 0.8, next: 2,
+  { name: 'アラシ', root: 'GB_Root', hit: 'GB_Hit_Spikes', stage: 1, appearAt: 0.8, next: 2,
     attacks: [['attack_slam', 92], ['attack_drill', 171]], bodyY: 14, sink: 8, rain: 0.3 },
-  { name: '脅威', root: 'SB_Root', hit: 'SB_Hit_Body', stage: 2, appearAt: 0.6, next: 3,
+  { name: 'アラシ', root: 'SB_Root', hit: 'SB_Hit_Body', stage: 2, appearAt: 0.6, next: 3,
     attacks: [['attack_slam', 92], ['attack_wave', 160]], bodyY: 7, sink: 0, needs: 'solidifier', ground: true,
     strike: {
       attack_slam: [89, 98, ['SB_Hit_Tip_L', 'SB_Hit_Tip_R', 'SB_Hit_Forearm_L', 'SB_Hit_Forearm_R'], 3],
       attack_wave: [160, 185, ['SB_Hit_Wave']],
     } },
-  { name: '脅威', root: 'RB_Root', hit: 'RB_Hit_Body', stage: 3, summon: true, next: 4,
+  { name: 'アラシ', root: 'RB_Root', hit: 'RB_Hit_Body', stage: 3, summon: true, next: 4,
     attacks: [], bodyY: 21, sink: 0, roll: { clip: 'roll', start: 'roll_start', speed: 2.5, loop: 131.95 },
     hard: true, intro: 'roll_start', camScale: 2.1, roam: { speed: 6 } },
 ];
@@ -1155,7 +1155,7 @@ const SOLID_SIZE = 3;                        // 固まった所の大きさ（�
 const SOLID_ARC = 0.42;                      // 体当たりが固まった所に当たったとみなす、ボスの中心から見た左右の角度（ラジアン。約 24°）
 // ふわおが手に入れた道具。solidifier：固形化パン（パン工房の工場長がくれる。撃ったパンがヘドロボスに当たると固まり、体当たりできる）
 // choco：板チョコ（ステージ 1 をクリアすると工房の展示台に並び、工場長がメカの背中にチョコ燃料タンクとして取り付けてくれる。燃料の最大が CHOCO_FUEL_MAX に）
-// yeast：魔法のパン種（町が崩壊したあと、パン工房の前の工場長が砲台に付けてくれる。脅威3 を倒す最後の武器）
+// yeast：魔法のパン種（町が崩壊したあと、パン工房の前の工場長が砲台に付けてくれる。アラシ3 を倒す最後の武器）
 // wings：ジェットの羽（西の丘のお城の女の子がくれる。メカの胴体の左右に翼が付き、ジェットでしばらく飛ぶと開く。燃料の最大が WINGS_FUEL_UP 上がる）
 const ITEMS = { solidifier: '固形化パン', choco: '板チョコ', yeast: '魔法のパン種', flour: '秘伝の打ち粉', wings: 'ジェットの羽' };
 // その道具は、先にこの道具を持っていないともらえない（打ち粉は、パン種に振りかけるもの）
@@ -1457,14 +1457,14 @@ function updateBoss(dt, active) {
 }
 
 // ---- ボスが町を攻撃する ----
-// 画面がゆれて、ふちが赤く光り、倒した小バイ菌が 1 匹よみがえる（町の復興度が下がる）。
-// よみがえるのは、まだ元に戻っていない区画で倒した小バイ菌のうち、ボスにいちばん近いもの。元に戻った区画はそのまま
+// 画面がゆれて、ふちが赤く光り、倒したヨゴレが 1 匹よみがえる（町の復興度が下がる）。
+// よみがえるのは、まだ元に戻っていない区画で倒したヨゴレのうち、ボスにいちばん近いもの。元に戻った区画はそのまま
 const QUAKE_SHAKE = 0.35;      // 町が攻撃されたときのカメラのゆれ（m）
 const QUAKE_DAMP = 2.5;        // ゆれがおさまる速さ
 let bossHitDone = true, quake = 0;
 const hurtEl = document.getElementById('hurt');
-// ATTACK_RUIN_EVERY 回に 1 回は、元に戻った区画をランダムに 1 つ廃墟に戻す（区画の小バイ菌も全部よみがえる）。
-// ほかの攻撃と、元に戻った区画がないときは、小バイ菌が 1 匹よみがえる
+// ATTACK_RUIN_EVERY 回に 1 回は、元に戻った区画をランダムに 1 つ廃墟に戻す（区画のヨゴレも全部よみがえる）。
+// ほかの攻撃と、元に戻った区画がないときは、ヨゴレが 1 匹よみがえる
 const ATTACK_RUIN_EVERY = 3;
 let attackCount = 0;
 function attackTown() {
@@ -1473,7 +1473,7 @@ function attackTown() {
   void hurtEl.offsetWidth;   // アニメーションを最初から
   hurtEl.classList.add('on');
   if (++attackCount % ATTACK_RUIN_EVERY !== 0 || !ruinRandomArea()) reviveGerm();
-  showToast('脅威が町を攻撃した！');
+  showToast('アラシが町を攻撃した！');
 }
 function ruinRandomArea() {
   const done = areaGauge.map((g, i) => i).filter((i) => areaGauge[i].done && ruinAreas[i].restored);
@@ -1512,7 +1512,7 @@ function reviveGermAt(i, k) {
   if (!helps.some((h) => h.area === i) && helps.length < HELP_MAX) addHelp(i);
   return g;
 }
-// 町の復興度が target 以下になるまで、倒した小バイ菌をどれだけよみがえらせるか（区画は問わず、ばらばらに選ぶ）
+// 町の復興度が target 以下になるまで、倒したヨゴレをどれだけよみがえらせるか（区画は問わず、ばらばらに選ぶ）
 function rainPlan(target) {
   const n = areaGauge.length, list = [];
   areaGauge.forEach((gauge, i) => gauge.germs.forEach((g, k) => { if (germGone(g)) list.push([i, k]); }));
@@ -1611,9 +1611,9 @@ function setupRetreatLine(groups) {
 //   → 暗転して、ふわおはスタート地点へ戻る。ボスはいなくなり、撤退ラインも消える。
 //   このボスは一回きりの登場で、二度と戻ってこない（あとで、ある段階から現れ、撤退したら次のボスが出るようにする予定）
 const RETREAT_THINK = 2.4;      // 考えている時間（秒）
-const RETREAT_SPEW = 2.4;       // 小バイ菌を空へ吐き出す時間（BOSSES の rain があるボスだけ）
-const RAIN_FLY = 2.6;           // 吐き出した小バイ菌が町に落ちるまでの時間（秒）
-const RAIN_PEAK = 45;           // 小バイ菌が飛ぶ高さ（吐き出す所と落ちる所を結んだ線から、いちばん高い所まで。m）
+const RETREAT_SPEW = 2.4;       // ヨゴレを空へ吐き出す時間（BOSSES の rain があるボスだけ）
+const RAIN_FLY = 2.6;           // 吐き出したヨゴレが町に落ちるまでの時間（秒）
+const RAIN_PEAK = 45;           // ヨゴレが飛ぶ高さ（吐き出す所と落ちる所を結んだ線から、いちばん高い所まで。m）
 const RETREAT_TURN = 1.8;       // 向きを変える時間（秒）
 const RETREAT_LEAVE = 4.2;      // 去っていく時間（秒）。最後の FADE_TIME で暗転する
 const RETREAT_SPEED = 12;       // 去っていく速さ（m/秒）
@@ -1675,7 +1675,7 @@ function startRetreat() {
   const g = cast(_o, DOWN, 800);
   retreat.cam.y = Math.max(g ? g.point.y : boss.position.y, boss.position.y) + h * 0.45 + 4;
   retreat.look.copy(boss.position).setY(boss.position.y + retreat.lookUp);
-  cutinEl.querySelector('.caption').textContent = '脅威が撤退していく……';
+  cutinEl.querySelector('.caption').textContent = 'アラシが撤退していく……';
   document.body.classList.add('cutin');
 }
 function updateRetreat(dt) {
@@ -1692,10 +1692,10 @@ function updateRetreat(dt) {
     const pop = Math.min(1, r.t * 3);
     r.bubble.scale.set(11 * pop, 6.9 * pop, 1);
   }
-  // 小バイ菌を空へ吐き出す：体をふるわせ、てっぺんから次々に打ち上げる。町の倒した小バイ菌の場所へ落ちて、よみがえる
+  // ヨゴレを空へ吐き出す：体をふるわせ、てっぺんから次々に打ち上げる。町の倒したヨゴレの場所へ落ちて、よみがえる
   if (r.spew && r.t >= t1 && r.t < ts) {
     const u = (r.t - t1) / r.spew;
-    if (!r.spewing) { r.spewing = true; cutinEl.querySelector('.caption').textContent = '脅威が小バイ菌を空へまき散らした！'; }
+    if (!r.spewing) { r.spewing = true; cutinEl.querySelector('.caption').textContent = 'アラシがヨゴレを空へまき散らした！'; }
     const w = Math.sin(r.t * 30) * 0.05 * Math.sin(Math.PI * u);
     boss.scale.set(1 + w, 1 - w, 1 + w);
     const want = Math.min(r.rain.length, Math.ceil(r.rain.length * u / 0.7));
@@ -1703,7 +1703,7 @@ function updateRetreat(dt) {
   } else if (r.spewing && r.t >= ts) {
     r.spewing = false;
     boss.scale.setScalar(1);
-    cutinEl.querySelector('.caption').textContent = '脅威が撤退していく……';
+    cutinEl.querySelector('.caption').textContent = 'アラシが撤退していく……';
   }
   r.lookExtra += ((r.spew && r.t >= t1 && r.t < ts + 0.8 ? 1 : 0) - r.lookExtra) * (1 - Math.exp(-2.5 * dt));
   updateRain(r, dt);
@@ -1735,18 +1735,18 @@ function updateRetreat(dt) {
     document.body.classList.remove('cutin');
     retreat = null;
     setTimeout(() => fadeEl.classList.remove('on'), 300);
-    showToast('脅威が撤退した！');
+    showToast('アラシが撤退した！');
     saveGame();
   }
 }
-// 吐き出した小バイ菌（飛んでいる間は、くるくる回るだけの見た目）
+// 吐き出したヨゴレ（飛んでいる間は、くるくる回るだけの見た目）
 function launchRain(r, plan) {
   const mesh = germTemplate.clone(true);
   bossSpikes.getWorldPosition(_rc);
   const from = _rc.clone().setY(r.top - 1);
   const to = groundPoint(plan.spot);
   mesh.position.copy(from);
-  mesh.scale.setScalar(1.6);
+  mesh.scale.setScalar(1.6 * GERM_SCALE);   // 空では少し大きめに見せる（元の大きさとの比は変えない）
   scene.add(mesh);
   r.shots.push({ mesh, from, to, t: 0, plan, spin: (Math.random() - 0.5) * 12 });
 }
@@ -1766,7 +1766,7 @@ function updateRain(r, dt) {
     r.shots.splice(j, 1);
   }
 }
-// カットインのカメラ：決めた位置から、ボスを追って見る（小バイ菌を吐き出すときは、空を見上げる）
+// カットインのカメラ：決めた位置から、ボスを追って見る（ヨゴレを吐き出すときは、空を見上げる）
 function retreatCamera(dt) {
   _rc.copy(boss.position).setY(boss.position.y + retreat.lookUp + 30 * retreat.lookExtra);
   retreat.look.lerp(_rc, 1 - Math.exp(-3 * dt));
@@ -2095,7 +2095,7 @@ function updateCollapse(dt) {
   const cut = t < COLLAPSE_CUT[0] ? 0 : t < COLLAPSE_CUT[1] ? 1 : 2;
   if (cut !== C.cut) {
     C.cut = cut;
-    caption.textContent = ['町のみんなが、山へ避難していく……！', 'ゴゴゴゴ……！ 脅威が転がってくる！', '脅威が、町を押しつぶしていく……！'][cut];
+    caption.textContent = ['町のみんなが、山へ避難していく……！', 'ゴゴゴゴ……！ アラシが転がってくる！', 'アラシが、町を押しつぶしていく……！'][cut];
   }
   // 砂煙：霧を砂色にして近くまで濃くする（だんだん濃く）
   const k = Math.min(1, t / 1.5);
@@ -2170,7 +2170,7 @@ function finishCollapse() {
   document.body.classList.remove('cutin');
   dustEl.classList.remove('on');
   setTimeout(() => fadeEl.classList.remove('on'), 300);
-  showToast('町が脅威に押しつぶされてしまった……！ パン工房の前で、工場長が待っている');
+  showToast('町がアラシに押しつぶされてしまった……！ パン工房の前で、工場長が待っている');
   saveGame();
 }
 function collapseCamera(dt) {
@@ -2245,7 +2245,7 @@ async function collapseTown() {
   setupFoam(gltf.scene, townGroup);
   enterCollapsed();
 }
-// 崩壊したあと：町の人は山の上の丘へ避難している（工場長だけはパン工房の前にいる）。小バイ菌と助けを呼ぶ声もなくなる
+// 崩壊したあと：町の人は山の上の丘へ避難している（工場長だけはパン工房の前にいる）。ヨゴレと助けを呼ぶ声もなくなる
 function enterCollapsed() {
   for (const r of residents) {
     r.hungry = false;
@@ -2270,7 +2270,7 @@ function enterCollapsed() {
   helps.length = 0;
 }
 // ---- 避難した丘（町が崩壊したあと） ----
-// 山の斜面の町のさらに上の草の丘。崩れた町と、転げまわる脅威を見下ろせる（脅威の行き先より外なので、ここまでは来ない）。
+// 山の斜面の町のさらに上の草の丘。崩れた町と、転げまわるアラシを見下ろせる（アラシの行き先より外なので、ここまでは来ない）。
 // 町長を真ん中に、町のほう（+Z）を向いて集まっている。家には帰らず、丘の上を少しだけ歩く
 const MAYOR_HILL = new THREE.Vector3(0, 0, -150);
 const HILL_SPOTS = {   // 町長からの位置（x, z）
@@ -2338,8 +2338,8 @@ function mayorLeave(r) {
   r.state = 'evac';
 }
 
-// ---- 最後の演出（魔法のパン種で、脅威3 を倒す） ----
-// 町を転げまわる脅威の顔（RB_Hurt_Face）に、魔法のパン種を付けたままジェットで体当たりすると：
+// ---- 最後の演出（魔法のパン種で、アラシ3 を倒す） ----
+// 町を転げまわるアラシの顔（RB_Hurt_Face）に、魔法のパン種を付けたままジェットで体当たりすると：
 //   パン種が顔にめりこむ → 石板のすき間が金色に脈打ち、だんだん強く光る（RB_Glow。砕けるクリップの 211〜217 をゆっくり）
 //   → はじける（白い閃光・大きなゆれ・キラキラ・砂煙。218 から砕けるクリップの続きで破片が飛び散る）
 //   → 暗転して、ぼろぼろのメカだけが残っている → エンディング
@@ -2426,11 +2426,11 @@ function startFinale() {
   finale.cam = boss.position.clone().addScaledVector(out, 30).addScaledVector(side, 85);
   finale.cam.y = Math.max(introGroundY(finale.cam.x, finale.cam.z, boss.position.y), boss.position.y) + 18;
   finale.look.copy(boss.position).setY(boss.position.y + 21);
-  cutinEl.querySelector('.caption').textContent = '魔法のパン種が、脅威の顔にめりこんだ！';
+  cutinEl.querySelector('.caption').textContent = '魔法のパン種が、アラシの顔にめりこんだ！';
   document.body.classList.add('cutin');
   releaseAll();
 }
-// パン種が顔に入った：脅威は転がるのをやめて、砕けるクリップの 211 フレームで止める（時刻はこちらで進める）。
+// パン種が顔に入った：アラシは転がるのをやめて、砕けるクリップの 211 フレームで止める（時刻はこちらで進める）。
 // すき間の光る材質を集めておく（体当たりでも、撃っても同じ）
 function beginShatterGlow() {
   for (const a of Object.values(bossActions)) { a.stop(); a.paused = false; }
@@ -2484,7 +2484,7 @@ function updateFinale(dt) {
       for (let i = 0; i < 6; i++) sparkleBurst(_rm.set(c.x + (Math.random() - 0.5) * 30, c.y + (Math.random() - 0.5) * 20, c.z + (Math.random() - 0.5) * 30), 24, 2.5);
       const g = boss.position.clone();
       F.dust.push({ mesh: dustRing(g, 0xe8d8b0, 120), t: 0, life: 2.2 }, { mesh: dustCloud(g), t: 0, life: 3.5, cloud: true, size: 2.4 });
-      caption.textContent = '脅威が、はじけ飛んだ！';
+      caption.textContent = 'アラシが、はじけ飛んだ！';
     }
   }
   if (F.phase === 'burst') {
@@ -2577,7 +2577,7 @@ function finaleCamera(dt) {
   } else {
     boss.getObjectByName('RB_Ball').getWorldPosition(_il);
     if (F.phase === 'glow') F.look.lerp(_il, 1 - Math.exp(-3 * dt));
-    // はじけたあとは、脅威と飛ばされていくメカの間を見る
+    // はじけたあとは、アラシと飛ばされていくメカの間を見る
     else F.look.lerp(_ic.copy(_il).lerp(feet, 0.5), 1 - Math.exp(-2.5 * dt));
     camera.position.copy(F.cam);
     camera.lookAt(F.look);
@@ -2596,7 +2596,7 @@ function finaleCamera(dt) {
   sky.position.copy(camera.position);
 }
 // ---- 魔法のパン種を撃つ（秘伝の打ち粉をまぶしたあと。一度きり） ----
-// 脅威3 の顔の正面で、顔と同じ高さにいるときに発射ボタンを押すと：
+// アラシ3 の顔の正面で、顔と同じ高さにいるときに発射ボタンを押すと：
 //   溜め（パン種がふくらみ、まわりから光が集まる）→ 発射（金色の光線が顔までのびる。光の輪が光線を走る）
 //   → 命中（閃光）→ すき間が金色に脈打つ → はじける（体当たりの演出と同じ。ここから先は updateFinale）
 //   → ロボは爆風で少し飛ばされて着地 → 暗転してエンディング（ふわおは生きて帰る）
@@ -2657,7 +2657,7 @@ function updateYeastAim() {
   else if (yeastAimed) setDoughGlow(1);
   if (on && !yeastAimed && time.value - yeastAimHint > YEAST_AIM_HINT && !talk.active) {
     yeastAimHint = time.value;
-    showToast('脅威の顔の正面だ！ 今なら撃てる！');
+    showToast('アラシの顔の正面だ！ 今なら撃てる！');
   }
   yeastAimed = on;
 }
@@ -2709,7 +2709,7 @@ function startYeastShot() {
   yeastAimed = false;
   jetting = false; jetEndTime = 0; jetSpeed = 0;
   jetVel.set(0, 0, 0); recoilVel.set(0, 0, 0); velY = 0;
-  // 脅威はその場で止まる（顔がずれないように、転がるアニメも止める）
+  // アラシはその場で止まる（顔がずれないように、転がるアニメも止める）
   for (const a of Object.values(bossActions)) a.paused = true;
   // 溜め：パン種がだんだん速く脈打ちながらふくらむ
   yeastGunActs.idle?.stop();
@@ -2763,7 +2763,7 @@ function updateYeastShot(dt) {
     F.t = 0;
     F.beam.hit.visible = true;
     beginShatterGlow();
-    caption.textContent = '魔法のパン種が、脅威の顔をつらぬいた！';
+    caption.textContent = '魔法のパン種が、アラシの顔をつらぬいた！';
     // カメラ：はじけるところと、飛ばされるロボが入る、横からの引きの位置へ
     F.cam = boss.position.clone().addScaledVector(F.out, 30).addScaledVector(F.side, 85);
     F.cam.y = Math.max(introGroundY(F.cam.x, F.cam.z, boss.position.y), boss.position.y) + 18;
@@ -3065,7 +3065,7 @@ function collideBoss(dt) {
   if (!bossSpikes || bossGone || retreat || !bossAppeared || finale) return;
   strikePlayer();
   ramCooldown -= dt;
-  // 魔法のパン種を付けたまま、町を転げまわる脅威の顔にジェットで体当たりすると、最後の演出へ。
+  // 魔法のパン種を付けたまま、町を転げまわるアラシの顔にジェットで体当たりすると、最後の演出へ。
   // 顔のまわり（玉の中心から見て、顔の向きから上下左右 FACE_HIT_ANGLE 以内）にぶつかったときだけ。顔は地面から 20m ほどの高さ
   // 町長の警告（はじめて発射しようとしたとき）を聞くまでは、体当たりしてもはね返されるだけ
   if (items.has('yeast') && mayorWarned && bossRoaming() && jetVel.length() > RAM_MIN_SPEED) {
@@ -3139,7 +3139,7 @@ function collideBoss(dt) {
   feet.addScaledVector(_bd, reach - d);
 }
 
-// ---- 子バイ菌（町人の敵） ----
+// ---- ヨゴレ（町人の敵） ----
 // 町人を見つけて跳ねながら近づき、体にくっつく（くっついている間は待機。噛みつきのアニメは町人には使わない）。
 // ふわおのジェット体当たり（RAM_MIN_SPEED より速く飛んでいるとき）が当たると、やられアニメで縮んで消える。
 // 町人が助けを呼んだ区画に、その区画の中の地面から選んだ場所（setupProgress。ページを開くたびに変わる）へ出てくる
@@ -3148,12 +3148,13 @@ const GERM_DROP = 1.0;         // これより低い段差へは降りない（�
 const GERM_SEE = 25;           // この距離の町人をねらう
 // 体の中心の高さ（GM_Body_Pivot）と体の半径（GM_Hurt_Body の radius）はモデルから読む。下は読めなかったときの値
 let germBody = 0.8, germRadius = 0.4;
+const GERM_SCALE = 0.5;        // 見た目の大きさ（体の中心の高さ・半径も、これに合わせて小さくする）
 const GERM_STICK = 0.5;        // 町人の体の表面からこの距離まで来たら、くっつく
 const GERM_HIT = 1.0;          // ジェット体当たりが当たる距離（ロボの体の中心の縦の線から、体の中心まで。少し甘め）
-// ロボの足元がこの高さより上を通り過ぎたら当たらない（子バイ菌の体の中心から。体の上 0.8m ほどまでは少し甘めに当たる）
+// ロボの足元がこの高さより上を通り過ぎたら当たらない（ヨゴレの体の中心から。体の上 0.8m ほどまでは少し甘めに当たる）
 const GERM_HIT_BELOW = 1.2;
 const GERM_BOUNCE = 6;         // 体当たりしたロボがはね返される速さ（m/秒。ボスは RAM_BOUNCE）
-// 低空で飛んでいるときに、階段や段の少し上にいる子バイ菌にも当たるように、上にも広げる（ロボの頭の上からこの高さまで）
+// 低空で飛んでいるときに、階段や段の少し上にいるヨゴレにも当たるように、上にも広げる（ロボの頭の上からこの高さまで）
 const GERM_HIT_ABOVE = 1.5;
 let germTemplate = null, germClips = null;
 const germs = [];
@@ -3162,13 +3163,14 @@ function setupGerms(gltf) {
   germTemplate = gltf.scene;
   germTemplate.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   const pivot = germTemplate.getObjectByName('GM_Body_Pivot'), hurt = germTemplate.getObjectByName('GM_Hurt_Body');
-  if (pivot) germBody = pivot.position.y;
-  if (hurt?.userData.radius) germRadius = hurt.userData.radius;
+  if (pivot) germBody = pivot.position.y * GERM_SCALE;
+  if (hurt?.userData.radius) germRadius = hurt.userData.radius * GERM_SCALE;
   germClips = clipsFromExtras(germTemplate.getObjectByName('GM_Root') || germTemplate, gltf.animations);
   // 始めたときには置かない。町人が助けを呼んだ区画にだけ出す（setupProgress / startHelp）
 }
 function spawnGerm(x, z) {
   const root = germTemplate.clone(true);
+  root.scale.setScalar(GERM_SCALE);
   _gp.set(x, 0, z);
   root.position.copy(groundPoint(_gp));
   scene.add(root);
@@ -3203,7 +3205,7 @@ function germTarget(g) {
   }
   return best;
 }
-// 水の底に沈んだ・座標がおかしくなった小バイ菌は、出てきた場所へ戻す（見つけられなくなって、区画が元に戻らないため）
+// 水の底に沈んだ・座標がおかしくなったヨゴレは、出てきた場所へ戻す（見つけられなくなって、区画が元に戻らないため）
 let germCheckWait = 0;
 function rescueGerms(dt) {
   if ((germCheckWait -= dt) > 0) return;
@@ -3236,7 +3238,7 @@ function updateGerms(dt) {
       _rd.subVectors(r.root.position, pos).setY(0);
       const dist = _rd.length();
       if (dist < r.radius + GERM_STICK && Math.abs(r.root.position.y - pos.y) < 1) {
-        // くっつく：町人の体の表面の、今いる向きの場所に。ほかの子バイ菌と重ならないよう向きをずらし、高さも少しずつ変える
+        // くっつく：町人の体の表面の、今いる向きの場所に。ほかのヨゴレと重ならないよう向きをずらし、高さも少しずつ変える
         g.state = 'stuck';
         g.angle = Math.atan2(-_rd.x, -_rd.z) - r.root.rotation.y;
         for (const o of germs) {
@@ -3295,7 +3297,7 @@ function updateGerms(dt) {
 }
 
 // ---- 進行度（町の復興度・ジェット燃料・ふわおのからだ） ----
-// 町の復興度：廃墟の区画（10）ごとに「その区画の小バイ菌を倒す」「その区画の町人にパンを食べてもらう」で
+// 町の復興度：廃墟の区画（10）ごとに「その区画のヨゴレを倒す」「その区画の町人にパンを食べてもらう」で
 //   区画のゲージがたまり、満タンになると区画が元の町に戻る。復興度は全区画のゲージの平均。
 // 燃料：噴射している間と、ボスへの体当たりで減る。地面に立っている間にゆっくり戻り、パン工房の前では早く満タンになる。
 //   タンクの大きさ（上限）は最初は最大の 3 分の 1 で、トッピングで少しずつ大きくなる（raiseFuelMax）。
@@ -3305,10 +3307,10 @@ const AREA_NAMES = {
   RU_Plaza: '広場', RU_Main: '表通り', RU_Bakery: 'パン屋', RU_North: '上の通り', RU_East: '川の東',
   RU_South: '南の家並み', RU_River: '川', RU_TerracesW: '奥の段（西）', RU_TerracesE: '奥の段（東）', RU_Hillside: '山の斜面の町',
 };
-const GERMS_PER_AREA = 3;       // 区画ごとの小バイ菌の数（これより多くは出ない）
-// 助けを呼ぶ声：まだ小バイ菌が出ていない区画の町人が、ひとつずつ助けを呼ぶ。そのときにその区画の小バイ菌が出てくる。
-//   同時に呼んでいるのは HELP_MAX 区画まで（町に出ている小バイ菌は最大 9 匹）。
-//   呼んでいる町人の頭の上に助けのアイコン（！）を出し、ふわおのまわりには、呼んでいる区画の小バイ菌の方向を
+const GERMS_PER_AREA = 3;       // 区画ごとのヨゴレの数（これより多くは出ない）
+// 助けを呼ぶ声：まだヨゴレが出ていない区画の町人が、ひとつずつ助けを呼ぶ。そのときにその区画のヨゴレが出てくる。
+//   同時に呼んでいるのは HELP_MAX 区画まで（町に出ているヨゴレは最大 9 匹）。
+//   呼んでいる町人の頭の上に助けのアイコン（！）を出し、ふわおのまわりには、呼んでいる区画のヨゴレの方向を
 //   3D の矢印で出す。全部倒すと声は止む
 const HELP_MAX = 3;
 const HELP_FIRST = 2;           // 遊び始めてから最初に呼ばれるまで（秒）
@@ -3329,7 +3331,7 @@ const WORKSHOP_REFILL = 0.5;    // 補給の速さ（1 秒あたり、燃料だ�
 let fuelMax = FUEL_MAX_START, fuel = fuelMax, body = 1;
 let fuwaoNo = 1;   // 何人目のふわおか。からだが 0 になって工場長に焼き直してもらうたびに 1 ふえる（お姉さんの回復ではふえない）
 let knockout = null;            // からだが 0 になって、パン工房へ戻されている途中 { t, moved }
-const areaGauge = [];           // 区画ごと { spots: [小バイ菌の出る場所], germs: [出てきた小バイ菌], residents: [町人], called, done }
+const areaGauge = [];           // 区画ごと { spots: [ヨゴレの出る場所], germs: [出てきたヨゴレ], residents: [町人], called, done }
 const helps = [];               // 助けを呼んでいる区画 { area, slot, arrow }
 let helpWait = HELP_FIRST;
 const metersEl = document.getElementById('meters');
@@ -3349,7 +3351,7 @@ function areaAt(x, z) {
   });
   return best;
 }
-// 段ごとの地面の高さの目安（屋根や塀の上に小バイ菌を置かないため。メモの「地面の高さ」）
+// 段ごとの地面の高さの目安（屋根や塀の上にヨゴレを置かないため。メモの「地面の高さ」）
 function streetHeight(z) {
   if (z > 20.5) return 0;
   if (z > -5.5) return 3.5;
@@ -3358,7 +3360,7 @@ function streetHeight(z) {
   if (z > -63) return 16.5;
   return null;   // 山の斜面の町は段が曲がっているので、高さでは調べない
 }
-// 小バイ菌の場所の選び方。まず広くて平らなところ（strict）から選び、見つからない区画だけ条件をゆるめる（loose）
+// ヨゴレの場所の選び方。まず広くて平らなところ（strict）から選び、見つからない区画だけ条件をゆるめる（loose）
 //   flatR / flat … まわり flatR m の地面の高さの違いが flat m まで（階段や坂の途中はやめる）
 //   room / dirs  … 8 方向のうち dirs 方向は room m 先まで何もない（細い路地はやめる。ジェットで飛んで来られるように）
 const SPOT_RULES = [
@@ -3414,7 +3416,7 @@ function areaSpot(a, rand, avoid, rule) {
   }
   return null;
 }
-// 小バイ菌の出る場所は、ページを開くたびに区画の中から選び直す（つづきから遊ぶときは、セーブした場所に戻す。loadGame）
+// ヨゴレの出る場所は、ページを開くたびに区画の中から選び直す（つづきから遊ぶときは、セーブした場所に戻す。loadGame）
 function setupProgress() {
   let seed = (Math.random() * 2 ** 32) | 0;
   const rand = () => {   // mulberry32
@@ -3444,7 +3446,7 @@ function setupProgress() {
 function germGone(g) { return g.state === 'defeat' || g.done; }
 function areaProgress(i) {
   const g = areaGauge[i];
-  const total = g.spots.length + g.residents.length;   // まだ出ていない小バイ菌も数に入れる
+  const total = g.spots.length + g.residents.length;   // まだ出ていないヨゴレも数に入れる
   if (!total) return g.done ? 1 : 0;
   return (g.germs.filter(germGone).length + g.residents.filter((r) => r.fed).length) / total;
 }
@@ -3532,8 +3534,8 @@ function makeArrow(color) {
   scene.add(group);
   return group;
 }
-// 助けを呼ぶアイコン（色の丸に「！」）。呼んでいる町人の頭の上（町人のいない区画は小バイ菌の上）に、いつも手前に出す
-// 頭の上の吹き出し。kind：'germ'（小バイ菌が出て助けを呼んでいる。区画の色）/ 'bread'（おなかがすいている）
+// 助けを呼ぶアイコン（色の丸に「！」）。呼んでいる町人の頭の上（町人のいない区画はヨゴレの上）に、いつも手前に出す
+// 頭の上の吹き出し。kind：'germ'（ヨゴレが出て助けを呼んでいる。区画の色）/ 'bread'（おなかがすいている）
 const ICON_INK = '#3a2a1e';
 function drawGermIcon(x) {
   // トゲトゲの丸い体に、つり目
@@ -3593,13 +3595,13 @@ function makeHelpIcon(color, kind = 'germ') {
   return icon;
 }
 // まだ呼んでいない区画のうち、ふわおにいちばん近い区画が助けを呼ぶ
-// （目の前にいきなり出てこないよう、小バイ菌の場所が HELP_NEAR より近い区画は、ほかになければ選ぶ）
+// （目の前にいきなり出てこないよう、ヨゴレの場所が HELP_NEAR より近い区画は、ほかになければ選ぶ）
 const HELP_NEAR = 12;
 function startHelp() {
   if (storyStage >= 4) return false;   // 崩壊したあとの町には、町の人がいない
   let best = -1, bestD = Infinity;
   areaGauge.forEach((g, i) => {
-    const again = g.called && g.germs.some((x) => !germGone(x)) && !helps.some((h) => h.area === i);   // よみがえった小バイ菌
+    const again = g.called && g.germs.some((x) => !germGone(x)) && !helps.some((h) => h.area === i);   // よみがえったヨゴレ
     if (!again && (g.called || g.done || !g.spots.length)) return;
     const near = Math.min(...g.spots.map((p) => Math.hypot(p.x - feet.x, p.z - feet.z)));
     const d = near < HELP_NEAR ? near + 1000 : near;
@@ -3625,7 +3627,7 @@ function addHelp(best) {
   const caller = gauge.residents[Math.floor(Math.random() * gauge.residents.length)] || null;
   helps.push({ area: best, slot, caller, t: 0, arrow: makeArrow(HELP_COLORS[slot]), icon: makeHelpIcon(HELP_COLORS[slot]) });
 }
-// 呼んでいる区画の、まだ倒していない小バイ菌のうち、いちばん近いもの
+// 呼んでいる区画の、まだ倒していないヨゴレのうち、いちばん近いもの
 function helpTarget(h) {
   let best = null, bestD = Infinity;
   for (const g of areaGauge[h.area].germs) {
@@ -3645,13 +3647,13 @@ function updateHelps(dt, active) {
     h.icon.material.map.dispose();
     h.icon.material.dispose();
     helps.splice(i, 1);
-    if (!areaGauge[h.area].done) showToast(`${AREA_NAMES[ruinAreas[h.area].name]}の小バイ菌をやっつけた！`);
+    if (!areaGauge[h.area].done) showToast(`${AREA_NAMES[ruinAreas[h.area].name]}のヨゴレをやっつけた！`);
     helpWait = Math.max(helpWait, HELP_GAP);
   }
   if (active && helps.length < HELP_MAX && (helpWait -= dt) <= 0) {
     if (startHelp()) helpWait = HELP_GAP;
   }
-  // 矢印：ふわおの頭の上（一人称のときは目の前の少し下）から、小バイ菌のほうへ向ける
+  // 矢印：ふわおの頭の上（一人称のときは目の前の少し下）から、ヨゴレのほうへ向ける
   if (view.thirdPerson) _ha.set(feet.x, feet.y + ROBOT_HEIGHT + ARROW_LIFT, feet.z);
   else {
     camera.getWorldDirection(_hf);
@@ -3682,7 +3684,7 @@ function updateHelps(dt, active) {
     h.arrow.position.set(_ha.x + _hd.x / flat * ARROW_RING, _ha.y + bob, _ha.z + _hd.z / flat * ARROW_RING);
     h.arrow.quaternion.setFromUnitVectors(_hy, _hd);
   }
-  // 矢印がいくつも出るとうるさいので、いちばん近い小バイ菌への矢印だけ出す
+  // 矢印がいくつも出るとうるさいので、いちばん近いヨゴレへの矢印だけ出す
   let near = null;
   for (const h of helps) if (h.arrow.visible && (!near || h.dist < near.dist)) near = h;
   for (const h of helps) if (h !== near) h.arrow.visible = false;
@@ -3695,7 +3697,7 @@ function raiseFuelMax(step = FUEL_MAX_STEP) {
   fuelMax = Math.min(1, fuelMax + step);
   fuel = Math.min(fuelMax, fuel + (fuelMax - before));
 }
-// 脅威につぶされた・ヘドロの体をすり抜けたとき：からだが減り、画面のふちが赤く光る。0 になったらパン工房へ
+// アラシにつぶされた・ヘドロの体をすり抜けたとき：からだが減り、画面のふちが赤く光る。0 になったらパン工房へ
 const BODY_HIT = 0.25;          // 1 回で減るからだ（1/4）
 const BODY_HIT_GUARD = 1.5;     // 続けて減らない時間（秒）
 let bodyHitWait = 0;
@@ -3797,7 +3799,7 @@ function drawMeters() {
     const g = areaGauge[here], name = AREA_NAMES[ruinAreas[here].name];
     const left = g.spots.length - g.germs.filter(germGone).length;
     const hungry = g.residents.filter((r) => !r.fed).length;
-    const todo = [left && `小バイ菌 あと${left}`, hungry && `おなかをすかせた人 ${hungry}`].filter(Boolean).join('・');
+    const todo = [left && `ヨゴレ あと${left}`, hungry && `おなかをすかせた人 ${hungry}`].filter(Boolean).join('・');
     areaEl.textContent = g.done ? `${name}：元どおり` : `${name}：${Math.round(areaProgress(here) * 100)}%${todo ? `（${todo}）` : ''}`;
   } else areaEl.textContent = '';
   // 助けを呼んでいる区画（矢印と同じ色の印と、だいたいの距離）
@@ -3907,7 +3909,7 @@ function eatBread(b, mouth) {
   b.root.rotation.y = Math.atan2(-dz, dx);
   vanishBread(b, 60);
 }
-// 撃ったパンが脅威の体に入ったら、パンはヘドロにのみこまれて消える。
+// 撃ったパンがアラシの体に入ったら、パンはヘドロにのみこまれて消える。
 // 固形化パンを持っていて、固めるボス（needs）なら、当たった所が固まる（solidifyAt）。
 // 体はすそ野の広い山の形で、坂に座っていることもあるので、ボスの近く（BREAD_BOSS_NEAR）まで来たら、
 // このフレームに進む分だけ、見えているボスの体のメッシュへ線を飛ばして当たりを見る
@@ -3941,7 +3943,7 @@ function updateBreads(dt) {
     if (b.state === 'fly' && catchBread(b)) {
       // 人に受け止められた
     } else if (b.state === 'fly' && breadHitsBoss(b, dt)) {
-      // 脅威の体に当たった（固形化パンなら固まる）
+      // アラシの体に当たった（固形化パンなら固まる）
     } else if (b.state === 'fly') {
       b.vel.y -= BREAD_GRAVITY * dt;
       _bstep.copy(b.vel).multiplyScalar(dt);
@@ -4491,7 +4493,7 @@ async function init() {
   placeResidents({ grandpa, girl, grandma, mayor, baker, chief });
   setupDoor();
   setupGerms(germmini);   // 町人のそばに置くので、町人のあと
-  setupProgress();        // 区画ごとの小バイ菌と町人を数える（足りない区画には小バイ菌を足す）
+  setupProgress();        // 区画ごとのヨゴレと町人を数える（足りない区画にはヨゴレを足す）
 
   // 夜にふわおのまわりを照らすランプ（昼は明るさ 0。ライトの数が変わると全部のシェーダーを作り直すので、出しっぱなしにする）
   const lamp = new THREE.PointLight(lin(1.0, 0.72, 0.42), 0, 14, 2);
@@ -5635,7 +5637,7 @@ function startTalk(r) {
 }
 let talkRefill = null, talkGift = null, talkSummon = null;
 const GIFT_TOASTS = {
-  solidifier: '固形化パンを手に入れた！ 脅威にパンを当てて固めてから、体当たりで押し戻そう',
+  solidifier: '固形化パンを手に入れた！ アラシにパンを当てて固めてから、体当たりで押し戻そう',
   choco: '板チョコを手に入れた！ チョコ燃料タンクで、燃料の最大が 50% に上がった',
   yeast: '魔法のパン種を手に入れた！ 砲台の先に、光るパン種が付いた',
   flour: '秘伝の打ち粉で、魔法のパン種が撃てるようになった！ 撃てるのは一度きり',
@@ -5724,8 +5726,8 @@ let confirmNew = false;
 // 選んだ場面の保存データを debug 用のキー（SAVE_KEY）に作って、「つづきから」と同じように始める
 const DEBUG_STARTS = [
   { label: 'ステージ1：はじめから', fresh: true },
-  { label: 'ステージ1：脅威1が現れる（復興100%）', stage: 1, boss: 0 },
-  { label: 'ステージ2：脅威2が現れる（道具なし）', stage: 2, boss: 1 },
+  { label: 'ステージ1：アラシ1が現れる（復興100%）', stage: 1, boss: 0 },
+  { label: 'ステージ2：アラシ2が現れる（道具なし）', stage: 2, boss: 1 },
   { label: 'ステージ3：町長と話すと崩壊（復興100%）', stage: 3, boss: 2, items: ['solidifier', 'choco'] },
   { label: 'ステージ4：崩壊後（工場長からパン種の前）', stage: 4, boss: 2, items: ['solidifier', 'choco'], roaming: true },
   { label: 'ステージ4：パン種あり（町長の警告と最後の演出の前）', stage: 4, boss: 2, items: ['solidifier', 'choco', 'yeast'], roaming: true },
@@ -5737,7 +5739,7 @@ function debugSave(p) {
     v: SAVE_VERSION, at: Date.now(), stage: p.stage, boss: p.boss,
     bossAppeared: !!p.roaming, bossGone: false, bossPos: p.roaming ? [+pos.x.toFixed(2), +pos.z.toFixed(2)] : null,
     items: p.items || [], mayorWarned: false, fuelMax: fuelMaxOf, fuel: fuelMaxOf, body: 1, hour: 10,
-    // 町はすべて元に戻した状態（小バイ菌は全部倒し、町人はみんなパンを食べた）
+    // 町はすべて元に戻した状態（ヨゴレは全部倒し、町人はみんなパンを食べた）
     areas: areaGauge.map((g) => ({ called: true, done: true, gone: g.spots.map(() => 1) })),
     residents: Object.fromEntries(residents.map((r) => [r.id, { fed: true, hungry: false, once: [] }])),
   };
