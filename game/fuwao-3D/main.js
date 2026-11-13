@@ -5070,7 +5070,8 @@ function updateVisit(dt, active) {
   roomChiefMixer.update(dt);
   chocoMixer?.update(dt);
   render();
-  if (talk.active) talk.update(dt, openingHead('chief'));
+  // shot: "item" の間は、吹き出しが展示台にかぶらないように、画面の下のまんなかへ出す（頭の場所は使わない）
+  if (talk.active) talk.update(dt, talk.line?.shot === 'item' ? { x: 0, y: 0, visible: false } : openingHead('chief'));
   function render() {
     // カメラ：入口から部屋の全体 → 工場長へ寄る（オープニングと同じカメラの目印）
     openingShot(null);
@@ -5549,7 +5550,9 @@ function talkScript(r) {
     // 人物画は、セリフごとの face → まとまりの face → 喜 の順で表情を決める
     const lines = t.lines.map((l) => {
       const text = typeof l === 'string' ? l : l.text;
-      return { text, portrait: portraitSrc(book.portrait, (typeof l === 'object' && l.face) || t.face), shot: typeof l === 'object' ? l.shot : null };
+      const shot = typeof l === 'object' ? l.shot : null;
+      // shot: "item" の間は展示台を映すので、人物画は出さない（吹き出しは画面の下へ。updateVisit）
+      return { text, portrait: shot === 'item' ? null : portraitSrc(book.portrait, (typeof l === 'object' && l.face) || t.face), shot };
     });
     return { name: t.name || book.name, portrait: null, lines, refill: t.refill, gift: t.gift, summon: t.summon };
   }
