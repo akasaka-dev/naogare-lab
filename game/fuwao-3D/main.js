@@ -443,6 +443,7 @@ function updateJetSound(active) {
 // BGM：ステージごとの曲（いまはステージ 1・2 の曲だけ）。長いので、全部をほどいて持たずに少しずつ読みながら流す（<audio>）。
 // 一時停止中・エンディング・ゲームオーバーでは消えていき、消えたら止める（つづきは止めたところから）。工房の中では小さめ
 const BGM = [{ file: 'sounds/bgm_stage1-2.mp3', stages: [1, 2] }];
+const TITLE_BGM = { file: 'sounds/bgm_title.mp3' };   // タイトル画面の曲（ゲームを始める前だけ）
 const BGM_VOL = 0.35;        // BGM の大きさ
 const BGM_INDOOR = 0.6;      // 工房の中・オープニングでは、この倍
 const BGM_FADE = 0.6;        // 大きさが変わるときのなめらかさ（秒）
@@ -536,13 +537,15 @@ function setAmb(a, vol, pan) {
   a.gain.gain.setTargetAtTime(vol, t, AMB_SMOOTH);
   a.pan?.pan.setTargetAtTime(pan, t, AMB_SMOOTH);
 }
-// いまのステージの曲を、場面に合った大きさで流す
+// いまのステージの曲を、場面に合った大きさで流す。まだ「はじめから」「つづきから」を押していなければ、タイトルの曲
 function updateBgm(on) {
   if (!bgm.el) return;
   const over = endingEl.classList.contains('on') || document.getElementById('gameover').classList.contains('on');
-  const song = BGM.find((b) => b.stages.includes(storyStage)) || null;
+  const titleScreen = !started;
+  const song = titleScreen ? TITLE_BGM : BGM.find((b) => b.stages.includes(storyStage)) || null;
   if (song !== bgm.now && song) { bgm.el.src = song.file; bgm.now = song; }
-  const vol = on && soundOn.bgm && !over && song === bgm.now && song ? BGM_VOL * (opening || visit ? BGM_INDOOR : 1) : 0;
+  // タイトル画面では「再生」中（playing）ではないので、on の代わりにここでずっと鳴らしてよいことにする
+  const vol = (titleScreen || on) && soundOn.bgm && !over && song === bgm.now && song ? BGM_VOL * (opening || visit ? BGM_INDOOR : 1) : 0;
   bgm.gain.gain.setTargetAtTime(vol, audioCtx.currentTime, BGM_FADE / 3);
   if (vol > 0 && bgm.el.paused && !document.hidden) bgm.el.play().catch(() => {});
   else if (vol === 0 && !bgm.el.paused && bgm.gain.gain.value < 0.005) bgm.el.pause();
@@ -2862,13 +2865,27 @@ const ENDING_WIDE = 1.4;     // 横の絵：幅は画面の幅のこの倍以上
 const ENDING_FOCUS = { tall: [0.62, 1], wide: [0.8, 0.45] };
 const endingWide = () => window.innerWidth >= window.innerHeight;
 function endingSrc() { return endingWide() ? 'ending1h.webp' : 'ending1.webp'; }
+// 撃って勝ったとき（ふわおは生きて帰る）の絵。廃墟からしばらくたったあとの町なので、
+// すぐ出さずにゆっくり浮かび上がらせる（ENDING_SHOT_FADE）。縦長の絵はまだないので、横の絵を画面いっぱいに使う
+const ENDING_SHOT_WAIT = 0.6;    // 暖色の地から、絵がうっすら浮かび始めるまで（秒）
+const ENDING_SHOT_FADE = 4.5;    // 絵がゆっくり浮かび上がる長さ（秒）
+const ENDING_SHOT_DONE = ENDING_SHOT_WAIT + ENDING_SHOT_FADE + 0.8;   // ここまで見せてから、タイトルとボタンを浮かべる
+function shotEndingSrc() { return 'ending2h.webp'; }
 function showEnding() {
   finale.phase = 'ending';
   document.body.classList.remove('cutin');
   endingEl.classList.add('on');
-  // 撃って勝ったとき（ふわおは生きて帰る）：絵はまだないので、文字だけ
-  if (finale.mode === 'shot') { endingEl.classList.add('plain'); setTimeout(() => endingEl.classList.add('done'), ENDING_WAIT * 1000); return; }
   const img = document.getElementById('endingImg');
+  if (finale.mode === 'shot') {
+    endingEl.classList.add('plain');
+    img.style.cssText = '';   // 前にラムエンディングを見たときの大きさ・動きが残らないように
+    img.src = shotEndingSrc();
+    const run = () => img.animate([{ opacity: 0 }, { opacity: 1 }],
+      { duration: ENDING_SHOT_FADE * 1000, delay: ENDING_SHOT_WAIT * 1000, easing: 'ease-in', fill: 'forwards' });
+    if (img.complete && img.naturalWidth) run(); else img.addEventListener('load', run, { once: true });
+    setTimeout(() => endingEl.classList.add('done'), ENDING_SHOT_DONE * 1000);
+    return;
+  }
   const src = endingSrc();
   const run = () => {
     const vw = window.innerWidth, vh = window.innerHeight, aspect = img.naturalWidth / img.naturalHeight;
@@ -5773,6 +5790,8 @@ function startGame(cont) {
   } else respawn(NEW_START_POS, NEW_START_YAW);
   enterPlay();
 }
+// タイトル画面で最初にどこかを押したときに、タイトルの曲を鳴らし始める（音は押したときでないと鳴らせない）
+document.addEventListener('pointerdown', () => { if (!started) initAudio(); }, { capture: true });
 newBtn.addEventListener('click', (e) => {
   e.stopPropagation();
   if (!ready) return;
