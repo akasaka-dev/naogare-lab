@@ -4984,16 +4984,15 @@ function setupVisitRoom() {
   playerLamp.intensity = OPENING_LAMP;
   // 工房で補給（燃料だけ。からだはパン屋のお姉さんに話すと戻る）
   fuel = fuelMax;
-  // 展示台の板チョコ（ステージ 1 をクリアしたら並ぶ。もらったらない）
+  // 展示台（真ん中のスロット）には、板チョコと固形化パンが同じ場所に並ぶ。
+  // ヘドロボスが町に来ている間は固形化パンを優先し（もらえる期間が短いため）、板チョコはいったん隠す（もらったらどちらもない）
+  const solidShown = bossIndex === 1 && (bossAppeared || retreat) && !bossGone && !items.has('solidifier');
   if (chocoShow) {
     chocoShow.position.set(0, 0, 0);
     chocoShow.scale.setScalar(1);
-    chocoShow.visible = storyStage >= 2 && !items.has('choco');
+    chocoShow.visible = storyStage >= 2 && !items.has('choco') && !solidShown;
   }
-  // 展示台の固形化パン（ヘドロボスが町に来ている間だけ並ぶ。talks.json の gift: solidifier と同じ条件。もらったらない）
-  if (solidShow) {
-    solidShow.visible = bossIndex === 1 && (bossAppeared || retreat) && !bossGone && !items.has('solidifier');
-  }
+  if (solidShow) solidShow.visible = solidShown;
 }
 function leaveWorkshop() {
   setFadeTime(null);
@@ -5544,8 +5543,12 @@ function pickTalk(list, r) {
   let cands = list.filter((t) => talkFits(t, r, used));
   // 補充が要るときは、補充してくれるまとまりを必ず選ぶ（続けて同じでもよい）
   const refills = cands.filter((t) => t.gift || t.summon || (t.refill && needsRefill(t.refill)));   // 道具をくれる話・ボスを呼ぶ話も、必ず選ぶ
-  if (refills.length) cands = refills;
-  else if (cands.length > 1) cands = cands.filter((t) => t !== r.lastTalk);   // 続けて同じ話はしない
+  if (refills.length) {
+    // そのボスが来ている間だけ出せる道具（boss 付き）は、長く出せる道具より先に選ぶ
+    // （例：ヘドロボスが来ている間に工房に入ると、板チョコより固形化パンを優先する。展示台が同じ場所なので、見た目とそろえる）
+    const urgent = refills.filter((t) => t.boss !== undefined);
+    cands = urgent.length ? urgent : refills;
+  } else if (cands.length > 1) cands = cands.filter((t) => t !== r.lastTalk);   // 続けて同じ話はしない
   if (!cands.length) return null;
   let w = cands.reduce((s, t) => s + (t.weight ?? 1), 0) * Math.random();
   for (const t of cands) if ((w -= t.weight ?? 1) <= 0) return t;
