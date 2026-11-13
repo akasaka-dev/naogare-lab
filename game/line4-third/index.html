@@ -2416,8 +2416,8 @@
   // The prologue, then the knight's entrance (one screen). Skipping the prologue skips both.
   function maybeShowStory(onDone) {
     runStory(kanaMode ? PROLOGUE_LINES_KANA : PROLOGUE_LINES, (skipped) => {
-      if (skipped) onDone(); else showIntroStory(1, onDone);
-    });
+      if (skipped) onDone(); else showIntroStory(1, onDone, { fadeInMs: 1400 });
+    }, { endFadeMs: 1200, endPauseMs: 1000 });   // fade out, a beat of black, then the entrance fades in
   }
 
   // After beating a ladder foe: the memory that flows into the player (black screen, white text,
@@ -2493,10 +2493,10 @@
       'しょうじょはかがみのなかから、ゆっくりとすがたをあらわした。',
     ],
   };
-  function showIntroStory(level, onDone) {
+  function showIntroStory(level, onDone, opts) {
     const lines = (kanaMode ? INTRO_STORIES_KANA : INTRO_STORIES)[level];
     if (!lines) { onDone(); return; }
-    runStory([lines.join(String.fromCharCode(10))], onDone);   // short: the whole scene on one screen, one tap to leave
+    runStory([lines.join(String.fromCharCode(10))], onDone, opts);   // short: the whole scene on one screen, one tap to leave
   }
   // Shows the memory of the foe of `level`, then calls onDone; calls it at once when there is none.
   function showMemoryStory(level, onDone) {
@@ -2505,11 +2505,14 @@
     runStory(table[level](getPlayerName()), onDone);
   }
 
-  function runStory(lines, onDone) {
+  // opts.fadeInMs: slow fade-in of the first line; opts.endFadeMs / opts.endPauseMs: after the last line
+  // is dismissed, fade it out slowly and stay on black for a moment before onDone runs.
+  function runStory(lines, onDone, opts = {}) {
     const overlay = document.getElementById('storyOverlay');
     storyLineIndex = 0;
     storyTransitioning = false;
     document.getElementById('storyText').classList.toggle('compact', lines.length === 1);
+    document.getElementById('storyText').style.transitionDuration = opts.fadeInMs ? `${opts.fadeInMs}ms` : '';
     const firstEl = freshStoryTextEl(lines[0]);
     overlay.classList.remove('hidden');
     fadeStoryTextIn(firstEl);
@@ -2540,15 +2543,22 @@
       if (storyTransitioning) return; // ignore taps mid-fade
       SoundMgr.seClick();
       storyTransitioning = true;
-      document.getElementById('storyText').classList.remove('show');
+      const isLast = storyLineIndex + 1 >= lines.length;
+      const fadeMs = isLast && opts.endFadeMs ? opts.endFadeMs : STORY_FADE_MS;
+      const textNow = document.getElementById('storyText');
+      if (isLast && opts.endFadeMs) textNow.style.transitionDuration = `${opts.endFadeMs}ms`;
+      textNow.classList.remove('show');
       setTimeout(() => {
         if (finished) return;
         storyLineIndex++;
-        if (storyLineIndex >= lines.length) { finish(); return; }
+        if (storyLineIndex >= lines.length) {
+          if (opts.endPauseMs) setTimeout(() => finish(), opts.endPauseMs); else finish();
+          return;
+        }
         const nextEl = freshStoryTextEl(lines[storyLineIndex]);
         storyTransitioning = false;
         fadeStoryTextIn(nextEl);
-      }, STORY_FADE_MS);
+      }, fadeMs);
     };
   }
 
