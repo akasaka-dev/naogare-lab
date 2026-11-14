@@ -2922,10 +2922,11 @@ function showEnding() {
 // オープニングが終わって操作できるようになった瞬間から、エンディング画面が出た瞬間までの、
 // 一時停止していない間の経過時間（整数秒、切り捨て）を測る。ページを閉じる・読み込み直すとこの計測は消える
 // （つづきからであっても、やり直しであっても、1回の通しプレイでのクリアだけを記録に残すため）。
-// 表示・登録する項目は、名前・🤍（生き返った回数、fuwaoNo）・装備数（板チョコ／ジェットの羽／魔法のパン種の3つのうち、
-// メカに付いている数。固形化パン・秘伝の打ち粉は見た目の装備がないので数えない）・時間（秒）。
+// 表示・登録する項目は、名前・🤍（生き返った回数、fuwaoNo）・装備数（ITEMS の5つ：固形化パン・板チョコ・
+// 魔法のパン種・秘伝の打ち粉・ジェットの羽のうち、持っている数）・時間（秒）。
 const TIME_ATTACK_API = '/api/fuwao3d';
-const TIME_ATTACK_EQUIP_KEYS = ['choco', 'wings', 'yeast'];   // 見た目の装備が付く3つ（docs/scene-notes.md）
+const TIME_ATTACK_EQUIP_MAX = 5;
+const TIME_ATTACK_EQUIP_KEYS = Object.keys(ITEMS);   // 固形化パン・板チョコ・魔法のパン種・秘伝の打ち粉・ジェットの羽
 let timeAttackOn = false;        // 対象の実行か（はじめから・?debug なし）
 let timeAttackRunning = false;   // 計測中か（操作できるようになってから、エンディングまで）
 let timeAttackElapsed = 0;       // 経過秒（一時停止中は進めない）
@@ -2966,7 +2967,7 @@ function rankShow(which) {
 function showTimeAttackAsk() {
   if (!timeAttackResult) return;
   const { seconds, hearts, equip } = timeAttackResult;
-  rankPanel.querySelector('.rank-stats').textContent = `🤍${hearts}　装備${equip}/3　${formatTimeAttack(seconds)}`;
+  rankPanel.querySelector('.rank-stats').textContent = `🤍${hearts}　装備${equip}/${TIME_ATTACK_EQUIP_MAX}　${formatTimeAttack(seconds)}`;
   rankShow(rankAskEl);
 }
 rankPanel.querySelector('.rank-no').addEventListener('click', () => rankPanel.classList.remove('on'));
@@ -3009,7 +3010,7 @@ async function showTimeAttackRanking() {
   }
   for (const r of results) {
     const li = document.createElement('li');
-    li.innerHTML = `<span class="rank-name2"></span><span class="rank-cols">🤍${r.hearts}　装備${r.equip}/3　${formatTimeAttack(r.seconds)}</span>`;
+    li.innerHTML = `<span class="rank-name2"></span><span class="rank-cols">🤍${r.hearts}　装備${r.equip}/${TIME_ATTACK_EQUIP_MAX}　${formatTimeAttack(r.seconds)}</span>`;
     li.querySelector('.rank-name2').textContent = r.name;   // 名前はテキストとして入れる（HTML を書き込まない）
     rowsEl.appendChild(li);
   }
