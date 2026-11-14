@@ -3257,13 +3257,13 @@ const GERM_SEE = 25;           // この距離の町人をねらう
 // 体の中心の高さ（GM_Body_Pivot）と体の半径（GM_Hurt_Body の radius）はモデルから読む。下は読めなかったときの値
 let germBody = 0.8, germRadius = 0.4;
 const GERM_SCALE = 0.5;        // 見た目の大きさ（体の中心の高さ・半径も、これに合わせて小さくする）
-const GERM_STICK = 0.5;        // 町人の体の表面からこの距離まで来たら、くっつく
-const GERM_HIT = 1.0;          // ジェット体当たりが当たる距離（ロボの体の中心の縦の線から、体の中心まで。少し甘め）
+const GERM_STICK = 0.5 * GERM_SCALE;        // 町人の体の表面からこの距離まで来たら、くっつく
+const GERM_HIT = 1.0 * GERM_SCALE;          // ジェット体当たりが当たる距離（ロボの体の中心の縦の線から、体の中心まで。少し甘め）
 // ロボの足元がこの高さより上を通り過ぎたら当たらない（ヨゴレの体の中心から。体の上 0.8m ほどまでは少し甘めに当たる）
-const GERM_HIT_BELOW = 1.2;
+const GERM_HIT_BELOW = 1.2 * GERM_SCALE;
 const GERM_BOUNCE = 6;         // 体当たりしたロボがはね返される速さ（m/秒。ボスは RAM_BOUNCE）
 // 低空で飛んでいるときに、階段や段の少し上にいるヨゴレにも当たるように、上にも広げる（ロボの頭の上からこの高さまで）
-const GERM_HIT_ABOVE = 1.5;
+const GERM_HIT_ABOVE = 1.5 * GERM_SCALE;
 let germTemplate = null, germClips = null;
 const germs = [];
 const _gp = new THREE.Vector3();
