@@ -395,14 +395,19 @@ let audioCtx = null, riverPts = [], fallPts = [];
 // 効果音（1 回鳴らす音）。右上の効果音ボタンで切れる。ゲームを始めたときに読みこんでおく（initAudio）
 //   jump：ジャンプしたとき / bossLand：アラシ1・2 が空から落ちてきて地面にぶつかったとき /
 //   shot：パンが砲口から出たとき / explode：アラシ3 がはじけ飛んだとき（最後の演出） /
-//   equip：板チョコのタンク・魔法のパン種が、ロボに付いた瞬間
+//   equip：板チョコのタンク・魔法のパン種が、ロボに付いた瞬間 /
+//   lastshot：フィナーレで魔法のパン種を撃ち込んだとき / germGone：ヨゴレが消えたとき /
+//   gameover：体が 0 になったとき
 const SFX = {
-  jump: { file: 'sounds/jump_small.mp3', vol: 0.6 },
+  jump: { file: 'sounds/jump2.mp3', vol: 0.6 },
   bossLand: { file: 'sounds/boss_land.mp3', vol: 1 },
   shot: { file: 'sounds/shot.mp3', vol: 0.6 },
   explode: { file: 'sounds/explode.mp3', vol: 1 },
   equip: { file: 'sounds/equip.mp3', vol: 0.7 },
   jet: { file: 'sounds/jet.mp3', vol: 0.8 },   // ジェット（updateJetSound で鳴らす。1 回鳴らす音ではない）
+  lastshot: { file: 'sounds/lastshot.mp3', vol: 0.8 },
+  germGone: { file: 'sounds/germ_gone.mp3', vol: 0.7 },
+  gameover: { file: 'sounds/gameover.mp3', vol: 0.8 },
 };
 function playSfx(name) {
   const a = SFX[name];
@@ -2745,6 +2750,7 @@ function updateYeastShot(dt) {
       F.phase = 'fire';
       F.fireT = t;
       firing = true; shotSpawned = true; recoiled = true; fireDone = false;
+      playSfx('lastshot');
       fireAction.reset().setEffectiveWeight(1).play();
       const fa = yeastGunActs.fire;
       if (fa) { yeastGunActs.charge?.stop(); fa.reset().play(); fa.timeScale = fireAction.timeScale; }
@@ -3383,6 +3389,7 @@ function updateGerms(dt) {
         g.state = 'defeat';
         g.target = null;
         playGerm(g, 'defeat');
+        playSfx('germGone');
         // ボスに当たったときと同じく、ロボははね返されて噴射も止まる（もう一度 Space を押し直せば噴射できる）
         jetting = false;
         jetEndTime = 0;
@@ -3831,13 +3838,13 @@ function hurtBody(msg) {
   void hurtEl.offsetWidth;
   hurtEl.classList.add('on');
   shake = Math.max(shake, 1.5);
-  if (body <= 0) { knockout = { t: 0, moved: false }; clearToasts(); }
+  if (body <= 0) { knockout = { t: 0, moved: false }; clearToasts(); playSfx('gameover'); }
   else if (msg) showToast(msg);
   return true;
 }
 function shaveBody() {
   body = Math.max(0, body - BODY_PER_SHOT);
-  if (body <= 0 && !knockout) { knockout = { t: -0.8, moved: false }; clearToasts(); }   // 撃ったパンが飛んでいくのを少し見せてから暗転
+  if (body <= 0 && !knockout) { knockout = { t: -0.8, moved: false }; clearToasts(); playSfx('gameover'); }   // 撃ったパンが飛んでいくのを少し見せてから暗転
 }
 function updateProgress(dt, active) {
   // 区画のゲージが満タンになったら、区画を元に戻す
