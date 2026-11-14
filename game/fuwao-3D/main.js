@@ -3258,8 +3258,11 @@ function collideBoss(dt) {
 // ふわおのジェット体当たり（RAM_MIN_SPEED より速く飛んでいるとき）が当たると、やられアニメで縮んで消える。
 // 町人が助けを呼んだ区画に、その区画の中の地面から選んだ場所（setupProgress。ページを開くたびに変わる）へ出てくる
 const GERM_SPEED = 1.1;        // 跳ねて進む速さ（m/秒）
-const GERM_DROP = 1.0;         // これより低い段差へは降りない（川の岸から川へ落ちないように）
+const GERM_DROP = 1.5;         // これより低い段差へは降りない（川の岸から川へ落ちないように）
 const GERM_SEE = 25;           // この距離の町人をねらう
+const GERM_HOVER = 0.25;       // 地面よりこの高さ浮いて進む（当てやすくするため）
+// まっすぐ進めなければ、この角度ぶん左右へそらして試す（0 ＝まっすぐ。ずっと壁や段差の手前で止まらないように）
+const GERM_TRY_ANGLES = [0, Math.PI / 4, -Math.PI / 4, Math.PI / 2, -Math.PI / 2, Math.PI * 3 / 4, -Math.PI * 3 / 4, Math.PI];
 // 体の中心の高さ（GM_Body_Pivot）と体の半径（GM_Hurt_Body の radius）はモデルから読む。下は読めなかったときの値
 let germBody = 0.8, germRadius = 0.4;
 const GERM_SCALE = 0.5;        // 見た目の大きさ（体の中心の高さ・半径も、これに合わせて小さくする）
@@ -3273,6 +3276,7 @@ const GERM_HIT_ABOVE = 1.5 * GERM_SCALE;
 let germTemplate = null, germClips = null;
 const germs = [];
 const _gp = new THREE.Vector3();
+const _ga = new THREE.Vector3();
 function setupGerms(gltf) {
   germTemplate = gltf.scene;
   germTemplate.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
@@ -3363,17 +3367,24 @@ function updateGerms(dt) {
       } else if (dist > 1e-3) {   // 真下・真上（橋の上と下など）のときは向きが決まらないので動かない
         g.root.rotation.y = turnToward(g.root.rotation.y, Math.atan2(_rd.x, _rd.z), 1 - Math.exp(-6 * dt));
         _rd.divideScalar(dist);
-        // 壁や石垣があれば、その手前で跳ねたまま止まる（道をさがすのはこれから）
+        // まっすぐ進めないとき（壁・石垣、大きな段差、川）は、角度を変えて空いているほうへ進む
+        // （まっすぐのままだと、何もない壁や段差の手前でずっと止まってしまうため）
         _o.set(pos.x, pos.y + germBody, pos.z);
-        const wall = cast(_o, _rd, germRadius + 0.2);
-        if (!wall || !hitNormal(wall, _rd)) {
-          // 川の中と、大きな段差の下へは行かない（水の底に沈んだり、岸に上がれなくなったりするため）
-          _gp.copy(pos).addScaledVector(_rd, Math.min(GERM_SPEED * dt, dist));
+        let moveGy = null;
+        for (const ang of GERM_TRY_ANGLES) {
+          _ga.copy(_rd).applyAxisAngle(UP, ang);
+          const wall = cast(_o, _ga, germRadius + 0.2);
+          if (wall && hitNormal(wall, _ga)) continue;
+          _gp.copy(pos).addScaledVector(_ga, Math.min(GERM_SPEED * dt, dist));
           const gy = groundBelow(_gp, 1);   // 跳ねるので、少しの段差なら越える
-          if (gy !== null && gy > pos.y - GERM_DROP && !waterLevel(_gp, gy)) {
-            pos.x = _gp.x; pos.z = _gp.z;
-            pos.y += (gy - pos.y) * (1 - Math.exp(-10 * dt));
-          }
+          // 川の中と、大きな段差の下へは行かない（水の底に沈んだり、岸に上がれなくなったりするため）
+          if (gy === null || gy <= pos.y - GERM_DROP || waterLevel(_gp, gy)) continue;
+          moveGy = gy;
+          break;
+        }
+        if (moveGy !== null) {
+          pos.x = _gp.x; pos.z = _gp.z;
+          pos.y += (moveGy + GERM_HOVER - pos.y) * (1 - Math.exp(-10 * dt));
         }
       }
     } else if (g.state === 'stuck') {
