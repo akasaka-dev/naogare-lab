@@ -5155,6 +5155,7 @@ function startChocoEquip() {
   visit.done = false;
   chocoShow.parent.updateMatrixWorld(true);
   visit.inv = new THREE.Matrix4().copy(chocoShow.parent.matrixWorld).invert();
+  if (solidShow) solidShow.visible = false;   // チョコと同じ展示台のスロットを使うので、チョコを取り付けている間は隠す
 }
 // 板チョコが展示台からメカの背中へ弧を描いて飛び、小さくなって消える → タンクが付いてキラキラ → 外へ
 function updateChocoEquip(v) {
