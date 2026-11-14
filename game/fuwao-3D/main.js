@@ -2992,15 +2992,19 @@ async function showTimeAttackRanking() {
   const rowsEl = rankPanel.querySelector('.rank-rows');
   rowsEl.textContent = '読み込み中…';
   rankShow(rankListEl);
-  let results = [];
+  let results = null;   // null のまま＝読み込めなかった。[] は「まだ記録がない」で、どちらも別のお知らせを出す
   try {
     const res = await fetch(`${TIME_ATTACK_API}/ranking`);
     const data = await res.json();
     if (data && data.ok && Array.isArray(data.results)) results = data.results;
-  } catch (e) { /* 下で「読み込めませんでした」を出す */ }
+  } catch (e) { /* results は null のまま */ }
   rowsEl.replaceChildren();
-  if (!results.length) {
+  if (results === null) {
     rowsEl.textContent = '読み込めませんでした。';
+    return;
+  }
+  if (!results.length) {
+    rowsEl.textContent = 'まだ記録がありません。いちばんのりになろう！';
     return;
   }
   for (const r of results) {
