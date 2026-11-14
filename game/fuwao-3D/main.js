@@ -5119,8 +5119,10 @@ function setupVisitRoom() {
   // 工房で補給（燃料だけ。からだはパン屋のお姉さんに話すと戻る）
   fuel = fuelMax;
   // 展示台（真ん中のスロット）には、板チョコと固形化パンが同じ場所に並ぶ。
-  // ヘドロボスが町に来ている間は固形化パンを優先し（もらえる期間が短いため）、板チョコはいったん隠す（もらったらどちらもない）
-  const solidShown = bossIndex === 1 && (bossAppeared || retreat) && !bossGone && !items.has('solidifier');
+  // ヘドロボス（アラシ2）が現れたら固形化パンを優先し、板チョコはいったん隠す（もらったらどちらもない）。
+  // 固形化パンがないとヘドロボスには体当たりできない（needs: 'solidifier'）ので、もらうまでは撤退も倒すこともできず、
+  // bossAppeared だけ見れば十分（retreat・bossGone は、もらったあとにしか起こらない）
+  const solidShown = bossIndex === 1 && bossAppeared && !items.has('solidifier');
   if (chocoShow) {
     chocoShow.position.set(0, 0, 0);
     chocoShow.scale.setScalar(1);
