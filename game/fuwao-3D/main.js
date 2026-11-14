@@ -2883,6 +2883,7 @@ const ENDING_SHOT_DONE = ENDING_SHOT_WAIT + ENDING_SHOT_FADE + 0.8;   // ここ�
 function shotEndingSrc() { return 'ending2h.webp'; }
 function showEnding() {
   finale.phase = 'ending';
+  if (document.pointerLockElement) document.exitPointerLock();   // マウスロックしたままだとカーソルが出ず、ランキング登録のボタンを押せないため
   document.body.classList.remove('cutin');
   endingEl.classList.add('on');
   stopTimeAttack();   // タイムアタックの計測はここまで（ラム・パン種、どちらのエンディングでも）
