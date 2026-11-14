@@ -61,6 +61,21 @@ CREATE TABLE IF NOT EXISTS snake_scores (
 
 CREATE INDEX IF NOT EXISTS idx_snake_scores_ranking ON snake_scores (score DESC, created_at ASC);
 
+-- fuwao-3D (たすけあいヒーロー ふわお 3D) time-attack ranking. A separate table/
+-- game_id from the original 2D fuwao's fuwao_scores above. Anti-cheat tokens
+-- for score submission and per-IP rate limiting reuse the generic
+-- game_sessions / rate_limits tables above (game_id = 'fuwao3d').
+CREATE TABLE IF NOT EXISTS fuwao3d_scores (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  seconds INTEGER NOT NULL,
+  hearts INTEGER NOT NULL,
+  equip INTEGER NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_fuwao3d_scores_ranking ON fuwao3d_scores (seconds ASC, created_at ASC);
+
 -- Top-page catalog like counts, one row per game_id. No per-visitor identity
 -- is tracked server-side — "already liked" is enforced client-side via
 -- localStorage, so this is a simple popularity counter, not a vote system.

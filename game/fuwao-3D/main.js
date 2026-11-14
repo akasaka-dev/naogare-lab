@@ -1069,7 +1069,11 @@ if (new URLSearchParams(location.search).has('debug')) {
     appear() { if (!bossAppeared && !bossIntro) startBossIntro(); },
     get collapse() { return collapse; }, get finale() { return finale; }, startFinale, startMayorWarn, get townCollapsed() { return townCollapsed; }, useBoss, get bossIndex() { return bossIndex; },
     get wings() { return { mode: wingState.mode, jet: +wingState.jet.toFixed(2), rest: +wingState.rest.toFixed(2), w: Object.fromEntries(Object.entries(wingState.w).map(([k, v]) => [k, +v.toFixed(2)])), deployT: wingActs && +wingActs.deploy.time.toFixed(2), boostT: wingActs && +wingActs.boost.time.toFixed(2), equipped: !!wings?.visible, show: !!wingsShow?.visible }; },
-    get items() { return [...items]; }, giveItem(k) { items.add(k); }, noon: makeHungry, enterWorkshop, saveGame, readSave, clearSave, startGame, get visit() { return visit; }, get hungry() { return residents.filter((r) => r.hungry).map((r) => r.id); }, get intro() { return bossIntro; }, get appeared() { return bossAppeared; },
+    get items() { return [...items]; }, giveItem(k) { items.add(k); }, noon: makeHungry, enterWorkshop, saveGame, readSave, clearSave, startGame,
+    // タイムアタックの確かめ用（?debug では timeAttackOn は自動では立たないので、ここで強制できる）
+    get timeAttack() { return { on: timeAttackOn, running: timeAttackRunning, elapsed: +timeAttackElapsed.toFixed(1), result: timeAttackResult }; },
+    forceTimeAttack() { timeAttackOn = true; maybeStartTimeAttack(); },
+    stopTimeAttack, showTimeAttackAsk, showTimeAttackRanking, get visit() { return visit; }, get hungry() { return residents.filter((r) => r.hungry).map((r) => r.id); }, get intro() { return bossIntro; }, get appeared() { return bossAppeared; },
     get retreating() { return !!retreat; }, get bossGone() { return bossGone; }, get bossSolid() { return bossSolid; }, get groundUniforms() { return groundUniforms; },
     attackTown, get quake() { return quake; },
     get spots() { return ruinAreas.map((a, i) => [AREA_NAMES[a.name], areaGauge[i].spots.map((p) => [+p.x.toFixed(1), +p.z.toFixed(1)])]); },
@@ -2875,6 +2879,7 @@ function showEnding() {
   finale.phase = 'ending';
   document.body.classList.remove('cutin');
   endingEl.classList.add('on');
+  stopTimeAttack();   // タイムアタックの計測はここまで（ラム・パン種、どちらのエンディングでも）
   const img = document.getElementById('endingImg');
   if (finale.mode === 'shot') {
     endingEl.classList.add('plain');
@@ -2883,7 +2888,7 @@ function showEnding() {
     const run = () => img.animate([{ opacity: 0 }, { opacity: 1 }],
       { duration: ENDING_SHOT_FADE * 1000, delay: ENDING_SHOT_WAIT * 1000, easing: 'ease-in', fill: 'forwards' });
     if (img.complete && img.naturalWidth) run(); else img.addEventListener('load', run, { once: true });
-    setTimeout(() => endingEl.classList.add('done'), ENDING_SHOT_DONE * 1000);
+    setTimeout(() => { endingEl.classList.add('done'); showTimeAttackAsk(); }, ENDING_SHOT_DONE * 1000);
     return;
   }
   const src = endingSrc();
@@ -2906,11 +2911,109 @@ function showEnding() {
     img.style.transform = `translate(${from[0]}px, ${from[1]}px)`;
     img.animate([{ transform: `translate(${from[0]}px, ${from[1]}px)` }, { transform: `translate(${to[0]}px, ${to[1]}px)` }],
       { duration: ENDING_SCROLL * 1000, delay: ENDING_WAIT * 1000, easing: 'ease-in-out', fill: 'forwards' })
-      .finished.then(() => endingEl.classList.add('done'));
+      .finished.then(() => { endingEl.classList.add('done'); showTimeAttackAsk(); });
   };
   if (img.getAttribute('src') !== src) img.src = src;
   if (img.complete && img.naturalWidth) run(); else img.addEventListener('load', run, { once: true });
 }
+
+// ---- タイムアタック（オンラインランキング。naogare-lab の /api/fuwao3d/*、D1 の fuwao3d_scores） ----
+// 対象になるのは「はじめから」で始めた、?debug の付いていない 1 回だけ（つづきから・デバッグは対象外）。
+// オープニングが終わって操作できるようになった瞬間から、エンディング画面が出た瞬間までの、
+// 一時停止していない間の経過時間（整数秒、切り捨て）を測る。ページを閉じる・読み込み直すとこの計測は消える
+// （つづきからであっても、やり直しであっても、1回の通しプレイでのクリアだけを記録に残すため）。
+// 表示・登録する項目は、名前・🤍（生き返った回数、fuwaoNo）・装備数（板チョコ／ジェットの羽／魔法のパン種の3つのうち、
+// メカに付いている数。固形化パン・秘伝の打ち粉は見た目の装備がないので数えない）・時間（秒）。
+const TIME_ATTACK_API = '/api/fuwao3d';
+const TIME_ATTACK_EQUIP_KEYS = ['choco', 'wings', 'yeast'];   // 見た目の装備が付く3つ（docs/scene-notes.md）
+let timeAttackOn = false;        // 対象の実行か（はじめから・?debug なし）
+let timeAttackRunning = false;   // 計測中か（操作できるようになってから、エンディングまで）
+let timeAttackElapsed = 0;       // 経過秒（一時停止中は進めない）
+let timeAttackToken = null;
+let timeAttackResult = null;     // 止めた瞬間の { seconds, hearts, equip }（エンディングのあと、登録に使う）
+// 操作できるようになった瞬間に呼ぶ（endOpening / startGame）。対象の実行で、まだ計測していなければ始める
+function maybeStartTimeAttack() {
+  if (!timeAttackOn || timeAttackRunning || timeAttackResult) return;
+  timeAttackRunning = true;
+  timeAttackElapsed = 0;
+  fetch(`${TIME_ATTACK_API}/session`, { method: 'POST' })
+    .then((r) => r.json()).then((d) => { if (d && d.ok) timeAttackToken = d.token; })
+    .catch(() => { /* 登録できなくても、ゲームは続けられる */ });
+}
+// エンディング画面が出た瞬間に呼ぶ。計測中でなければ何もしない（つづきから・デバッグの場合など）
+function stopTimeAttack() {
+  if (!timeAttackRunning) return;
+  timeAttackRunning = false;
+  timeAttackResult = {
+    seconds: Math.floor(timeAttackElapsed),
+    hearts: fuwaoNo,
+    equip: TIME_ATTACK_EQUIP_KEYS.filter((k) => items.has(k)).length,
+  };
+}
+function formatTimeAttack(seconds) {
+  const m = Math.floor(seconds / 60), s = seconds % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+const rankPanel = document.getElementById('rankPanel');
+const rankAskEl = rankPanel.querySelector('.rank-ask');
+const rankEntryEl = rankPanel.querySelector('.rank-entry');
+const rankListEl = rankPanel.querySelector('.rank-list');
+function rankShow(which) {
+  rankPanel.classList.add('on');
+  for (const el of [rankAskEl, rankEntryEl, rankListEl]) el.style.display = el === which ? '' : 'none';
+}
+// エンディングの演出が終わったら呼ぶ。計測できていた（対象の実行だった）ときだけ、登録するか尋ねる
+function showTimeAttackAsk() {
+  if (!timeAttackResult) return;
+  const { seconds, hearts, equip } = timeAttackResult;
+  rankPanel.querySelector('.rank-stats').textContent = `🤍${hearts}　装備${equip}/3　${formatTimeAttack(seconds)}`;
+  rankShow(rankAskEl);
+}
+rankPanel.querySelector('.rank-no').addEventListener('click', () => rankPanel.classList.remove('on'));
+rankPanel.querySelector('.rank-yes').addEventListener('click', () => rankShow(rankEntryEl));
+rankPanel.querySelector('.rank-submit').addEventListener('click', async () => {
+  const { seconds, hearts, equip } = timeAttackResult;
+  const nameInput = rankPanel.querySelector('.rank-name');
+  const btn = rankPanel.querySelector('.rank-submit');
+  btn.disabled = true;
+  try {
+    const res = await fetch(`${TIME_ATTACK_API}/score`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: nameInput.value, seconds, hearts, equip, token: timeAttackToken }),
+    });
+    const data = await res.json();
+    if (!data || !data.ok) throw new Error(data && data.error);
+  } catch (e) { /* 登録に失敗しても、下のランキングは見られるようにそのまま進む */ }
+  btn.disabled = false;
+  await showTimeAttackRanking();
+});
+// ランキングを読んで表示する（登録のあと、またはタイトルの「ランキング」から）
+async function showTimeAttackRanking() {
+  const rowsEl = rankPanel.querySelector('.rank-rows');
+  rowsEl.textContent = '読み込み中…';
+  rankShow(rankListEl);
+  let results = [];
+  try {
+    const res = await fetch(`${TIME_ATTACK_API}/ranking`);
+    const data = await res.json();
+    if (data && data.ok && Array.isArray(data.results)) results = data.results;
+  } catch (e) { /* 下で「読み込めませんでした」を出す */ }
+  rowsEl.replaceChildren();
+  if (!results.length) {
+    rowsEl.textContent = '読み込めませんでした。';
+    return;
+  }
+  for (const r of results) {
+    const li = document.createElement('li');
+    li.innerHTML = `<span class="rank-name2"></span><span class="rank-cols">🤍${r.hearts}　装備${r.equip}/3　${formatTimeAttack(r.seconds)}</span>`;
+    li.querySelector('.rank-name2').textContent = r.name;   // 名前はテキストとして入れる（HTML を書き込まない）
+    rowsEl.appendChild(li);
+  }
+}
+rankPanel.querySelector('.rank-close').addEventListener('click', () => rankPanel.classList.remove('on'));
+// タイトル画面の「ランキング」ボタン（エンディングを見ていなくても、いつでも見られる）
+document.getElementById('rankBtn').addEventListener('click', (e) => { e.stopPropagation(); showTimeAttackRanking(); });
+
 // 転がるボス：動いている間は転がり始め → 転がる（進む速さに合わせてアニメの速さを変える）、止まったら待機へ
 let rolling = 0;   // 0 止まっている / 1 転がり始め / 2 転がっている
 function setRolling(on) {
@@ -5385,6 +5488,7 @@ document.getElementById('skipOpening').addEventListener('pointerdown', (e) => {
 });
 function endOpening() {
   opening = null;
+  maybeStartTimeAttack();   // 操作できるようになった瞬間（対象の実行でなければ何もしない）
   document.body.classList.remove('opening', 'opening-out');
   scene.remove(room, roomMayor, roomFuwao, roomChief, roomMecha);
   roomMayorMixer?.uncacheRoot(roomMayor);
@@ -5789,7 +5893,13 @@ function startGame(cont) {
       fadeEl.classList.add('on');
       collapseTown().catch((e) => console.error(e)).finally(() => { respawn(); setTimeout(() => fadeEl.classList.remove('on'), 300); });
     }
-  } else respawn(NEW_START_POS, NEW_START_YAW);
+  } else {
+    respawn(NEW_START_POS, NEW_START_YAW);
+    // タイムアタックの対象は「はじめから」・?debug なしのときだけ。オープニングがもう終わっている
+    // （?skip のとき）なら、ここですぐ計測を始める。そうでなければ、あとで endOpening() が始める
+    timeAttackOn = !new URLSearchParams(location.search).has('debug');
+    if (!opening) maybeStartTimeAttack();
+  }
   enterPlay();
 }
 // タイトル画面で最初にどこかを押したときに、タイトルの曲を鳴らし始める（音は押したときでないと鳴らせない）
@@ -6413,6 +6523,7 @@ function updateCamera() {
 
 let daytime = null;
 function tick(dt, active) {
+  if (timeAttackRunning && active) timeAttackElapsed += dt;
   updateAmbient(active);
   // 一時停止中は時間を止める（見た目の切り替えには合わせ直す）。N を押している間は早送り
   waterUniforms.uTime.value += dt;

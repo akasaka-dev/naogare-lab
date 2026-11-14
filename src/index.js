@@ -1,6 +1,7 @@
 import { routeLine4 } from './line4-online.js';
 import { routeLine4Second } from './line4-second-online.js';
 import { routeFuwao } from './fuwao-ranking.js';
+import { routeFuwao3d } from './fuwao3d-ranking.js';
 import { routeSnake } from './snake-ranking.js';
 import { routeKuma } from './kuma-ranking.js';
 import { routeLikes } from './likes.js';
@@ -228,6 +229,17 @@ export default {
     if (path.startsWith('/api/fuwao/')) {
       try {
         const res = await routeFuwao(request, env, path);
+        if (res) return res;
+      } catch (e) {
+        return jsonResponse({ ok: false, error: 'server_error' }, 500);
+      }
+    }
+
+    // fuwao-3D time-attack ranking — isolated in fuwao3d-ranking.js, own D1
+    // table (fuwao3d_scores), separate from the original 2D fuwao above.
+    if (path.startsWith('/api/fuwao3d/')) {
+      try {
+        const res = await routeFuwao3d(request, env, path);
         if (res) return res;
       } catch (e) {
         return jsonResponse({ ok: false, error: 'server_error' }, 500);
