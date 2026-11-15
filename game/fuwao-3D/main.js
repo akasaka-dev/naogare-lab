@@ -4776,7 +4776,8 @@ const OPENING_INTRO = 3.8;      // 入口から部屋の全体を見せて、町
 const OPENING_HOLD = 0.7;       // そのうち、入口からの全体のまま止まっている時間（秒）
 const OPENING_WIDE_FOV = 62;    // 入口から全体を見るときの画角
 const MECHA_SPOT = [0, -2.0];   // 用意されたメカを置く場所（展示台の奥、窯と窯のあいだ。入口からの全体でも正面の奥に見える）
-const OPENING_LAMP = 30;        // 部屋の天井へ移したランプの明るさ
+const MECHA_TURN = 0.8;         // メカの向きを、作業台のふわおのほうから右へ振る角度（ラジアン。パン砲の先が展示台にめりこまないように）
+const OPENING_LAMP = 30;       // 部屋の天井へ移したランプの明るさ
 const FUWAO_HOP = 0.45;          // 飛び跳ねる高さ（m）
 const FUWAO_HOP_RATE = 7;        // 飛び跳ねる速さ（π / これ 秒で 1 回）
 const FADE_TIME = 0.6;          // 暗転の長さ（秒）
@@ -4855,7 +4856,10 @@ function setupOpening(workshopGltf, mayorGltf, chiefGltf) {
     if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; }
   });
   roomMecha.position.set(MECHA_SPOT[0], 0, MECHA_SPOT[1]).add(WORKSHOP_POS);
-  roomMecha.rotation.y = Math.atan2(roomFuwao.position.x - roomMecha.position.x, roomFuwao.position.z - roomMecha.position.z);
+  // 作業台のふわおへまっすぐ向けると、パン砲の先が手前の展示台にめりこむ（約 0.2m）ので、右へ MECHA_TURN だけ振る。
+  // メカの紹介のカメラ（openingShot の 'mecha'）は、振る前の向き（faceY）から決める（展示台がかぶらない角度のまま）
+  roomMecha.userData.faceY = Math.atan2(roomFuwao.position.x - roomMecha.position.x, roomFuwao.position.z - roomMecha.position.z);
+  roomMecha.rotation.y = roomMecha.userData.faceY + MECHA_TURN;
   scene.add(roomMecha);
 }
 function chiefPlay(name) {
@@ -4870,7 +4874,7 @@ function openingShot(who, jump, shot) {
   openingFov = OPENING_FOV;
   // メカの紹介：メカの斜め前（左側）から、少し見下ろして大きく（手前の展示台がかぶらない角度）
   if (shot === 'mecha') {
-    _ot.set(Math.sin(roomMecha.rotation.y), 0, Math.cos(roomMecha.rotation.y));
+    _ot.set(Math.sin(roomMecha.userData.faceY), 0, Math.cos(roomMecha.userData.faceY));
     _oc.copy(roomMecha.position).addScaledVector(_ot, 0.9);
     _oc.x -= _ot.z * 3.3; _oc.z += _ot.x * 3.3;
     _oc.y = roomMecha.position.y + 1.8;
