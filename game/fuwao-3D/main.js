@@ -2971,12 +2971,24 @@ const CREDITS_IN = 2.2, CREDITS_HOLD = 2.4, CREDITS_OUT = 2.2;   // 入り・中
 const CREDITS_ORDER = ['1-1', '3-1', '0-1', '7-1', '4-1', '2-2', '7-2', 'castle', 'boss:0', 'boss:1', 'boss:2', 'player'];
 // 体当たり・狙撃で曲を変える。まだ素材なし。置けばそのまま鳴る
 const CREDITS_BGM = { ram: 'sounds/bgm_credits1.mp3', shot: 'sounds/bgm_credits2.mp3' };
+// <audio> は、ページのどこかを最初に押した（触った）そのときに一度鳴らして止めておかないと、あとから
+// （操作をきっかけにせず）再生しようとしても iPhone などでは鳴らしてもらえない（bgm.el と同じ理由）。
+// 1つの <audio> を使い回す（曲を変えるときは src を差し替えるだけ）ので、前の曲が鳴ったまま
+// もう一方が重なって鳴ることもない。本編の起動処理（initAudio）にはふれず、ここだけで完結させる
 let creditsAudio = null;
-function playCreditsBgm() {
-  if (!soundOn.bgm) return;
-  creditsAudio?.pause();   // 前の（別のエンディングの）曲が鳴ったままにならないように、まず止める
-  creditsAudio = new Audio(finale.mode === 'shot' ? CREDITS_BGM.shot : CREDITS_BGM.ram);
+function unlockCreditsAudio() {
+  if (creditsAudio) return;
+  creditsAudio = new Audio();
   creditsAudio.loop = true;
+  creditsAudio.volume = 0;
+  creditsAudio.play().then(() => creditsAudio.pause()).catch(() => { /* 自動再生できない環境 */ });
+}
+document.addEventListener('pointerdown', unlockCreditsAudio, { once: true, capture: true });
+function playCreditsBgm() {
+  if (!soundOn.bgm || !creditsAudio) return;
+  creditsAudio.pause();
+  creditsAudio.src = finale.mode === 'shot' ? CREDITS_BGM.shot : CREDITS_BGM.ram;
+  creditsAudio.currentTime = 0;
   creditsAudio.volume = BGM_VOL;
   creditsAudio.play().catch(() => { /* まだ素材がない・自動再生できない環境 */ });
 }
