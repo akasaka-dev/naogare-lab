@@ -503,6 +503,7 @@ function initAudio() {
   bgm.gain.gain.value = 0;
   audioCtx.createMediaElementSource(bgm.el).connect(bgm.gain).connect(audioCtx.destination);
   updateBgm(true);   // 押したその場で鳴らし始める（iPhone は押したときでないと鳴らせない）
+  unlockCreditsAudios();   // エンディングのパレード曲も、同じ理由でここで鳴らして止めておく
   for (const a of Object.values(AMB)) {
     a.gain = audioCtx.createGain();
     a.gain.gain.value = 0;
@@ -2970,13 +2971,23 @@ const CREDITS_IN = 2.2, CREDITS_HOLD = 2.4, CREDITS_OUT = 2.2;   // 入り・中
 const CREDITS_ORDER = ['1-1', '3-1', '0-1', '7-1', '4-1', '2-2', '7-2', 'castle', 'boss:0', 'boss:1', 'boss:2', 'player'];
 // 体当たり・狙撃で曲を変える。まだ素材なし。置けばそのまま鳴る
 const CREDITS_BGM = { ram: 'sounds/bgm_credits1.mp3', shot: 'sounds/bgm_credits2.mp3' };
-let creditsAudio = null;
+// <audio> は、押したとき（initAudio）のうちに一度鳴らして止めておかないと、あとから（ゲームの最中、タップなどの
+// 操作をきっかけにせず）再生しようとしても、iPhone などでは鳴らしてもらえない。bgm.el と同じ理由
+let creditsAudios = null;
+function unlockCreditsAudios() {
+  creditsAudios = { ram: new Audio(CREDITS_BGM.ram), shot: new Audio(CREDITS_BGM.shot) };
+  for (const a of Object.values(creditsAudios)) {
+    a.loop = true;
+    a.volume = 0;
+    a.play().then(() => a.pause()).catch(() => { /* まだ素材がない・自動再生できない環境 */ });
+  }
+}
 function playCreditsBgm() {
-  if (!soundOn.bgm) return;
-  creditsAudio = new Audio(finale.mode === 'shot' ? CREDITS_BGM.shot : CREDITS_BGM.ram);
-  creditsAudio.loop = true;
-  creditsAudio.volume = BGM_VOL;
-  creditsAudio.play().catch(() => { /* まだ素材がない・自動再生できない環境 */ });
+  if (!soundOn.bgm || !creditsAudios) return;
+  const a = finale.mode === 'shot' ? creditsAudios.shot : creditsAudios.ram;
+  a.currentTime = 0;
+  a.volume = BGM_VOL;
+  a.play().catch(() => { /* まだ素材がない・自動再生できない環境 */ });
 }
 let credits = null;
 // 住民をクローンして、パレード専用の新しいミキサーで動かす（本編の住民にはふれない）。
