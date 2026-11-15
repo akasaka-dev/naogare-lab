@@ -3252,8 +3252,20 @@ function collideBoss(dt) {
     velY = Math.max(velY, 4);
     shake = 1.5;
   }
-  // 球の外へ押し出す
-  feet.addScaledVector(_bd, reach - d);
+  // 球の外へ押し出す。一度に動かすと壁や地面を抜けて家の中・地形の下へ入ってしまうので、
+  // ふだんの移動（updatePlayer）と同じく MOVE_SUBSTEP ずつ進めて、壁・地面・天井に当たったらそこで止める
+  const pushN = Math.max(1, Math.ceil((reach - d) / MOVE_SUBSTEP));
+  _bd.multiplyScalar((reach - d) / pushN);
+  for (let i = 0; i < pushN; i++) {
+    _subPrev.copy(feet);
+    feet.add(_bd);
+    const stuck = slideCapsule(feet, _subPrev);
+    if (stuck > SIDE_SLACK && stuck > sideOverlap(_subPrev) + 1e-4) { feet.copy(_subPrev); break; }
+    const g = groundBelow(feet);
+    if (g === null || (g > feet.y + 0.01 && ceilingOver(_hp.set(feet.x, g, feet.z)))) { feet.copy(_subPrev); break; }
+    if (g > feet.y) feet.y = g;
+    if (!pressDown(feet, g) && overheadNeed(_subPrev) <= OVERHEAD_SLACK) { feet.copy(_subPrev); break; }
+  }
 }
 
 // ---- ヨゴレ（町人の敵） ----
