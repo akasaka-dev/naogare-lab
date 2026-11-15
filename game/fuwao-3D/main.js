@@ -6173,14 +6173,24 @@ function eachCapsuleHit(visit) {
     });
   }
 }
-// p（足元）の体が壁に重なっていたら、重ならないところまで横へ押し出す。from は押し出す前にいた所（向きが決まらないときに使う）
+// 頭の上からかぶさる面（軒裏・天井）：重なりの向きが、これより上向き（0.5 = 水平から 30° より上）。
+// こういう面は横へは押さない。斜めの軒裏は、横に押すと壁のほうへ押すことになり、ジェットで壁に押しつけて上がっていくと
+// 壁と軒裏にはさまれて少しずつ壁へめりこみ、芯が壁に届いたところで反対側（家の中）へ押し出されてしまうため。
+// かわりに pressDown で下へ押し下げる（下がれなければ、そこへは進めない）
+const OVERHEAD = 0.5;
+const isOverhead = (d) => d > 1e-5 && _triP.y - _capP.y > d * OVERHEAD;
+// p（足元）の体が壁に重なっていたら、重ならないところまで横へ押し出す。from は押し出す前にいた所（向きが決まらないときに使う）。
+// 返り値は、押し出しても残った重なりの深さ（m）。壁と壁にはさまれて押し出しきれなかったとき以外は 0
 function slideCapsule(p, from) {
   for (let iter = 0; iter < CAP_ITER; iter++) {
     capsuleAt(p);
     let pushed = false;
     eachCapsuleHit((tri, d) => {
+      if (isOverhead(d)) return false;
+      const dy = _triP.y - _capP.y;
       _capP.sub(_triP).setY(0);
       let len = _capP.length();
+      let push = RADIUS - d;
       if (len < 1e-5) {
         // 芯が三角形に触れている：三角形の向き（来たほうへ）に押す
         tri.getNormal(_triN).setY(0);
@@ -6191,8 +6201,12 @@ function slideCapsule(p, from) {
         len = 1;
       } else if (len < (RADIUS - d) * 0.05) {
         return false;   // ほぼ真上・真下からの重なり（天井・床）は横には押さない
+      } else {
+        // 斜めに当たっているとき（段のふち・軒先など、当たった点が芯の端より上か下にある）は、
+        // 横へ RADIUS - d だけ動いても重なりが残る。高さの差はそのままで、ちょうど離れるところまで押す
+        push = Math.sqrt(Math.max(0, RADIUS * RADIUS - dy * dy)) - len;
       }
-      const push = (RADIUS - d) + 0.002;
+      push += 0.002;
       p.x += _capP.x / len * push;
       p.z += _capP.z / len * push;
       _seg.start.x = _seg.end.x = p.x;
@@ -6200,8 +6214,51 @@ function slideCapsule(p, from) {
       pushed = true;
       return false;
     });
-    if (!pushed) return;
+    if (!pushed) return 0;
   }
+  return sideOverlap(p);
+}
+// p（足元）の体が、横から壁に重なっている深さ（m）。重なっていなければ 0
+function sideOverlap(p) {
+  capsuleAt(p);
+  let worst = 0;
+  eachCapsuleHit((tri, d) => {
+    if (isOverhead(d)) return false;
+    if (d > 1e-5) {
+      if (Math.hypot(_capP.x - _triP.x, _capP.z - _triP.z) < (RADIUS - d) * 0.05) return false;   // 床・天井
+    } else {
+      tri.getNormal(_triN).setY(0);
+      if (_triN.lengthSq() < 1e-8) return false;
+    }
+    worst = Math.max(worst, RADIUS - d);
+    return false;
+  });
+  return worst;
+}
+// p（足元）の体に、頭の上から面（軒裏・天井）がかぶさっているとき、重ならなくなるまでに下がらないといけない高さ（m）。なければ 0
+function overheadNeed(p) {
+  capsuleAt(p);
+  let need = 0;
+  eachCapsuleHit((tri, d) => {
+    if (isOverhead(d)) need = Math.max(need, (RADIUS - d) * d / (_triP.y - _capP.y) + 0.002);
+    return false;
+  });
+  return need;
+}
+// 頭の上からかぶさる面に重ならない高さまで、p（足元）を下げる。minY（足元の地面）より下へは下げない。
+// 下げきれずに重なりが残ったら false
+const OVERHEAD_SLACK = 0.02;   // これ以下の重なりは、残っていてもよい
+function pressDown(p, minY) {
+  for (let iter = 0; iter < CAP_ITER; iter++) {
+    const need = overheadNeed(p);
+    if (need <= 0) return true;
+    if (p.y - need < minY) {
+      p.y = Math.min(p.y, minY);
+      return overheadNeed(p) <= OVERHEAD_SLACK;
+    }
+    p.y -= need;
+  }
+  return overheadNeed(p) <= OVERHEAD_SLACK;
 }
 // p（足元）に立ったとき、頭の上（体の高さの中）に天井や軒の裏がかぶさるか（低い所へ登らないように）
 function ceilingOver(p) {
@@ -6243,7 +6300,8 @@ const _right = new THREE.Vector3();
 const _move = new THREE.Vector3();
 const _prev = new THREE.Vector3();
 const _sub = new THREE.Vector3(), _subPrev = new THREE.Vector3(), _hp = new THREE.Vector3();
-const MOVE_SUBSTEP = 0.2;   // これより長い移動は分けて進める（53°の斜面でも 1 回で 0.27m しか上がらない。体の半径より短いので、薄い壁もすり抜けない）
+const SIDE_SLACK = RADIUS / 2;   // 壁への重なりがこれ以下なら、押し出しきれていなくても進める（芯は壁から RADIUS / 2 より近づかない）
+const MOVE_SUBSTEP = 0.2;  // これより長い移動は分けて進める（53°の斜面でも 1 回で 0.27m しか上がらない。体の半径より短いので、薄い壁もすり抜けない）
 
 function updatePlayer(dt) {
   // カメラの向きを基準に移動方向を決める
@@ -6321,11 +6379,17 @@ function updatePlayer(dt) {
   for (let i = 0; i < subN; i++) {
     _subPrev.copy(feet);
     feet.x += _sub.x; feet.z += _sub.z;
-    slideCapsule(feet, _subPrev);   // 壁に重なった分だけ押し出す（壁に沿ってすべる）
+    const stuck = slideCapsule(feet, _subPrev);   // 壁に重なった分だけ押し出す（壁に沿ってすべる）
+    // 押し出しきれずに、進む前より深く壁に重なるなら、そこへは進まない（少しずつ壁にめりこんで、反対側へ抜けないように）
+    if (stuck > SIDE_SLACK && stuck > sideOverlap(_subPrev) + 1e-4) { feet.copy(_subPrev); break; }
     const g = groundBelow(feet);
     // 足元に何もない（地形の外）か、登った先で頭の上に天井がかぶさる（橋の下の低い岸など）なら、そこへは進まない
     if (g === null || (g > feet.y + 0.01 && ceilingOver(_hp.set(feet.x, g, feet.z)))) { feet.x = _subPrev.x; feet.z = _subPrev.z; break; }
     if (g > feet.y) feet.y = g;   // 上り坂・段差を登る
+    // 飛んでいるとき、頭の上に軒裏や天井がかぶさるなら、その下へもぐる。もぐれなければ、そこへは進まない。
+    // 進む前からかぶさっていたのなら、動けなくならないようにそのまま進める。
+    // 歩いているときは今までどおり（低い軒やアーチの下も、頭がかすめるだけで通れる）
+    if (!onGround && !pressDown(feet, g) && overheadNeed(_subPrev) <= OVERHEAD_SLACK) { feet.copy(_subPrev); break; }
   }
 
   // 足元の高さ
@@ -6385,6 +6449,10 @@ function updatePlayer(dt) {
       feet.y = Math.max(prevY, hit.point.y - ROBOT_HEIGHT);
       velY = 0;
     }
+    // 上の線は体の中心だけ。斜めの軒裏は中心より外側のほうが低いので、肩がめりこまない高さまで下げる
+    const top = feet.y;
+    pressDown(feet, floor ?? -Infinity);
+    if (feet.y < top) velY = 0;
   }
 
   if (floor !== null) {
