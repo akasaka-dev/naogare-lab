@@ -2970,28 +2970,14 @@ const CREDITS_IN = 2.2, CREDITS_HOLD = 2.4, CREDITS_OUT = 2.2;   // 入り・中
 const CREDITS_ORDER = ['1-1', '3-1', '0-1', '7-1', '4-1', '2-2', '7-2', 'castle', 'boss:0', 'boss:1', 'boss:2', 'player'];
 // 体当たり・狙撃で曲を変える。まだ素材なし。置けばそのまま鳴る
 const CREDITS_BGM = { ram: 'sounds/bgm_credits1.mp3', shot: 'sounds/bgm_credits2.mp3' };
-// <audio> は、何か（ページのどこでもいい）を押した・触ったそのときのうちに一度鳴らして止めておかないと、あとから
-// （ゲームの最中、タップなどの操作をきっかけにせず）再生しようとしても、iPhone などでは鳴らしてもらえない。
-// 本編の起動処理（initAudio）にはふれず、ここだけで完結させる（エンディングの追加が本編に影響しないように）
-let creditsAudios = null;
-function unlockCreditsAudios() {
-  if (creditsAudios) return;
-  creditsAudios = { ram: new Audio(CREDITS_BGM.ram), shot: new Audio(CREDITS_BGM.shot) };
-  for (const a of Object.values(creditsAudios)) {
-    a.loop = true;
-    a.volume = 0;
-    a.play().then(() => a.pause()).catch(() => { /* まだ素材がない・自動再生できない環境 */ });
-  }
-}
-document.addEventListener('pointerdown', unlockCreditsAudios, { once: true, capture: true });
-// ページを離れるときは、できるだけ早く止めておく（本編の pagehide（セーブ）にはふれない、別の登録）
-window.addEventListener('pagehide', () => { for (const a of Object.values(creditsAudios || {})) a.pause(); });
+let creditsAudio = null;
 function playCreditsBgm() {
-  if (!soundOn.bgm || !creditsAudios) return;
-  const a = finale.mode === 'shot' ? creditsAudios.shot : creditsAudios.ram;
-  a.currentTime = 0;
-  a.volume = BGM_VOL;
-  a.play().catch(() => { /* まだ素材がない・自動再生できない環境 */ });
+  if (!soundOn.bgm) return;
+  creditsAudio?.pause();   // 前の（別のエンディングの）曲が鳴ったままにならないように、まず止める
+  creditsAudio = new Audio(finale.mode === 'shot' ? CREDITS_BGM.shot : CREDITS_BGM.ram);
+  creditsAudio.loop = true;
+  creditsAudio.volume = BGM_VOL;
+  creditsAudio.play().catch(() => { /* まだ素材がない・自動再生できない環境 */ });
 }
 let credits = null;
 // 住民をクローンして、パレード専用の新しいミキサーで動かす（本編の住民にはふれない）。
