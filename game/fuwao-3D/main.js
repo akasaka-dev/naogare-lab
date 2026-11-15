@@ -3830,13 +3830,23 @@ function raiseFuelMax(step = FUEL_MAX_STEP) {
 const BODY_HIT = 0.25;          // 1 回で減るからだ（1/4）
 const BODY_HIT_GUARD = 1.5;     // 続けて減らない時間（秒）
 let bodyHitWait = 0;
-// ゲームオーバー（いまは仮の画面。つづきからは、最後に保存したところから）
+// ゲームオーバー：黒画面に一行 →（クリック／タップ）→ 素材の絵がゆっくりフェードイン（BGM も鳴らす）→（もう一度）→ タイトルへ
 const GAMEOVER_STAGE = 4;
-const KNOCK_FADE_OUT = 1.8;    // からだが 0 になったときの暗転の長さ（秒）
+const KNOCK_FADE_OUT = 1.8;     // からだが 0 になったときの暗転の長さ（秒。焼き直せるとき）
+const GAMEOVER_FADE_OUT = 3.2;  // 同じく、もう焼き直せない（ゲームオーバーになる）とき
 const KNOCK_DARK = 0.4;        // 真っ暗なままの時間（秒）
 const KNOCK_FADE_IN = 1.4;     // 工房の中で明るくなる長さ（秒）
 // 暗転の長さを変える（null でふつうの FADE_TIME に戻す。CSS の transition）
 function setFadeTime(sec) { fadeEl.style.transitionDuration = sec ? `${sec}s` : ''; }
+const GAMEOVER_BGM = 'sounds/bgm_gameover.mp3';   // まだ素材なし。置けばそのまま鳴る
+let gameoverAudio = null;
+function playGameOverBgm() {
+  if (!soundOn.bgm) return;
+  gameoverAudio ||= new Audio(GAMEOVER_BGM);
+  gameoverAudio.loop = true;
+  gameoverAudio.volume = BGM_VOL;
+  gameoverAudio.play().catch(() => { /* まだ素材がない・自動再生できない環境 */ });
+}
 function showGameOver() {
   knockout.gameover = true;
   savingOn = false;   // からだが 0 のまま保存しない
@@ -3844,6 +3854,12 @@ function showGameOver() {
   releaseAll();
   document.getElementById('gameover').classList.add('on');
 }
+// 1 回目のクリック／タップで絵と BGM を出し、2 回目でタイトルへ（location.reload）
+const gameoverEl = document.getElementById('gameover');
+gameoverEl.addEventListener('click', () => {
+  if (!gameoverEl.classList.contains('show-album')) { gameoverEl.classList.add('show-album'); playGameOverBgm(); }
+  else location.reload();
+});
 function hurtBody(msg) {
   if (bodyHitWait > 0 || knockout) return false;
   bodyHitWait = BODY_HIT_GUARD;
@@ -3884,12 +3900,15 @@ function updateProgress(dt, active) {
 
   // からだが 0：ゆっくり暗転（KNOCK_FADE_OUT）→ パン工房の中でゆっくり明るくなり（KNOCK_FADE_IN）、工場長が話す → 外へ。
   // ステージ 4（町の崩壊のあと）は、魔法のパン種を工場長が窯から持ち出していて焼き直せないので、ゲームオーバー
+  // （二度と焼き直せないので、ふつうの気絶より長く、ゆっくり暗転させる）
   if (knockout) {
     knockout.t += dt;
-    if (knockout.t >= 0 && !fadeEl.classList.contains('on')) { setFadeTime(KNOCK_FADE_OUT); fadeEl.classList.add('on'); }
+    const gameOver = storyStage >= GAMEOVER_STAGE;
+    const fadeOut = gameOver ? GAMEOVER_FADE_OUT : KNOCK_FADE_OUT;
+    if (knockout.t >= 0 && !fadeEl.classList.contains('on')) { setFadeTime(fadeOut); fadeEl.classList.add('on'); }
     if (knockout.gameover) return;
-    if (knockout.t > KNOCK_FADE_OUT + KNOCK_DARK) {
-      if (storyStage >= GAMEOVER_STAGE) { setFadeTime(null); showGameOver(); return; }
+    if (knockout.t > fadeOut + KNOCK_DARK) {
+      if (gameOver) { setFadeTime(null); showGameOver(); return; }
       velY = 0; jetting = false; jetVel.set(0, 0, 0); recoilVel.set(0, 0, 0);
       fuel = fuelMax; body = 1; fuwaoNo++;
       knockout = null;
