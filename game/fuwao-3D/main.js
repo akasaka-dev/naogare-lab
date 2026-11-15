@@ -3097,7 +3097,9 @@ function startCredits() {
   // もともと「静かにする」判定になっているので、ここで一度だけ呼んで、ふだんの消え方（川・滝・地ひびき・BGM）に任せる
   updateAmbient(false);
   document.getElementById('endingImg').style.display = 'none';
-  endingEl.style.background = '#000';
+  // #ending 自体は不透明な背景を持つ板で、3D のキャンバスの手前に乗っている。ここを素通し（transparent）に
+  // しないと、パレードのキャラクターは3D側で動いていても板の後ろに完全に隠れて見えない
+  endingEl.style.background = 'transparent';
   // 町・遠景・空を隠して、真っ黒を背景にする（アニメ調の描画は毎フレーム sky.visible を立て直すので、
   // visible ではなくシーンから外して確実に消す）
   townGroup.visible = false;
