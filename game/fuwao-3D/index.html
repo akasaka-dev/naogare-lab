@@ -248,6 +248,14 @@
   #ending.plain .credit { top: auto; bottom: calc(6% + env(safe-area-inset-bottom)); transform: none; }
   #ending.plain .lead { display: block; }
   #ending .start { pointer-events: auto; cursor: pointer; font: inherit; font-size: 18px; padding: 10px 28px; border: none; border-radius: 999px; background: #e8973c; color: #fff; }
+  /* エンディングの語り（絵の上か、絵の前の暗い場で、1行ずつ浮かべて消す） */
+  #endingNarration { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 84%; max-width: 620px;
+    font-size: clamp(16px, 4vw, 22px); line-height: 1.9; opacity: 0; transition: opacity 0.7s; text-shadow: 0 2px 8px rgba(0, 0, 0, 0.7); pointer-events: none; }
+  #endingNarration.on { opacity: 1; }
+  /* キャラ紹介パレードだけで出す「スキップ」（body.credits のときだけ） */
+  #creditsSkip { display: none; position: fixed; right: calc(14px + env(safe-area-inset-right)); top: calc(14px + env(safe-area-inset-top));
+    font-size: 14px; padding: 6px 16px; opacity: 0.85; z-index: 10; }
+  body.credits #creditsSkip { display: block; }
   /* タイムアタックの登録・ランキング（エンディングのあと、またはタイトルの「ランキング」から） */
   #rankPanel { display: none; position: fixed; inset: 0; z-index: 10; background: rgba(20, 16, 12, 0.72);
     align-items: center; justify-content: center; padding: 20px; box-sizing: border-box;
@@ -378,7 +386,7 @@
 <div id="fade"></div>
 <div id="flash"></div>
 <div id="gameover"><div class="go-text">ふわおはきえてしまった</div><div class="go-album"></div></div>
-<div id="ending"><img id="endingImg" alt=""><div class="credit"><div class="lead">ふわおは、町を守りきった！</div><div class="title">たすけあいヒーロー ふわお</div><button class="start" onclick="location.reload()">タイトルにもどる</button></div></div>
+<div id="ending"><img id="endingImg" alt=""><div id="endingNarration"></div><button id="creditsSkip" class="start">スキップ</button><div class="credit"><div class="lead" id="endingLead">ふわおは、町を守りきった！</div><div class="title">たすけあいヒーロー ふわお</div><button class="start" onclick="location.reload()">タイトルにもどる</button></div></div>
 <div id="rankPanel">
   <div class="rank-box">
     <div class="rank-ask">

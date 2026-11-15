@@ -924,6 +924,7 @@ function updateRuin(dt) {
 const player = new THREE.Group();   // 位置と向き。中にロボのモデルを入れる
 let model = null;
 let mixer = null;
+let kindGltf = {};   // 住民の種類（grandpa/girl/grandma/mayor/baker/chief）→ 読み込んだ gltf。エンディングのキャラ紹介パレードで使う
 let walkAction = null, idleAction = null, fireAction = null, airAction = null, jetAction = null, jetFxAction = null;
 let fireOffset = new THREE.Vector3();
 let firing = false;
@@ -2880,8 +2881,31 @@ function endingSrc() { return endingWide() ? 'ending1h.webp' : 'ending1.webp'; }
 // すぐ出さずにゆっくり浮かび上がらせる（ENDING_SHOT_FADE）。縦長の絵はまだないので、横の絵を画面いっぱいに使う
 const ENDING_SHOT_WAIT = 0.6;    // 暖色の地から、絵がうっすら浮かび始めるまで（秒）
 const ENDING_SHOT_FADE = 4.5;    // 絵がゆっくり浮かび上がる長さ（秒）
-const ENDING_SHOT_DONE = ENDING_SHOT_WAIT + ENDING_SHOT_FADE + 0.8;   // ここまで見せてから、タイトルとボタンを浮かべる
 function shotEndingSrc() { return 'ending2h.webp'; }
+// ---- エンディングの語り（絵のあと・絵の前に、1行ずつ浮かべて消す） ----
+const ENDING_LINE_HOLD = 4300, ENDING_LINE_FADE = 700;   // 合わせて1行5秒
+const endingNarrationEl = document.getElementById('endingNarration');
+function showNarration(lines, onLine, onDone) {
+  let i = -1;
+  function next() {
+    i++;
+    if (i >= lines.length) { onDone(); return; }
+    endingNarrationEl.textContent = lines[i];
+    endingNarrationEl.classList.add('on');
+    onLine?.(i);
+    setTimeout(() => {
+      endingNarrationEl.classList.remove('on');
+      setTimeout(next, ENDING_LINE_FADE);
+    }, ENDING_LINE_HOLD);
+  }
+  next();
+}
+// 体当たり：メカは壊れてしまったが、町は取り戻していく。狙撃：ふわおは生きて帰り、町はこれから元に戻っていく
+const RAM_NARRATION = ['ふわおはもう戻らない。', 'でも、みんな　ふわおのことを忘れないだろう。', 'ふわおの勇気を胸に　町はその姿を取り戻していく……'];
+const SHOT_NARRATION = ['ふわおは町を守りきった。', '町が元の姿を取り戻すには、時間がかかるだろう。', 'だが、彼らには見える。よみがえった町と、人々の笑顔が。'];
+// エンディング画面をクリック／タップしたら進める場面（狙撃：絵が出たあと、パレードを始める）で使う
+let awaitingEndingClick = null;
+endingEl.addEventListener('click', () => { if (awaitingEndingClick) { const fn = awaitingEndingClick; awaitingEndingClick = null; fn(); } });
 function showEnding() {
   finale.phase = 'ending';
   if (document.pointerLockElement) document.exitPointerLock();   // マウスロックしたままだとカーソルが出ず、ランキング登録のボタンを押せないため
@@ -2892,13 +2916,17 @@ function showEnding() {
   if (finale.mode === 'shot') {
     endingEl.classList.add('plain');
     img.style.cssText = '';   // 前にラムエンディングを見たときの大きさ・動きが残らないように
-    img.src = shotEndingSrc();
-    const run = () => img.animate([{ opacity: 0 }, { opacity: 1 }],
-      { duration: ENDING_SHOT_FADE * 1000, delay: ENDING_SHOT_WAIT * 1000, easing: 'ease-in', fill: 'forwards' });
-    if (img.complete && img.naturalWidth) run(); else img.addEventListener('load', run, { once: true });
-    setTimeout(() => { endingEl.classList.add('done'); showTimeAttackAsk(); }, ENDING_SHOT_DONE * 1000);
+    // 文字を3行→絵がゆっくり浮かび上がる→クリック／タップでパレードへ（曲は3行目から）
+    showNarration(SHOT_NARRATION, (i) => { if (i === 2) playCreditsBgm(); }, () => {
+      img.src = shotEndingSrc();
+      const run = () => img.animate([{ opacity: 0 }, { opacity: 1 }],
+        { duration: ENDING_SHOT_FADE * 1000, delay: ENDING_SHOT_WAIT * 1000, easing: 'ease-in', fill: 'forwards' })
+        .finished.then(() => { awaitingEndingClick = startCredits; });
+      if (img.complete && img.naturalWidth) run(); else img.addEventListener('load', run, { once: true });
+    });
     return;
   }
+  playCreditsBgm();   // 絵のスクロールと同時に曲を始める
   const src = endingSrc();
   const run = () => {
     const vw = window.innerWidth, vh = window.innerHeight, aspect = img.naturalWidth / img.naturalHeight;
@@ -2919,11 +2947,170 @@ function showEnding() {
     img.style.transform = `translate(${from[0]}px, ${from[1]}px)`;
     img.animate([{ transform: `translate(${from[0]}px, ${from[1]}px)` }, { transform: `translate(${to[0]}px, ${to[1]}px)` }],
       { duration: ENDING_SCROLL * 1000, delay: ENDING_WAIT * 1000, easing: 'ease-in-out', fill: 'forwards' })
-      .finished.then(() => { endingEl.classList.add('done'); });   // タイムアタックの登録は、狙撃エンディングだけが対象（体当たりは難易度が違うので、同じランキングに混ぜない）
+      // スクロールが終わったら、絵の上に語りを1行ずつ（5秒）→パレードへ
+      .finished.then(() => { showNarration(RAM_NARRATION, null, startCredits); });
   };
   if (img.getAttribute('src') !== src) img.src = src;
   if (img.complete && img.naturalWidth) run(); else img.addEventListener('load', run, { once: true });
 }
+
+// ---- エンディングのキャラ紹介パレード（①体当たり・②狙撃、どちらの絵のあとにも流す） ----
+// 絵を出したあと、画面を真っ黒にしてステージの奥に住民・アラシ（3体とも）・最後にふわおを1人（1体）ずつ、
+// 右から歩かせて中央でひとこと（Talk。なければ Idle）→ 左へ歩いて消す、をくりかえす。モデルは町にいるものをそのまま使う：
+// 住民はクローンして新しいミキサーを持たせ（Walk/Talk/Idle はいつも使っているクリップそのまま）、
+// ふわお・アラシは本体をステージへ出張させる（本編はもう終わっているので、位置を動かしても困らない）。
+// 全員終わったら、もとの画面（絵・タイトル・ボタン）に戻す
+const CREDITS_BG = new THREE.Color(0, 0, 0);
+const CREDITS_CENTER = new THREE.Vector3(0, 300, 0);   // 地形も当たり判定もない、何もない空間
+// ふだんはこの距離・高さから見る。アラシ（3体とも大きい）のときだけ、ズームアウトして見上げる
+const CREDITS_CAM = { normal: { dist: 15, y: 1.3 }, boss: { dist: 55, y: 9 } };
+const CREDITS_EDGE_MARGIN = 1.4;                        // 画面のはしのさらに外（倍率）まで出入りする
+const CREDITS_IN = 2.2, CREDITS_HOLD = 2.4, CREDITS_OUT = 2.2;   // 入り・中央・出の長さ（秒）
+// 町長・パン屋・工場長・おじいちゃん（2人）・おばあちゃん・女の子・お城の女の子・アラシ（バイ菌→ヘドロ→ロック）・最後にふわお
+const CREDITS_ORDER = ['1-1', '3-1', '0-1', '7-1', '4-1', '2-2', '7-2', 'castle', 'boss:0', 'boss:1', 'boss:2', 'player'];
+// 体当たり・狙撃で曲を変える。まだ素材なし。置けばそのまま鳴る
+const CREDITS_BGM = { ram: 'sounds/bgm_credits1.mp3', shot: 'sounds/bgm_credits2.mp3' };
+let creditsAudio = null;
+function playCreditsBgm() {
+  if (!soundOn.bgm) return;
+  creditsAudio = new Audio(finale.mode === 'shot' ? CREDITS_BGM.shot : CREDITS_BGM.ram);
+  creditsAudio.loop = true;
+  creditsAudio.volume = BGM_VOL;
+  creditsAudio.play().catch(() => { /* まだ素材がない・自動再生できない環境 */ });
+}
+let credits = null;
+// 住民をクローンして、パレード専用の新しいミキサーで動かす（本編の住民にはふれない）。
+// アラシは bossModels（3体とも常に読み込んである）から、そのときだけ visible にして使う
+function creditsActor(id) {
+  if (id === 'player') { model.visible = true; return { type: 'player' }; }
+  if (id.startsWith('boss:')) {
+    const m = bossModels[+id.slice(5)];
+    m.root.visible = true;
+    for (const a of Object.values(m.actions)) a.stop();
+    m.actions.idle.reset().play();
+    return { type: 'boss', root: m.root, mixer: m.mixer };
+  }
+  const cfg = RESIDENTS.find((r) => r.id === id);
+  const gltf = kindGltf[cfg.kind];
+  const clip = (name) => THREE.AnimationClip.findByName(gltf.animations, name);
+  const root = cloneSkinned(gltf.scene);
+  scene.add(root);
+  const mixer = new THREE.AnimationMixer(root);
+  const walk = mixer.clipAction(clip('Walk')).play();
+  const pose = mixer.clipAction(clip('Talk') || clip('Idle')).play();
+  return { type: 'resident', root, mixer, walk, pose };
+}
+function setActorWalking(A, walking) {
+  if (A.type === 'player') {
+    walkAction.setEffectiveWeight(walking ? 1 : 0);
+    idleAction.setEffectiveWeight(walking ? 0 : 1);
+    if (!walking) fireAction.reset().play();
+  } else if (A.type === 'resident') {
+    A.walk.setEffectiveWeight(walking ? 1 : 0);
+    A.pose.setEffectiveWeight(walking ? 0 : 1);
+    if (!walking) A.pose.reset();
+  }
+  // アラシ（boss）は立ちポーズのまま。歩きモーションは使わない
+}
+// x は画面の左右の位置（+edgeX が右、-edgeX が左。world の +X がそのまま画面の右にあたる）
+function placeActor(A, x, facing) {
+  const pos = A.type === 'player' ? player : A.type === 'boss' ? A.root : A.root;
+  pos.position.set(x, CREDITS_CENTER.y, CREDITS_CENTER.z);
+  pos.rotation.y = facing;
+}
+// アラシのときだけズームアウトして見上げ、ふわお（最後）ではふだんの距離に戻す
+function setCreditsCamera(C, type) {
+  const cam = type === 'boss' ? CREDITS_CAM.boss : CREDITS_CAM.normal;
+  camera.position.set(CREDITS_CENTER.x, CREDITS_CENTER.y + cam.y, CREDITS_CENTER.z + cam.dist);
+  camera.lookAt(CREDITS_CENTER.x, CREDITS_CENTER.y + cam.y, CREDITS_CENTER.z);
+  const halfW = cam.dist * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.aspect;
+  C.edgeX = halfW * CREDITS_EDGE_MARGIN;
+}
+function advanceCredits() {
+  const C = credits;
+  if (C.cur?.type === 'resident') { scene.remove(C.cur.root); C.cur.mixer.uncacheRoot(C.cur.root); }
+  else if (C.cur?.type === 'boss') { C.cur.root.visible = false; }
+  C.i++;
+  if (C.i >= C.order.length) { creditsFinished(); return; }
+  C.cur = creditsActor(C.order[C.i]);
+  setCreditsCamera(C, C.cur.type);
+  setActorWalking(C.cur, true);
+  C.phase = 'in';
+  C.t = 0;
+  placeActor(C.cur, C.edgeX, -Math.PI / 2);
+}
+function updateCredits(dt) {
+  const C = credits, A = C.cur;
+  C.t += dt;
+  let x, facing;
+  if (C.phase === 'in') {
+    const u = Math.min(1, C.t / CREDITS_IN), e = u * u * (3 - 2 * u);
+    x = THREE.MathUtils.lerp(C.edgeX, 0, e);
+    facing = -Math.PI / 2;
+    if (u >= 1) { C.phase = 'hold'; C.t = 0; setActorWalking(A, false); }
+  } else if (C.phase === 'hold') {
+    x = 0; facing = 0;   // 正面（カメラのほう）を向く
+    if (C.t >= CREDITS_HOLD) { C.phase = 'out'; C.t = 0; setActorWalking(A, true); }
+  } else {
+    const u = Math.min(1, C.t / CREDITS_OUT), e = u * u * (3 - 2 * u);
+    x = THREE.MathUtils.lerp(0, -C.edgeX, e);
+    facing = -Math.PI / 2;
+    if (u >= 1) { advanceCredits(); return; }
+  }
+  placeActor(A, x, facing);
+  if (A.type === 'player') mixer.update(dt);
+  else A.mixer.update(dt);
+}
+function finishCredits() {
+  credits = null;
+  scene.background = fogColor;
+  townGroup.visible = true;
+  distantGroup.visible = true;
+  windmill.visible = true;
+  scene.add(sky);
+  document.body.classList.remove('cutin', 'credits');   // 燃料・からだ・復興度などのステータスを出し直し、スキップボタンも消す
+  document.getElementById('endingImg').style.display = '';
+  endingEl.style.background = '';
+  endingEl.classList.add('done');
+}
+// パレードが最後まで行った・スキップされた、どちらでもここに来る。体当たりは Thank you、狙撃は最後にランキング登録
+function creditsFinished() {
+  finishCredits();
+  if (finale.mode === 'shot') { showTimeAttackAsk(); return; }
+  const lead = document.getElementById('endingLead');
+  lead.textContent = 'Thank you for playing!';
+  lead.style.display = 'block';
+}
+// 右上の「スキップ」。今のキャラを片づけて、最後まで行ったのと同じ終わり方にする
+function skipCredits() {
+  if (!credits) return;
+  const cur = credits.cur;
+  if (cur?.type === 'resident') { scene.remove(cur.root); cur.mixer.uncacheRoot(cur.root); }
+  else if (cur?.type === 'boss') { cur.root.visible = false; }
+  creditsFinished();
+}
+function startCredits() {
+  // cutin はムービーの場面に使っている印で、ステータスや効果音ボタンなどを消す（CSS 側はそのまま流用）。
+  // credits はパレードだけの印で、スキップボタンを出す
+  document.body.classList.add('cutin', 'credits');
+  // パレード中は tick() ごと休むので updateAmbient／updateBgm が呼ばれなくなる。#ending.on が出ている間は
+  // もともと「静かにする」判定になっているので、ここで一度だけ呼んで、ふだんの消え方（川・滝・地ひびき・BGM）に任せる
+  updateAmbient(false);
+  document.getElementById('endingImg').style.display = 'none';
+  endingEl.style.background = '#000';
+  // 町・遠景・空を隠して、真っ黒を背景にする（アニメ調の描画は毎フレーム sky.visible を立て直すので、
+  // visible ではなくシーンから外して確実に消す）
+  townGroup.visible = false;
+  distantGroup.visible = false;
+  windmill.visible = false;
+  scene.remove(sky);
+  scene.background = CREDITS_BG;
+  camera.fov = 70;
+  camera.updateProjectionMatrix();
+  credits = { order: CREDITS_ORDER.slice(), i: -1, cur: null, phase: 'in', t: 0, edgeX: 0 };
+  advanceCredits();
+}
+document.getElementById('creditsSkip').addEventListener('click', (e) => { e.stopPropagation(); skipCredits(); });
 
 // ---- タイムアタック（オンラインランキング。naogare-lab の /api/fuwao3d/*、D1 の fuwao3d_scores） ----
 // 対象になるのは「はじめから」で始めた、?debug の付いていない 1 回だけ（つづきから・デバッグは対象外）。
@@ -4651,6 +4838,7 @@ async function init() {
   useBoss(0);
   setupBread(bread);
   placeResidents({ grandpa, girl, grandma, mayor, baker, chief });
+  kindGltf = { grandpa, girl, grandma, mayor, baker, chief };
   setupDoor();
   setupGerms(germmini);   // 町人のそばに置くので、町人のあと
   setupProgress();        // 区画ごとのヨゴレと町人を数える（足りない区画にはヨゴレを足す）
@@ -6655,6 +6843,7 @@ function updateCamera() {
 
 let daytime = null;
 function tick(dt, active) {
+  if (credits) { updateCredits(dt); return; }   // エンディングのキャラ紹介パレード中は、ふだんの更新はすべて休む
   if (timeAttackRunning && active) timeAttackElapsed += dt;
   updateAmbient(active);
   // 一時停止中は時間を止める（見た目の切り替えには合わせ直す）。N を押している間は早送り
