@@ -2882,6 +2882,13 @@ function endingSrc() { return endingWide() ? 'ending1h.webp' : 'ending1.webp'; }
 const ENDING_SHOT_WAIT = 0.6;    // 暖色の地から、絵がうっすら浮かび始めるまで（秒）
 const ENDING_SHOT_FADE = 4.5;    // 絵がゆっくり浮かび上がる長さ（秒）
 function shotEndingSrc() { return 'ending2h.webp'; }
+// 語り・パレードはタップなどの操作なしで進む（携帯は画面が暗くなって止まってしまうことがある）ので、
+// エンディングの間だけ画面を起きたままにする。対応していないブラウザでは何もしない
+let endingWakeLock = null;
+function requestEndingWakeLock() {
+  navigator.wakeLock?.request('screen').then((w) => { endingWakeLock = w; }).catch(() => { /* 対応していない・失敗した環境 */ });
+}
+function releaseEndingWakeLock() { endingWakeLock?.release().catch(() => {}); endingWakeLock = null; }
 // ---- エンディングの語り（絵のあと・絵の前に、1行ずつ浮かべて消す） ----
 const ENDING_LINE_HOLD = 4300, ENDING_LINE_FADE = 700;   // 合わせて1行5秒
 const endingNarrationEl = document.getElementById('endingNarration');
@@ -2908,6 +2915,7 @@ let awaitingEndingClick = null;
 endingEl.addEventListener('click', () => { if (awaitingEndingClick) { const fn = awaitingEndingClick; awaitingEndingClick = null; fn(); } });
 function showEnding() {
   finale.phase = 'ending';
+  requestEndingWakeLock();   // 語り・パレードは操作なしで進むので、携帯の画面がロックされて止まってしまわないように
   if (document.pointerLockElement) document.exitPointerLock();   // マウスロックしたままだとカーソルが出ず、ランキング登録のボタンを押せないため
   document.body.classList.remove('cutin');
   endingEl.classList.add('on');
@@ -3073,6 +3081,7 @@ function finishCredits() {
   document.getElementById('endingImg').style.display = '';
   endingEl.style.background = '';
   endingEl.classList.add('done');
+  releaseEndingWakeLock();   // タイトルへ戻るボタンまで来たら、もう起こしておかなくていい
 }
 // パレードが最後まで行った・スキップされた、どちらでもここに来る。体当たりは Thank you、狙撃は最後にランキング登録
 function creditsFinished() {
