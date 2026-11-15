@@ -2910,6 +2910,7 @@ function showEnding() {
   finale.phase = 'ending';
   if (document.pointerLockElement) document.exitPointerLock();   // マウスロックしたままだとカーソルが出ず、ランキング登録のボタンを押せないため
   document.body.classList.remove('cutin');
+  fadeEl.classList.remove('on');   // フィナーレの暗転はここまで。消さないと、パレード中に #ending を透明にしたときに黒いままになる
   endingEl.classList.add('on');
   stopTimeAttack();   // タイムアタックの計測はここまで（ラム・パン種、どちらのエンディングでも）
   const img = document.getElementById('endingImg');
