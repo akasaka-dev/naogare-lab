@@ -2919,7 +2919,7 @@ function showEnding() {
     img.style.transform = `translate(${from[0]}px, ${from[1]}px)`;
     img.animate([{ transform: `translate(${from[0]}px, ${from[1]}px)` }, { transform: `translate(${to[0]}px, ${to[1]}px)` }],
       { duration: ENDING_SCROLL * 1000, delay: ENDING_WAIT * 1000, easing: 'ease-in-out', fill: 'forwards' })
-      .finished.then(() => { endingEl.classList.add('done'); showTimeAttackAsk(); });
+      .finished.then(() => { endingEl.classList.add('done'); });   // タイムアタックの登録は、狙撃エンディングだけが対象（体当たりは難易度が違うので、同じランキングに混ぜない）
   };
   if (img.getAttribute('src') !== src) img.src = src;
   if (img.complete && img.naturalWidth) run(); else img.addEventListener('load', run, { once: true });
@@ -2927,6 +2927,7 @@ function showEnding() {
 
 // ---- タイムアタック（オンラインランキング。naogare-lab の /api/fuwao3d/*、D1 の fuwao3d_scores） ----
 // 対象になるのは「はじめから」で始めた、?debug の付いていない 1 回だけ（つづきから・デバッグは対象外）。
+// 登録を案内するのは狙撃エンディング（パン種を撃つほう）だけ。体当たりエンディングは難易度が違うので、同じランキングに混ぜない。
 // オープニングが終わって操作できるようになった瞬間から、エンディング画面が出た瞬間までの、
 // 一時停止していない間の経過時間（整数秒、切り捨て）を測る。ページを閉じる・読み込み直すとこの計測は消える
 // （つづきからであっても、やり直しであっても、1回の通しプレイでのクリアだけを記録に残すため）。
