@@ -2055,6 +2055,7 @@ function startCollapse() {
     fogNear: scene.fog.near, fogFar: scene.fog.far, cut: -1 };
   // 町の人は、お城への道の入り口に集まって、山へ駆けていく（町長と話していた場所からは見えないので、カットの間だけ集める）
   residents.forEach((r, i) => {
+    if (r.guest) return;   // お城の女の子は、お城にいたまま（避難の列には加わらない）
     if (r.bread) { r.bread.claimedBy = null; r.bread = null; }
     r.route = r.afterRoute = null;
     r.state = 'evac';
