@@ -31,10 +31,6 @@
     max-width: calc(100vw - 20px); box-sizing: border-box; padding: 6px 8px; border-radius: 10px; background: rgba(20, 16, 12, 0.85); color: #f5ead6; font-size: 13px; }
   #debugStart span { color: #ffb45e; font-weight: bold; }
   #debugStart select { min-width: 0; flex: 1 1 auto; max-width: 70vw; font-size: 13px; padding: 4px; }
-  /* DEBUGTEMP：携帯でコンソールが見られない調査用。?debug のときだけ、エラーを画面に出す */
-  #debugErr { display: none; position: fixed; left: 6px; right: 6px; bottom: 6px; z-index: 999; max-height: 40vh; overflow: auto;
-    background: rgba(140, 0, 0, 0.88); color: #fff; font-size: 11px; white-space: pre-wrap; padding: 6px 8px; border-radius: 8px; }
-  #debugErr:not(:empty) { display: block; }
   #debugStart button { font-size: 13px; padding: 4px 10px; border: none; border-radius: 6px; background: #e8973c; color: #fff; cursor: pointer; white-space: nowrap; }
   #titleMenu small { display: block; font-size: 12px; opacity: 0.9; margin-top: 2px; }
   /* タイトル画面（はじめる前）：タイトル画像を全面に。メニューと読み込みの表示は下に並べる。操作の説明は一時停止のときだけ */
@@ -322,7 +318,6 @@
   <div id="status">読み込み中…</div>
   <div class="start disabled" id="startLabel">読み込み中</div>
   <div id="debugStart"><span>debug</span><select></select><button>この場面から</button></div>
-  <div id="debugErr"></div>
   <div id="titleMenu"><div class="start" id="newGame">はじめる</div><div class="start" id="continueGame">つづきから</div><div class="start" id="helpBtn">操作説明</div><div class="start" id="rankBtn">ランキング</div></div>
   <div id="helpPanel">
   <table>
@@ -416,15 +411,6 @@
   </div>
 </div>
 <div id="hud"></div>
-<script>
-// DEBUGTEMP：携帯でコンソールが見られない調査用。?debug のときだけ、エラーを画面に出す
-if (new URLSearchParams(location.search).has('debug')) {
-  const box = document.getElementById('debugErr');
-  const show = (msg) => { box.textContent += msg + '\n'; };
-  window.addEventListener('error', (e) => show(`[error] ${e.message} @ ${e.filename}:${e.lineno}`));
-  window.addEventListener('unhandledrejection', (e) => show(`[promise] ${e.reason?.stack || e.reason}`));
-}
-</script>
 <script type="module" src="main.js"></script>
 </body>
 </html>
