@@ -2883,7 +2883,6 @@ const ENDING_SHOT_WAIT = 0.6;    // 暗い地から、絵がうっすら浮か�
 const ENDING_SHOT_FADE = 4.5;    // 絵がゆっくり浮かび上がる長さ（秒）
 const ENDING_SHOT_SHOW = 5;      // 絵を出してから、パレードへ自動で進むまでの長さ（秒）
 const ENDING_DONE_FADE = 10;     // 体当たりエンディング（ending1）の最後：Thank you が出てから、背景の絵が消えるまでの長さ（秒）
-const ENDING_SHOT_ZOOM_OUT = 8;  // 狙撃エンディング（ending2）の最後：絵の全体が見えるまでズームアウトする長さ（秒）
 function shotEndingSrc() { return 'ending2h.webp'; }
 // ---- エンディングの語り（絵のあと・絵の前に、1行ずつ浮かべて消す） ----
 const ENDING_LINE_HOLD = 4300, ENDING_LINE_FADE = 700;   // 合わせて1行5秒
@@ -3268,15 +3267,8 @@ function finishCredits() {
       // 体当たりエンディング（ending1）だけ：Thank you for playing が出るのと同時に、背景の絵をゆっくり消していく
       img.animate([{ opacity: 1 }, { opacity: 0 }], { duration: ENDING_DONE_FADE * 1000, easing: 'ease-in', fill: 'forwards' });
     } else {
-      // 狙撃エンディング（ending2）だけ：今まで表示していた大きさ（cover 相当の寄り）のまま、絵の全体が
-      // 見えるところまでゆっくりズームアウトする。object-fit を contain に替えたうえで、contain の大きさを
-      // 逆算し、今の見え方とぴったり同じになる倍率（k）から scale(1) まで拡大率を落としていく
-      const vw = window.innerWidth, vh = window.innerHeight, boxAr = vw / vh, imgAr = img.naturalWidth / img.naturalHeight;
-      const containW = imgAr > boxAr ? vw : vh * imgAr, containH = imgAr > boxAr ? vw / imgAr : vh;
-      const k = Math.max(vw / containW, vh / containH);
-      img.style.objectFit = 'contain';
-      img.animate([{ transform: `scale(${k})` }, { transform: 'scale(1)' }],
-        { duration: ENDING_SHOT_ZOOM_OUT * 1000, easing: 'ease-in-out', fill: 'forwards' });
+      // 狙撃エンディング（ending2）だけ：ズームはせず、携帯などの縦長画面では専用の縦長背景（ending2.jpg）に差し替える
+      if (!endingWide()) img.src = 'ending2.jpg';
       endingDimEl.classList.add('on');   // 文字（Thank you for playing）が見えるよう、絵のコントラストを落とす
     }
   } finally {
