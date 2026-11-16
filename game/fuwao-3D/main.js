@@ -2908,6 +2908,7 @@ let awaitingEndingClick = null;
 endingEl.addEventListener('click', () => { if (awaitingEndingClick) { const fn = awaitingEndingClick; awaitingEndingClick = null; fn(); } });
 function showEnding() {
   finale.phase = 'ending';
+  requestEndingWakeLock();   // 語り～パレードは操作が無いので、携帯の画面が暗くならないようにする
   if (document.pointerLockElement) document.exitPointerLock();   // マウスロックしたままだとカーソルが出ず、ランキング登録のボタンを押せないため
   document.body.classList.remove('cutin');
   fadeEl.classList.remove('on');   // フィナーレの暗転はここまで。消さないと、パレード中に #ending を透明にしたときに黒いままになる
@@ -2984,6 +2985,20 @@ function unlockCreditsAudio() {
   creditsAudio.play().then(() => creditsAudio.pause()).catch(() => { /* 自動再生できない環境 */ });
 }
 document.addEventListener('pointerdown', unlockCreditsAudio, { once: true, capture: true });
+// 語り～パレードの間は何も操作しないので、携帯の画面が暗くなって止まってしまう。
+// エンディング特有の対策なので、本編の処理にはふれず、ここだけで完結させる（対応していない・許可されない環境では何もしない）
+let endingWakeLock = null;
+async function requestEndingWakeLock() {
+  try { endingWakeLock = await navigator.wakeLock?.request('screen'); } catch { /* 対応していない・許可されない環境 */ }
+}
+function releaseEndingWakeLock() {
+  endingWakeLock?.release().catch(() => {});
+  endingWakeLock = null;
+}
+// 画面が暗くなって自動的に外れたときは、また表に戻ってきたタイミングで取り直す（パレードがまだ続いている間だけ）
+document.addEventListener('visibilitychange', () => {
+  if (endingWakeLock && document.visibilityState === 'visible') requestEndingWakeLock();
+});
 function playCreditsBgm() {
   if (!soundOn.bgm || !creditsAudio) return;
   creditsAudio.pause();
@@ -3076,6 +3091,7 @@ function updateCredits(dt) {
   else A.mixer.update(dt);
 }
 function finishCredits() {
+  releaseEndingWakeLock();
   credits = null;
   scene.background = fogColor;
   townGroup.visible = true;
