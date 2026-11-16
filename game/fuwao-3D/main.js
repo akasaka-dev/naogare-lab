@@ -3071,6 +3071,8 @@ function revealEndingImg() {
 }
 let credits = null;
 const creditsNameEl = document.getElementById('creditsName');   // 中央に来た（hold）キャラの名前。入り・出では隠す
+const creditsCastEl = document.getElementById('creditsCast');   // パレードの最初に出す「CAST」の文字
+const CREDITS_CAST_SHOW = 1.6;   // 「CAST」を出しておく長さ（秒）
 // 住民をクローンして、パレード専用の新しいミキサーで動かす（本編の住民にはふれない）。
 // アラシは bossModels（3体とも常に読み込んである）から、そのときだけ visible にして使う
 function creditsActor(id) {
@@ -3166,6 +3168,11 @@ function advanceCredits() {
 function updateCredits(dt) {
   const C = credits, A = C.cur;
   C.t += dt;
+  // パレードの最初だけ：まだ誰も出てきていない（C.cur が無い）ので、ほかの分岐には入らずここで待ってから始める
+  if (C.phase === 'cast') {
+    if (C.t >= CREDITS_CAST_SHOW) { creditsCastEl.classList.remove('on'); advanceCredits(); }
+    return;
+  }
   let x, facing, z = 0, y = 0;
   if (C.phase === 'in') {
     const u = Math.min(1, C.t / CREDITS_IN), e = u * u * (3 - 2 * u);
@@ -3248,6 +3255,7 @@ function finishCredits() {
   try {
     releaseEndingWakeLock();
     creditsNameEl.classList.remove('on');
+    creditsCastEl.classList.remove('on');   // スキップが「CAST」の表示中に押されたときのため
     scene.background = fogColor;
     townGroup.visible = true;
     distantGroup.visible = true;
@@ -3312,8 +3320,8 @@ function startCredits() {
     scene.background = CREDITS_BG;
     camera.fov = 70;
     camera.updateProjectionMatrix();
-    credits = { order: CREDITS_ORDER.slice(), i: -1, cur: null, phase: 'in', t: 0, edgeX: 0 };
-    advanceCredits();
+    credits = { order: CREDITS_ORDER.slice(), i: -1, cur: null, phase: 'cast', t: 0, edgeX: 0 };
+    creditsCastEl.classList.add('on');   // 最初に画面の真ん中へ「CAST」を出してから、ひとり目が歩いて入ってくる
   } catch (e) {
     console.error('パレードの開始に失敗。通常の終了画面に戻す', e);
     creditsFinished();
