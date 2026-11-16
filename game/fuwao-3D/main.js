@@ -2915,10 +2915,12 @@ function showEnding() {
   requestEndingWakeLock();   // 語り～パレードは操作が無いので、携帯の画面が暗くならないようにする
   if (document.pointerLockElement) document.exitPointerLock();   // マウスロックしたままだとカーソルが出ず、ランキング登録のボタンを押せないため
   // 町長のセリフ（会話の吹き出し）がまだ出ていたら閉じ、たまっていたお知らせ（showToast の順番待ち）も捨てる。
-  // cutin を外した直後は toastBusy() が false になるので、残っているとエンディングのフェードインに重なって出てしまう
+  // cutin のキャプションも、文字だけ残っていると次に cutin が出たとき（パレードの cutin）に出てきてしまうので消す
   if (talk.active) talk.close();
   clearToasts();
-  document.body.classList.remove('cutin');
+  cutinEl.querySelector('.caption').textContent = '';
+  // cutin は外さない：フィナーレ（アラシの爆散シーン）からずっと身に着けていた「ステータス類を隠す」印を
+  // ここで外さずに持ち越すことで、語り～パレード～最後の画面まで、ステータスウィンドウなどを出したままにしない
   fadeEl.classList.remove('on');   // フィナーレの暗転はここまで。消さないと、パレード中に #ending を透明にしたときに黒いままになる
   endingDimEl.classList.remove('on');   // デバッグでやり直したときなど、前回の語りの暗さが残らないように
   endingEl.classList.add('on');
@@ -3262,6 +3264,7 @@ function finishCredits() {
     }
   } finally {
     credits = null;
+    clearToasts();   // ここで cutin を外すとお知らせの順番待ちが解けてしまうので、最後の画面に出てしまわないよう先に捨てる
     document.body.classList.remove('cutin', 'credits');   // 燃料・からだ・復興度などのステータスを出し直し、スキップボタンも消す
   }
 }
@@ -4758,7 +4761,7 @@ function updateResidents(dt) {
       if (speed) {
         pos.addScaledVector(_rd.divideScalar(dist), speed * dt);
         pos.y += (introGroundY(pos.x, pos.z, pos.y) - pos.y) * (1 - Math.exp(-12 * dt));
-      } else if (!talk.active) mayorTalk(r);
+      } else if (!talk.active && !finale) mayorTalk(r);   // すでにフィナーレが始まっていたら、話しかけに来ていても開かない
       r.walkWeight += ((speed ? 1 : 0) - r.walkWeight) * (1 - Math.exp(-8 * dt));
       r.walk.setEffectiveWeight(r.walkWeight);
       r.idle.setEffectiveWeight(1 - r.walkWeight);
