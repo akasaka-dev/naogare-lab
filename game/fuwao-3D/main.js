@@ -4234,6 +4234,7 @@ function showGameOver() {
   savingOn = false;   // からだが 0 のまま保存しない
   jetting = false; jetVel.set(0, 0, 0); recoilVel.set(0, 0, 0); velY = 0;
   releaseAll();
+  if (document.pointerLockElement) document.exitPointerLock();   // マウスロックしたままだとカーソルが出ず、クリックで進められないため
   document.getElementById('gameover').classList.add('on');
 }
 // 1 回目のクリック／タップで絵と BGM を出し、2 回目でタイトルへ（location.reload）
@@ -6377,11 +6378,11 @@ function enterPlay() {
     play();
   }, 300);
 }
+// ポインターロックが外れたこと自体では一時停止しない（Esc 以外にも、エンディングやゲームオーバーでカーソルを
+// 出すためだけに外すことがあり、そのたびに「タップしてつづける」画面が出てしまうと具合が悪い）。
+// 一時停止は Esc キーのときだけ（下の keydown）。ロックが掛かったときだけ、ここで再開する
 document.addEventListener('pointerlockchange', () => {
   if (document.pointerLockElement) play();
-  // エンディング（語り～パレード）は showEnding() がカーソルを出すためだけにロックを外す。本編の一時停止ではないので、
-  // ここで pause() してしまうと「タップしてつづける」の一時停止画面がパレードの間ずっと出たままになってしまう
-  else if (!dragLook && !(finale && finale.phase === 'ending')) pause();
 });
 
 let dragging = false;
@@ -6433,7 +6434,8 @@ const keys = new Set();
 window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyM' && !e.repeat) setSound('bgm', !soundOn.bgm);
   if (e.code === 'KeyK' && !e.repeat) setSound('sfx', !soundOn.sfx);
-  if (dragLook && playing && e.code === 'Escape') { pause(); return; }
+  // 一時停止は Esc キーのときだけ（ポインターロックが外れたこと自体では止めない。上の pointerlockchange を参照）
+  if (playing && e.code === 'Escape') { pause(); return; }
   if (playing && (talk.active || opening)) {   // 会話中とオープニング中は、会話を進めるキーだけ
     if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); if (!e.repeat) advanceTalk(); }
     if (e.code === 'KeyS' && opening) skipOpening();
