@@ -2990,6 +2990,7 @@ const CREDITS_PLAYER_LOOP_R = 2;          // 円の半径
 const CREDITS_PLAYER_AWAY = 1.4;          // 円を抜けてから、奥へ去るまでの長さ（秒）
 const CREDITS_PLAYER_FAR_Z = -200;        // 飛び去る先（カメラと反対側）
 const CREDITS_PLAYER_GONE_WAIT = 5;       // 消えてから、絵がフェードインするまでの間（秒）
+const CREDITS_STAFF_SHOW = 3.2;           // そのうち、スタッフ（音楽・キャラクター・シナリオ・プログラミング）を出しておく長さ（秒）
 // 町長・パン屋・工場長・おじいちゃん（2人）・おばあちゃん・女の子・お城の女の子・アラシ（バイ菌→ヘドロ→ロック）・最後にふわお
 const CREDITS_ORDER = ['1-1', '3-1', '0-1', '7-1', '4-1', '2-2', '7-2', 'castle', 'boss:0', 'boss:1', 'boss:2', 'player'];
 // 体当たり・狙撃で曲を変える。まだ素材なし。置けばそのまま鳴る
@@ -3071,7 +3072,8 @@ function revealEndingImg() {
 let credits = null;
 const creditsNameEl = document.getElementById('creditsName');   // 中央に来た（hold）キャラの名前。入り・出では隠す
 const creditsCastEl = document.getElementById('creditsCast');   // パレードの最初に出す「CAST」の文字
-const CREDITS_CAST_SHOW = 1.6;   // 「CAST」を出しておく長さ（秒）
+const creditsStaffEl = document.getElementById('creditsStaff');   // パレードの最後（ふわおが消えたあと）に出すスタッフ表記
+const CREDITS_CAST_SHOW = 2.8;   // 「CAST」を出しておく長さ（秒）。じっくり浮かび上がる分、長めに（CSS の transition と合わせて調整）
 // 住民をクローンして、パレード専用の新しいミキサーで動かす（本編の住民にはふれない）。
 // アラシは bossModels（3体とも常に読み込んである）から、そのときだけ visible にして使う
 function creditsActor(id) {
@@ -3134,7 +3136,8 @@ function placeCreditsName(A) {
   _o.copy(pos).project(camera);
   const sx = (_o.x * 0.5 + 0.5) * window.innerWidth;
   const sy = (1 - (_o.y * 0.5 + 0.5)) * window.innerHeight;
-  creditsNameEl.style.transform = `translate(${sx}px, ${sy - 8}px) translate(-50%, -100%)`;
+  // 足元（pos）のすぐ下へ、キャラクターにかぶらないよう（上ではなく下へ）出す
+  creditsNameEl.style.transform = `translate(${sx}px, ${sy + 10}px) translate(-50%, 0%)`;
 }
 // アラシのときだけズームアウトして見上げ、ふわお（最後）ではふだんの距離に戻す
 function setCreditsCamera(C, type) {
@@ -3236,9 +3239,11 @@ function updateCredits(dt) {
       stopCreditsJetSound();
       C.phase = 'playerGone'; C.t = 0;
       revealEndingImg();
+      creditsStaffEl.classList.add('on');   // ふわおが消えたら、まだ真っ黒なうちにスタッフ表記を出す
       return;
     }
   } else {   // 'playerGone'：奥へ消えたあと、絵がフェードインするまでの間（何も動かさず、ただ待つ）
+    if (C.t >= CREDITS_STAFF_SHOW) creditsStaffEl.classList.remove('on');   // 絵が目立ってくる前に、かぶらないうちに消す
     if (C.t >= CREDITS_PLAYER_GONE_WAIT) creditsFinished();
     return;
   }
@@ -3255,6 +3260,7 @@ function finishCredits() {
     releaseEndingWakeLock();
     creditsNameEl.classList.remove('on');
     creditsCastEl.classList.remove('on');   // スキップが「CAST」の表示中に押されたときのため
+    creditsStaffEl.classList.remove('on');   // スキップがスタッフ表記の表示中に押されたときのため
     scene.background = fogColor;
     townGroup.visible = true;
     distantGroup.visible = true;
