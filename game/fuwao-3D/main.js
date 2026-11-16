@@ -1095,6 +1095,8 @@ if (new URLSearchParams(location.search).has('debug')) {
 
 // 風車の羽根は Blender ではドライバーで回していて書き出されていないので、ここで回す。
 // ハブと羽根 4 枚を結合から外し、ハブの位置を軸（ワールドの Z 方向）にしたグループへ移す
+// ↓崩壊（collapseTown）後に null になりうるグローバル一覧（このたぐいを足すときはここに追記）：
+//   windmill：崩壊後の町データに風車が無ければ null のまま（2242行目あたり）
 let windmill = null;
 function takeWindmillRotor(root) {
   root.updateMatrixWorld(true);
@@ -2239,7 +2241,7 @@ async function collapseTown() {
     for (const i of a.boxIdx) ruinUniforms.uRuinAmt.value[i] = 1;   // 町じゅうをくすませる
   }
   windmill = takeWindmillRotor(gltf.scene);
-  if (windmill.children.length) scene.add(windmill); else windmill = null;
+  if (windmill.children.length) scene.add(windmill); else windmill = null;   // null になりうる（1098行目のコメント参照）。さわるコードは毎回 null チェックすること
   const mats = new Set();
   gltf.scene.traverse((o) => { if (o.isMesh) mats.add(o.material); });
   townGroup = mergeByMaterial(gltf.scene);
@@ -2919,7 +2921,7 @@ function showEnding() {
     endingEl.classList.add('plain');
     img.style.cssText = '';   // 前にラムエンディングを見たときの大きさ・動きが残らないように
     // 文字を3行→絵がゆっくり浮かび上がる→クリック／タップでパレードへ（曲は3行目から）
-    showNarration(SHOT_NARRATION, (i) => { if (i === 2) playCreditsBgm(); }, () => {
+    showNarration(SHOT_NARRATION, (i) => { if (i === 2) playCreditsBgm('shot'); }, () => {
       img.src = shotEndingSrc();
       const run = () => img.animate([{ opacity: 0 }, { opacity: 1 }],
         { duration: ENDING_SHOT_FADE * 1000, delay: ENDING_SHOT_WAIT * 1000, easing: 'ease-in', fill: 'forwards' })
@@ -2928,7 +2930,7 @@ function showEnding() {
     });
     return;
   }
-  playCreditsBgm();   // 絵のスクロールと同時に曲を始める
+  playCreditsBgm('ram');   // 絵のスクロールと同時に曲を始める
   const src = endingSrc();
   const run = () => {
     const vw = window.innerWidth, vh = window.innerHeight, aspect = img.naturalWidth / img.naturalHeight;
@@ -2999,10 +3001,12 @@ function releaseEndingWakeLock() {
 document.addEventListener('visibilitychange', () => {
   if (endingWakeLock && document.visibilityState === 'visible') requestEndingWakeLock();
 });
-function playCreditsBgm() {
+function playCreditsBgm(mode) {
   if (!soundOn.bgm || !creditsAudio) return;
+  const src = CREDITS_BGM[mode];
+  if (!src) { console.error('playCreditsBgm: 不明な mode', mode); return; }
   creditsAudio.pause();
-  creditsAudio.src = finale.mode === 'shot' ? CREDITS_BGM.shot : CREDITS_BGM.ram;
+  creditsAudio.src = src;
   creditsAudio.currentTime = 0;
   creditsAudio.volume = BGM_VOL;
   creditsAudio.play().catch(() => { /* まだ素材がない・自動再生できない環境 */ });
@@ -3055,10 +3059,15 @@ function setCreditsCamera(C, type) {
   const halfW = cam.dist * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.aspect;
   C.edgeX = halfW * CREDITS_EDGE_MARGIN;
 }
+// 今のアクターの片付け（クローンした住民はシーンから外して破棄、アラシは隠す。ふわおは何もしない）。
+// 最後まで行った（advanceCredits）・スキップされた（skipCredits）、どちらからも呼ぶ
+function cleanupCreditsActor(cur) {
+  if (cur?.type === 'resident') { scene.remove(cur.root); cur.mixer.uncacheRoot(cur.root); }
+  else if (cur?.type === 'boss') { cur.root.visible = false; }
+}
 function advanceCredits() {
   const C = credits;
-  if (C.cur?.type === 'resident') { scene.remove(C.cur.root); C.cur.mixer.uncacheRoot(C.cur.root); }
-  else if (C.cur?.type === 'boss') { C.cur.root.visible = false; }
+  cleanupCreditsActor(C.cur);
   C.i++;
   if (C.i >= C.order.length) { creditsFinished(); return; }
   C.cur = creditsActor(C.order[C.i]);
@@ -3091,16 +3100,20 @@ function updateCredits(dt) {
   else A.mixer.update(dt);
 }
 function finishCredits() {
-  releaseEndingWakeLock();
-  credits = null;
-  scene.background = fogColor;
-  townGroup.visible = true;
-  distantGroup.visible = true;
-  scene.add(sky);
-  document.body.classList.remove('cutin', 'credits');   // 燃料・からだ・復興度などのステータスを出し直し、スキップボタンも消す
-  document.getElementById('endingImg').style.display = '';
-  endingEl.style.background = '';
-  endingEl.classList.add('done');
+  // 途中で例外が起きても、UI が cutin／credits のまま固まらないよう、後片付け（finally）は必ず走らせる
+  try {
+    releaseEndingWakeLock();
+    scene.background = fogColor;
+    townGroup.visible = true;
+    distantGroup.visible = true;
+    scene.add(sky);
+    document.getElementById('endingImg').style.display = '';
+    endingEl.style.background = '';
+    endingEl.classList.add('done');
+  } finally {
+    credits = null;
+    document.body.classList.remove('cutin', 'credits');   // 燃料・からだ・復興度などのステータスを出し直し、スキップボタンも消す
+  }
 }
 // パレードが最後まで行った・スキップされた、どちらでもここに来る。体当たりは Thank you、狙撃は最後にランキング登録
 function creditsFinished() {
@@ -3113,32 +3126,36 @@ function creditsFinished() {
 // 右上の「スキップ」。今のキャラを片づけて、最後まで行ったのと同じ終わり方にする
 function skipCredits() {
   if (!credits) return;
-  const cur = credits.cur;
-  if (cur?.type === 'resident') { scene.remove(cur.root); cur.mixer.uncacheRoot(cur.root); }
-  else if (cur?.type === 'boss') { cur.root.visible = false; }
+  cleanupCreditsActor(credits.cur);
   creditsFinished();
 }
 function startCredits() {
-  // cutin はムービーの場面に使っている印で、ステータスや効果音ボタンなどを消す（CSS 側はそのまま流用）。
-  // credits はパレードだけの印で、スキップボタンを出す
-  document.body.classList.add('cutin', 'credits');
-  // パレード中は tick() ごと休むので updateAmbient／updateBgm が呼ばれなくなる。#ending.on が出ている間は
-  // もともと「静かにする」判定になっているので、ここで一度だけ呼んで、ふだんの消え方（川・滝・地ひびき・BGM）に任せる
-  updateAmbient(false);
-  document.getElementById('endingImg').style.display = 'none';
-  // #ending 自体は不透明な背景を持つ板で、3D のキャンバスの手前に乗っている。ここを素通し（transparent）に
-  // しないと、パレードのキャラクターは3D側で動いていても板の後ろに完全に隠れて見えない
-  endingEl.style.background = 'transparent';
-  // 町・遠景・空を隠して、真っ黒を背景にする（アニメ調の描画は毎フレーム sky.visible を立て直すので、
-  // visible ではなくシーンから外して確実に消す）
-  townGroup.visible = false;
-  distantGroup.visible = false;
-  scene.remove(sky);
-  scene.background = CREDITS_BG;
-  camera.fov = 70;
-  camera.updateProjectionMatrix();
-  credits = { order: CREDITS_ORDER.slice(), i: -1, cur: null, phase: 'in', t: 0, edgeX: 0 };
-  advanceCredits();
+  // 途中で例外が起きたら（想定外のモデル不足など）、中途半端なまま放置せず通常の終了画面に戻す
+  try {
+    // cutin はムービーの場面に使っている印で、ステータスや効果音ボタンなどを消す（CSS 側はそのまま流用）。
+    // credits はパレードだけの印で、スキップボタンを出す
+    document.body.classList.add('cutin', 'credits');
+    // パレード中は tick() ごと休むので updateAmbient／updateBgm が呼ばれなくなる。#ending.on が出ている間は
+    // もともと「静かにする」判定になっているので、ここで一度だけ呼んで、ふだんの消え方（川・滝・地ひびき・BGM）に任せる
+    updateAmbient(false);
+    document.getElementById('endingImg').style.display = 'none';
+    // #ending 自体は不透明な背景を持つ板で、3D のキャンバスの手前に乗っている。ここを素通し（transparent）に
+    // しないと、パレードのキャラクターは3D側で動いていても板の後ろに完全に隠れて見えない
+    endingEl.style.background = 'transparent';
+    // 町・遠景・空を隠して、真っ黒を背景にする（アニメ調の描画は毎フレーム sky.visible を立て直すので、
+    // visible ではなくシーンから外して確実に消す）
+    townGroup.visible = false;
+    distantGroup.visible = false;
+    scene.remove(sky);
+    scene.background = CREDITS_BG;
+    camera.fov = 70;
+    camera.updateProjectionMatrix();
+    credits = { order: CREDITS_ORDER.slice(), i: -1, cur: null, phase: 'in', t: 0, edgeX: 0 };
+    advanceCredits();
+  } catch (e) {
+    console.error('パレードの開始に失敗。通常の終了画面に戻す', e);
+    creditsFinished();
+  }
 }
 document.getElementById('creditsSkip').addEventListener('click', (e) => { e.stopPropagation(); skipCredits(); });
 
@@ -4392,6 +4409,12 @@ const RESIDENTS = [
   // 町のほう（東、+X）を向いて立っている。話すとジェットの羽（ITEMS.wings）をくれる。展示用の羽は女の子の横に浮かんでいる（WINGS_SHOW）
   { id: 'castle', kind: 'girl', home: new THREE.Vector3(-272, 52.3, 18), radius: 0, face: Math.PI / 2, guest: true },
 ];
+// エンディングパレードの登場順（CREDITS_ORDER）は住人 id をハードコードしているので、
+// ここで id の変更に気づけるようにしておく（'player'・'boss:N' 以外は RESIDENTS に無ければならない）
+for (const id of CREDITS_ORDER) {
+  if (id === 'player' || id.startsWith('boss:')) continue;
+  if (!RESIDENTS.some((r) => r.id === id)) console.error(`CREDITS_ORDER: id "${id}" が RESIDENTS にありません`);
+}
 const RES_HOME_HURRY = 1.25;     // 家へ帰るときは少し急ぐ
 const RES_HURRY = 1.6;           // パンへ向かうときは少し急ぐ（速さもアニメもこの倍）
 const RES_TURN = 3;              // 向きを変える速さ
@@ -6873,7 +6896,11 @@ function updateCamera() {
 
 let daytime = null;
 function tick(dt, active) {
-  if (credits) { updateCredits(dt); return; }   // エンディングのキャラ紹介パレード中は、ふだんの更新はすべて休む
+  // パレード中は、入力・当たり判定・カメラ・updateAmbient／updateBgm（ループ音・BGM）など、
+  // ここから下の per-frame 処理を丸ごと休む。パレードに必要なものは updateCredits() 側に個別実装してある
+  // （BGM は playCreditsBgm() で別経路、Wake Lock も専用）。新しく per-frame の仕掛けを足すときは、
+  // ここで止まっていることを忘れないこと（更新されず古い値のまま、が起きやすい）
+  if (credits) { updateCredits(dt); return; }
   if (timeAttackRunning && active) timeAttackElapsed += dt;
   updateAmbient(active);
   // 一時停止中は時間を止める（見た目の切り替えには合わせ直す）。N を押している間は早送り
