@@ -2881,8 +2881,9 @@ const endingWide = () => window.innerWidth >= window.innerHeight;
 function endingSrc() { return endingWide() ? 'ending1h.webp' : 'ending1.webp'; }
 // 撃って勝ったとき（ふわおは生きて帰る）の絵。廃墟からしばらくたったあとの町なので、
 // すぐ出さずにゆっくり浮かび上がらせる（ENDING_SHOT_FADE）。縦長の絵はまだないので、横の絵を画面いっぱいに使う
-const ENDING_SHOT_WAIT = 0.6;    // 暖色の地から、絵がうっすら浮かび始めるまで（秒）
+const ENDING_SHOT_WAIT = 0.6;    // 暗い地から、絵がうっすら浮かび始めるまで（秒）
 const ENDING_SHOT_FADE = 4.5;    // 絵がゆっくり浮かび上がる長さ（秒）
+const ENDING_SHOT_SHOW = 5;      // 絵を出してから、パレードへ自動で進むまでの長さ（秒）
 function shotEndingSrc() { return 'ending2h.webp'; }
 // ---- エンディングの語り（絵のあと・絵の前に、1行ずつ浮かべて消す） ----
 const ENDING_LINE_HOLD = 4300, ENDING_LINE_FADE = 700;   // 合わせて1行5秒
@@ -2908,9 +2909,6 @@ function showNarration(lines, onLine, onDone) {
 // 体当たり：メカは壊れてしまったが、町は取り戻していく。狙撃：ふわおは生きて帰り、町はこれから元に戻っていく
 const RAM_NARRATION = ['ふわおはもう戻らない。', 'でも、みんな　ふわおのことを忘れないだろう。', 'ふわおの勇気を胸に　町はその姿を取り戻していく……'];
 const SHOT_NARRATION = ['ふわおは町を守りきった。', '町が元の姿を取り戻すには、時間がかかるだろう。', 'だが、彼らには見える。よみがえった町と、人々の笑顔が。'];
-// エンディング画面をクリック／タップしたら進める場面（狙撃：絵が出たあと、パレードを始める）で使う
-let awaitingEndingClick = null;
-endingEl.addEventListener('click', () => { if (awaitingEndingClick) { const fn = awaitingEndingClick; awaitingEndingClick = null; fn(); } });
 function showEnding() {
   finale.phase = 'ending';
   requestEndingWakeLock();   // 語り～パレードは操作が無いので、携帯の画面が暗くならないようにする
@@ -2924,12 +2922,14 @@ function showEnding() {
   if (finale.mode === 'shot') {
     endingEl.classList.add('plain');
     img.style.cssText = '';   // 前にラムエンディングを見たときの大きさ・動きが残らないように
-    // 文字を3行→絵がゆっくり浮かび上がる→クリック／タップでパレードへ（曲は3行目から）
+    // 文字を3行→絵がゆっくり浮かび上がる→ENDING_SHOT_SHOW 秒たったら自動でパレードへ（曲は3行目から）
     showNarration(SHOT_NARRATION, (i) => { if (i === 2) playCreditsBgm('shot'); }, () => {
       img.src = shotEndingSrc();
-      const run = () => img.animate([{ opacity: 0 }, { opacity: 1 }],
-        { duration: ENDING_SHOT_FADE * 1000, delay: ENDING_SHOT_WAIT * 1000, easing: 'ease-in', fill: 'forwards' })
-        .finished.then(() => { awaitingEndingClick = startCredits; });
+      const run = () => {
+        img.animate([{ opacity: 0 }, { opacity: 1 }],
+          { duration: ENDING_SHOT_FADE * 1000, delay: ENDING_SHOT_WAIT * 1000, easing: 'ease-in', fill: 'forwards' });
+        setTimeout(startCredits, ENDING_SHOT_SHOW * 1000);
+      };
       if (img.complete && img.naturalWidth) run(); else img.addEventListener('load', run, { once: true });
     });
     return;
