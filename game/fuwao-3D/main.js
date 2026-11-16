@@ -3012,6 +3012,7 @@ function playCreditsBgm(mode) {
   creditsAudio.play().catch(() => { /* まだ素材がない・自動再生できない環境 */ });
 }
 let credits = null;
+const creditsNameEl = document.getElementById('creditsName');   // 中央に来た（hold）キャラの名前。入り・出では隠す
 // 住民をクローンして、パレード専用の新しいミキサーで動かす（本編の住民にはふれない）。
 // アラシは bossModels（3体とも常に読み込んである）から、そのときだけ visible にして使う
 function creditsActor(id) {
@@ -3032,6 +3033,14 @@ function creditsActor(id) {
   const walk = mixer.clipAction(clip('Walk')).play();
   const pose = mixer.clipAction(clip('Talk') || clip('Idle')).play();
   return { type: 'resident', root, mixer, walk, pose };
+}
+// 中央に来たときに出す名前。住民は talks.json の台本の name（id 専用の台本があればそちら、
+// なければ種類＝kind の台本の名前）をそのまま使う。アラシは BOSSES の名前（3体とも「アラシ」）、ふわおは固定
+function creditsActorName(id) {
+  if (id === 'player') return 'ふわお';
+  if (id.startsWith('boss:')) return BOSSES[+id.slice(5)].name;
+  const cfg = RESIDENTS.find((r) => r.id === id);
+  return TALKS[id]?.name || TALKS[cfg?.kind]?.name || id;
 }
 function setActorWalking(A, walking) {
   if (A.type === 'player') {
@@ -3071,6 +3080,8 @@ function advanceCredits() {
   C.i++;
   if (C.i >= C.order.length) { creditsFinished(); return; }
   C.cur = creditsActor(C.order[C.i]);
+  creditsNameEl.textContent = creditsActorName(C.order[C.i]);
+  creditsNameEl.classList.remove('on');   // 名前は中央（hold）に来てから出す。歩いて入ってくる間はまだ隠す
   setCreditsCamera(C, C.cur.type);
   setActorWalking(C.cur, true);
   C.phase = 'in';
@@ -3085,10 +3096,10 @@ function updateCredits(dt) {
     const u = Math.min(1, C.t / CREDITS_IN), e = u * u * (3 - 2 * u);
     x = THREE.MathUtils.lerp(C.edgeX, 0, e);
     facing = -Math.PI / 2;
-    if (u >= 1) { C.phase = 'hold'; C.t = 0; setActorWalking(A, false); }
+    if (u >= 1) { C.phase = 'hold'; C.t = 0; setActorWalking(A, false); creditsNameEl.classList.add('on'); }
   } else if (C.phase === 'hold') {
     x = 0; facing = 0;   // 正面（カメラのほう）を向く
-    if (C.t >= CREDITS_HOLD) { C.phase = 'out'; C.t = 0; setActorWalking(A, true); }
+    if (C.t >= CREDITS_HOLD) { C.phase = 'out'; C.t = 0; setActorWalking(A, true); creditsNameEl.classList.remove('on'); }
   } else {
     const u = Math.min(1, C.t / CREDITS_OUT), e = u * u * (3 - 2 * u);
     x = THREE.MathUtils.lerp(0, -C.edgeX, e);
@@ -3103,6 +3114,7 @@ function finishCredits() {
   // 途中で例外が起きても、UI が cutin／credits のまま固まらないよう、後片付け（finally）は必ず走らせる
   try {
     releaseEndingWakeLock();
+    creditsNameEl.classList.remove('on');
     scene.background = fogColor;
     townGroup.visible = true;
     distantGroup.visible = true;

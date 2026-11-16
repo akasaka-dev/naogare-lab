@@ -259,6 +259,12 @@
     z-index: 10; pointer-events: auto; cursor: pointer; font: inherit; font-size: 13px; color: rgba(245, 234, 214, 0.75);
     background: rgba(0, 0, 0, 0.25); border: 1px solid rgba(245, 234, 214, 0.35); border-radius: 999px; padding: 5px 14px; }
   body.credits #creditsSkip { display: block; }
+  /* キャラ紹介パレードで、中央に来たキャラの名前を出す（歩いて入る・出るあいだは隠す） */
+  #creditsName { display: none; position: fixed; left: 50%; bottom: calc(12% + env(safe-area-inset-bottom)); transform: translateX(-50%);
+    z-index: 10; pointer-events: none; font-size: clamp(16px, 4vw, 20px); color: #f5ead6; text-shadow: 0 2px 8px rgba(0, 0, 0, 0.7);
+    background: rgba(10, 8, 6, 0.4); border-radius: 999px; padding: 6px 22px; white-space: nowrap; opacity: 0; transition: opacity 0.4s; }
+  body.credits #creditsName { display: block; }
+  #creditsName.on { opacity: 1; }
   /* タイムアタックの登録・ランキング（エンディングのあと、またはタイトルの「ランキング」から） */
   #rankPanel { display: none; position: fixed; inset: 0; z-index: 10; background: rgba(20, 16, 12, 0.72);
     align-items: center; justify-content: center; padding: 20px; box-sizing: border-box;
@@ -389,7 +395,7 @@
 <div id="fade"></div>
 <div id="flash"></div>
 <div id="gameover"><div class="go-text">ふわおはきえてしまった</div><div class="go-album"></div></div>
-<div id="ending"><img id="endingImg" alt=""><div id="endingNarration"></div><button id="creditsSkip">スキップ &gt;&gt;</button><div class="credit"><div class="lead" id="endingLead">ふわおは、町を守りきった！</div><div class="title">たすけあいヒーロー ふわお</div><button class="start" onclick="location.reload()">タイトルにもどる</button></div></div>
+<div id="ending"><img id="endingImg" alt=""><div id="endingNarration"></div><button id="creditsSkip">スキップ &gt;&gt;</button><div id="creditsName"></div><div class="credit"><div class="lead" id="endingLead">ふわおは、町を守りきった！</div><div class="title">たすけあいヒーロー ふわお</div><button class="start" onclick="location.reload()">タイトルにもどる</button></div></div>
 <div id="rankPanel">
   <div class="rank-box">
     <div class="rank-ask">
