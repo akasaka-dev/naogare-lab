@@ -227,7 +227,12 @@
     #gameover.show-album .go-album { animation: go-album-pan 5s 1.5s ease-in-out forwards; }
   }
   @keyframes go-album-pan { from { background-position: 55% 50%; } to { background-position: 4% 50%; } }
-  #gameover .go-text { position: relative; font-size: clamp(18px, 4.5vw, 28px); letter-spacing: 0.2em; opacity: 0; transition: opacity 2.5s ease-in; }
+  /* ふわおが消えてしまったあとの手紙。携帯でもスクロールせず収まるよう、行間をつめて小さめに。
+     後ろに敷いた暗い帯（background）で、どんな明るさの背景でも文字が読みやすいようにする */
+  #gameover .go-text { position: relative; width: 88%; max-width: 560px; box-sizing: border-box;
+    font-size: clamp(12px, 3.4vw, 17px); line-height: 1.5; white-space: pre-line;
+    background: rgba(0, 0, 0, 0.4); border-radius: 14px; padding: 20px 26px;
+    opacity: 0; transition: opacity 2.5s ease-in; }
   #gameover.on .go-text { opacity: 1; }
   #gameover.show-album .go-text { opacity: 0; transition: opacity 1s; }
   /* エンディング：縦長の絵を、空から下へゆっくりスクロールする。終わったらタイトルとボタンが浮かぶ */
@@ -416,7 +421,25 @@
 <div id="hurt"></div>
 <div id="fade"></div>
 <div id="flash"></div>
-<div id="gameover"><div class="go-text">ふわおはきえてしまった</div><div class="go-album"></div></div>
+<div id="gameover"><div class="go-text">ふわお君
+
+私は今、避難先の隣町で
+これを書いている。
+町は崩壊し、住民も避難中、
+アラシの被害に遭い、、
+悔しい。悔しいよ。
+ふわお君が守ってくれた町に
+なぜあんな脅威が連続して現れたのか。
+国王が絡んでいるらしいなんて噂もあるが、、
+このままではこの国は、、
+工場長(もう工房を工場にする夢は
+破れたなんて言ってる)は
+魔法のパン種の材料を探しに
+放浪しているらしい。
+また作るなんて言ってるけど、、
+
+私はふわお君に会いたいよ。
+……</div><div class="go-album"></div></div>
 <div id="ending"><img id="endingImg" alt=""><div id="endingDim"></div><div id="endingNarration"></div><button id="creditsSkip">スキップ &gt;&gt;</button><div id="creditsName"></div><div id="creditsCast">CAST</div><div id="creditsStaff"><div class="staff-group"><div class="roles">音楽/キャラクターデザイン<br>シナリオ</div><div class="names">naogare with gpt &amp; gemini</div></div><div class="staff-group"><div class="roles">プログラミング</div><div class="names">claude</div></div></div><div class="credit"><div class="lead" id="endingLead">ふわおは、町を守りきった！</div><div class="title">たすけあいヒーロー ふわお</div><button class="start" onclick="location.reload()">タイトルにもどる</button></div></div>
 <div id="rankPanel">
   <div class="rank-box">
