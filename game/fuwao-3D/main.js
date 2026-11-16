@@ -2971,7 +2971,7 @@ function showEnding() {
 const CREDITS_BG = new THREE.Color(0, 0, 0);
 const CREDITS_CENTER = new THREE.Vector3(0, 300, 0);   // 地形も当たり判定もない、何もない空間
 // ふだんはこの距離・高さから見る。アラシ（3体とも大きい）のときだけ、ズームアウトして見上げる
-const CREDITS_CAM = { normal: { dist: 12, y: 1.1 }, boss: { dist: 55, y: 9 } };
+const CREDITS_CAM = { normal: { dist: 6, y: 0.55 }, boss: { dist: 55, y: 9 } };
 const CREDITS_EDGE_MARGIN = 1.4;                        // 画面のはしのさらに外（倍率）まで出入りする
 const CREDITS_IN = 2.2, CREDITS_HOLD = 2.4, CREDITS_OUT = 2.2;   // 入り・中央・出の長さ（秒）
 // 最後のふわおだけ：歩いて去るかわりに、中央でジャンプしてすぐジェットに切り替え（本編の操作と同じ）、
@@ -2979,9 +2979,9 @@ const CREDITS_IN = 2.2, CREDITS_HOLD = 2.4, CREDITS_OUT = 2.2;   // 入り・中
 // z は CREDITS_CENTER.z からの差分（+ がカメラに近い側）。カメラは通常距離（CREDITS_CAM.normal.dist）のまま動かさない
 const CREDITS_PLAYER_JUMP = 0.45;         // ジャンプ～ジェットに切り替わるまでの長さ（秒）
 const CREDITS_PLAYER_JUMP_HEIGHT = 2.5;   // ジャンプの高さ（見た目だけ。物理は使わない）
-const CREDITS_PLAYER_NEAR_Z = 9;          // 円がカメラにいちばん近づく点（カメラまで残り CREDITS_CAM.normal.dist－これ）
+const CREDITS_PLAYER_NEAR_Z = 4;          // 円がカメラにいちばん近づく点（カメラまで残り CREDITS_CAM.normal.dist－これ）
 const CREDITS_PLAYER_LOOP = 2.3;          // 円を描く長さ（秒）。カメラの近くで一周＋四分の一（まわり終わりが奥向きになる角度）まわる
-const CREDITS_PLAYER_LOOP_R = 4;          // 円の半径
+const CREDITS_PLAYER_LOOP_R = 2;          // 円の半径
 const CREDITS_PLAYER_AWAY = 1.4;          // 円を抜けてから、奥へ去るまでの長さ（秒）
 const CREDITS_PLAYER_FAR_Z = -200;        // 飛び去る先（カメラと反対側）
 const CREDITS_PLAYER_GONE_WAIT = 5;       // 消えてから、絵がフェードインするまでの間（秒）
@@ -6379,7 +6379,9 @@ function enterPlay() {
 }
 document.addEventListener('pointerlockchange', () => {
   if (document.pointerLockElement) play();
-  else if (!dragLook) pause();
+  // エンディング（語り～パレード）は showEnding() がカーソルを出すためだけにロックを外す。本編の一時停止ではないので、
+  // ここで pause() してしまうと「タップしてつづける」の一時停止画面がパレードの間ずっと出たままになってしまう
+  else if (!dragLook && !(finale && finale.phase === 'ending')) pause();
 });
 
 let dragging = false;
