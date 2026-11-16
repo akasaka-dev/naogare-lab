@@ -278,12 +278,13 @@
   body.credits #creditsCast { display: flex; }
   #creditsCast.on { opacity: 1; }
   /* パレードの最後（ふわおが消えたあと、絵が出てくる前）に出すスタッフ表記 */
-  #creditsStaff { display: none; position: fixed; inset: 0; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  #creditsStaff { display: none; position: fixed; inset: 0; flex-direction: column; align-items: center; justify-content: center; gap: 28px;
     z-index: 10; pointer-events: none; color: #f5ead6; text-align: center; text-shadow: 0 2px 8px rgba(0, 0, 0, 0.7);
     opacity: 0; transition: opacity 0.8s; }
   body.credits #creditsStaff { display: flex; }
   #creditsStaff.on { opacity: 1; }
-  #creditsStaff .roles { font-size: clamp(16px, 4vw, 22px); letter-spacing: 0.15em; }
+  #creditsStaff .staff-group { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  #creditsStaff .roles { font-size: clamp(16px, 4vw, 22px); letter-spacing: 0.15em; line-height: 1.6; }
   #creditsStaff .names { font-size: clamp(14px, 3.2vw, 18px); letter-spacing: 0.1em; opacity: 0.85; }
   /* タイムアタックの登録・ランキング（エンディングのあと、またはタイトルの「ランキング」から） */
   #rankPanel { display: none; position: fixed; inset: 0; z-index: 10; background: rgba(20, 16, 12, 0.72);
@@ -415,7 +416,7 @@
 <div id="fade"></div>
 <div id="flash"></div>
 <div id="gameover"><div class="go-text">ふわおはきえてしまった</div><div class="go-album"></div></div>
-<div id="ending"><img id="endingImg" alt=""><div id="endingDim"></div><div id="endingNarration"></div><button id="creditsSkip">スキップ &gt;&gt;</button><div id="creditsName"></div><div id="creditsCast">CAST</div><div id="creditsStaff"><div class="roles">音楽・キャラクター・シナリオ・プログラミング</div><div class="names">naogare &amp; gpt &amp; gemini &amp; claude</div></div><div class="credit"><div class="lead" id="endingLead">ふわおは、町を守りきった！</div><div class="title">たすけあいヒーロー ふわお</div><button class="start" onclick="location.reload()">タイトルにもどる</button></div></div>
+<div id="ending"><img id="endingImg" alt=""><div id="endingDim"></div><div id="endingNarration"></div><button id="creditsSkip">スキップ &gt;&gt;</button><div id="creditsName"></div><div id="creditsCast">CAST</div><div id="creditsStaff"><div class="staff-group"><div class="roles">音楽/キャラクターデザイン<br>シナリオ</div><div class="names">naogare with gpt &amp; gemini</div></div><div class="staff-group"><div class="roles">プログラミング</div><div class="names">claude</div></div></div><div class="credit"><div class="lead" id="endingLead">ふわおは、町を守りきった！</div><div class="title">たすけあいヒーロー ふわお</div><button class="start" onclick="location.reload()">タイトルにもどる</button></div></div>
 <div id="rankPanel">
   <div class="rank-box">
     <div class="rank-ask">

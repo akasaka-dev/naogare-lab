@@ -2989,8 +2989,8 @@ const CREDITS_PLAYER_LOOP = 2.3;          // 円を描く長さ（秒）。カ�
 const CREDITS_PLAYER_LOOP_R = 2;          // 円の半径
 const CREDITS_PLAYER_AWAY = 1.4;          // 円を抜けてから、奥へ去るまでの長さ（秒）
 const CREDITS_PLAYER_FAR_Z = -200;        // 飛び去る先（カメラと反対側）
-const CREDITS_PLAYER_GONE_WAIT = 5;       // 消えてから、絵がフェードインするまでの間（秒）
-const CREDITS_STAFF_SHOW = 3.2;           // そのうち、スタッフ（音楽・キャラクター・シナリオ・プログラミング）を出しておく長さ（秒）
+const CREDITS_STAFF_SHOW = 5;             // 消えてから、スタッフ表記を出しておく長さ（秒）
+const CREDITS_PLAYER_GONE_WAIT = 5;       // スタッフ表記のあと、絵がフェードインするまでの間（秒）
 // 町長・パン屋・工場長・おじいちゃん（2人）・おばあちゃん・女の子・お城の女の子・アラシ（バイ菌→ヘドロ→ロック）・最後にふわお
 const CREDITS_ORDER = ['1-1', '3-1', '0-1', '7-1', '4-1', '2-2', '7-2', 'castle', 'boss:0', 'boss:1', 'boss:2', 'player'];
 // 体当たり・狙撃で曲を変える。まだ素材なし。置けばそのまま鳴る
@@ -3238,13 +3238,14 @@ function updateCredits(dt) {
       jetting = false; jetEndTime = 1;
       stopCreditsJetSound();
       C.phase = 'playerGone'; C.t = 0;
-      revealEndingImg();
       creditsStaffEl.classList.add('on');   // ふわおが消えたら、まだ真っ黒なうちにスタッフ表記を出す
       return;
     }
-  } else {   // 'playerGone'：奥へ消えたあと、絵がフェードインするまでの間（何も動かさず、ただ待つ）
-    if (C.t >= CREDITS_STAFF_SHOW) creditsStaffEl.classList.remove('on');   // 絵が目立ってくる前に、かぶらないうちに消す
-    if (C.t >= CREDITS_PLAYER_GONE_WAIT) creditsFinished();
+  } else {   // 'playerGone'：まずスタッフ表記を出し（真っ黒のまま）、終わったら絵をフェードインしていく
+    if (C.t >= CREDITS_STAFF_SHOW) {
+      if (creditsStaffEl.classList.contains('on')) { creditsStaffEl.classList.remove('on'); revealEndingImg(); }
+      if (C.t >= CREDITS_STAFF_SHOW + CREDITS_PLAYER_GONE_WAIT) creditsFinished();
+    }
     return;
   }
   placeActor(A, x, facing, z, y);
