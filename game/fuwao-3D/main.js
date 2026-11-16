@@ -4281,15 +4281,12 @@ function showGameOver() {
   savingOn = false;   // からだが 0 のまま保存しない
   jetting = false; jetVel.set(0, 0, 0); recoilVel.set(0, 0, 0); velY = 0;
   releaseAll();
-  if (document.pointerLockElement) document.exitPointerLock();   // マウスロックしたままだとカーソルが出ず、クリックで進められないため
-  document.getElementById('gameover').classList.add('on');
+  if (document.pointerLockElement) document.exitPointerLock();   // マウスロックしたままだとカーソルが出ず、ボタンを押せないため
+  // タッチでは進めない。文字と同時に、背景（ふわおの遺影）も自動でゆっくりフェードインさせておく
+  // （タイトルにもどる、は画面下のボタンで）
+  document.getElementById('gameover').classList.add('on', 'show-album');
+  playGameOverBgm();
 }
-// 1 回目のクリック／タップで絵と BGM を出し、2 回目でタイトルへ（location.reload）
-const gameoverEl = document.getElementById('gameover');
-gameoverEl.addEventListener('click', () => {
-  if (!gameoverEl.classList.contains('show-album')) { gameoverEl.classList.add('show-album'); playGameOverBgm(); }
-  else location.reload();
-});
 function hurtBody(msg) {
   if (bodyHitWait > 0 || knockout) return false;
   bodyHitWait = BODY_HIT_GUARD;
