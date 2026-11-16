@@ -2913,6 +2913,10 @@ function showEnding() {
   finale.phase = 'ending';
   requestEndingWakeLock();   // 語り～パレードは操作が無いので、携帯の画面が暗くならないようにする
   if (document.pointerLockElement) document.exitPointerLock();   // マウスロックしたままだとカーソルが出ず、ランキング登録のボタンを押せないため
+  // 町長のセリフ（会話の吹き出し）がまだ出ていたら閉じ、たまっていたお知らせ（showToast の順番待ち）も捨てる。
+  // cutin を外した直後は toastBusy() が false になるので、残っているとエンディングのフェードインに重なって出てしまう
+  if (talk.active) talk.close();
+  clearToasts();
   document.body.classList.remove('cutin');
   fadeEl.classList.remove('on');   // フィナーレの暗転はここまで。消さないと、パレード中に #ending を透明にしたときに黒いままになる
   endingDimEl.classList.remove('on');   // デバッグでやり直したときなど、前回の語りの暗さが残らないように
