@@ -2884,6 +2884,7 @@ function endingSrc() { return endingWide() ? 'ending1h.webp' : 'ending1.webp'; }
 const ENDING_SHOT_WAIT = 0.6;    // 暗い地から、絵がうっすら浮かび始めるまで（秒）
 const ENDING_SHOT_FADE = 4.5;    // 絵がゆっくり浮かび上がる長さ（秒）
 const ENDING_SHOT_SHOW = 5;      // 絵を出してから、パレードへ自動で進むまでの長さ（秒）
+const ENDING_DONE_FADE = 10;     // 体当たりエンディング（ending1）の最後：Thank you が出てから、背景の絵が消えるまでの長さ（秒）
 function shotEndingSrc() { return 'ending2h.webp'; }
 // ---- エンディングの語り（絵のあと・絵の前に、1行ずつ浮かべて消す） ----
 const ENDING_LINE_HOLD = 4300, ENDING_LINE_FADE = 700;   // 合わせて1行5秒
@@ -3250,9 +3251,15 @@ function finishCredits() {
     townGroup.visible = true;
     distantGroup.visible = true;
     scene.add(sky);
-    document.getElementById('endingImg').style.display = '';
+    const img = document.getElementById('endingImg');
+    img.style.display = '';
     endingEl.style.background = '';
     endingEl.classList.add('done');
+    // 体当たりエンディング（ending1）だけ：Thank you for playing が出るのと同時に、背景の絵をゆっくり消していく
+    // （狙撃エンディング／ending2 はこのまま絵を見せ続ける。携帯ではズームアウト表示にしてあるため）
+    if (!endingEl.classList.contains('plain')) {
+      img.animate([{ opacity: 1 }, { opacity: 0 }], { duration: ENDING_DONE_FADE * 1000, easing: 'ease-in', fill: 'forwards' });
+    }
   } finally {
     credits = null;
     document.body.classList.remove('cutin', 'credits');   // 燃料・からだ・復興度などのステータスを出し直し、スキップボタンも消す
