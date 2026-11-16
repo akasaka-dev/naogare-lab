@@ -247,8 +247,8 @@
   #ending.plain img { display: block; position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; }
   /* 携帯の縦長画面では、絵の上寄りではなく下寄りを映す（体当たりの絵は main.js 側のスクロールで下寄りに合わせてある） */
   @media (max-aspect-ratio: 3/4) { #ending.plain img { object-position: center bottom; } }
-  /* 狙撃の最後の画面（Thank you for playing が出たあと）だけ、携帯ではズームアウトして町の様子ごと見えるようにする */
-  @media (max-aspect-ratio: 3/4) { #ending.done.plain img { object-fit: contain; object-position: center; } }
+  /* 狙撃の最後の画面（Thank you for playing が出たあと）：今の大きさのまま全体が見えるまでゆっくりズームアウトする
+     （object-fit・transform の制御は main.js の finishCredits 側で行う） */
   #ending .start { pointer-events: auto; cursor: pointer; font: inherit; font-size: 18px; padding: 10px 28px; border: none; border-radius: 999px; background: #e8973c; color: #fff; }
   /* エンディングの語り（絵の上か、絵の前の暗い場で、1行ずつ浮かべて消す）。絵がにぎやかでも文字が読めるよう、
      うしろにうすい黒の帯を敷く */
