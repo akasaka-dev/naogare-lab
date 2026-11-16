@@ -2971,17 +2971,20 @@ function showEnding() {
 const CREDITS_BG = new THREE.Color(0, 0, 0);
 const CREDITS_CENTER = new THREE.Vector3(0, 300, 0);   // 地形も当たり判定もない、何もない空間
 // ふだんはこの距離・高さから見る。アラシ（3体とも大きい）のときだけ、ズームアウトして見上げる
-const CREDITS_CAM = { normal: { dist: 15, y: 1.3 }, boss: { dist: 55, y: 9 } };
+const CREDITS_CAM = { normal: { dist: 12, y: 1.1 }, boss: { dist: 55, y: 9 } };
 const CREDITS_EDGE_MARGIN = 1.4;                        // 画面のはしのさらに外（倍率）まで出入りする
 const CREDITS_IN = 2.2, CREDITS_HOLD = 2.4, CREDITS_OUT = 2.2;   // 入り・中央・出の長さ（秒）
-// 最後のふわおだけ：歩いて去るかわりに、手前（カメラ）へ寄ってアップになり、Uターンして奥へ飛び去って消える。
-// z は CREDITS_CENTER.z からの差分（+ がカメラに近い側）。カメラは通常距離（CREDITS_CAM.normal.dist＝15）のまま動かさない
-const CREDITS_PLAYER_APPROACH = 2.0;    // 手前へ寄ってくる長さ（秒）
-const CREDITS_PLAYER_NEAR_Z = 11;       // アップになったときの近さ（カメラまで残り 15-11＝4）
-const CREDITS_PLAYER_TURN = 0.5;        // Uターンの長さ（秒）
-const CREDITS_PLAYER_RECEDE = 2.6;      // 向き直って、奥へ飛び去って見えなくなるまでの長さ（秒）
-const CREDITS_PLAYER_FAR_Z = -220;      // 飛び去る先（カメラと反対側）
-const CREDITS_PLAYER_GONE_WAIT = 5;     // 消えてから、タイトルなどがフェードインするまでの間（秒）
+// 最後のふわおだけ：歩いて去るかわりに、中央でジャンプしてすぐジェットに切り替え（本編の操作と同じ）、
+// カメラの前で円を描いて飛んでから、その円のまま奥へ遠ざかって消える。
+// z は CREDITS_CENTER.z からの差分（+ がカメラに近い側）。カメラは通常距離（CREDITS_CAM.normal.dist）のまま動かさない
+const CREDITS_PLAYER_JUMP = 0.45;         // ジャンプ～ジェットに切り替わるまでの長さ（秒）
+const CREDITS_PLAYER_JUMP_HEIGHT = 2.5;   // ジャンプの高さ（見た目だけ。物理は使わない）
+const CREDITS_PLAYER_NEAR_Z = 9;          // 円がカメラにいちばん近づく点（カメラまで残り CREDITS_CAM.normal.dist－これ）
+const CREDITS_PLAYER_LOOP = 2.3;          // 円を描く長さ（秒）。カメラの近くで一周＋四分の一（まわり終わりが奥向きになる角度）まわる
+const CREDITS_PLAYER_LOOP_R = 4;          // 円の半径
+const CREDITS_PLAYER_AWAY = 1.4;          // 円を抜けてから、奥へ去るまでの長さ（秒）
+const CREDITS_PLAYER_FAR_Z = -200;        // 飛び去る先（カメラと反対側）
+const CREDITS_PLAYER_GONE_WAIT = 5;       // 消えてから、絵がフェードインするまでの間（秒）
 // 町長・パン屋・工場長・おじいちゃん（2人）・おばあちゃん・女の子・お城の女の子・アラシ（バイ菌→ヘドロ→ロック）・最後にふわお
 const CREDITS_ORDER = ['1-1', '3-1', '0-1', '7-1', '4-1', '2-2', '7-2', 'castle', 'boss:0', 'boss:1', 'boss:2', 'player'];
 // 体当たり・狙撃で曲を変える。まだ素材なし。置けばそのまま鳴る
@@ -3022,6 +3025,40 @@ function playCreditsBgm(mode) {
   creditsAudio.currentTime = 0;
   creditsAudio.volume = BGM_VOL;
   creditsAudio.play().catch(() => { /* まだ素材がない・自動再生できない環境 */ });
+}
+// パレード最後のふわおの飛行だけで使うジェット音。本編の updateJetSound はエンディング中は鳴らさない作りなので、
+// 本編の仕組みにはふれず、ここだけで完結させる（音の鳴らし方は JET_LOOP／JET_FADE をそのまま流用）
+let creditsJetSnd = null;
+function startCreditsJetSound() {
+  const a = SFX.jet;
+  if (!audioCtx || !a.buf || !soundOn.sfx || creditsJetSnd) return;
+  const src = audioCtx.createBufferSource();
+  src.buffer = a.buf;
+  src.loop = true;
+  src.loopStart = JET_LOOP[0];
+  src.loopEnd = Math.min(JET_LOOP[1], a.buf.duration);
+  const gain = audioCtx.createGain();
+  gain.gain.value = a.vol;
+  src.connect(gain).connect(audioCtx.destination);
+  src.start();
+  creditsJetSnd = { src, gain };
+}
+function stopCreditsJetSound() {
+  if (!creditsJetSnd) return;
+  const t = audioCtx.currentTime;
+  creditsJetSnd.gain.gain.setTargetAtTime(0, t, JET_FADE / 3);
+  creditsJetSnd.src.stop(t + JET_FADE * 1.5);
+  creditsJetSnd = null;
+}
+// ふわおが奥へ消えたら、5秒ほどで絵をフェードインさせる（それまでは真っ黒のまま）。
+// 狙撃エンディングでは絵がすでに浮かび上がる animate 済み（fill:'forwards'）なので、キャンセルしてから改めてフェードする
+function revealEndingImg() {
+  const img = document.getElementById('endingImg');
+  img.getAnimations().forEach((a) => a.cancel());
+  img.style.display = '';
+  img.style.opacity = '0';
+  img.animate([{ opacity: 0 }, { opacity: 1 }],
+    { duration: (CREDITS_PLAYER_GONE_WAIT - 0.3) * 1000, easing: 'ease-in', fill: 'forwards' });
 }
 let credits = null;
 const creditsNameEl = document.getElementById('creditsName');   // 中央に来た（hold）キャラの名前。入り・出では隠す
@@ -3074,10 +3111,11 @@ function setActorWalking(A, walking) {
   // アラシ（boss）は立ちポーズのまま。歩きモーションは使わない
 }
 // x は画面の左右の位置（+edgeX が右、-edgeX が左。world の +X がそのまま画面の右にあたる）。
-// z は奥行き（CREDITS_CENTER.z からの差分。+ がカメラに近づく側）。最後のふわおが手前へ寄る・奥へ去るのにだけ使う
-function placeActor(A, x, facing, z = 0) {
+// z は奥行き（CREDITS_CENTER.z からの差分。+ がカメラに近づく側）。y は高さの上乗せ（CREDITS_CENTER.y からの差分）。
+// どちらも最後のふわおのジャンプ～飛行にだけ使う
+function placeActor(A, x, facing, z = 0, y = 0) {
   const pos = A.type === 'player' ? player : A.type === 'boss' ? A.root : A.root;
-  pos.position.set(x, CREDITS_CENTER.y, CREDITS_CENTER.z + z);
+  pos.position.set(x, CREDITS_CENTER.y + y, CREDITS_CENTER.z + z);
   pos.rotation.y = facing;
 }
 // 名前タグを、今のアクターの足元（3D の位置）を画面に投影した場所へ付け替える（毎フレーム呼ぶ）
@@ -3119,7 +3157,7 @@ function advanceCredits() {
 function updateCredits(dt) {
   const C = credits, A = C.cur;
   C.t += dt;
-  let x, facing, z = 0;
+  let x, facing, z = 0, y = 0;
   if (C.phase === 'in') {
     const u = Math.min(1, C.t / CREDITS_IN), e = u * u * (3 - 2 * u);
     x = THREE.MathUtils.lerp(C.edgeX, 0, e);
@@ -3129,9 +3167,13 @@ function updateCredits(dt) {
     x = 0; facing = 0;   // 正面（カメラのほう）を向く
     if (C.t >= CREDITS_HOLD) {
       if (A.type === 'player') {
-        // 最後のふわおだけ、歩いて去るかわりに手前（カメラ）へ寄ってアップになる。名前はここまで
-        C.phase = 'playerNear'; C.t = 0;
+        // 最後のふわおだけ、歩いて去るかわりにジャンプ～ジェットに切り替える（本編と同じ操作）。名前はここまで
+        C.phase = 'playerJump'; C.t = 0;
         creditsNameEl.classList.remove('on');
+        onGround = false; velY = JUMP_SPEED; landTime = 1;
+        jetting = false; jetEndTime = 1; firing = false;
+        floating = false; paddling = false; moveSpeed = 0;
+        playSfx('jump');
       } else {
         C.phase = 'out'; C.t = 0; setActorWalking(A, true);
       }
@@ -3141,28 +3183,55 @@ function updateCredits(dt) {
     x = THREE.MathUtils.lerp(0, -C.edgeX, e);
     facing = -Math.PI / 2;
     if (u >= 1) { advanceCredits(); return; }
-  } else if (C.phase === 'playerNear') {
-    const u = Math.min(1, C.t / CREDITS_PLAYER_APPROACH), e = u * u * (3 - 2 * u);
-    x = 0; facing = 0;
+  } else if (C.phase === 'playerJump') {
+    // ジャンプの頂点までの間に、向き・奥行きも次のジェット（円飛行）の入り口にそろえておく（跳び終わりでそのままつながる）
+    const u = Math.min(1, C.t / CREDITS_PLAYER_JUMP), e = u * u * (3 - 2 * u);
+    x = 0;
+    facing = e * (Math.PI / 2);
     z = THREE.MathUtils.lerp(0, CREDITS_PLAYER_NEAR_Z, e);
-    if (u >= 1) { C.phase = 'playerTurn'; C.t = 0; }
-  } else if (C.phase === 'playerTurn') {
-    const u = Math.min(1, C.t / CREDITS_PLAYER_TURN);
-    x = 0; facing = u * Math.PI;   // Uターン
-    z = CREDITS_PLAYER_NEAR_Z;
-    if (u >= 1) { C.phase = 'playerFar'; C.t = 0; }
-  } else if (C.phase === 'playerFar') {
-    const u = Math.min(1, C.t / CREDITS_PLAYER_RECEDE), e = u * u;   // 加速しながら遠ざかる
-    x = 0; facing = Math.PI;
-    z = THREE.MathUtils.lerp(CREDITS_PLAYER_NEAR_Z, CREDITS_PLAYER_FAR_Z, e);
-    if (u >= 1) { model.visible = false; C.phase = 'playerGone'; C.t = 0; return; }
-  } else {   // 'playerGone'：奥へ消えたあと、タイトルなどがフェードインするまでの間（何も動かさず、ただ待つ）
+    y = Math.sin(Math.PI * u) * CREDITS_PLAYER_JUMP_HEIGHT;
+    jetTilt = e * 0.15;
+    if (u >= 1) {
+      C.phase = 'playerLoop'; C.t = 0;
+      jetting = true; jetTime = 0;
+      startCreditsJetSound();
+    }
+  } else if (C.phase === 'playerLoop') {
+    // カメラのすぐ近く（NEAR_Z）に置いた円を一周＋四分の一（通算 450°）。四分の一ぶん余計にまわることで、
+    // まわり終わったときにはちょうど奥向き（playerAway でそのまま奥へ去る向き）になっている
+    const u = Math.min(1, C.t / CREDITS_PLAYER_LOOP), a = u * (Math.PI * 2 + Math.PI / 2);
+    const R = CREDITS_PLAYER_LOOP_R, centerZ = CREDITS_PLAYER_NEAR_Z - R;
+    x = R * Math.sin(a);
+    z = centerZ + R * Math.cos(a);
+    facing = Math.atan2(Math.cos(a), -Math.sin(a));
+    jetTime += dt;
+    jetTilt = 0.15;
+    if (u >= 1) { C.phase = 'playerAway'; C.t = 0; }
+  } else if (C.phase === 'playerAway') {
+    // 円を抜けた、奥向きのまま（playerLoop の終わりとぴったりつながる）、加速しながら奥へ去っていく
+    const u = Math.min(1, C.t / CREDITS_PLAYER_AWAY), e = u * u;
+    x = CREDITS_PLAYER_LOOP_R;
+    z = THREE.MathUtils.lerp(CREDITS_PLAYER_NEAR_Z - CREDITS_PLAYER_LOOP_R, CREDITS_PLAYER_FAR_Z, e);
+    facing = Math.PI;
+    jetTime += dt;
+    jetTilt = 0.15;
+    if (u >= 1) {
+      model.visible = false;
+      jetting = false; jetEndTime = 1;
+      stopCreditsJetSound();
+      C.phase = 'playerGone'; C.t = 0;
+      revealEndingImg();
+      return;
+    }
+  } else {   // 'playerGone'：奥へ消えたあと、絵がフェードインするまでの間（何も動かさず、ただ待つ）
     if (C.t >= CREDITS_PLAYER_GONE_WAIT) creditsFinished();
     return;
   }
-  placeActor(A, x, facing, z);
-  if (A.type === 'player') mixer.update(dt);
-  else A.mixer.update(dt);
+  placeActor(A, x, facing, z, y);
+  if (A.type === 'player') {
+    if (C.phase === 'playerJump' || C.phase === 'playerLoop' || C.phase === 'playerAway') updateAnimation(dt);
+    else mixer.update(dt);
+  } else A.mixer.update(dt);
   if (creditsNameEl.classList.contains('on')) placeCreditsName(A);
 }
 function finishCredits() {
