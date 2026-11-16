@@ -3320,7 +3320,12 @@ function startCredits() {
     scene.background = CREDITS_BG;
     camera.fov = 70;
     camera.updateProjectionMatrix();
+    // ふわお本体・アラシ（さっきまでのフィナーレで出ていたもの）は、本編の見た目のまま残っているので、
+    // パレードの舞台には誰もいない状態から始める（それぞれの出番がきたら creditsActor() が出す）
+    model.visible = false;
+    for (const m of bossModels) if (m) m.root.visible = false;
     credits = { order: CREDITS_ORDER.slice(), i: -1, cur: null, phase: 'cast', t: 0, edgeX: 0 };
+    setCreditsCamera(credits, 'normal');   // CAST の文字の間も、パレードの舞台（空の黒い場）を向けておく
     creditsCastEl.classList.add('on');   // 最初に画面の真ん中へ「CAST」を出してから、ひとり目が歩いて入ってくる
   } catch (e) {
     console.error('パレードの開始に失敗。通常の終了画面に戻す', e);
