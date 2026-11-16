@@ -3054,7 +3054,10 @@ function stopCreditsJetSound() {
 // 狙撃エンディングでは絵がすでに浮かび上がる animate 済み（fill:'forwards'）なので、キャンセルしてから改めてフェードする
 function revealEndingImg() {
   const img = document.getElementById('endingImg');
-  img.getAnimations().forEach((a) => a.cancel());
+  // 体当たりエンディングは、絵をスクロールさせた動き（transform）も animate（fill:'forwards'）で止めてあるので、
+  // そのままキャンセルすると止めた位置（下寄り）が失われ、スクロール前の位置（上）へ戻ってしまう。
+  // 消す前に今の見た目をスタイルへ書き写してから（commitStyles）キャンセルする
+  img.getAnimations().forEach((a) => { try { a.commitStyles(); } catch { /* 対応していない環境 */ } a.cancel(); });
   img.style.display = '';
   img.style.opacity = '0';
   img.animate([{ opacity: 0 }, { opacity: 1 }],
