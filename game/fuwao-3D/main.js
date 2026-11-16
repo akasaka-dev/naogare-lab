@@ -3251,13 +3251,13 @@ function finishCredits() {
     document.body.classList.remove('cutin', 'credits');   // 燃料・からだ・復興度などのステータスを出し直し、スキップボタンも消す
   }
 }
-// パレードが最後まで行った・スキップされた、どちらでもここに来る。体当たりは Thank you、狙撃は最後にランキング登録
+// パレードが最後まで行った・スキップされた、どちらでもここに来る。狙撃はこのあとさらにランキング登録も挟む
 function creditsFinished() {
   finishCredits();
-  if (finale.mode === 'shot') { showTimeAttackAsk(); return; }
   const lead = document.getElementById('endingLead');
   lead.textContent = 'Thank you for playing!';
   lead.style.display = 'block';
+  if (finale.mode === 'shot') showTimeAttackAsk();
 }
 // 右上の「スキップ」。今のキャラを片づけて、最後まで行ったのと同じ終わり方にする
 function skipCredits() {
