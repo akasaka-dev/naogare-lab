@@ -254,7 +254,8 @@
      うしろにうすい黒の帯を敷く */
   #endingNarration { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 84%; max-width: 620px;
     font-size: clamp(16px, 4vw, 22px); line-height: 1.9; opacity: 0; transition: opacity 0.7s; text-shadow: 0 2px 8px rgba(0, 0, 0, 0.7);
-    pointer-events: none; background: rgba(10, 8, 6, 0.4); border-radius: 14px; padding: 18px 24px; box-sizing: border-box; z-index: 1; }
+    pointer-events: none; background: rgba(10, 8, 6, 0.4); border-radius: 14px; padding: 18px 24px; box-sizing: border-box; z-index: 1;
+    white-space: pre-line; }   /* main.js 側で長い行に入れた \n を、意味の区切りでの改行として効かせる */
   #endingNarration.on { opacity: 1; }
   /* 語りの文字を出している間だけ、絵（背景）のコントラストを落として読みやすくする */
   #endingDim { position: absolute; inset: 0; background: #000; opacity: 0; transition: opacity 0.7s; pointer-events: none; }
