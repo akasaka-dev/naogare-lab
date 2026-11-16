@@ -252,15 +252,19 @@
      うしろにうすい黒の帯を敷く */
   #endingNarration { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 84%; max-width: 620px;
     font-size: clamp(16px, 4vw, 22px); line-height: 1.9; opacity: 0; transition: opacity 0.7s; text-shadow: 0 2px 8px rgba(0, 0, 0, 0.7);
-    pointer-events: none; background: rgba(10, 8, 6, 0.4); border-radius: 14px; padding: 18px 24px; box-sizing: border-box; }
+    pointer-events: none; background: rgba(10, 8, 6, 0.4); border-radius: 14px; padding: 18px 24px; box-sizing: border-box; z-index: 1; }
   #endingNarration.on { opacity: 1; }
+  /* 語りの文字を出している間だけ、絵（背景）のコントラストを落として読みやすくする */
+  #endingDim { position: absolute; inset: 0; background: #000; opacity: 0; transition: opacity 0.7s; pointer-events: none; }
+  #endingDim.on { opacity: 0.45; }
   /* キャラ紹介パレードだけで出す、控えめな「スキップ」（body.credits のときだけ） */
   #creditsSkip { display: none; position: fixed; right: calc(14px + env(safe-area-inset-right)); top: calc(14px + env(safe-area-inset-top));
     z-index: 10; pointer-events: auto; cursor: pointer; font: inherit; font-size: 13px; color: rgba(245, 234, 214, 0.75);
     background: rgba(0, 0, 0, 0.25); border: 1px solid rgba(245, 234, 214, 0.35); border-radius: 999px; padding: 5px 14px; }
   body.credits #creditsSkip { display: block; }
-  /* キャラ紹介パレードで、中央に来たキャラの名前を出す（歩いて入る・出るあいだは隠す） */
-  #creditsName { display: none; position: fixed; left: 50%; bottom: calc(12% + env(safe-area-inset-bottom)); transform: translateX(-50%);
+  /* キャラ紹介パレードで、中央に来たキャラの名前を足元に出す（歩いて入るあいだは隠し、出た後は本人について動く。
+     位置（left/top）は main.js 側で毎フレーム、本人の足元を画面上に投影して付け替える） */
+  #creditsName { display: none; position: fixed; left: 0; top: 0;
     z-index: 10; pointer-events: none; font-size: clamp(16px, 4vw, 20px); color: #f5ead6; text-shadow: 0 2px 8px rgba(0, 0, 0, 0.7);
     background: rgba(10, 8, 6, 0.4); border-radius: 999px; padding: 6px 22px; white-space: nowrap; opacity: 0; transition: opacity 0.4s; }
   body.credits #creditsName { display: block; }
@@ -395,7 +399,7 @@
 <div id="fade"></div>
 <div id="flash"></div>
 <div id="gameover"><div class="go-text">ふわおはきえてしまった</div><div class="go-album"></div></div>
-<div id="ending"><img id="endingImg" alt=""><div id="endingNarration"></div><button id="creditsSkip">スキップ &gt;&gt;</button><div id="creditsName"></div><div class="credit"><div class="lead" id="endingLead">ふわおは、町を守りきった！</div><div class="title">たすけあいヒーロー ふわお</div><button class="start" onclick="location.reload()">タイトルにもどる</button></div></div>
+<div id="ending"><img id="endingImg" alt=""><div id="endingDim"></div><div id="endingNarration"></div><button id="creditsSkip">スキップ &gt;&gt;</button><div id="creditsName"></div><div class="credit"><div class="lead" id="endingLead">ふわおは、町を守りきった！</div><div class="title">たすけあいヒーロー ふわお</div><button class="start" onclick="location.reload()">タイトルにもどる</button></div></div>
 <div id="rankPanel">
   <div class="rank-box">
     <div class="rank-ask">

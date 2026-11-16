@@ -2887,16 +2887,19 @@ function shotEndingSrc() { return 'ending2h.webp'; }
 // ---- エンディングの語り（絵のあと・絵の前に、1行ずつ浮かべて消す） ----
 const ENDING_LINE_HOLD = 4300, ENDING_LINE_FADE = 700;   // 合わせて1行5秒
 const endingNarrationEl = document.getElementById('endingNarration');
+const endingDimEl = document.getElementById('endingDim');   // 文字が出ている間だけ、背景の絵のコントラストを落とす
 function showNarration(lines, onLine, onDone) {
   let i = -1;
   function next() {
     i++;
-    if (i >= lines.length) { onDone(); return; }
+    if (i >= lines.length) { endingDimEl.classList.remove('on'); onDone(); return; }
     endingNarrationEl.textContent = lines[i];
     endingNarrationEl.classList.add('on');
+    endingDimEl.classList.add('on');
     onLine?.(i);
     setTimeout(() => {
       endingNarrationEl.classList.remove('on');
+      endingDimEl.classList.remove('on');
       setTimeout(next, ENDING_LINE_FADE);
     }, ENDING_LINE_HOLD);
   }
@@ -2914,6 +2917,7 @@ function showEnding() {
   if (document.pointerLockElement) document.exitPointerLock();   // マウスロックしたままだとカーソルが出ず、ランキング登録のボタンを押せないため
   document.body.classList.remove('cutin');
   fadeEl.classList.remove('on');   // フィナーレの暗転はここまで。消さないと、パレード中に #ending を透明にしたときに黒いままになる
+  endingDimEl.classList.remove('on');   // デバッグでやり直したときなど、前回の語りの暗さが残らないように
   endingEl.classList.add('on');
   stopTimeAttack();   // タイムアタックの計測はここまで（ラム・パン種、どちらのエンディングでも）
   const img = document.getElementById('endingImg');
@@ -2970,6 +2974,14 @@ const CREDITS_CENTER = new THREE.Vector3(0, 300, 0);   // 地形も当たり判�
 const CREDITS_CAM = { normal: { dist: 15, y: 1.3 }, boss: { dist: 55, y: 9 } };
 const CREDITS_EDGE_MARGIN = 1.4;                        // 画面のはしのさらに外（倍率）まで出入りする
 const CREDITS_IN = 2.2, CREDITS_HOLD = 2.4, CREDITS_OUT = 2.2;   // 入り・中央・出の長さ（秒）
+// 最後のふわおだけ：歩いて去るかわりに、手前（カメラ）へ寄ってアップになり、Uターンして奥へ飛び去って消える。
+// z は CREDITS_CENTER.z からの差分（+ がカメラに近い側）。カメラは通常距離（CREDITS_CAM.normal.dist＝15）のまま動かさない
+const CREDITS_PLAYER_APPROACH = 2.0;    // 手前へ寄ってくる長さ（秒）
+const CREDITS_PLAYER_NEAR_Z = 11;       // アップになったときの近さ（カメラまで残り 15-11＝4）
+const CREDITS_PLAYER_TURN = 0.5;        // Uターンの長さ（秒）
+const CREDITS_PLAYER_RECEDE = 2.6;      // 向き直って、奥へ飛び去って見えなくなるまでの長さ（秒）
+const CREDITS_PLAYER_FAR_Z = -220;      // 飛び去る先（カメラと反対側）
+const CREDITS_PLAYER_GONE_WAIT = 5;     // 消えてから、タイトルなどがフェードインするまでの間（秒）
 // 町長・パン屋・工場長・おじいちゃん（2人）・おばあちゃん・女の子・お城の女の子・アラシ（バイ菌→ヘドロ→ロック）・最後にふわお
 const CREDITS_ORDER = ['1-1', '3-1', '0-1', '7-1', '4-1', '2-2', '7-2', 'castle', 'boss:0', 'boss:1', 'boss:2', 'player'];
 // 体当たり・狙撃で曲を変える。まだ素材なし。置けばそのまま鳴る
@@ -3031,14 +3043,21 @@ function creditsActor(id) {
   scene.add(root);
   const mixer = new THREE.AnimationMixer(root);
   const walk = mixer.clipAction(clip('Walk')).play();
-  const pose = mixer.clipAction(clip('Talk') || clip('Idle')).play();
+  // 中央でのポーズは Talk・Idle のどちらもあれば毎回ランダムに（ループする姿勢なのでどちらでも安全に差し替えられる。
+  // Joy・Think 等の一度きりの身振りは、姿勢を維持する作りではないのでここでは使わない）
+  const poseClip = clip('Talk'), idleClip = clip('Idle');
+  const pose = mixer.clipAction((poseClip && idleClip) ? (Math.random() < 0.5 ? poseClip : idleClip) : (poseClip || idleClip)).play();
   return { type: 'resident', root, mixer, walk, pose };
 }
+// エンディングだけで使う、アラシの呼び方（本編ではどれも「アラシ」のまま。ネタバレになるので変えない）
+const CREDITS_BOSS_NAMES = ['バイ菌のアラシ', 'カビのアラシ', '岩のアラシ'];
 // 中央に来たときに出す名前。住民は talks.json の台本の name（id 専用の台本があればそちら、
-// なければ種類＝kind の台本の名前）をそのまま使う。アラシは BOSSES の名前（3体とも「アラシ」）、ふわおは固定
+// なければ種類＝kind の台本の名前）をそのまま使う。お城の女の子は正体が超絶ネタバレなので伏せる。
+// アラシはエンディング専用の呼び方（CREDITS_BOSS_NAMES）、ふわおは固定
 function creditsActorName(id) {
   if (id === 'player') return 'ふわお';
-  if (id.startsWith('boss:')) return BOSSES[+id.slice(5)].name;
+  if (id === 'castle') return '????';
+  if (id.startsWith('boss:')) return CREDITS_BOSS_NAMES[+id.slice(5)] || BOSSES[+id.slice(5)].name;
   const cfg = RESIDENTS.find((r) => r.id === id);
   return TALKS[id]?.name || TALKS[cfg?.kind]?.name || id;
 }
@@ -3054,11 +3073,20 @@ function setActorWalking(A, walking) {
   }
   // アラシ（boss）は立ちポーズのまま。歩きモーションは使わない
 }
-// x は画面の左右の位置（+edgeX が右、-edgeX が左。world の +X がそのまま画面の右にあたる）
-function placeActor(A, x, facing) {
+// x は画面の左右の位置（+edgeX が右、-edgeX が左。world の +X がそのまま画面の右にあたる）。
+// z は奥行き（CREDITS_CENTER.z からの差分。+ がカメラに近づく側）。最後のふわおが手前へ寄る・奥へ去るのにだけ使う
+function placeActor(A, x, facing, z = 0) {
   const pos = A.type === 'player' ? player : A.type === 'boss' ? A.root : A.root;
-  pos.position.set(x, CREDITS_CENTER.y, CREDITS_CENTER.z);
+  pos.position.set(x, CREDITS_CENTER.y, CREDITS_CENTER.z + z);
   pos.rotation.y = facing;
+}
+// 名前タグを、今のアクターの足元（3D の位置）を画面に投影した場所へ付け替える（毎フレーム呼ぶ）
+function placeCreditsName(A) {
+  const pos = A.type === 'player' ? player.position : A.root.position;
+  _o.copy(pos).project(camera);
+  const sx = (_o.x * 0.5 + 0.5) * window.innerWidth;
+  const sy = (1 - (_o.y * 0.5 + 0.5)) * window.innerHeight;
+  creditsNameEl.style.transform = `translate(${sx}px, ${sy - 8}px) translate(-50%, -100%)`;
 }
 // アラシのときだけズームアウトして見上げ、ふわお（最後）ではふだんの距離に戻す
 function setCreditsCamera(C, type) {
@@ -3091,7 +3119,7 @@ function advanceCredits() {
 function updateCredits(dt) {
   const C = credits, A = C.cur;
   C.t += dt;
-  let x, facing;
+  let x, facing, z = 0;
   if (C.phase === 'in') {
     const u = Math.min(1, C.t / CREDITS_IN), e = u * u * (3 - 2 * u);
     x = THREE.MathUtils.lerp(C.edgeX, 0, e);
@@ -3099,16 +3127,43 @@ function updateCredits(dt) {
     if (u >= 1) { C.phase = 'hold'; C.t = 0; setActorWalking(A, false); creditsNameEl.classList.add('on'); }
   } else if (C.phase === 'hold') {
     x = 0; facing = 0;   // 正面（カメラのほう）を向く
-    if (C.t >= CREDITS_HOLD) { C.phase = 'out'; C.t = 0; setActorWalking(A, true); creditsNameEl.classList.remove('on'); }
-  } else {
+    if (C.t >= CREDITS_HOLD) {
+      if (A.type === 'player') {
+        // 最後のふわおだけ、歩いて去るかわりに手前（カメラ）へ寄ってアップになる。名前はここまで
+        C.phase = 'playerNear'; C.t = 0;
+        creditsNameEl.classList.remove('on');
+      } else {
+        C.phase = 'out'; C.t = 0; setActorWalking(A, true);
+      }
+    }
+  } else if (C.phase === 'out') {
     const u = Math.min(1, C.t / CREDITS_OUT), e = u * u * (3 - 2 * u);
     x = THREE.MathUtils.lerp(0, -C.edgeX, e);
     facing = -Math.PI / 2;
     if (u >= 1) { advanceCredits(); return; }
+  } else if (C.phase === 'playerNear') {
+    const u = Math.min(1, C.t / CREDITS_PLAYER_APPROACH), e = u * u * (3 - 2 * u);
+    x = 0; facing = 0;
+    z = THREE.MathUtils.lerp(0, CREDITS_PLAYER_NEAR_Z, e);
+    if (u >= 1) { C.phase = 'playerTurn'; C.t = 0; }
+  } else if (C.phase === 'playerTurn') {
+    const u = Math.min(1, C.t / CREDITS_PLAYER_TURN);
+    x = 0; facing = u * Math.PI;   // Uターン
+    z = CREDITS_PLAYER_NEAR_Z;
+    if (u >= 1) { C.phase = 'playerFar'; C.t = 0; }
+  } else if (C.phase === 'playerFar') {
+    const u = Math.min(1, C.t / CREDITS_PLAYER_RECEDE), e = u * u;   // 加速しながら遠ざかる
+    x = 0; facing = Math.PI;
+    z = THREE.MathUtils.lerp(CREDITS_PLAYER_NEAR_Z, CREDITS_PLAYER_FAR_Z, e);
+    if (u >= 1) { model.visible = false; C.phase = 'playerGone'; C.t = 0; return; }
+  } else {   // 'playerGone'：奥へ消えたあと、タイトルなどがフェードインするまでの間（何も動かさず、ただ待つ）
+    if (C.t >= CREDITS_PLAYER_GONE_WAIT) creditsFinished();
+    return;
   }
-  placeActor(A, x, facing);
+  placeActor(A, x, facing, z);
   if (A.type === 'player') mixer.update(dt);
   else A.mixer.update(dt);
+  if (creditsNameEl.classList.contains('on')) placeCreditsName(A);
 }
 function finishCredits() {
   // 途中で例外が起きても、UI が cutin／credits のまま固まらないよう、後片付け（finally）は必ず走らせる
