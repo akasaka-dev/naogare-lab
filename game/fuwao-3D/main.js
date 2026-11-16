@@ -2878,10 +2878,11 @@ const ENDING_FOCUS = { tall: [0.62, 1], wide: [0.8, 0.45] };
 const endingWide = () => window.innerWidth >= window.innerHeight;
 function endingSrc() { return endingWide() ? 'ending1h.webp' : 'ending1.webp'; }
 // 撃って勝ったとき（ふわおは生きて帰る）の絵。廃墟からしばらくたったあとの町なので、
-// すぐ出さずにゆっくり浮かび上がらせる（ENDING_SHOT_FADE）。縦長の絵はまだないので、横の絵を画面いっぱいに使う
-const ENDING_SHOT_WAIT = 0.6;    // 暗い地から、絵がうっすら浮かび始めるまで（秒）
-const ENDING_SHOT_FADE = 4.5;    // 絵がゆっくり浮かび上がる長さ（秒）
-const ENDING_SHOT_SHOW = 5;      // 絵を出してから、パレードへ自動で進むまでの長さ（秒）
+// すぐ出さず、浮かび上がって・しばらく見せて・また沈んでパレードへ（フェードイン→キープ→フェードアウト）
+const ENDING_SHOT_WAIT = 0.4;     // 暗い地から、絵がうっすら浮かび始めるまで（秒）
+const ENDING_SHOT_FADE = 1.5;     // 絵が浮かび上がる長さ（秒）
+const ENDING_SHOT_FADE_OUT = 1.5; // 絵がまた沈んでいく長さ（秒）
+const ENDING_SHOT_SHOW = 7;       // 絵を出してから、パレードへ自動で進むまでの合計の長さ（秒。↑を含む）
 const ENDING_DONE_FADE = 10;     // 体当たりエンディング（ending1）の最後：Thank you が出てから、背景の絵が消えるまでの長さ（秒）
 function shotEndingSrc() { return 'ending2h.webp'; }
 // ---- エンディングの語り（絵のあと・絵の前に、1行ずつ浮かべて消す） ----
@@ -2929,12 +2930,18 @@ function showEnding() {
   if (finale.mode === 'shot') {
     endingEl.classList.add('plain');
     img.style.cssText = '';   // 前にラムエンディングを見たときの大きさ・動きが残らないように
-    // 文字を3行→絵がゆっくり浮かび上がる→ENDING_SHOT_SHOW 秒たったら自動でパレードへ（曲は3行目から）
+    // 文字を3行→絵が浮かび上がり、少し見せてから、また沈む→ENDING_SHOT_SHOW 秒たったら自動でパレードへ（曲は3行目から）
     showNarration(SHOT_NARRATION, (i) => { if (i === 2) playCreditsBgm('shot'); }, () => {
       img.src = shotEndingSrc();
       const run = () => {
-        img.animate([{ opacity: 0 }, { opacity: 1 }],
-          { duration: ENDING_SHOT_FADE * 1000, delay: ENDING_SHOT_WAIT * 1000, easing: 'ease-in', fill: 'forwards' });
+        const total = ENDING_SHOT_SHOW, t1 = ENDING_SHOT_WAIT, t2 = t1 + ENDING_SHOT_FADE, t3 = total - ENDING_SHOT_FADE_OUT;
+        img.animate([
+          { opacity: 0, offset: 0 },
+          { opacity: 0, offset: t1 / total },
+          { opacity: 1, offset: t2 / total },
+          { opacity: 1, offset: t3 / total },
+          { opacity: 0, offset: 1 },
+        ], { duration: total * 1000, easing: 'ease-in-out', fill: 'forwards' });
         setTimeout(startCredits, ENDING_SHOT_SHOW * 1000);
       };
       if (img.complete && img.naturalWidth) run(); else img.addEventListener('load', run, { once: true });
