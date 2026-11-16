@@ -2502,7 +2502,6 @@ function updateFinale(dt) {
   }
   if (F.phase === 'burst') {
     for (const m of F.glowMats) m.emissiveIntensity *= Math.exp(-3 * dt);
-    if (F.mode === 'shot' && t > SHOT_END_SAY && !F.saidEnd) { F.saidEnd = true; caption.textContent = '町に、静けさがもどった……'; }
     if (!F.faded && t >= FINALE_WRECK - FADE_TIME) { F.faded = true; fadeEl.classList.add('on'); }
     if (t >= FINALE_WRECK) { if (F.mode === 'shot') showEnding(); else setupWreck(); }
   }
@@ -2627,7 +2626,6 @@ const YEAST_BEAM_GROW = 0.25;  // 光線が顔までのびる時間（秒）
 const YEAST_BEAM = 2.6;        // 光線が出ている時間（のびはじめから。秒）
 const YEAST_BEAM_FADE = 0.6;   // 光線が細くなって消える時間（秒）
 const SHOT_BLAST = [6, 4];     // はじけたときにロボが飛ばされる速さ（横、上。m/秒）。体当たりより弱い
-const SHOT_END_SAY = 8.5;      // 「静けさがもどった」の字幕の時刻（命中から。秒）
 const _ya = new THREE.Vector3(), _yn = new THREE.Vector3(), _yd = new THREE.Vector3(), _yf = new THREE.Vector3(), _yq = new THREE.Quaternion();
 // 顔のねらう点（face）と、顔の正面の向き（normal。板のローカル +Z）
 function faceAimPoint(face, normal) {
