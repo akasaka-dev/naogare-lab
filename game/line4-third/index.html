@@ -4616,6 +4616,11 @@
     let ghostFlame = null, ghostGlow = null, ghostRunners = null, rays = null, ghostT0 = 0;
     let glowTex = null, flameTex = null;
     let dimmed = false;
+    // "spread" view: a long press blows the block apart so the inner cells can be reached; a tap on nothing folds it back
+    const EXPLODE = 1.9, LONG_PRESS_MS = 420;
+    let spreadT = 0, spreadK = 0, spreadFrom = 0, spreadT0 = 0, spreadDur = 500, spreadAnim = false;
+    let F = 1, zoomF = 1;   // current pitch multiplier / camera pull-back factor (both follow spreadK)
+    let spreadCb = null;
     let marks = {};   // idx -> 'seal' (wall) | 'hint' | 'cand' | 'pick': cells marked by a trump card
     let pickSet = null;   // while a card waits for its target: the only cells a tap can pick (balls included)
     let fxPool = null, fxClock = 0;   // trump-card effect particles / their clock (seconds)
@@ -4639,11 +4644,11 @@
     let tA, upVec, tmpColor, white;   // scratch objects, created once THREE is known to be loaded
     const cellPosArr = [];            // 64 cell centres, built once
 
-    function levelY(l) { return 0.8 + l * SP; }
+    function levelY(l) { return 0.8 + 1.5 * SP + (l - 1.5) * SP * F; }
     function layerOf(idx) { return (idx / 16) | 0; }
     function cellXYZ(idx) {
       const y = ((idx % 16) / 4) | 0, x = idx % 4;
-      return new THREE.Vector3((x - 1.5) * SP, levelY(layerOf(idx)), (y - 1.5) * SP);
+      return new THREE.Vector3((x - 1.5) * SP * F, levelY(layerOf(idx)), (y - 1.5) * SP * F);
     }
     // a light's colour: the player's colour pushed toward white
     function lightColor(player, mix) {
@@ -4653,7 +4658,7 @@
     function applyCamera() {
       // full sphere of viewpoints: round the side, over the top, and underneath
       cam.phi = Math.max(0.06, Math.min(Math.PI - 0.06, cam.phi));
-      cam.dist = Math.max(8, Math.min(30, cam.dist));
+      cam.dist = Math.max(8, Math.min(30 * zoomF, cam.dist));
       const sp = Math.sin(cam.phi);
       camera.position.set(
         target.x + cam.dist * sp * Math.sin(cam.theta),
@@ -4838,6 +4843,7 @@
     // `n` particles drifting from a to b (world points), each wobbling around the line
     function addStream(flow, a, b, n, color, owner, wobble, speed) {
       const d = b.clone().sub(a), len = d.length();
+      owner.sa = a; owner.sd = d;   // shared by every particle of this stream: moved in place by applySpread
       const dir = d.clone().normalize();
       const ref = Math.abs(dir.y) > 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
       const p1 = new THREE.Vector3().crossVectors(dir, ref).normalize();
@@ -5063,7 +5069,7 @@
         scene.add(glow);
         const runners = [makeRunner(), makeRunner()];
         setRunnersVisible(runners, false);
-        cells.push({ faceMat, edgeMat, edgeBase: 0.22, flame, glow, runners, player: 0, t0: 0, win: false, m: 1, ph: 0, em: 0 });
+        cells.push({ faceMat, edgeMat, box, edges, edgeBase: 0.22, flame, glow, runners, player: 0, t0: 0, win: false, m: 1, ph: 0, em: 0 });
       }
       flows[1] = makeFlow(0.8, 8000);
       flows[2] = makeFlow(0.8, 8000);
@@ -5152,15 +5158,24 @@
       // app switch...) would leave a "ghost finger" in `pointers`: every later
       // single touch would then count as a pinch (zoom only, no orbit, no tap).
       // So: forget everything whenever it cannot possibly still be true.
-      const resetPointers = () => { pointers.clear(); down = null; pinch = null; };
+      let lpTimer = 0;
+      const clearLP = () => { if (lpTimer) { clearTimeout(lpTimer); lpTimer = 0; } };
+      const resetPointers = () => { clearLP(); pointers.clear(); down = null; pinch = null; };
       el.addEventListener('pointerdown', (e) => {
         autoOrbit = false;
         // a primary pointer starts a fresh gesture: no other finger can be down
         if (e.isPrimary) resetPointers();
         pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
         try { el.setPointerCapture(e.pointerId); } catch (err) { /* pointer already gone - harmless */ }
-        if (pointers.size === 1) down = { x: e.clientX, y: e.clientY, t: performance.now(), moved: false };
-        else {
+        if (pointers.size === 1) {
+          down = { x: e.clientX, y: e.clientY, t: performance.now(), moved: false, long: false };
+          clearLP();
+          lpTimer = setTimeout(() => {   // a long press (without moving) spreads the block
+            lpTimer = 0;
+            if (down && !down.moved && pointers.size === 1) { down.long = true; if (spreadT === 0) setSpread(true); }
+          }, LONG_PRESS_MS);
+        } else {
+          clearLP();
           down = null;
           const [a, b] = Array.from(pointers.values());
           pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), dist: cam.dist };
@@ -5181,7 +5196,7 @@
           return;
         }
         if (down) {
-          if (!down.moved && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 8) down.moved = true;
+          if (!down.moved && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 8) { down.moved = true; clearLP(); }
           if (down.moved) {
             cam.theta -= dx * 0.008;
             cam.phi -= dy * 0.008;
@@ -5190,10 +5205,15 @@
         }
       });
       const end = (e) => {
-        const wasTap = down && !down.moved && pointers.size === 1 && performance.now() - down.t < 700 && e.type === 'pointerup';
+        clearLP();
+        const wasTap = down && !down.moved && !down.long && pointers.size === 1 && performance.now() - down.t < 700 && e.type === 'pointerup';
         pointers.delete(e.pointerId);
         if (pointers.size < 2) pinch = null;
-        if (wasTap && tapCb) tapCb(pickCell(e.clientX, e.clientY), e.pointerType);
+        if (wasTap) {
+          const cell = pickCell(e.clientX, e.clientY);
+          if (spreadT > 0 && cell < 0) setSpread(false);   // a tap on nothing folds the block back
+          if (tapCb) tapCb(cell, e.pointerType);
+        }
         if (pointers.size === 0) down = null;
       };
       el.addEventListener('pointerup', end);
@@ -5234,6 +5254,8 @@
         if (lit) {
           edgeCol = lightColor(c.player, 0.1).getHex();
           edgeOp = 1; faceOp = 0.40;   // a lit cube is a little more solid, so its colour reads
+        } else if (spreadT > 0 && !(pickSet && !pickSet.has(i))) {
+          edgeCol = 0xcfe0ff; edgeOp = 0.75; faceOp = 0.09;   // spread view: the cells a ball can go into glow
         }
         const mk = marks[i];
         let faceCol = -1;
@@ -5296,6 +5318,7 @@
       rafId = requestAnimationFrame(tick);
       const dts = Math.min(0.05, Math.max(0, (now - lastTick) / 1000));
       lastTick = now;
+      if (spreadAnim) stepSpread(now);
       for (let i = 0; i < 64; i++) {
         const c = cells[i];
         if (!c.player) continue;
@@ -5307,7 +5330,7 @@
         const win = c.win ? 1.35 + 0.25 * Math.sin(now / 170) : 1;
         // depth cue: cells far from the camera recede (dimmer), near ones stay bright; the winning line never dims
         const dd = camera.position.distanceTo(cellPosArr[i]);
-        const df = (c.win || marks[i]) ? 1 : Math.max(0.35, Math.min(1, 1.25 - (dd - (cam.dist - 3.2)) / 5.5));
+        const df = (c.win || marks[i]) ? 1 : Math.max(0.35, Math.min(1, 1.25 - (dd - (cam.dist - 3.2 * F)) / (5.5 * F)));
         // a smaller, softer halo: with many balls the big additive halos overlapped into a white haze
         c.glow.scale.setScalar(2.1 * (ease + flash) * breathe * win + 0.001);
         c.glow.material.opacity = Math.min(1, c.m * df * (0.6 + 0.2 * flash));
@@ -5330,6 +5353,17 @@
       // the unlit lattice shimmers: a slow wave of brightness rises through the edges
       for (let i = 0; i < 64; i++) {
         const c = cells[i];
+        if (!c.player) {
+          // spread view: a small light in every cell a ball can be put into
+          const dot = spreadK > 0.02 && i !== ghostCell && marks[i] !== 'seal' && !(pickSet && !pickSet.has(i));
+          if (dot) {
+            const sk = Math.min(1, spreadK);
+            c.glow.visible = true; c.dotOn = true;
+            c.glow.material.color.setHex(0xcfe0ff);
+            c.glow.scale.setScalar(0.55 * (0.82 + 0.18 * Math.sin(now / 260 + i)) * sk + 0.001);
+            c.glow.material.opacity = 0.8 * sk;
+          } else if (c.dotOn) { c.glow.visible = false; c.dotOn = false; }
+        }
         if (c.player || i === ghostCell) continue;
         const wave = 0.5 + 0.5 * Math.sin(now / 1100 - layerOf(i) * 1.1 - (i % 4) * 0.5 - ((i % 16) >> 2) * 0.35);
         c.edgeMat.opacity = c.edgeBase * (0.7 + 0.8 * wave * wave);
@@ -5361,6 +5395,60 @@
       renderer.render(scene, camera);
     }
 
+    // put the ghost light and its six depth rays where the ghost cell is now (it moves while the block spreads)
+    function layoutGhost() {
+      const p = cellXYZ(ghostCell);
+      ghostGlow.position.copy(p);
+      // rays out to the six faces of the block
+      const half = 1.5 * SP * F;
+      const lo = -half - CELL / 2 - 0.1, hi = half + CELL / 2 + 0.1;
+      const yLo = levelY(0) - CELL / 2 - 0.1, yHi = levelY(3) + CELL / 2 + 0.1;
+      rays.forEach((r) => {
+        const d = r.dir;
+        r.len = d.x > 0 ? hi - p.x : d.x < 0 ? p.x - lo
+          : d.y > 0 ? yHi - p.y : d.y < 0 ? p.y - yLo
+          : d.z > 0 ? hi - p.z : p.z - lo;
+        r.grp.position.copy(p);
+      });
+    }
+
+    // ---- the spread view ----
+    function applySpread() {
+      F = 1 + (EXPLODE - 1) * spreadK;
+      const nz = 1 + 0.7 * spreadK;   // pull the camera back so the spread block still fits the view
+      cam.dist *= nz / zoomF; zoomF = nz;
+      applyCamera();
+      for (let i = 0; i < 64; i++) {
+        const p = cellXYZ(i), c = cells[i];
+        cellPosArr[i].copy(p);
+        c.box.position.copy(p); c.edges.position.copy(p); c.glow.position.copy(p);
+      }
+      bridges.forEach((br) => {
+        if (!br.sa) return;
+        br.sa.copy(cellXYZ(br.a));
+        br.sd.copy(cellXYZ(br.b)).sub(br.sa);
+      });
+      if (ghostCell >= 0) layoutGhost();
+    }
+    function stepSpread(now) {
+      const u = Math.min(1, Math.max(0, (now - spreadT0) / spreadDur));
+      let e;
+      if (spreadT > spreadFrom) { const c1 = 1.9, c3 = c1 + 1; e = 1 + c3 * Math.pow(u - 1, 3) + c1 * Math.pow(u - 1, 2); }   // out: a snappy overshoot
+      else e = u < 0.5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2;                                                       // back: smooth
+      spreadK = spreadFrom + (spreadT - spreadFrom) * e;
+      if (u >= 1) { spreadK = spreadT; spreadAnim = false; }
+      applySpread();
+    }
+    function setSpread(on, instant) {
+      const t = on ? 1 : 0;
+      if (spreadT === t && !(instant && spreadK !== t)) return;
+      spreadFrom = spreadK; spreadT = t; spreadT0 = performance.now(); spreadDur = on ? 560 : 340;
+      if (instant) { spreadK = t; spreadAnim = false; applySpread(); }
+      else spreadAnim = true;
+      refreshView();
+      if (!instant && spreadCb) spreadCb(on);
+    }
+
     function hideGhost() {
       ghostCell = -1;
       if (ghostFlame) {
@@ -5376,6 +5464,7 @@
       init,
       onTap(fn) { tapCb = fn; },
       onHover(fn) { hoverCb = fn; },
+      onSpread(fn) { spreadCb = fn; },
       start() {
         if (!ready || running) return;
         running = true;
@@ -5406,6 +5495,7 @@
       },
       reset() {
         if (!ready) return;
+        setSpread(false, true);
         marks = {};
         pickSet = null;
         fxGroups.slice().forEach(fxEnd);
@@ -5437,6 +5527,7 @@
         c.em = Math.random();
         if (!quiet) for (let n = 0; n < 16; n++) spawnEmber(cellPosArr[idx], player);   // a burst of sparks as it ignites
         occupied.add(idx);
+        if (!quiet && spreadT > 0) setSpread(false);   // a ball was placed: fold the block back
         // join every touching light of the same colour (all 26 directions)
         const l = layerOf(idx), y = ((idx % 16) / 4) | 0, x = idx % 4;
         for (let dz = -1; dz <= 1; dz++) for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
@@ -5451,6 +5542,7 @@
       showWin(winCells) {
         if (!ready) return;
         const set = new Set(winCells);
+        setSpread(false, true);
         dimmed = true;
         hideGhost();
         cells.forEach((c, i) => { c.win = set.has(i); });
@@ -5475,25 +5567,16 @@
         const prevCell = ghostCell, prevPlayer = ghostPlayer;
         ghostCell = idx;
         ghostPlayer = player;
-        const p = cellXYZ(idx);
-        ghostGlow.position.copy(p);
         setFlameColor(ghostFlame, player);
         ghostGlow.material.color.copy(lightColor(player, 0.0));
         setFlameVisible(ghostFlame, true);
         ghostGlow.visible = true;
         setRunnersColor(ghostRunners, lightColor(player, 0.55));
         setRunnersVisible(ghostRunners, true);
-        // rays out to the six faces of the block
-        const lo = -1.5 * SP - CELL / 2 - 0.1, hi = 1.5 * SP + CELL / 2 + 0.1;
-        const yLo = levelY(0) - CELL / 2 - 0.1, yHi = levelY(3) + CELL / 2 + 0.1;
         const col = lightColor(player, 0.35);
         if (ghostCell !== prevCell || prevPlayer !== player) ghostT0 = performance.now();   // a new cell: shoot again
+        layoutGhost();
         rays.forEach((r) => {
-          const d = r.dir;
-          r.len = d.x > 0 ? hi - p.x : d.x < 0 ? p.x - lo
-            : d.y > 0 ? yHi - p.y : d.y < 0 ? p.y - yLo
-            : d.z > 0 ? hi - p.z : p.z - lo;
-          r.grp.position.copy(p);
           r.grp.children.forEach((m) => { m.material.color.copy(col); });
           r.flare.material.color.copy(col);
           r.grp.visible = true;
@@ -5530,6 +5613,10 @@
     if (pointerType === 'mouse' || pendingCell === cell) { handleCellClick(cell); return; }
     pendingCell = cell;
     Board3D.setGhost(cell, currentPlayer);
+  });
+  Board3D.onSpread((on) => {
+    if (on) { SoundMgr.seDrop(); try { if (navigator.vibrate) navigator.vibrate(18); } catch (e) { /* no haptics */ } }
+    else SoundMgr.seClick();
   });
   Board3D.onHover((cell) => {
     if (pendingCell >= 0 || targeting) return;
