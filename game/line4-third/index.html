@@ -941,6 +941,10 @@
     transition: opacity 0.3s ease, transform 0.3s ease;
   }
   #speechBubble.show { opacity: 1; transform: translateY(0); }
+  /* tutorial: a line waits for a tap on the box (a blinking arrow in the corner) */
+  .bubble-next { display: none; position: absolute; right: 14px; bottom: 7px; font-size: 0.75rem; color: #fde68a; animation: hintBlink 1.1s ease-in-out infinite; }
+  #speechBubble.tap { cursor: pointer; }
+  #speechBubble.tap .bubble-next { display: block; }
   #bubbleAvatar {
     flex: none;
     width: 56px;
@@ -1278,6 +1282,7 @@
       <input type="text" id="playerNameInput" maxlength="10" autocomplete="off">
     </div>
     <div class="mode-options" id="modeOptions">
+      <button class="mode-btn" id="tutBtn"><span class="emoji">🦊</span><span id="tutBtnLabel"></span><br><span class="mode-btn-sub" id="tutBtnSub"></span></button>
       <button class="mode-btn" id="pvpBtn"><span class="emoji">🧑‍🤝‍🧑</span><span id="pvpBtnLabel"></span></button>
       <button class="mode-btn" id="cpuBtn"><span class="emoji">🤖</span><span id="cpuBtnLabel"></span><br><span class="mode-btn-sub" id="cpuBtnSub"></span></button>
       <button class="mode-btn" id="onlineBtn" style="display:none"><span class="emoji">🌐</span><span id="onlineBtnLabel"></span><br><span class="mode-btn-sub" id="onlineBtnSub"></span></button>
@@ -1341,6 +1346,7 @@
           <div class="bubble-name" id="bubbleName"></div>
           <div class="bubble-text" id="bubbleText"></div>
         </div>
+        <span class="bubble-next" aria-hidden="true">▼</span>
       </div>
       <button id="cardDeck" class="deck empty" type="button" aria-label="カード"></button>
       <button id="cardDeck2" class="deck empty hidden" type="button" aria-label="カード"></button>
@@ -1723,6 +1729,8 @@
     document.getElementById('titlePrefix').textContent = K('黄昏のフォー・イン・ア・', 'たそがれのフォー・イン・ア・');
     document.getElementById('titleSubtitle').textContent = K('遊び方を選んでください', 'あそびかたをえらんでください');
     document.getElementById('playerNameLabel').textContent = K('プレイヤー名', 'プレイヤーめい');
+    document.getElementById('tutBtnLabel').textContent = K('あそびかた', 'あそびかた');
+    document.getElementById('tutBtnSub').textContent = K('フェネックが教えてくれます', 'フェネックがおしえてくれます');
     document.getElementById('pvpBtnLabel').textContent = K('対人戦', 'たいじんせん');
     document.getElementById('cpuBtnLabel').textContent = K('CPU戦', 'CPUせん');
     document.getElementById('cpuBtnSub').textContent = K('LV1からの勝ち抜き', 'LV1からのかちぬき');
@@ -1911,7 +1919,7 @@
 
   let grid, currentPlayer, gameOver, cellEls;
   let scores = { 1: 0, 2: 0 };
-  let mode = 'pvp'; // 'pvp' | 'cpu' | 'online'
+  let mode = 'pvp'; // 'pvp' | 'cpu' | 'online' | 'tutorial'
   let currentChar = null;
   let ladderIndex = 0; // index into CHARACTERS for the current CPU ladder run
   let cpuThinking = false;
@@ -2315,6 +2323,7 @@
     return '★'.repeat(n) + '☆'.repeat(5 - n);
   }
 
+  document.getElementById('tutBtn').addEventListener('click', () => { SoundMgr.seClick(); startTutorial(); });
   pvpBtn.addEventListener('click', () => { SoundMgr.seClick(); startGame('pvp'); });
   cpuBtn.addEventListener('click', () => { SoundMgr.seClick(); startLadder(); });
 
@@ -3420,6 +3429,7 @@
   }
 
   function goToTitle() {
+    tutStop();
     cancelOutcomeWait();
     stopEndingCrawl();
     Board3D.stop();
@@ -4074,6 +4084,7 @@
   function handleCellClick(idx) {
     if (gameOver || cpuThinking) return;
     if (mode === 'cpu' && currentPlayer === 2) return; // block manual clicks during CPU turn
+    if (mode === 'tutorial' && !humanCanMove()) return;
     dropPiece(idx, currentPlayer);
   }
 
@@ -4089,6 +4100,7 @@
       waitThenOutcome(player === 1 ? 'win' : 'lose', Math.max(1800, spokenMs + 600));
     } else {
       SoundMgr.seWin();
+      if (mode === 'tutorial') tutOnWin();
     }
   }
 
@@ -4119,6 +4131,7 @@
 
     currentPlayer = currentPlayer === 1 ? 2 : 1;
     updateStatus();
+    if (mode === 'tutorial' && player === 1) tutOnPlace(idx);
 
     if (mode === 'cpu' && player === 2 && currentChar) {
       if (findImmediateWin(grid, 1) !== null) speak(currentChar, 'aboutToLose');
@@ -4620,7 +4633,7 @@
     const EXPLODE = 1.9, LONG_PRESS_MS = 420;
     let spreadT = 0, spreadK = 0, spreadFrom = 0, spreadT0 = 0, spreadDur = 500, spreadAnim = false;
     let F = 1, zoomF = 1;   // current pitch multiplier / camera pull-back factor (both follow spreadK)
-    let spreadCb = null;
+    let spreadCb = null, orbitCb = null;
     let marks = {};   // idx -> 'seal' (wall) | 'hint' | 'cand' | 'pick': cells marked by a trump card
     let pickSet = null;   // while a card waits for its target: the only cells a tap can pick (balls included)
     let fxPool = null, fxClock = 0;   // trump-card effect particles / their clock (seconds)
@@ -5201,6 +5214,7 @@
             cam.theta -= dx * 0.008;
             cam.phi -= dy * 0.008;
             applyCamera();
+            if (orbitCb) orbitCb(Math.abs(dx) + Math.abs(dy));
           }
         }
       });
@@ -5465,6 +5479,7 @@
       onTap(fn) { tapCb = fn; },
       onHover(fn) { hoverCb = fn; },
       onSpread(fn) { spreadCb = fn; },
+      onOrbit(fn) { orbitCb = fn; },
       start() {
         if (!ready || running) return;
         running = true;
@@ -5588,6 +5603,131 @@
     };
   })();
 
+  // ---------- Tutorial: the fox teaches the controls on the real board ----------
+  // A script of steps. 'say' shows a line in the dialogue box and waits for a tap on the box; 'ask' shows a
+  // line and waits for the player to DO something ('orbit' = drag the view, 'place' = put a ball on one of
+  // `cells`, `need` times, with the fox answering each ball from `replies`; 'spread' = long-press the block).
+  // Lines are [kanji, kana]. The player is pink (1), the fox is mint (2).
+  const FOX_NAME = 'フェネック';
+  const FOX_IMG = 'emotes/icon17_pet_fox.webp';   // placeholder picture until the fox's own art is ready
+  const TUT_SCRIPT = [
+    { say: ['やあ！ぼくはフェネック。これから、このゲームの遊び方を教えるね。', 'やあ！ぼくはフェネック。これから、このゲームのあそびかたをおしえるね。'] },
+    { say: ['ルールは簡単。ボールを置いて、同じ色を4つ一直線に並べたら勝ち。きみがピンク、ぼくがミントだよ。', 'ルールはかんたん。ボールをおいて、おなじいろを4ついっちょくせんにならべたらかち。きみがピンク、ぼくがミントだよ。'] },
+    { say: ['縦・横・斜め、どの向きでもいいし、これは立体だから奥行きも使えるんだ。', 'たて・よこ・ななめ、どのむきでもいいし、これはりったいだからおくゆきもつかえるんだ。'] },
+    { ask: 'orbit', say: ['まずは盤面を見渡してみよう。盤面をドラッグして、ぐるっと回してみて！', 'まずはばんめんをみわたしてみよう。ばんめんをドラッグして、ぐるっとまわしてみて！'] },
+    { say: ['いいね！ピンチ（2本指）やマウスのホイールで、拡大・縮小もできるよ。', 'いいね！ピンチ（2ほんゆび）やマウスのホイールで、かくだい・しゅくしょうもできるよ。'] },
+    { ask: 'place', cells: [20], need: 1, replies: [63],
+      say: ['次はボールを置いてみよう。光っているマスをタップしてね。スマホは、同じマスをもう一度タップすると決定だよ。', 'つぎはボールをおいてみよう。ひかっているマスをタップしてね。スマホは、おなじマスをもういちどタップするとけっていだよ。'] },
+    { say: ['置けたね！ぼくもミントのボールを置いたよ。こうやって交互に置いていくんだ。', 'おけたね！ぼくもミントのボールをおいたよ。こうやってこうごにおいていくんだ。'] },
+    { say: ['ところで、奥のほうのマスは、手前のボールに隠れて見えにくいよね。', 'ところで、おくのほうのマスは、てまえのボールにかくれてみえにくいよね。'] },
+    { ask: 'spread', say: ['そんなときは、盤面を長押ししてみて！', 'そんなときは、ばんめんをながおししてみて！'] },
+    { say: ['ガチャッと広がったでしょ。光る点がついているマスが、ボールを置ける場所だよ。', 'ガチャッとひろがったでしょ。ひかるてんがついているマスが、ボールをおけるばしょだよ。'] },
+    { say: ['何もないところをタップすると、元に戻るよ。ボールを置いたときも戻るんだ。', 'なにもないところをタップすると、もとにもどるよ。ボールをおいたときももどるんだ。'] },
+    { ask: 'place', cells: [21], need: 1, replies: [42],
+      say: ['広げたまま、奥の光っているマスにボールを置いてみよう。（戻ってしまったら、もう一度長押しだよ）', 'ひろげたまま、おくのひかっているマスにボールをおいてみよう。（もどってしまったら、もういちどながおしだよ）'] },
+    { say: ['いい調子！これで、手前の1つと奥の1つが同じ列に並んだよ。', 'いいちょうし！これで、てまえの1つとおくの1つがおなじれつにならんだよ。'] },
+    { ask: 'place', cells: [22, 23], need: 2, replies: [0],
+      say: ['あと2つで4つ並ぶよ！光っているマスに置いて、四つ並べてみよう！', 'あと2つで4つならぶよ！ひかっているマスにおいて、よっつならべてみよう！'] },
+    { say: ['やったー！4つ並んだ！これで遊び方はばっちりだね。', 'やったー！4つならんだ！これであそびかたはばっちりだね。'] },
+    { say: ['このあとは、CPU戦や対人戦で思いきり遊んでね。ぼくも応援してるよ！', 'このあとは、CPUせんやたいじんせんでおもいきりあそんでね。ぼくもおうえんしてるよ！'] },
+  ];
+  const tut = { on: false, i: 0, wait: null, timers: [], orbit: 0, placed: 0, left: [] };
+  const speechBubbleBox = document.getElementById('speechBubble');
+  function tutLater(fn, ms) { tut.timers.push(setTimeout(() => { if (tut.on) fn(); }, ms)); }
+  function setBubbleTap(on) { speechBubbleBox.classList.toggle('tap', on); }
+  function tutStop() {
+    tut.on = false; tut.wait = null;
+    tut.timers.forEach(clearTimeout); tut.timers = [];
+    setBubbleTap(false);
+    Board3D.setPickSet(null);
+  }
+  function startTutorial() {
+    mode = 'tutorial';
+    currentChar = null;
+    titleScreen.classList.add('hidden');
+    gameScreen.classList.remove('hidden');
+    titleBtn.classList.remove('hidden');
+    SoundMgr.playTrack('game');
+    modeLabelEl.classList.remove('show');
+    modeLabelEl.textContent = '';
+    setCharBackground(null);
+    document.getElementById('bubbleAvatar').src = FOX_IMG;
+    speechBubbleBox.classList.remove('hidden');
+    scores = { 1: 0, 2: 0 };
+    cancelOutcomeWait();
+    grid = newGrid();
+    gameOver = false;
+    cpuThinking = false;
+    resetCardState();
+    buildBoard();
+    hideBubble();
+    boardWrap.classList.remove('locked');
+    currentPlayer = 1;       // no coin toss: the player always starts
+    turnOrbs.front = 0;
+    updateStatus();
+    Board3D.start();
+    tutStop();
+    tut.on = true; tut.i = 0;
+    tutLater(tutRun, 500);
+  }
+  function tutRun() {
+    const op = TUT_SCRIPT[tut.i];
+    if (!op) { goToTitle(); return; }
+    tut.wait = null;
+    setBubbleTap(false);
+    Board3D.setPickSet(null);
+    Board3D.setMarks({});
+    showSingleLine(FOX_NAME, K(op.say[0], op.say[1]));
+    if (!op.ask) { tut.wait = 'tap'; setBubbleTap(true); return; }
+    tut.wait = op.ask;
+    if (op.ask === 'orbit') tut.orbit = 0;
+    if (op.ask === 'place') { tut.placed = 0; tut.left = op.cells.slice(); tutArmPlace(); }
+  }
+  function tutArmPlace() {
+    Board3D.setPickSet(tut.left);
+    const m = {};
+    tut.left.forEach((c) => { m[c] = 'hint'; });
+    Board3D.setMarks(m);
+    tut.wait = 'place';
+  }
+  function tutNext(ms) {   // the asked thing was done: a beat, then the next step
+    tut.wait = null;
+    tutLater(() => { tut.i++; tutRun(); }, ms);
+  }
+  speechBubbleBox.addEventListener('click', () => {
+    if (mode !== 'tutorial' || !tut.on || tut.wait !== 'tap') return;
+    SoundMgr.seClick();
+    tut.i++; tutRun();
+  });
+  function tutOnOrbit(d) {
+    if (!tut.on || tut.wait !== 'orbit') return;
+    tut.orbit += d;
+    if (tut.orbit > 320) { SoundMgr.seCard(); tutNext(600); }
+  }
+  function tutOnSpread(on) {
+    if (!tut.on || tut.wait !== 'spread' || !on) return;
+    tutNext(900);
+  }
+  function tutOnPlace(idx) {
+    if (!tut.on || tut.wait !== 'place') return;
+    const op = TUT_SCRIPT[tut.i];
+    tut.placed++;
+    tut.left = tut.left.filter((c) => c !== idx);
+    tut.wait = 'fox';
+    Board3D.setPickSet(null);
+    Board3D.setMarks({});
+    const reply = op.replies ? op.replies[tut.placed - 1] : null;
+    const after = () => {
+      if (tut.placed >= op.need) { tut.i++; tutRun(); } else tutArmPlace();
+    };
+    if (reply != null) tutLater(() => { dropPiece(reply, 2); tutLater(after, 800); }, 900);
+    else tutLater(after, 500);
+  }
+  function tutOnWin() {
+    if (!tut.on) return;
+    tutNext(2200);   // let the winning line play a moment
+  }
+
   // ---------- Input glue: taps / hover from the 3D view ----------
   // Touch needs two taps (the first previews the light with a ghost and depth
   // guide, the second on the same ghost confirms; tapping elsewhere moves the
@@ -5604,6 +5744,7 @@
   let pendingCell = -1;
   function humanCanMove() {
     return !gameOver && !cpuThinking && !(mode === 'cpu' && currentPlayer === 2)
+      && !(mode === 'tutorial' && (currentPlayer === 2 || tut.wait !== 'place'))   // the fox's turn / a line is being read: no balls
       && !boardWrap.classList.contains('locked');
   }
   Board3D.onTap((cell, pointerType) => {
@@ -5617,7 +5758,9 @@
   Board3D.onSpread((on) => {
     if (on) { SoundMgr.seDrop(); try { if (navigator.vibrate) navigator.vibrate(18); } catch (e) { /* no haptics */ } }
     else SoundMgr.seClick();
+    tutOnSpread(on);
   });
+  Board3D.onOrbit((d) => tutOnOrbit(d));
   Board3D.onHover((cell) => {
     if (pendingCell >= 0 || targeting) return;
     if (cell < 0 || !humanCanMove() || grid[cell] !== 0 || isSealed(cell)) { Board3D.setGhost(-1); return; }
