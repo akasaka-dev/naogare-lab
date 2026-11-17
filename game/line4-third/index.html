@@ -2367,8 +2367,19 @@
     '久しく忘れていた感覚が、胸の奥に蘇る。',
     '期待。',
     'それとも、恐怖だろうか。',
-    '「……いいわ。今度こそ、見つけてあげる。」',
+    '「……いいわ。どうせしばらく誰も来ない。付き合ってあげるわ。」',
     '黒薔薇が、静かに揺れた。',
+    // the fox (the wooden pet of the tower, freed by the lightning) joins her; {name} = the player's name
+    '「それ、やり方わかる？」',
+    '突然の声に振り返る。',
+    'おや、この狐……。確か……。',
+    'しゃがんで目線を合わせる。',
+    '「あなた、木製だったわよね？　本物に見えるけど？」',
+    '「うん。なんだか、さっきの雷で呪いが解けたみたい。{name}のおかげかな？」',
+    '「わたしは何もしてないわよ。じゃあね」',
+    '「待って。ボクなら使い方わかるよ。教えたげる！」',
+    'まあ、別に……可愛いの好きだし。',
+    '「そうね、暇そうだから連れてってあげる」',
   ];
   // Hiragana version, line-for-line parallel to PROLOGUE_LINES (used in kana mode).
   const PROLOGUE_LINES_KANA = [
@@ -2401,8 +2412,18 @@
     'ひさしくわすれていたかんかくが、むねのおくによみがえる。',
     'きたい。',
     'それとも、きょうふだろうか。',
-    '「……いいわ。こんどこそ、みつけてあげる。」',
+    '「……いいわ。どうせしばらくだれもこない。つきあってあげるわ。」',
     'くろばらが、しずかにゆれた。',
+    '「それ、やりかたわかる？」',
+    'とつぜんのこえにふりかえる。',
+    'おや、このきつね……。たしか……。',
+    'しゃがんでめせんをあわせる。',
+    '「あなた、もくせいだったわよね？　ほんものにみえるけど？」',
+    '「うん。なんだか、さっきのかみなりでのろいがとけたみたい。{name}のおかげかな？」',
+    '「わたしはなにもしてないわよ。じゃあね」',
+    '「まって。ボクならつかいかたわかるよ。おしえたげる！」',
+    'まあ、べつに……かわいいのすきだし。',
+    '「そうね、ひまそうだからつれてってあげる」',
   ];
   let storyLineIndex = 0;
   let storyTransitioning = false;
@@ -2424,7 +2445,8 @@
   }
   // The prologue, then the knight's entrance (one screen). Skipping the prologue skips both.
   function maybeShowStory(onDone) {
-    runStory(kanaMode ? PROLOGUE_LINES_KANA : PROLOGUE_LINES, (skipped) => {
+    const who = getPlayerName();
+    runStory((kanaMode ? PROLOGUE_LINES_KANA : PROLOGUE_LINES).map((l) => l.replace('{name}', who)), (skipped) => {
       if (skipped) onDone(); else showIntroStory(1, onDone, { fadeInMs: 1400 });
     }, { endFadeMs: 1200, endPauseMs: 1000 });   // fade out, a beat of black, then the entrance fades in
   }
@@ -3425,6 +3447,7 @@
       wrap.classList.remove('show');
       overlay.classList.remove('show');
     };
+    img.style.height = ch.h || '';   // a squarer figure (the fox) can ask for a smaller one
     img.src = ch.img;
   }
 
@@ -5609,16 +5632,16 @@
   // `cells`, `need` times, with the fox answering each ball from `replies`; 'spread' = long-press the block).
   // Lines are [kanji, kana]. The player is pink (1), the fox is mint (2).
   const FOX_NAME = 'フェネック';
-  const FOX_IMG = 'emotes/icon17_pet_fox.webp';   // placeholder picture until the fox's own art is ready
+  const FOX_IMG = 'emotes/fox_tutor.webp', FOX_STAND = 'chara/fox.webp';   // face icon / full-length figure
   const TUT_SCRIPT = [
-    { say: ['やあ！ぼくはフェネック。これから、このゲームの遊び方を教えるね。', 'やあ！ぼくはフェネック。これから、このゲームのあそびかたをおしえるね。'] },
-    { say: ['ルールは簡単。ボールを置いて、同じ色を4つ一直線に並べたら勝ち。きみがピンク、ぼくがミントだよ。', 'ルールはかんたん。ボールをおいて、おなじいろを4ついっちょくせんにならべたらかち。きみがピンク、ぼくがミントだよ。'] },
+    { say: ['やあ！ボクはフェネック。これから、このゲームの遊び方を教えるね。', 'やあ！ボクはフェネック。これから、このゲームのあそびかたをおしえるね。'] },
+    { say: ['ルールは簡単。ボールを置いて、同じ色を4つ一直線に並べたら勝ち。きみがピンク、ボクがミントだよ。', 'ルールはかんたん。ボールをおいて、おなじいろを4ついっちょくせんにならべたらかち。きみがピンク、ボクがミントだよ。'] },
     { say: ['縦・横・斜め、どの向きでもいいし、これは立体だから奥行きも使えるんだ。', 'たて・よこ・ななめ、どのむきでもいいし、これはりったいだからおくゆきもつかえるんだ。'] },
     { ask: 'orbit', say: ['まずは盤面を見渡してみよう。盤面をドラッグして、ぐるっと回してみて！', 'まずはばんめんをみわたしてみよう。ばんめんをドラッグして、ぐるっとまわしてみて！'] },
     { say: ['いいね！ピンチ（2本指）やマウスのホイールで、拡大・縮小もできるよ。', 'いいね！ピンチ（2ほんゆび）やマウスのホイールで、かくだい・しゅくしょうもできるよ。'] },
     { ask: 'place', cells: [20], need: 1, replies: [63],
       say: ['次はボールを置いてみよう。光っているマスをタップしてね。スマホは、同じマスをもう一度タップすると決定だよ。', 'つぎはボールをおいてみよう。ひかっているマスをタップしてね。スマホは、おなじマスをもういちどタップするとけっていだよ。'] },
-    { say: ['置けたね！ぼくもミントのボールを置いたよ。こうやって交互に置いていくんだ。', 'おけたね！ぼくもミントのボールをおいたよ。こうやってこうごにおいていくんだ。'] },
+    { say: ['置けたね！ボクもミントのボールを置いたよ。こうやって交互に置いていくんだ。', 'おけたね！ボクもミントのボールをおいたよ。こうやってこうごにおいていくんだ。'] },
     { say: ['ところで、奥のほうのマスは、手前のボールに隠れて見えにくいよね。', 'ところで、おくのほうのマスは、てまえのボールにかくれてみえにくいよね。'] },
     { ask: 'spread', say: ['そんなときは、盤面を長押ししてみて！', 'そんなときは、ばんめんをながおししてみて！'] },
     { say: ['ガチャッと広がったでしょ。光る点がついているマスが、ボールを置ける場所だよ。', 'ガチャッとひろがったでしょ。ひかるてんがついているマスが、ボールをおけるばしょだよ。'] },
@@ -5629,7 +5652,7 @@
     { ask: 'place', cells: [22, 23], need: 2, replies: [0],
       say: ['あと2つで4つ並ぶよ！光っているマスに置いて、四つ並べてみよう！', 'あと2つで4つならぶよ！ひかっているマスにおいて、よっつならべてみよう！'] },
     { say: ['やったー！4つ並んだ！これで遊び方はばっちりだね。', 'やったー！4つならんだ！これであそびかたはばっちりだね。'] },
-    { say: ['このあとは、CPU戦や対人戦で思いきり遊んでね。ぼくも応援してるよ！', 'このあとは、CPUせんやたいじんせんでおもいきりあそんでね。ぼくもおうえんしてるよ！'] },
+    { say: ['このあとは、CPU戦や対人戦で思いきり遊んでね。ボクも応援してるよ！', 'このあとは、CPUせんやたいじんせんでおもいきりあそんでね。ボクもおうえんしてるよ！'] },
   ];
   const tut = { on: false, i: 0, wait: null, timers: [], orbit: 0, placed: 0, left: [] };
   const speechBubbleBox = document.getElementById('speechBubble');
@@ -5650,7 +5673,7 @@
     SoundMgr.playTrack('game');
     modeLabelEl.classList.remove('show');
     modeLabelEl.textContent = '';
-    setCharBackground(null);
+    setCharBackground({ img: FOX_STAND, h: '66vh' });
     document.getElementById('bubbleAvatar').src = FOX_IMG;
     speechBubbleBox.classList.remove('hidden');
     scores = { 1: 0, 2: 0 };
