@@ -388,6 +388,20 @@
     background: rgba(5, 8, 18, 0.82);
     padding: 20px;
   }
+  /* hidden debug menu (double-click the ロ in the title): a full-screen layer above the title, scrollable on short screens */
+  #debugLevelOverlay {
+    position: fixed;
+    inset: 0;
+    z-index: 12;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    background: rgba(5, 8, 18, 0.88);
+    padding: 20px;
+    overflow-y: auto;
+  }
+  #debugLevelOverlay.hidden { display: none; }
+  #debugLevelOverlay .result-card { margin: auto; }
   .result-card {
     background: rgba(15, 23, 42, 0.96);
     border: 2px solid var(--accent);
@@ -3367,7 +3381,7 @@
   }
 
   // ---------- Hidden debug menu: double-click the "ロ" in the title ----------
-  document.getElementById('debugTrigger').addEventListener('dblclick', (e) => {
+  function openDebugMenu(e) {
     e.preventDefault();
     const overlay = document.getElementById('debugLevelOverlay');
     const actions = document.getElementById('debugLevelActions');
@@ -3418,7 +3432,19 @@
     cancelBtn.addEventListener('click', () => overlay.classList.add('hidden'));
     actions.appendChild(cancelBtn);
     overlay.classList.remove('hidden');
-  });
+  }
+  {
+    const trig = document.getElementById('debugTrigger');
+    trig.addEventListener('dblclick', openDebugMenu);
+    // phones do not always fire dblclick (double-tap zoom, ...): count two quick taps ourselves
+    let lastTap = 0;
+    trig.addEventListener('pointerup', (e) => {
+      if (e.pointerType === 'mouse') return;
+      const now = performance.now();
+      if (now - lastTap < 450) { lastTap = 0; openDebugMenu(e); } else lastTap = now;
+    });
+    trig.style.touchAction = 'manipulation';
+  }
 
   function startGame(selectedMode) {
     mode = selectedMode;
