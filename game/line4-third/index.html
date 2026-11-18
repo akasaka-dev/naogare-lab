@@ -523,10 +523,14 @@
     gap: 10px; padding: 24px 20px 70px; box-sizing: border-box; overflow: hidden;
     background: radial-gradient(ellipse at 50% 38%, #2a1659 0%, #120a2c 48%, #04030c 100%);
     color: #f3e9ff; font-family: "Hiragino Mincho ProN", "Yu Mincho", YuMincho, "MS PMincho", serif;
-    animation: foeIn 0.6s ease-out;
   }
+  /* only the contents fade in: the backdrop is opaque at once, so the last board never shows through */
+  #foeScreen > * { animation: foeIn 0.6s ease-out; }
   #foeScreen.hidden { display: none; }
   #foeScreen.leaving { opacity: 0; transition: opacity 0.5s ease; pointer-events: none; }
+  /* after the entrance scene: nothing of this screen may come back, it is just black fading out onto the new match */
+  #foeScreen.blackout { background: #000; }
+  #foeScreen.blackout > * { visibility: hidden; }
   @keyframes foeIn { from { opacity: 0; } to { opacity: 1; } }
   .foe-art { width: min(80vw, 46vh, 340px); aspect-ratio: 3 / 4; flex: none; overflow: hidden;
     -webkit-mask-image: radial-gradient(ellipse 62% 60% at 50% 46%, #000 52%, transparent 100%);
@@ -3886,8 +3890,11 @@
   function showNextOpponent(next) {
     const scr = document.getElementById('foeScreen');
     const actEl = document.getElementById('foeActions');
-    scr.classList.remove('hidden', 'leaving');
-    scr.style.animation = 'none'; void scr.offsetWidth; scr.style.animation = '';
+    scr.classList.remove('hidden', 'leaving', 'blackout');
+    const kids = Array.from(scr.children);
+    kids.forEach((el) => { el.style.animation = 'none'; });
+    void scr.offsetWidth;
+    kids.forEach((el) => { el.style.animation = ''; });
     document.getElementById('foeImg').src = next.img;
     document.getElementById('foeLead').textContent = K('次の刺客が現れた……', 'つぎのしかくがあらわれた……');
     document.getElementById('foeName').textContent = `LV.${next.level} ${next.name}`;
@@ -3903,7 +3910,7 @@
         ladderIndex++;
         currentChar = next;
         startGame('cpu');                    // the toss starts underneath while this screen fades away
-        scr.classList.add('leaving');
+        scr.classList.add('blackout', 'leaving');   // (from black: this screen's own text must not flash back)
         setTimeout(() => { if (scr.classList.contains('leaving')) hideFoeScreen(); }, 520);
       });
     });
