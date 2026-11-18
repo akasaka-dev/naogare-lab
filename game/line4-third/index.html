@@ -3379,9 +3379,17 @@
       b.addEventListener('click', () => {
         SoundMgr.seClick();
         overlay.classList.add('hidden');
-        ladderIndex = idx;
-        currentChar = ch;
-        startGame('cpu');
+        // start from the entrance scene, as in a real run: LV1 goes straight into the match afterwards,
+        // the others show the foe's picture first (its start button then moves ladderIndex on)
+        if (idx === 0) {
+          ladderIndex = 0;
+          currentChar = ch;
+          showIntroStory(ch.level, () => startGame('cpu'), { fadeInMs: 1400, endFadeMs: 1200, endPauseMs: 700 });
+        } else {
+          ladderIndex = idx - 1;
+          currentChar = CHARACTERS[idx - 1];
+          showEntranceThenFoe(ch);
+        }
       });
       actions.appendChild(b);
     });
