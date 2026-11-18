@@ -461,6 +461,9 @@
   #sealScreen .seal-stage, #sealScreen .seal-embers { animation: sealIn 1s ease-out; }
   #sealScreen.hidden { display: none; }
   #sealScreen.leaving { pointer-events: none; }
+  /* on the way to the next foe: everything on this screen fades out first (the backdrop stays, so the board never shows) */
+  #sealScreen.fadeout { pointer-events: none; }
+  #sealScreen.fadeout > * { opacity: 0 !important; transition: opacity 0.55s ease !important; }
   @keyframes sealIn { from { opacity: 0; } to { opacity: 1; } }
   .seal-embers { position: absolute; inset: 0; pointer-events: none; }
   .seal-embers i {
@@ -521,22 +524,21 @@
     position: fixed; inset: 0; z-index: 9;
     display: flex; flex-direction: column; align-items: center; justify-content: center;
     gap: 10px; padding: 24px 20px 70px; box-sizing: border-box; overflow: hidden;
-    background: radial-gradient(ellipse at 50% 38%, #2a1659 0%, #120a2c 48%, #04030c 100%);
+    background: #000;   /* the purple backdrop (::before) fades in out of black, after the entrance scene */
     color: #f3e9ff; font-family: "Hiragino Mincho ProN", "Yu Mincho", YuMincho, "MS PMincho", serif;
   }
-  /* only the contents fade in: the backdrop is opaque at once, so the last board never shows through */
-  #foeScreen > * { animation: foeIn 0.6s ease-out; }
+  #foeScreen::before { content: ''; position: absolute; inset: 0; z-index: 0; animation: foeIn 0.6s ease-out;
+    background: radial-gradient(ellipse at 50% 38%, #2a1659 0%, #120a2c 48%, #04030c 100%); }
+  /* the backdrop is opaque from the first frame on, so the last board never shows through */
+  #foeScreen > * { position: relative; z-index: 1; animation: foeIn 0.6s ease-out; }
   #foeScreen.hidden { display: none; }
   #foeScreen.leaving { opacity: 0; transition: opacity 0.5s ease; pointer-events: none; }
-  /* after the entrance scene: nothing of this screen may come back, it is just black fading out onto the new match */
-  #foeScreen.blackout { background: #000; }
-  #foeScreen.blackout > * { visibility: hidden; }
+
   @keyframes foeIn { from { opacity: 0; } to { opacity: 1; } }
   .foe-art { width: min(80vw, 46vh, 340px); aspect-ratio: 3 / 4; flex: none; overflow: hidden;
     -webkit-mask-image: radial-gradient(ellipse 62% 60% at 50% 46%, #000 52%, transparent 100%);
             mask-image: radial-gradient(ellipse 62% 60% at 50% 46%, #000 52%, transparent 100%); }
   .foe-art img { width: 100%; height: 100%; object-fit: cover; object-position: top center; display: block; filter: brightness(0.95); }
-  .foe-lead { font-size: 1.05rem; letter-spacing: 0.12em; opacity: 0.85; text-shadow: 0 0 12px rgba(167, 139, 250, 0.9); }
   .foe-name { font-size: 1.5rem; font-weight: 700; letter-spacing: 0.1em; margin-bottom: 10px; text-shadow: 0 0 18px rgba(251, 191, 36, 0.55); }
   .foe-actions { display: flex; flex-direction: column; gap: 10px; width: min(300px, 100%); }
   .foe-actions button { font-family: inherit; letter-spacing: 0.1em; border-radius: 999px; padding: 11px 20px; }
@@ -1422,7 +1424,6 @@
 
   <div id="foeScreen" class="hidden">
     <div class="foe-art"><img id="foeImg" alt="" draggable="false"></div>
-    <div class="foe-lead" id="foeLead"></div>
     <div class="foe-name" id="foeName"></div>
     <div class="foe-actions" id="foeActions"></div>
   </div>
@@ -3880,23 +3881,26 @@
     const beaten = currentChar;
     const next = CHARACTERS[ladderIndex + 1];
     const afterStory = () => {
-      if (heldCard === beaten.level) showNextOpponent(next); else showSealScreen(beaten, next);
+      if (heldCard === beaten.level) showEntranceThenFoe(next); else showSealScreen(beaten, next);
     };
     showMemoryStory(beaten.level, afterStory);
   }
 
   // "A new foe appears": the screen after the seal question (or straight after the win).
+  // The foe's entrance scene (text only), then their picture and name; "start" begins the match.
+  function showEntranceThenFoe(next) {
+    showIntroStory(next.level, () => showNextOpponent(next), { fadeInMs: 1400, endFadeMs: 1200, endPauseMs: 700 });
+  }
   function hideFoeScreen() { document.getElementById('foeScreen').classList.add('hidden'); }
   function showNextOpponent(next) {
     const scr = document.getElementById('foeScreen');
     const actEl = document.getElementById('foeActions');
-    scr.classList.remove('hidden', 'leaving', 'blackout');
+    scr.classList.remove('hidden', 'leaving');
     const kids = Array.from(scr.children);
     kids.forEach((el) => { el.style.animation = 'none'; });
     void scr.offsetWidth;
     kids.forEach((el) => { el.style.animation = ''; });
     document.getElementById('foeImg').src = next.img;
-    document.getElementById('foeLead').textContent = K('次の刺客が現れた……', 'つぎのしかくがあらわれた……');
     document.getElementById('foeName').textContent = `LV.${next.level} ${next.name}`;
     actEl.innerHTML = '';
     const mk = (cls, label, fn) => {
@@ -3906,13 +3910,11 @@
       actEl.appendChild(b);
     };
     mk('go', K('対戦開始', 'たいせんかいし'), () => {
-      showIntroStory(next.level, () => {     // the foe's entrance scene, if it has one
-        ladderIndex++;
-        currentChar = next;
-        startGame('cpu');                    // the toss starts underneath while this screen fades away
-        scr.classList.add('blackout', 'leaving');   // (from black: this screen's own text must not flash back)
-        setTimeout(() => { if (scr.classList.contains('leaving')) hideFoeScreen(); }, 520);
-      });
+      ladderIndex++;
+      currentChar = next;
+      startGame('cpu');                      // the toss starts underneath while this screen fades away
+      scr.classList.add('leaving');
+      setTimeout(() => { if (scr.classList.contains('leaving')) hideFoeScreen(); }, 520);
     });
     mk('no', K('ここでやめる（タイトルへ）', 'ここでやめる（タイトルへ）'), () => { hideFoeScreen(); goToTitle(); });
   }
@@ -3942,7 +3944,7 @@
         embers.appendChild(e);
       }
     }
-    scr.classList.remove('hidden', 'leaving', 'sealing', 'sealed', 'flash');
+    scr.classList.remove('hidden', 'leaving', 'sealing', 'sealed', 'flash', 'fadeout');
     scr.querySelectorAll('.seal-stage, .seal-embers').forEach((el) => { el.style.animation = 'none'; void el.offsetWidth; el.style.animation = ''; });
     document.getElementById('sealImg').src = beaten.img;
     document.getElementById('sealCard').innerHTML = deckFaceHTML(beaten.level);
@@ -3959,7 +3961,10 @@
       actEl.appendChild(b);
       return b;
     };
-    const goNext = () => { showNextOpponent(next); later(hideSealScreen, 700); };
+    const goNext = () => {   // fade this screen's contents out, then the next foe fades in on the same backdrop
+      scr.classList.add('fadeout');
+      later(() => { showEntranceThenFoe(next); hideSealScreen(); }, 600);
+    };
     const doSeal = () => {
       actEl.classList.add('off');
       [textEl, subEl].forEach((el) => el.classList.add('off'));
