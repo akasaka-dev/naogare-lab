@@ -3475,6 +3475,18 @@
       overlay.classList.remove('show');
       return;
     }
+    img.style.height = ch.h || '';   // a squarer figure (the fox) can ask for a smaller one
+    if (img.dataset.cur === ch.img && img.complete && img.naturalWidth > 0) {   // the same figure is already loaded
+      wrap.classList.add('show');
+      overlay.classList.add('show');
+      return;
+    }
+    // A different figure: drop the old one at once (no fade), or it would stay on screen until the new file is in
+    wrap.style.transition = 'none'; overlay.style.transition = 'none';
+    wrap.classList.remove('show');
+    overlay.classList.remove('show');
+    void wrap.offsetWidth;
+    wrap.style.transition = ''; overlay.style.transition = '';
     img.onload = () => {
       wrap.classList.add('show');
       overlay.classList.add('show');
@@ -3483,7 +3495,8 @@
       wrap.classList.remove('show');
       overlay.classList.remove('show');
     };
-    img.style.height = ch.h || '';   // a squarer figure (the fox) can ask for a smaller one
+    img.dataset.cur = ch.img;
+    img.removeAttribute('src');
     img.src = ch.img;
   }
 
@@ -3918,6 +3931,7 @@
   // "A new foe appears": the screen after the seal question (or straight after the win).
   // The foe's entrance scene (text only), then their picture and name; "start" begins the match.
   function showEntranceThenFoe(next) {
+    new Image().src = next.img;   // fetch the foe's picture while the scene plays, so it is there the moment the screen opens
     showIntroStory(next.level, () => showNextOpponent(next), { fadeInMs: 1400, endFadeMs: 1200, endPauseMs: 700 });
   }
   function hideFoeScreen() { document.getElementById('foeScreen').classList.add('hidden'); }
@@ -3929,7 +3943,9 @@
     kids.forEach((el) => { el.style.animation = 'none'; });
     void scr.offsetWidth;
     kids.forEach((el) => { el.style.animation = ''; });
-    document.getElementById('foeImg').src = next.img;
+    const foeImg = document.getElementById('foeImg');
+    foeImg.removeAttribute('src');   // never show the previous foe's picture while this one loads
+    foeImg.src = next.img;
     document.getElementById('foeName').textContent = `LV.${next.level} ${next.name}`;
     actEl.innerHTML = '';
     const mk = (cls, label, fn) => {
