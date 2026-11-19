@@ -4285,6 +4285,10 @@
   function hideBubble() {
     if (conversationTimer) { clearTimeout(conversationTimer); conversationTimer = null; }
     document.getElementById('speechBubble').classList.remove('show');
+    // the idle bubble is still faintly visible, so the last line must not linger in it
+    // (e.g. a defeated foe's parting words showing on the next foe's screen)
+    document.getElementById('bubbleName').textContent = '';
+    document.getElementById('bubbleText').textContent = '';
   }
 
   function triggerCpuMove() {
