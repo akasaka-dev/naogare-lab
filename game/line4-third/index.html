@@ -4919,6 +4919,15 @@
       }
     }
 
+    // Additive blending for the particle points that fade by darkening their vertex colour. The canvas is
+    // transparent (premultiplied), so a point whose colour has gone to black but whose alpha has not would
+    // paint a dark dot over the page - "burnt" embers left behind on top of the artwork behind the board.
+    // Leaving the canvas alpha alone makes a faded point add nothing at all.
+    const POINT_GLOW_BLEND = {
+      blending: THREE.CustomBlending, blendEquation: THREE.AddEquation,
+      blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneFactor,
+      blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
+    };
     // sparks flying off the flames: a pool of tiny glowing points that drift up, sway and fade
     const EMBER_CAP = 360;
     let embers = null;
@@ -4934,7 +4943,7 @@
       geo.setAttribute('color', new THREE.BufferAttribute(e.col, 3));
       const pts = new THREE.Points(geo, new THREE.PointsMaterial({
         size: 0.62, map: glowTex, vertexColors: true, transparent: true,
-        blending: THREE.AdditiveBlending, depthWrite: false,
+        ...POINT_GLOW_BLEND, depthWrite: false,
       }));
       pts.frustumCulled = false;
       scene.add(pts);
@@ -5009,7 +5018,7 @@
       geo.setDrawRange(0, 0);
       const pts = new THREE.Points(geo, new THREE.PointsMaterial({
         size, map: glowTex, vertexColors: true, transparent: true,
-        blending: THREE.AdditiveBlending, depthWrite: false,
+        ...POINT_GLOW_BLEND, depthWrite: false,
       }));
       pts.frustumCulled = false;
       scene.add(pts);
@@ -5069,7 +5078,7 @@
       geo.setAttribute('color', new THREE.BufferAttribute(f.col, 3));
       const pts = new THREE.Points(geo, new THREE.PointsMaterial({
         size: 0.75, map: glowTex, vertexColors: true, transparent: true,
-        blending: THREE.AdditiveBlending, depthWrite: false,
+        ...POINT_GLOW_BLEND, depthWrite: false,
       }));
       pts.frustumCulled = false;
       scene.add(pts);
