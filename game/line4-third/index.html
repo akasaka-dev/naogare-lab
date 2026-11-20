@@ -155,6 +155,40 @@
   }
   #charBgOverlay.show { opacity: 1; }
 
+  /* LV5: when either side is one move from winning, the sealed girl rises over the foe's figure,
+     and fades away again once the threat is gone (see setReachGhost()) */
+  #reachWrap {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    overflow: hidden;
+    display: flex;
+    align-items: flex-end;
+    justify-content: flex-end;
+  }
+  #reachFloat { animation: ghostFloat 5s ease-in-out infinite; }
+  #reachImg {
+    display: block;
+    height: 80vh;
+    max-width: 52vw;
+    object-fit: contain;
+    margin: 0 5vw 6vh 0;
+    opacity: 0;
+    transform: translateY(26px) scale(0.97);
+    filter: blur(10px) drop-shadow(0 0 22px rgba(214, 190, 255, 0.85));
+    transition: opacity 1.5s ease, transform 1.9s ease, filter 1.5s ease;
+  }
+  #reachImg.in {
+    opacity: 0.8;
+    transform: translateY(0) scale(1);
+    filter: blur(0) drop-shadow(0 0 22px rgba(214, 190, 255, 0.85));
+  }
+  @keyframes ghostFloat { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+  @media (max-width: 640px) {
+    #reachImg { height: 72vh; max-width: 92vw; margin: 0 -6vw 12vh 0; }
+  }
+
   /* On narrow screens there's no side-by-side space: the desktop layout
      (character peeking in from the right, page content to its left) leaves
      the character almost entirely masked out. Switch to a centered figure
@@ -1289,6 +1323,7 @@
   </div>
 
   <div id="charBgWrap"><img id="charBgImg" src="" alt=""></div>
+  <div id="reachWrap"><div id="reachFloat"><img id="reachImg" src="chara/girl.webp" alt=""></div></div>
   <div id="charBgOverlay"></div>
 
   <div class="page-content">
@@ -2037,6 +2072,35 @@
     (sealed || cs.sealed).forEach((sc) => { m[sc.cell] = 'seal'; });
     if (targeting && targeting.cands) targeting.cands.forEach((c) => { m[c] = c === targeting.picked ? 'pick' : 'cand'; });
     Board3D.setMarks(m);
+    updateReachGhost();
+  }
+  // LV5 only: "reach" = either side could win with its next ball (a sealed cell doesn't count).
+  // The sealed girl then rises over the foe's figure; she fades out when the threat is gone.
+  let reachGhostOn = false;
+  function setReachGhost(on, instant) {
+    const img = document.getElementById('reachImg');
+    if (!instant && on === reachGhostOn) return;
+    reachGhostOn = on;
+    if (instant) {
+      img.style.transition = 'none';
+      img.classList.toggle('in', on);
+      void img.offsetWidth;
+      img.style.transition = '';
+    } else {
+      img.classList.toggle('in', on);
+    }
+  }
+  function hasReach() {
+    const cells = playableCells();
+    return [1, 2].some((p) => cells.some((i) => {
+      grid[i] = p;
+      const win = winningLine(grid, i, p) !== null;
+      grid[i] = 0;
+      return win;
+    }));
+  }
+  function updateReachGhost() {
+    setReachGhost(mode === 'cpu' && !!currentChar && currentChar.level === 5 && !gameOver && hasReach());
   }
   // The decks in the bottom dock: empty slot / face-down / ready (glow + sheen) / used (greyed).
   const deckShown = { 1: undefined, 2: undefined };   // which card each deck currently draws (undefined = redraw)
@@ -2100,6 +2164,7 @@
   }
   function endAsDraw() {
     gameOver = true;
+    setReachGhost(false);
     statusEl.innerHTML = '';
     hideBubble();
     SoundMgr.seDraw();
@@ -3502,6 +3567,7 @@
   }
 
   function goToTitle() {
+    setReachGhost(false, true);
     tutStop();
     cancelOutcomeWait();
     stopEndingCrawl();
@@ -4040,6 +4106,7 @@
   // ---------- Core game ----------
   function initGame() {
     cancelOutcomeWait();
+    setReachGhost(false, true);
     grid = newGrid();
     gameOver = false;
     cpuThinking = false;
@@ -4175,6 +4242,7 @@
   // Shared by a normal winning drop and by a card that completes a line.
   function handleWin(player, winCells) {
     gameOver = true;
+    setReachGhost(false);
     Board3D.showWin(winCells);
     scores[player]++;
     statusEl.innerHTML = '';
