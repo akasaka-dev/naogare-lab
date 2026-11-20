@@ -166,7 +166,10 @@
     display: flex;
     align-items: flex-end;
     justify-content: flex-end;
+    visibility: hidden;                 /* nothing is composited while she is away (a phone drew an opaque box otherwise) */
+    transition: visibility 0s linear 2s;
   }
+  #reachWrap.on { visibility: visible; transition-delay: 0s; }
   #reachFloat { animation: ghostFloat 5s ease-in-out infinite; }
   #reachImg {
     display: block;
@@ -176,13 +179,11 @@
     margin: 0 5vw 6vh 0;
     opacity: 0;
     transform: translateY(26px) scale(0.97);
-    filter: blur(10px) drop-shadow(0 0 9px rgba(214, 190, 255, 0.45));
-    transition: opacity 1.5s ease, transform 1.9s ease, filter 1.5s ease;
+    transition: opacity 1.5s ease, transform 1.9s ease;   /* no CSS filters: the glow is baked into the picture */
   }
   #reachImg.in {
     opacity: 0.72;
     transform: translateY(0) scale(1);
-    filter: blur(0) drop-shadow(0 0 9px rgba(214, 190, 255, 0.45));
   }
   @keyframes ghostFloat { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
   @media (max-width: 640px) {
@@ -1323,7 +1324,7 @@
   </div>
 
   <div id="charBgWrap"><img id="charBgImg" src="" alt=""></div>
-  <div id="reachWrap"><div id="reachFloat"><img id="reachImg" src="chara/girl3.webp" alt=""></div></div>
+  <div id="reachWrap"><div id="reachFloat"><img id="reachImg" src="chara/girl4.webp" alt=""></div></div>
   <div id="charBgOverlay"></div>
 
   <div class="page-content">
@@ -2079,15 +2080,20 @@
   let reachGhostOn = false;
   function setReachGhost(on, instant) {
     const img = document.getElementById('reachImg');
+    const wrap = document.getElementById('reachWrap');
     if (!instant && on === reachGhostOn) return;
     reachGhostOn = on;
     if (instant) {
       img.style.transition = 'none';
+      wrap.style.transition = 'none';
       img.classList.toggle('in', on);
+      wrap.classList.toggle('on', on);
       void img.offsetWidth;
       img.style.transition = '';
+      wrap.style.transition = '';
     } else {
       img.classList.toggle('in', on);
+      wrap.classList.toggle('on', on);
     }
   }
   function hasReach() {
