@@ -3452,7 +3452,8 @@
       modeLabelEl.classList.remove('show');
       modeLabelEl.innerHTML = '';
       setCharBackground(currentChar);
-      document.getElementById('bubbleAvatar').src = currentChar.img;
+      const avatarEl = document.getElementById('bubbleAvatar');
+      if (avatarEl.getAttribute('src') !== currentChar.img) { avatarEl.removeAttribute('src'); avatarEl.src = currentChar.img; }   // no previous foe's face while loading
       speechBubbleEl.classList.remove('hidden');
     } else {
       SoundMgr.playTrack('game');
@@ -3991,7 +3992,9 @@
     }
     scr.classList.remove('hidden', 'leaving', 'sealing', 'sealed', 'flash', 'fadeout');
     scr.querySelectorAll('.seal-stage, .seal-embers').forEach((el) => { el.style.animation = 'none'; void el.offsetWidth; el.style.animation = ''; });
-    document.getElementById('sealImg').src = beaten.img;
+    const sealImg = document.getElementById('sealImg');
+    sealImg.removeAttribute('src');   // never show the previously sealed foe while this one loads
+    sealImg.src = beaten.img;
     document.getElementById('sealCard').innerHTML = deckFaceHTML(beaten.level);
     [textEl, subEl, actEl].forEach((el) => el.classList.add('off'));
     actEl.innerHTML = '';
