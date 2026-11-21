@@ -1880,86 +1880,144 @@
     { level: 1, name: 'からくり騎士', stars: 2, img: 'chara/LV1.webp', emoji: '⚙️',
       desc: '', depth: 1, wildness: 0.6, cardChance: 0.1, // 3D: tuned offline so a beginner wins ~40-50%
       lines: {
-        normal: ['この先へは行かせん。', '我が剣は、守るためにある。', 'まだ倒れるわけにはいかぬ。', 'ここを通すわけにはいかない。'],
-        aboutToWin: ['これで終わりだ。'],
-        aboutToLose: ['まだだ……まだ守らねばならぬ！'],
-        victory: '約束は……守った。',
-        defeat: 'お前なら……彼女を……',
+        normal: [
+          [{ speaker: 'master', text: 'ここは通さん。' }, { speaker: 'fennec', text: '誰も通さない。それが、君の役目なんだね。' }],
+          '我が剣は、守るためにある。',
+          '一歩たりとも、退くわけにはいかぬ。',
+          'まだ倒れるわけにはいかぬ。',
+        ],
+        aboutToWin: ['この一太刀で、守り抜いてみせる。'],
+        aboutToLose: [
+          [{ speaker: 'master', text: 'まだだ……この身が朽ちるまでは！' }, { speaker: 'fennec', text: 'その身体が動かなくなっても、君は剣を離さないんだろうね。' }],
+        ],
+        victory: '守り抜いた……。だが、いつまで……',
+        defeat: [{ speaker: 'master', text: 'また……守れなかったのか……。' }, { speaker: 'fennec', text: '君はずっと、同じ場所で戦っていたんだね。時が過ぎても、何も変わらないまま。' }],
       },
       linesKana: {
-        normal: ['このさきへはいかせん。', 'わがつるぎは、まもるためにある。', 'まだたおれるわけにはいかぬ。', 'ここをとおすわけにはいかない。'],
-        aboutToWin: ['これでおわりだ。'],
-        aboutToLose: ['まだだ……まだまもらねばならぬ！'],
-        victory: 'やくそくは……まもった。',
-        defeat: 'おまえなら……かのじょを……',
+        normal: [
+          [{ speaker: 'master', text: 'ここはとおさん。' }, { speaker: 'fennec', text: 'だれもとおさない。それが、きみのやくめなんだね。' }],
+          'わがつるぎは、まもるためにある。',
+          'いっぽたりとも、しりぞくわけにはいかぬ。',
+          'まだたおれるわけにはいかぬ。',
+        ],
+        aboutToWin: ['このひとたちで、まもりぬいてみせる。'],
+        aboutToLose: [
+          [{ speaker: 'master', text: 'まだだ……このみがくちるまでは！' }, { speaker: 'fennec', text: 'そのからだがうごかなくなっても、きみはつるぎをはなさないんだろうね。' }],
+        ],
+        victory: 'まもりぬいた……。だが、いつまで……',
+        defeat: [{ speaker: 'master', text: 'また……まもれなかったのか……。' }, { speaker: 'fennec', text: 'きみはずっと、おなじばしょでたたかっていたんだね。ときがすぎても、なにもかわらないまま。' }],
       } },
     { level: 2, name: '鏡の魔女', stars: 3, img: 'chara/LV2.webp', emoji: '🪞',
       desc: '', depth: 2, wildness: 0.25, cardChance: 0.1,
       lines: {
-        normal: ['あなたには、何が見えているの？', '鏡はすべてを映すわ。', '本当の姿を見せてあげる。', 'あなたも、何かを探しているのね。'],
+        normal: [
+          'あなたには、何が見えているの？',
+          [{ speaker: 'master', text: '鏡はすべてを映すわ。' }, { speaker: 'fennec', text: 'でも、映らないものもあるんじゃないかな。' }],
+          '本当の姿を見せてあげる。',
+          [{ speaker: 'master', text: 'あなたも、何かを探しているのね。' }, { speaker: 'fennec', text: '白いお姉ちゃんを探しているんだって！' }],
+        ],
         aboutToWin: ['もう、逃げられないわ。'],
-        aboutToLose: ['その先にあるものを、見てはいけない……'],
-        victory: 'これが、私の見ていた世界。',
-        defeat: 'あの子の笑顔を……もう一度……',
+        aboutToLose: ['その先にあるものを、見てはいけない……。'],
+        victory: 'もう一度……あの笑顔が見たい。',
+        defeat: '私に映っているあなた……あなたは……いったい……。',
       },
       linesKana: {
-        normal: ['あなたには、なにがみえているの？', 'かがみはすべてをうつすわ。', 'ほんとうのすがたをみせてあげる。', 'あなたも、なにかをさがしているのね。'],
+        normal: [
+          'あなたには、なにがみえているの？',
+          [{ speaker: 'master', text: 'かがみはすべてをうつすわ。' }, { speaker: 'fennec', text: 'でも、うつらないものもあるんじゃないかな。' }],
+          'ほんとうのすがたをみせてあげる。',
+          [{ speaker: 'master', text: 'あなたも、なにかをさがしているのね。' }, { speaker: 'fennec', text: 'しろいおねえちゃんをさがしているんだって！' }],
+        ],
         aboutToWin: ['もう、にげられないわ。'],
-        aboutToLose: ['そのさきにあるものを、みてはいけない……'],
-        victory: 'これが、わたしのみていたせかい。',
-        defeat: 'あのこのえがおを……もういちど……',
+        aboutToLose: ['そのさきにあるものを、みてはいけない……。'],
+        victory: 'もういちど……あのえがおがみたい。',
+        defeat: 'わたしにうつっているあなた……あなたは……いったい……。',
       } },
     { level: 3, name: '夢喰いの鴉', stars: 4, img: 'chara/LV3.webp', emoji: '🐦‍⬛',
       desc: '', depth: 3, wildness: 0.15, cardChance: 0.1,
       lines: {
-        normal: ['月が、よく見える。', 'あなたは、何を見届けに来たの？', '空を飛ぶことができたなら……', 'ここから先は、まだ早い。', 'ずっと、待っていた気がする。'],
+        normal: [
+          '月が、よく見える。',
+          [{ speaker: 'master', text: 'あなたは、何を見届けに来たの？' }, { speaker: 'fennec', text: 'まだ分からない。でも、見届けなきゃいけないものがある気がする。' }],
+          '空を飛ぶことができたなら……。',
+          'ずっと、待っていた気がする。',
+          [{ speaker: 'master', text: 'そろそろ、時が来たのかもしれない。' }, { speaker: 'fennec', text: '？ なんの時？' }],
+        ],
         aboutToWin: ['もう、逃れることはできない。'],
         aboutToLose: ['まだ……終わるわけにはいかない。'],
         victory: '空は、まだ遠い。',
-        defeat: 'あの子にも……空を。',
+        defeat: [{ speaker: 'master', text: 'あなたなら……封印を解けるというのか。' }, { speaker: 'fennec', text: 'この先にあるものを、君はずっと見ていたんだね。ボクたちも、確かめに行くよ。' }],
       },
       linesKana: {
-        normal: ['つきが、よくみえる。', 'あなたは、なにをみとどけにきたの？', 'そらをとぶことができたなら……', 'ここからさきは、まだはやい。', 'ずっと、まっていたきがする。'],
+        normal: [
+          'つきが、よくみえる。',
+          [{ speaker: 'master', text: 'あなたは、なにをみとどけにきたの？' }, { speaker: 'fennec', text: 'まだわからない。でも、みとどけなきゃいけないものがあるきがする。' }],
+          'そらをとぶことができたなら……。',
+          'ずっと、まっていたきがする。',
+          [{ speaker: 'master', text: 'そろそろ、ときがきたのかもしれない。' }, { speaker: 'fennec', text: '？ なんのとき？' }],
+        ],
         aboutToWin: ['もう、のがれることはできない。'],
         aboutToLose: ['まだ……おわるわけにはいかない。'],
         victory: 'そらは、まだとおい。',
-        defeat: 'あのこにも……そらを。',
+        defeat: [{ speaker: 'master', text: 'あなたなら……ふういんをとけるというのか。' }, { speaker: 'fennec', text: 'このさきにあるものを、きみはずっとみていたんだね。ボクたちも、たしかめにいくよ。' }],
       } },
     { level: 4, name: '封印の修道女', stars: 4, img: 'chara/LV4.webp', emoji: '✝️',
       desc: '', depth: 4, wildness: 0.05, cardChance: 0.1,
       lines: {
-        normal: ['祈りを、妨げないでください。', 'あなたは何を求めているのですか。', '願いには、覚悟が必要です。', 'どうか、心を乱さないで。', 'まだ、祈りは終わっていません。'],
+        normal: [
+          '祈りなさい。心を静めるのです。',
+          [{ speaker: 'master', text: '願いには、覚悟が必要です。' }, { speaker: 'fennec', text: '願うだけでは足りないことも、あるんだね。' }],
+          [{ speaker: 'master', text: '……何か、懐かしい。' }, { speaker: 'fennec', text: '初めて会ったのに、懐かしい人っているのかな。' }],
+          'あの人を救うのは、祈りではないというの……。',
+          'まだ、祈りを捨てるわけにはいきません。',
+        ],
         aboutToWin: ['これ以上、先へ進むことは許されません。'],
-        aboutToLose: ['まだ祈りを捨てるわけには……'],
-        victory: 'どうか、このままお眠りください。',
-        defeat: '祈りが……届きますように。',
+        aboutToLose: ['どうか……この永遠の祈りを終わらせて……'],
+        victory: '祈りは、まだ終わっていません。',
+        defeat: [{ speaker: 'master', text: '……塔の封印を、あなたに託します。' }, { speaker: 'fennec', text: 'その先にあの子がいるんだね！' }],
       },
       linesKana: {
-        normal: ['いのりを、さまたげないでください。', 'あなたはなにをもとめているのですか。', 'ねがいには、かくごがひつようです。', 'どうか、こころをみださないで。', 'まだ、いのりはおわっていません。'],
+        normal: [
+          'いのりなさい。こころをしずめるのです。',
+          [{ speaker: 'master', text: 'ねがいには、かくごがひつようです。' }, { speaker: 'fennec', text: 'ねがうだけではたりないことも、あるんだね。' }],
+          [{ speaker: 'master', text: '……なにか、なつかしい。' }, { speaker: 'fennec', text: 'はじめてあったのに、なつかしいひとっているのかな。' }],
+          'あのひとをすくうのは、いのりではないというの……。',
+          'まだ、いのりをすてるわけにはいきません。',
+        ],
         aboutToWin: ['これいじょう、さきへすすむことはゆるされません。'],
-        aboutToLose: ['まだいのりをすてるわけには……'],
-        victory: 'どうか、このままおやすみください。',
-        defeat: 'いのりが……とどきますように。',
+        aboutToLose: ['どうか……このえいえんのいのりをおわらせて……'],
+        victory: 'いのりは、まだおわっていません。',
+        defeat: [{ speaker: 'master', text: '……とうのふういんを、あなたにたくします。' }, { speaker: 'fennec', text: 'そのさきにあのこがいるんだね！' }],
       } },
     { level: 5, name: '無貌の王', stars: 5, img: 'chara/LV5.webp', emoji: '👑',
       desc: '', depth: 5, wildness: 0, cardChance: 0.1, // free-placement board: depth 6 takes ~2s per move, 5 about 0.4s
       lines: {
-        normal: ['……', '……進むな。', '……ここは、閉ざされている。', '……彼女には、触れさせない。'],
-        aboutToWin: ['……終わりだ。'],
-        aboutToLose: ['……封印は、解かせない。'],
-        victory: '……。',
+        normal: ['……'],
+        aboutToWin: [
+          [{ speaker: 'master', text: '……終わりだ。' }, { speaker: 'fennec', text: 'あれ！女の子だ！' }],
+        ],
+        aboutToLose: [
+          [{ speaker: 'master', text: '……封印は、解かせない。' }, { speaker: 'fennec', text: '見つけた！あの子だね！' }],
+        ],
+        victory: [{ speaker: 'master', text: '……' }, { speaker: 'fennec', text: '……この人は塔の封印そのもの……' }],
         defeat: '……。',
       },
       linesKana: {
-        normal: ['……', '……すすむな。', '……ここは、とざされている。', '……かのじょには、ふれさせない。'],
-        aboutToWin: ['……おわりだ。'],
-        aboutToLose: ['……ふういんは、とかせない。'],
-        victory: '……。',
+        normal: ['……'],
+        aboutToWin: [
+          [{ speaker: 'master', text: '……おわりだ。' }, { speaker: 'fennec', text: 'あれ！おんなのこだ！' }],
+        ],
+        aboutToLose: [
+          [{ speaker: 'master', text: '……ふういんは、とかせない。' }, { speaker: 'fennec', text: 'みつけた！あのこだね！' }],
+        ],
+        victory: [{ speaker: 'master', text: '……' }, { speaker: 'fennec', text: '……このひとはとうのふういんそのもの……' }],
         defeat: '……。',
       } },
   ];
 
+  const FENNEC_ICON = 'emotes/fox_tutor.webp';   // face shown in the bubble while the fennec speaks
   const PUPPETS = {
+    fennec: 'フェネック',
     fox: '🦊 きつね',
     owl: '🦉 ふくろう',
     mouse: '🐭 ねずみ',
@@ -2395,6 +2453,9 @@
     if (!wantsCard(id, grid, cs, 2, ch.cardChance)) { cb(false); return; }
     const r = applyCard(id, 2, grid, cs, { depth: 3, smart: true });
     if (!r.ok) { cb(false); return; }
+    // the previous line may have been the fennec's (its face stays in the bubble): the card call is the foe's
+    if (conversationTimer) { clearTimeout(conversationTimer); conversationTimer = null; }
+    setBubbleAvatar(ch.img);
     showSingleLine(ch.name, `「${cardName(lv)}」！`);
     updateStatus(`🃏 ${escapeHtml(ch.name)}${K('は', 'は')}「${cardName(lv)}」${K('を使った！', 'をつかった！')}`);
     const prevSealed = [];   // (walls are only drawn when the effect lands)
@@ -4332,6 +4393,7 @@
     function step() {
       const line = convo[i];
       i++;
+      setBubbleAvatar(line.speaker === 'fennec' ? FENNEC_ICON : ch.img);
       showSingleLine(speakerName(ch, line.speaker), line.text);
       if (i < convo.length) {
         conversationTimer = setTimeout(step, lineDelay(line.text));
@@ -4341,8 +4403,16 @@
     return convo.reduce((sum, line) => sum + lineDelay(line.text), 0);
   }
 
+  function setBubbleAvatar(src) {
+    const el = document.getElementById('bubbleAvatar');
+    if (el.getAttribute('src') !== src) el.src = src;
+  }
+
   function speak(ch, category) {
     if (!ch || !ch.lines) return 0;
+    // a new line replaces any conversation still playing (else its next step would pop up later)
+    if (conversationTimer) { clearTimeout(conversationTimer); conversationTimer = null; }
+    setBubbleAvatar(ch.img);
     const lineSet = (kanaMode && ch.linesKana) ? ch.linesKana : ch.lines;
     const data = lineSet[category];
     if (!data) return 0;
