@@ -206,7 +206,9 @@
        bottom right, large, behind the (translucent) board. */
     /* taller than the screen is wide is fine: the left edge is simply clipped, so the head
        rises into the free band above the play area instead of hiding behind the board */
-    #charBgImg { max-width: 135vw; height: 92vh; }
+    /* fill the whole height and stick the art to the top edge: no gap above the head (a wide figure that is limited by
+       the width simply ends higher, and its feet sit behind the board / dock) */
+    #charBgImg { max-width: 135vw; height: 100%; object-position: right top; }
     /* During a match, sit the whole play area at the bottom of the screen
        (just above the round buttons at the bottom right) so the character's
        face in the header band stays clear of the board. */
