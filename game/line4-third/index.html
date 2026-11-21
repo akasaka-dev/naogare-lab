@@ -4439,6 +4439,7 @@
     document.getElementById('bubbleText').textContent = '';
   }
 
+  const CPU_THINK_MS = 2500;   // safety cap on one move's search: only a very slow device ever hits it (then it plays one ply shallower instead of making you wait)
   function triggerCpuMove() {
     cpuThinking = true;
     boardWrap.classList.add('locked');
@@ -4458,7 +4459,7 @@
         }
         const go = () => {
           if (gameOver) return;
-          const col = pickMove(grid, cs, 2, currentChar ? currentChar.depth : 3, currentChar ? currentChar.wildness : 0);
+          const col = pickMove(grid, cs, 2, currentChar ? currentChar.depth : 3, currentChar ? currentChar.wildness : 0, CPU_THINK_MS);
           cpuThinking = false;
           boardWrap.classList.remove('locked');
           if (col !== null) dropPiece(col, 2);
@@ -4552,7 +4553,13 @@
 
   // Picks a cell for `player` (1 or 2) searching `depth` plies; equally good
   // cells are chosen at random so play isn't repetitive.
-  function chooseCpuCell(g, player, depth) {
+  // `ms` (optional): a think-time budget. The search then deepens one ply at a time and, when the
+  // clock runs out, keeps the best move of the last COMPLETED depth - so a slow phone plays a bit
+  // shallower instead of making the player wait. Without `ms` it is one exact full-depth search.
+  const SEARCH_TIMEOUT = { timeout: true };
+  function chooseCpuCell(g, player, depth, ms) {
+    const deadline = ms ? Date.now() + ms : 0;
+    let nodes = 0;
     const cnt = [null, new Array(LINES.length).fill(0), new Array(LINES.length).fill(0)];
     const board = g.slice();
     let score = 0; // from player 1's point of view
@@ -4592,7 +4599,9 @@
       return false;
     }
 
+    const killers = Array.from({ length: 32 }, () => [-1, -1]);
     function negamax(d, alpha, beta, s, ply) {
+      if (deadline && (++nodes & 511) === 0 && Date.now() > deadline) throw SEARCH_TIMEOUT;
       const o = 3 - s;
       const moves = [];
       let forced = -1, forcedCount = 0;
@@ -4606,6 +4615,12 @@
       if (forcedCount >= 2) return -(WIN_SCORE - ply - 1); // can't stop both
       if (d === 0) return s === 1 ? score : -score;
       const list = forcedCount === 1 ? [forced] : moves;
+      if (forcedCount === 0) {   // killer moves (they caused a cutoff at this ply before) first: ~7x fewer nodes, same result
+        const k = killers[ply];
+        for (let q = 1; q >= 0; q--) {
+          if (k[q] >= 0) { const at = list.indexOf(k[q]); if (at > 0) { list.splice(at, 1); list.unshift(k[q]); } }
+        }
+      }
       let best = -Infinity;
       for (const i of list) {
         place(i, s);
@@ -4613,7 +4628,7 @@
         unplace(i, s);
         if (v > best) best = v;
         if (best > alpha) alpha = best;
-        if (alpha >= beta) break;
+        if (alpha >= beta) { const k = killers[ply]; if (k[0] !== i) { k[1] = k[0]; k[0] = i; } break; }
       }
       return best;
     }
@@ -4626,20 +4641,40 @@
       [rootMoves[i], rootMoves[j]] = [rootMoves[j], rootMoves[i]];
     }
     const o = 3 - player;
-    let bestCell = rootMoves[0], bestVal = -Infinity;
-    for (const i of rootMoves) {
-      let v;
-      if (wins(i, player)) v = WIN_SCORE;
-      else {
-        place(i, player);
-        // window just under the best so far: exact values for ties, cheap cutoffs for worse moves
-        v = -negamax(Math.max(0, depth - 1), -Infinity, -(bestVal - 1), o, 1);
-        unplace(i, player);
+    function searchRoot(dd, order) {
+      let bestCell = order[0], bestVal = -Infinity;
+      for (const i of order) {
+        let v;
+        if (wins(i, player)) v = WIN_SCORE;
+        else {
+          place(i, player);
+          // window just under the best so far: exact values for ties, cheap cutoffs for worse moves
+          v = -negamax(Math.max(0, dd - 1), -Infinity, -(bestVal - 1), o, 1);
+          unplace(i, player);
+        }
+        if (v > bestVal) { bestVal = v; bestCell = i; }
       }
-      if (v > bestVal) { bestVal = v; bestCell = i; }
+      return { cell: bestCell, val: bestVal };
     }
-    lastSearchValue = bestVal;
-    return bestCell;
+    if (!deadline) {
+      const r = searchRoot(depth, rootMoves);
+      lastSearchValue = r.val;
+      return r.cell;
+    }
+    let best = null;
+    for (let dd = 1; dd <= depth; dd++) {
+      // the previous best goes first: it makes the deeper search prune much better
+      const order = best ? [best.cell].concat(rootMoves.filter((c) => c !== best.cell)) : rootMoves;
+      try {
+        best = searchRoot(dd, order);
+      } catch (e) {
+        if (e !== SEARCH_TIMEOUT) throw e;
+        break;   // out of time: keep the last completed depth
+      }
+      if (Math.abs(best.val) >= WIN_SCORE - 100) break;   // a forced win / loss is already found
+    }
+    lastSearchValue = best ? best.val : 0;
+    return best ? best.cell : rootMoves[0];
   }
 
   // ---------- Trump cards: pure rules ----------
@@ -4683,7 +4718,7 @@
   }
   // One move for p: a winning cell is always taken; otherwise `wildness` is the chance
   // of a random slip, else the search result (`depth` plies).
-  function pickMove(g, cs, p, depth, wildness) {
+  function pickMove(g, cs, p, depth, wildness, ms) {
     const w = wallGrid(g, cs);
     const empty = getEmptyCells(w);
     if (empty.length === 0) return null;
@@ -4691,7 +4726,7 @@
     if (win !== null) return win;
     if (wildness > 0 && Math.random() < wildness) return empty[Math.floor(Math.random() * empty.length)];
     const d = w.filter((v) => v !== 0).length < 4 ? Math.min(depth, 3) : depth;
-    const cell = chooseCpuCell(w, p, d);
+    const cell = chooseCpuCell(w, p, d, ms);
     return cell === null ? empty[0] : cell;
   }
   function afterMove(cs, p) {
