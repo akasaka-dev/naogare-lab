@@ -109,12 +109,19 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
+    object-position: center top;   /* a window wider than 16:9 crops height: cut the bottom, never the logo at the top */
   }
   /* title.webp is a wide landscape illustration — on narrow/portrait screens
      "cover" crops off the characters and part of the logo at the sides, so
      switch to "contain" (full artwork visible, letterboxed) there instead. */
+  /* Portrait: "contain" made the logo tiny. Instead the art is enlarged until the logo (about 27%-83%
+     of the art's width, centre at 55%) just fits the screen width, and the sides beyond are cropped. */
   @media (max-aspect-ratio: 1/1) {
-    #splashScreen img { object-fit: contain; }
+    #splashScreen img {
+      object-fit: contain;
+      width: 165vw; max-width: none; height: auto; flex: none;
+      transform: translateX(-8vw);   /* the logo sits right of the art's centre: pull it back to the screen centre */
+    }
   }
 
   /* ---- Full-screen CPU character backdrop (shown during play) ---- */
