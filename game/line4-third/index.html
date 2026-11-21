@@ -1295,6 +1295,39 @@
   }
   #storyText.show { opacity: 1; }
   #storyText.compact { font-size: 0.9rem; line-height: 2; }   /* a whole scene on one screen */
+  /* Scrolling story (prologue / memories): the sentences float up one at a time and the column scrolls so the newest
+     one sits low-centre, the older ones dimmed above it. See runScrollStory(). */
+  #storyOverlay:not(.scrolling) #storyScroll { display: none; }
+  #storyOverlay.scrolling #storyText { display: none; }
+  #storyScroll {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 18%);
+    mask-image: linear-gradient(to bottom, transparent 0%, #000 18%);
+  }
+  #storyScroll .col {
+    position: relative;
+    max-width: 480px;
+    margin: 0 auto;
+    padding: 0 24px;
+    box-sizing: border-box;
+    transition: transform 1.5s ease, opacity 1.2s ease;
+  }
+  #storyScroll p {
+    margin: 0 0 1.5em;
+    color: #fff;
+    font-family: "Hiragino Mincho ProN", "Yu Mincho", YuMincho, "MS PMincho", serif;
+    font-size: 1.05rem;
+    line-height: 2.1;
+    white-space: pre-line;
+    opacity: 0;
+    transform: translateY(12px);
+    transition: opacity 1.4s ease, transform 1.4s ease;
+  }
+  #storyScroll p.in { opacity: 1; transform: none; }
+  #storyScroll p.in.old { opacity: 0.4; }
+  #storyScroll p.heading { text-align: center; letter-spacing: 0.18em; color: #fde68a; margin: 1.2em 0 2em; }
   #storySkipBtn {
     position: absolute;
     top: max(12px, env(safe-area-inset-top));
@@ -1460,6 +1493,7 @@
   <!-- Prologue shown when a CPU run begins: tap anywhere to advance line by line. See maybeShowStory(). -->
   <div id="storyOverlay" class="hidden">
     <div id="storyText"></div>
+    <div id="storyScroll"><div class="col"></div></div>
     <div id="storyHint">タップして進む</div>
     <button id="storySkipBtn" type="button">スキップ ≫</button>
   </div>
@@ -2615,7 +2649,7 @@
     const who = getPlayerName();
     runStory((kanaMode ? PROLOGUE_LINES_KANA : PROLOGUE_LINES).map((l) => l.replace('{name}', who)), (skipped) => {
       if (skipped) onDone(); else showIntroStory(1, onDone, { fadeInMs: 1400 });
-    }, { endFadeMs: 1200, endPauseMs: 1000 });   // fade out, a beat of black, then the entrance fades in
+    }, { scroll: true, endFadeMs: 1200, endPauseMs: 1000 });   // fade out, a beat of black, then the entrance fades in
   }
 
   // After beating a ladder foe: the memory that flows into the player (black screen, white text,
@@ -2880,13 +2914,15 @@
   function showMemoryStory(level, onDone) {
     const table = kanaMode ? MEMORY_STORIES_KANA : MEMORY_STORIES;
     if (!table[level]) { onDone(); return; }
-    runStory(table[level](getPlayerName()), onDone);
+    runStory(table[level](getPlayerName()), onDone, { scroll: true, headingIndex: 1, endFadeMs: 1000, endPauseMs: 400 });
   }
 
   // opts.fadeInMs: slow fade-in of the first line; opts.endFadeMs / opts.endPauseMs: after the last line
   // is dismissed, fade it out slowly and stay on black for a moment before onDone runs.
   function runStory(lines, onDone, opts = {}) {
+    if (opts.scroll) { runScrollStory(lines, onDone, opts); return; }
     const overlay = document.getElementById('storyOverlay');
+    overlay.classList.remove('scrolling');
     storyLineIndex = 0;
     storyTransitioning = false;
     document.getElementById('storyText').classList.toggle('compact', lines.length === 1);
@@ -2938,6 +2974,79 @@
         fadeStoryTextIn(nextEl);
       }, fadeMs);
     };
+  }
+
+  // Scrolling version: sentences fade in one after another on their own (a tap / key brings the next one at
+  // once) while the column scrolls up. After the last one: a pause, then everything fades out and onDone runs.
+  // opts.headingIndex: that sentence is a centred title (the memory stories' "xxの記憶").
+  function runScrollStory(lines, onDone, opts = {}) {
+    const overlay = document.getElementById('storyOverlay');
+    const col = document.querySelector('#storyScroll .col');
+    col.innerHTML = '';
+    col.style.opacity = '1';
+    const paras = lines.map((t, i) => {
+      const p = document.createElement('p');
+      p.textContent = t;
+      if (opts.headingIndex === i) p.className = 'heading';
+      col.appendChild(p);
+      return p;
+    });
+    overlay.classList.add('scrolling');
+    overlay.classList.remove('hidden');
+    col.style.transition = 'none';
+    col.style.transform = `translateY(${overlay.clientHeight}px)`;
+    void col.offsetHeight;
+    col.style.transition = '';
+
+    let shown = 0, timer = null, finished = false, ending = false;
+    const textLen = (p) => p.textContent.length;
+    const showNext = () => {
+      if (finished || ending || shown >= paras.length) return;
+      const p = paras[shown++];
+      paras.forEach((q, i) => q.classList.toggle('old', i < shown - 1));
+      p.classList.add('in');
+      col.style.transform = `translateY(${overlay.clientHeight * 0.68 - (p.offsetTop + p.offsetHeight)}px)`;
+      clearTimeout(timer);
+      if (shown < paras.length) timer = setTimeout(showNext, Math.min(4200, 800 + 80 * textLen(p)));
+      else timer = setTimeout(beginEnd, 2200 + 80 * textLen(p));
+    };
+    const finish = (skipped) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      overlay.classList.add('hidden');
+      overlay.classList.remove('scrolling');
+      overlay.onclick = null;
+      skipBtn.onclick = null;
+      document.removeEventListener('keydown', onKey, true);
+      onDone(skipped === true);
+    };
+    const beginEnd = () => {
+      if (finished || ending) return;
+      ending = true;
+      clearTimeout(timer);
+      const fade = opts.endFadeMs || 800;
+      col.style.transitionDuration = `${fade}ms`;
+      col.style.opacity = '0';
+      timer = setTimeout(() => finish(), fade + (opts.endPauseMs || 0));
+    };
+    const skipBtn = document.getElementById('storySkipBtn');
+    skipBtn.onclick = (e) => {
+      e.stopPropagation();
+      SoundMgr.seClick();
+      finish(true);
+    };
+    const onKey = (e) => {   // any key (but a bare modifier) advances like a tap
+      if (e.repeat || ['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) return;
+      e.preventDefault();
+      overlay.onclick();
+    };
+    document.addEventListener('keydown', onKey, true);
+    overlay.onclick = () => {
+      SoundMgr.seClick();
+      if (shown < paras.length) showNext(); else beginEnd();
+    };
+    setTimeout(showNext, 500);   // a beat of black, then the first sentence
   }
 
   // NOTE (line4-third): everything in this online section is inherited from line4 and
