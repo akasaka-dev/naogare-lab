@@ -1167,11 +1167,21 @@
     to { transform: none; opacity: 1; }
   }
   #board-wrap {
-    background: rgba(15, 23, 42, 0.55);
     padding: 4px;
-    border-radius: 14px;
-    box-shadow: 0 12px 30px rgba(0,0,0,0.45);
     position: relative;
+  }
+  /* The translucent panel behind the board is a separate layer so that its TOP edge can fade out
+     (a hard edge right across the foe's standing art looked like a seam). The canvas on top is untouched. */
+  #board-wrap::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    border-radius: 14px;
+    background: rgba(15, 23, 42, 0.55);
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 26%);
+    mask-image: linear-gradient(to bottom, transparent 0%, #000 26%);
   }
   /* The 3D view stays draggable while locked (CPU thinking / coin toss) so the
      player can keep looking around; taps are ignored in JS instead. */
@@ -4395,6 +4405,10 @@
   function lineDelay(text) {
     return Math.max(1300, Math.min(2600, text.length * 110));
   }
+  // a conversation (2+ pages) stays on each page longer, so the next speaker doesn't cut in too soon
+  function pageDelay(text) {
+    return Math.max(2400, Math.min(5200, 1500 + text.length * 110));
+  }
 
   function showSingleLine(name, text) {
     const bubble = document.getElementById('speechBubble');
@@ -4415,11 +4429,11 @@
       setBubbleAvatar(line.speaker === 'fennec' ? FENNEC_ICON : ch.img);
       showSingleLine(speakerName(ch, line.speaker), line.text);
       if (i < convo.length) {
-        conversationTimer = setTimeout(step, lineDelay(line.text));
+        conversationTimer = setTimeout(step, pageDelay(line.text));
       }
     }
     step();
-    return convo.reduce((sum, line) => sum + lineDelay(line.text), 0);
+    return convo.reduce((sum, line) => sum + pageDelay(line.text), 0);
   }
 
   function setBubbleAvatar(src) {
