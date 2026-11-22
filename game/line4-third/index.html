@@ -1376,165 +1376,92 @@
     font-size: 0.8rem;
   }
 
-  /* ---- Menu theme: the title / online screens in the tower's dusk (violet glass, antique gold, rose) ----
-     Scoped to #titleScreen / #onlineScreen, so the in-game UI keeps its own look. */
+  /* ---- Menu theme: plain black panels, white text (title / online screens only) ---- */
   #titleScreen, #onlineScreen {
-    --m-gold: #d9b27a;
-    --m-gold-soft: rgba(217, 178, 122, 0.5);
-    --m-ink: #f4e8d6;
-    --m-mute: #c4b0d4;
-    --m-rose: #ff4fa3;
-    font-family: "Hiragino Mincho ProN", "Yu Mincho", YuMincho, "Noto Serif JP", "MS PMincho", serif;
-    color: var(--m-ink);
-    background:
-      radial-gradient(120% 70% at 50% 0%, rgba(150, 60, 140, 0.28), transparent 62%),
-      linear-gradient(180deg, rgba(34, 18, 54, 0.80), rgba(14, 8, 28, 0.88));
-    border: 1px solid var(--m-gold-soft);
-    border-radius: 10px;
-    outline: 1px solid rgba(217, 178, 122, 0.16);
-    outline-offset: -8px;
-    box-shadow: 0 0 46px rgba(130, 50, 160, 0.30), 0 18px 40px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.06);
-    -webkit-backdrop-filter: blur(3px);
-    backdrop-filter: blur(3px);
+    color: #fff;
+    background: rgba(0, 0, 0, 0.82);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    border-radius: 8px;
+    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6);
   }
-  #titleScreen h1, #onlineScreen h1 {
-    font-weight: 700;
-    letter-spacing: 0.09em;
-    color: var(--m-ink);
-    text-shadow: 0 0 22px rgba(255, 79, 163, 0.45), 0 2px 0 rgba(0, 0, 0, 0.6);
-  }
-  #titleScreen .title-3d { color: var(--m-gold); text-shadow: 0 0 14px rgba(217, 178, 122, 0.55); }
-  #titleScreen p.subtitle, #onlineScreen p.subtitle {
-    color: var(--m-mute);
-    letter-spacing: 0.14em;
-    opacity: 0.95;
-  }
-  /* a thin gilt line either side of the subtitle */
-  #titleSubtitle::before, #titleSubtitle::after {
-    content: '';
-    display: inline-block;
-    width: 34px;
-    height: 1px;
-    vertical-align: middle;
-    margin: 0 10px;
-    background: linear-gradient(90deg, transparent, var(--m-gold));
-  }
-  #titleSubtitle::after { transform: scaleX(-1); }
-  #titleScreen .player-name-row { color: var(--m-mute); }
+  #titleScreen h1, #onlineScreen h1 { color: #fff; text-shadow: none; font-weight: 700; letter-spacing: 0.08em; }
+  #titleScreen p.subtitle, #onlineScreen p.subtitle { color: rgba(255, 255, 255, 0.72); }
+  #titleScreen .player-name-row { color: rgba(255, 255, 255, 0.72); }
   #titleScreen #playerNameInput, #onlineScreen .name-input, #onlineScreen #onlineJoinCode {
-    background: rgba(10, 5, 22, 0.7);
-    border: 1px solid var(--m-gold-soft);
-    border-radius: 6px;
-    color: var(--m-ink);
-    font-family: inherit;
+    background: #000;
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    border-radius: 4px;
+    color: #fff;
   }
   #titleScreen #playerNameInput:focus, #onlineScreen .name-input:focus, #onlineScreen #onlineJoinCode:focus {
-    border-color: var(--m-gold);
-    box-shadow: 0 0 12px rgba(217, 178, 122, 0.3);
+    border-color: #fff;
+    outline: none;
   }
 
-  /* the menu: plaques stacked in one column */
+  /* the menu: black bars, white text, stacked in one column */
   #titleScreen .mode-options, #onlineScreen #onlineMenu { width: min(360px, 100%); }
-  #titleScreen .mode-options { flex-direction: column; flex-wrap: nowrap; gap: 12px; align-items: stretch; }
+  #titleScreen .mode-options { flex-direction: column; flex-wrap: nowrap; gap: 10px; align-items: stretch; }
   #titleScreen .mode-btn, #onlineScreen .mode-btn {
-    display: grid;
-    grid-template-columns: 38px 1fr 14px;
-    grid-template-rows: auto auto;
-    column-gap: 12px;
-    align-items: center;
+    display: block;
     text-align: left;
     min-width: 0;
     width: 100%;
-    padding: 13px 16px 13px 14px;
-    font-family: inherit;
+    padding: 14px 18px;
     font-size: 1.08rem;
     font-weight: 700;
-    letter-spacing: 0.08em;
-    color: var(--m-ink);
-    background: linear-gradient(180deg, rgba(74, 34, 86, 0.62), rgba(30, 14, 46, 0.86));
-    border: 1px solid var(--m-gold-soft);
-    border-radius: 6px;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 4px 14px rgba(0, 0, 0, 0.4);
-    transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
+    letter-spacing: 0.06em;
+    color: #fff;
+    background: #000;
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    border-radius: 4px;
+    box-shadow: none;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
   }
   #titleScreen .mode-btn br, #onlineScreen .mode-btn br { display: none; }
-  #titleScreen .mode-btn::after, #onlineScreen .mode-btn::after {   /* a gilt chevron on the right */
-    content: '';
-    grid-column: 3;
-    grid-row: 1 / span 2;
-    width: 8px;
-    height: 8px;
-    border-top: 1.5px solid var(--m-gold);
-    border-right: 1.5px solid var(--m-gold);
-    transform: rotate(45deg);
-    opacity: 0.8;
-    justify-self: end;
-  }
-  #titleScreen .mode-btn .mode-ico, #onlineScreen .mode-btn .mode-ico {
-    grid-column: 1;
-    grid-row: 1 / span 2;
-    width: 34px;
-    height: 34px;
-    padding: 6px;
-    margin: 0;
-    color: var(--m-gold);
-    border: 1px solid var(--m-gold-soft);
-    border-radius: 50%;
-    background: rgba(10, 5, 22, 0.55);
-    stroke: currentColor;
-    fill: none;
-    stroke-width: 1.5;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-  }
-  #titleScreen .mode-btn > span:not(.mode-btn-sub):not(.mode-ico), #onlineScreen .mode-btn > span:not(.mode-btn-sub):not(.mode-ico) { grid-column: 2; grid-row: 1; }
   #titleScreen .mode-btn .mode-btn-sub, #onlineScreen .mode-btn .mode-btn-sub {
-    grid-column: 2;
-    grid-row: 2;
-    margin: 2px 0 0;
-    color: var(--m-mute);
-    font-size: 0.7rem;
-    font-weight: 500;
-    letter-spacing: 0.06em;
-    opacity: 0.9;
+    display: block;
+    margin: 3px 0 0;
+    color: rgba(255, 255, 255, 0.66);
+    font-size: 0.72rem;
+    font-weight: 400;
+    letter-spacing: 0.04em;
   }
   #titleScreen .mode-btn:hover, #onlineScreen .mode-btn:hover {
-    color: var(--m-ink);
-    background: linear-gradient(180deg, rgba(120, 40, 100, 0.66), rgba(46, 16, 56, 0.9));
-    border-color: var(--m-gold);
-    box-shadow: 0 0 20px rgba(255, 79, 163, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 6px 18px rgba(0, 0, 0, 0.45);
-    transform: translateX(3px);
+    background: #fff;
+    color: #000;
+    border-color: #fff;
+    transform: none;
+    box-shadow: none;
   }
-  #titleScreen .mode-btn:hover .mode-btn-sub, #onlineScreen .mode-btn:hover .mode-btn-sub { color: var(--m-ink); opacity: 1; }
-  #titleScreen .mode-btn:active, #onlineScreen .mode-btn:active { transform: translateX(3px) scale(0.99); }
+  #titleScreen .mode-btn:hover .mode-btn-sub, #onlineScreen .mode-btn:hover .mode-btn-sub { color: rgba(0, 0, 0, 0.7); }
+  #titleScreen .mode-btn:active, #onlineScreen .mode-btn:active { transform: scale(0.99); }
 
-  /* small buttons on the online screen (join / copy / confirm / CPU): gilt outline */
+  /* small buttons on the online screen */
   #onlineScreen #onlineJoinBtn, #onlineScreen #onlineCopyBtn, #onlineScreen #onlineJoinConfirmBtn, #onlineScreen .online-cpu-btn {
-    font-family: inherit;
-    letter-spacing: 0.08em;
-    color: var(--m-ink);
-    background: linear-gradient(180deg, rgba(74, 34, 86, 0.62), rgba(30, 14, 46, 0.86));
-    border: 1px solid var(--m-gold-soft);
-    border-radius: 6px;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+    color: #fff;
+    background: #000;
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    border-radius: 4px;
+    box-shadow: none;
   }
   #onlineScreen #onlineJoinBtn:hover, #onlineScreen #onlineCopyBtn:hover, #onlineScreen #onlineJoinConfirmBtn:hover, #onlineScreen .online-cpu-btn:hover {
     filter: none;
-    border-color: var(--m-gold);
-    box-shadow: 0 0 14px rgba(255, 79, 163, 0.3);
+    background: #fff;
+    color: #000;
+    border-color: #fff;
+    box-shadow: none;
   }
   #onlineScreen .online-room-code {
-    font-family: inherit;
-    color: var(--m-gold);
-    background: rgba(10, 5, 22, 0.7);
-    border: 1px solid var(--m-gold);
-    border-radius: 8px;
-    text-shadow: 0 0 16px rgba(217, 178, 122, 0.5);
+    color: #fff;
+    background: #000;
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    border-radius: 6px;
+    text-shadow: none;
   }
-  #onlineScreen .online-error { color: #ff8fc0; }
-  #titleScreen .back-to-splash-btn, #onlineScreen .back-to-splash-btn { color: var(--m-mute); font-family: inherit; letter-spacing: 0.08em; }
-  #titleScreen .credit { color: var(--m-mute); }
-  #titleScreen .credit a { color: var(--m-gold); }
+  #onlineScreen .online-error { color: #ff8a8a; }
+  #titleScreen .back-to-splash-btn, #onlineScreen .back-to-splash-btn { color: rgba(255, 255, 255, 0.7); }
+  #titleScreen .credit { color: rgba(255, 255, 255, 0.6); }
+  #titleScreen .credit a { color: #fff; }
 </style>
 </head>
 <body>
@@ -1568,22 +1495,21 @@
 
   <!-- Title / mode select screen -->
   <div id="titleScreen">
-    <h1><span id="titlePrefix">黄昏のフォー・イン・ア・</span><span id="debugTrigger">ロ</span>ウ <span class="title-3d">3D</span></h1>
     <p class="subtitle" id="titleSubtitle">遊び方を選んでください</p>
     <div class="player-name-row">
       <label for="playerNameInput" id="playerNameLabel"></label>
       <input type="text" id="playerNameInput" maxlength="10" autocomplete="off">
     </div>
     <div class="mode-options" id="modeOptions">
-      <button class="mode-btn" id="tutBtn"><svg class="mode-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5C6.5 4.5 9.5 4.5 12 6c2.5-1.5 5.5-1.5 8-.5V18c-2.5-1-5.5-1-8 .5C9.5 17 6.5 17 4 18z M12 6v12.5"/></svg><span id="tutBtnLabel"></span><br><span class="mode-btn-sub" id="tutBtnSub"></span></button>
-      <button class="mode-btn" id="cpuBtn"><svg class="mode-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17h16 M5 17l-1-9 4.5 4L12 6l3.5 6L20 8l-1 9"/></svg><span id="cpuBtnLabel"></span><br><span class="mode-btn-sub" id="cpuBtnSub"></span></button>
-      <button class="mode-btn" id="onlineBtn"><svg class="mode-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M16.5 4.5a8 8 0 1 0 3 12.5A7 7 0 0 1 16.5 4.5z M17 9l.6 1.4 1.4.6-1.4.6L17 13l-.6-1.4-1.4-.6 1.4-.6z"/></svg><span id="onlineBtnLabel"></span><br><span class="mode-btn-sub" id="onlineBtnSub"></span></button>
-      <button class="mode-btn" id="pvpBtn"><svg class="mode-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4l9 9 M20 4l-9 9 M12 12l-4 4 M12 12l4 4 M6.5 14.5l3 3 M17.5 14.5l-3 3"/></svg><span id="pvpBtnLabel"></span></button>
-      <button class="mode-btn hidden" id="omakeBtn"><svg class="mode-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4h10l4 5-9 11L3 9z M3 9h18 M9 4l3 5 3-5"/></svg><span id="omakeBtnLabel"></span><br><span class="mode-btn-sub" id="omakeBtnSub"></span></button>
+      <button class="mode-btn" id="tutBtn"><span id="tutBtnLabel"></span><br><span class="mode-btn-sub" id="tutBtnSub"></span></button>
+      <button class="mode-btn" id="cpuBtn"><span id="cpuBtnLabel"></span><br><span class="mode-btn-sub" id="cpuBtnSub"></span></button>
+      <button class="mode-btn" id="onlineBtn"><span id="onlineBtnLabel"></span><br><span class="mode-btn-sub" id="onlineBtnSub"></span></button>
+      <button class="mode-btn" id="pvpBtn"><span id="pvpBtnLabel"></span></button>
+      <button class="mode-btn hidden" id="omakeBtn"><span id="omakeBtnLabel"></span><br><span class="mode-btn-sub" id="omakeBtnSub"></span></button>
     </div>
     <button class="back-to-splash-btn" id="backToSplashBtn"></button>
     <p class="credit">
-      Created by <strong>naogare</strong> ／
+      <span id="debugTrigger">Created by</span> <strong>naogare</strong> ／
       <a href="https://www.youtube.com/@NMLabo" target="_blank" rel="noopener noreferrer">YouTube: NMLabo</a>
     </p>
   </div>
@@ -1593,7 +1519,7 @@
     <h1 id="onlineHeading"></h1>
     <div id="onlineMenu">
       <p class="subtitle" id="onlineIntro"></p>
-      <button class="mode-btn" id="onlineCreateBtn"><svg class="mode-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 20V5l8-2v17 M6 20h12 M11.5 12h.01"/></svg><span id="onlineCreateBtnLabel"></span></button>
+      <button class="mode-btn" id="onlineCreateBtn"><span id="onlineCreateBtnLabel"></span></button>
       <p class="subtitle" id="onlineOrJoin" style="margin-top:14px;"></p>
       <div class="online-join-row">
         <input type="text" id="onlineJoinCode" placeholder="部屋コード" maxlength="6" autocomplete="off" autocapitalize="characters">
@@ -2026,7 +1952,6 @@
   // time they run — but if a match is already in progress we also nudge the
   // couple of screens that only render once at match start.
   function applyKanaMode() {
-    document.getElementById('titlePrefix').textContent = K('黄昏のフォー・イン・ア・', 'たそがれのフォー・イン・ア・');
     document.getElementById('titleSubtitle').textContent = K('遊び方を選んでください', 'あそびかたをえらんでください');
     document.getElementById('playerNameLabel').textContent = K('プレイヤー名', 'プレイヤーめい');
     document.getElementById('tutBtnLabel').textContent = K('あそびかた', 'あそびかた');
