@@ -21,6 +21,11 @@ CREATE TABLE IF NOT EXISTS rooms (
   emote TEXT,                               -- last emote icon sent, e.g. '👍' | NULL
   emote_by INTEGER,                         -- 1 | 2 | NULL — who sent the last emote
   emote_rev INTEGER NOT NULL DEFAULT 0,     -- bumped on every emote, independent of `rev`
+  cards TEXT,                               -- JSON {"1": lv, "2": lv}: the trump card dealt to each player (1..5); NULL before a match starts
+  cs TEXT,                                  -- JSON {"used": {"1": bool, "2": bool}, "sealed": [cell,...]}: spent cards and walls
+  pending TEXT,                             -- JSON {player, effLv, cands} while a usurp waits for the player's pick
+  last_card TEXT,                           -- JSON of the last card played (what the other client replays): {seq, by, lv, effLv, cells, endsTurn, grid, sealed}
+  card_seq INTEGER NOT NULL DEFAULT 0,      -- bumped on every card played
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );

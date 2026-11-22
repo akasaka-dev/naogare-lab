@@ -2161,7 +2161,8 @@
   // replaces it, and a fresh LV1 run starts with none). Each CPU plays its OWN card (cpuTryCard); the
   // opponent's card stays hidden until it is played (or a 鏡写し copies it).
   // PvP: two different cards are dealt at random at the start of every match, face down until used.
-  // One use per match, on your own turn. Online matches have no cards. The rules live in the
+  // One use per match, on your own turn. Online matches deal cards the same way, run by the server
+  // (src/line4-third-online.js has its own port of the rules). The rules live in the
   // pure block (CARD_RULES / applyCard / cardChoices / wantsCard), shared with sim/balance-sim.js.
   const CARDS = {
     1: { id: 'gear', name: '歯車の一撃', nameKana: 'はぐるまのいちげき',
@@ -2198,6 +2199,11 @@
   function cardLevelOf(p) {
     if (mode === 'pvp') return pvpCards[p];
     if (mode === 'cpu') return p === 1 ? heldCard : (currentChar ? currentChar.level : null);
+    if (mode === 'online') {   // my own card; the opponent's is 0 (= "exists, face down") until it has been played
+      if (!online || !online.hasCards) return null;
+      if (p === online.myPlayer) return online.myCard;
+      return online.oppCard != null ? online.oppCard : (cs.used[p] ? null : 0);
+    }
     return null;
   }
   function dealPvpCards() {
@@ -2250,7 +2256,7 @@
   }
   // The decks in the bottom dock: empty slot / face-down / ready (glow + sheen) / used (greyed).
   const deckShown = { 1: undefined, 2: undefined };   // which card each deck currently draws (undefined = redraw)
-  const deckHidden = (p) => mode === 'pvp' && !cs.used[p];   // PvP: a card stays face down until it is used
+  const deckHidden = (p) => !cs.used[p] && (mode === 'pvp' || (mode === 'online' && !!online && p !== online.myPlayer));   // a card stays face down until it is used (online: only the opponent's)
   function deckFaceHTML(lv) {
     const ch = CHARACTERS[lv - 1];
     return `<span class="deck-card">
@@ -2267,14 +2273,14 @@
   }
   function updateDeck(p) {
     const el = deckEls[p];
-    const show = mode === 'pvp' || (mode === 'cpu' && p === 1);
+    const show = mode === 'pvp' || (mode === 'online' && !!online && online.hasCards) || (mode === 'cpu' && p === 1);
     el.classList.toggle('hidden', !show);
     if (!show) { deckShown[p] = undefined; return; }
     const lv = cardLevelOf(p);
     const has = lv !== null;
     const hidden = has && deckHidden(p);
-    el.classList.toggle('owner1', mode === 'pvp' && p === 1);
-    el.classList.toggle('owner2', mode === 'pvp' && p === 2);
+    el.classList.toggle('owner1', (mode === 'pvp' || mode === 'online') && p === 1);
+    el.classList.toggle('owner2', (mode === 'pvp' || mode === 'online') && p === 2);
     el.classList.toggle('empty', !has);
     el.classList.toggle('used', has && cs.used[p]);
     el.classList.toggle('ready', has && !cs.used[p]);
@@ -2287,7 +2293,7 @@
     el.setAttribute('aria-label', has && !hidden ? `${K('カード', 'カード')}: ${cardName(lv)}` : K('カード', 'カード'));
   }
   function updateCardButton() {
-    dockEl.classList.toggle('pvp', mode === 'pvp');
+    dockEl.classList.toggle('pvp', mode === 'pvp' || (mode === 'online' && !!online && online.hasCards));
     updateDeck(1);
     updateDeck(2);
     // CPU matches: the opponent's card is a secret until it is played
@@ -2322,18 +2328,19 @@
   // why player p cannot play their card right now ('' = they can)
   function cardBlocker(p) {
     if (cs.used[p]) return K('このカードは、この対戦ではもう使いました', 'このカードは、このたいせんではもうつかいました');
-    if (!humanCanMove() || p !== currentPlayer) return K('自分の番に使えます', 'じぶんのばんにつかえます');
+    if (!humanCanMove() || p !== currentPlayer || (mode === 'online' && p !== online.myPlayer)) return K('自分の番に使えます', 'じぶんのばんにつかえます');
     if (playableCells().length <= 2) return K('盤面の空きが少なくて使えません', 'ばんめんのあきがすくなくてつかえません');
     const lv = cardLevelOf(p);
-    if (lv !== null && CARDS[lv].id === 'copy' && copiedLevel(p) === null) return K('写せるカードがありません（相手のカードは使用済み、または写せません）', 'うつせるカードがありません（あいてのカードはしようずみ、またはうつせません）');
+    if (mode !== 'online' && lv !== null && CARDS[lv].id === 'copy' && copiedLevel(p) === null) return K('写せるカードがありません（相手のカードは使用済み、または写せません）', 'うつせるカードがありません（あいてのカードはしようずみ、またはうつせません）');
     return '';
   }
   deckEls[1].addEventListener('click', () => onDeckClick(1));
   deckEls[2].addEventListener('click', () => onDeckClick(2));
   function onDeckClick(p) {
     SoundMgr.seClick();
-    if (mode !== 'cpu' && mode !== 'pvp') return;
+    if (mode !== 'cpu' && mode !== 'pvp' && mode !== 'online') return;
     if (targeting) { cancelTargeting(); return; }
+    if (mode === 'online' && p !== online.myPlayer && deckHidden(p)) { flashStatus(K('相手のカードは、使うまでわかりません', 'あいてのカードは、つかうまでわかりません')); return; }
     const lv = cardLevelOf(p);
     if (lv === null) { flashStatus(K('敵に勝つとカードが手に入ります', 'てきにかつとカードがてにはいります')); return; }
     // PvP: the other player's card stays secret until it is played
@@ -2360,6 +2367,7 @@
   function startCardUse(p) {
     const lv = cardLevelOf(p);
     if (lv === null || cardBlocker(p)) return;
+    if (mode === 'online') { startOnlineCard(); return; }   // the server decides what the card does
     let effLv = lv;
     if (CARDS[lv].id === 'copy') {
       effLv = copiedLevel(p);
@@ -2487,6 +2495,7 @@
   }
   // Plays player p's card (with the chosen target, if any) and moves the game on.
   function commitCard(p, o) {
+    if (mode === 'online') { commitOnlineCard(o); return; }
     const lv = cardLevelOf(p);
     const effLv = o.effLv || lv;
     const t = targeting;
@@ -3040,7 +3049,7 @@
   // (64 cells, same layout as `grid` here), turn order and win/draw detection in a
   // dedicated D1 database. This client only ever sends "I place a ball at cell N"
   // and renders whatever state comes back — it never decides a win/turn locally
-  // the way the pvp/cpu modes do. No cards in online play yet.
+  // the way the pvp/cpu modes do.
   const ONLINE_API = '/api/line4-third';
   const ONLINE_POLL_MS = 1300;
 
@@ -3138,8 +3147,8 @@
     });
     return res.json();
   }
-  async function apiGet(path) {
-    const res = await fetch(ONLINE_API + path);
+  async function apiGet(path, token) {
+    const res = await fetch(ONLINE_API + path, token ? { headers: { 'X-Room-Token': token } } : undefined);
     return res.json();
   }
 
@@ -3257,7 +3266,7 @@
     online.timer = setInterval(async () => {
       if (!online) return;
       try {
-        const res = await apiGet(`/room/${online.code}/state`);
+        const res = await apiGet(`/room/${online.code}/state`, online.token);
         const opponentSlotFilled = online.myPlayer === 1 ? res.state.hasP2 : res.state.hasP1;
         if (res.ok && opponentSlotFilled) {
           stopOnlinePolling();
@@ -3383,7 +3392,7 @@
     online.timer = setInterval(async () => {
       if (!online || online.busy) return;
       try {
-        const res = await apiGet(`/room/${online.code}/state`);
+        const res = await apiGet(`/room/${online.code}/state`, online.token);
         if (!res.ok) return;
         // Emote check rides on this same poll — no separate request needed.
         if (res.state.emoteRev !== online.emoteRev) {
@@ -3493,7 +3502,6 @@
     gameScreen.classList.remove('hidden');
     titleBtn.classList.remove('hidden');
     document.getElementById('speechBubble').classList.add('hidden');
-    updateCardButton();   // online matches have no cards: hides the decks
     restoreEmoteBarPosition();
     document.getElementById('onlineEmoteBar').classList.remove('hidden', 'postgame');
     document.getElementById('resultNote').textContent = '';
@@ -3507,7 +3515,15 @@
     gameOver = false;
     cpuThinking = false;
     pendingCell = -1;
+    online.hasCards = !!(state.hasCards && state.cards);
+    online.myCard = state.cards ? state.cards.mine : null;
+    online.oppCard = state.cards ? state.cards.opp : null;
+    online.cardSeq = state.cardSeq || 0;
+    onlineShow = false;
+    onlineQueued = null;
     resetCardState();
+    adoptOnlineCards(state);
+    updateCardButton();
     buildBoard();
     Board3D.start();   // after buildBoard(), which is what creates the 3D view the first time
     hideBubble();
@@ -3543,10 +3559,95 @@
     online.busy = false;
   }
 
+  // ---------- Online trump cards ----------
+  // The server owns the cards. I only ever see my own card (the opponent's is face down until it is played);
+  // a card is requested with POST /card — seal and usurp take a second call that carries the target. Whatever
+  // a card did comes back as state.lastCard (with the board right after the effect), which BOTH clients replay
+  // with the same show as in CPU / PvP; the rest of the state (a ball placed afterwards, the turn, a win) follows.
+  function onlineCardMessage(code) {
+    const m = {
+      not_your_turn: K('自分の番に使えます', 'じぶんのばんにつかえます'),
+      card_used: K('このカードは、この対戦ではもう使いました', 'このカードは、このたいせんではもうつかいました'),
+      board_too_full: K('盤面の空きが少なくて使えません', 'ばんめんのあきがすくなくてつかえません'),
+      cannot_copy: K('写せるカードがありません', 'うつせるカードがありません'),
+      no_target: K('相手の球がまだありません', 'あいてのたまがまだありません'),
+      no_cards: K('この部屋ではカードを使えません', 'このへやではカードをつかえません'),
+    };
+    return m[code] || K('このカードは使えませんでした', 'このカードはつかえませんでした');
+  }
+  async function startOnlineCard() {
+    if (!online || online.busy || gameOver) return;
+    online.busy = true;
+    try {
+      const r = await apiPost(`/room/${online.code}/card`, { token: online.token });
+      if (!r.ok) flashStatus(onlineCardMessage(r.error));
+      else if (r.need === 'cell') beginTargeting(online.myPlayer, 'seal', null, r.effLv);
+      else if (r.need === 'pick') beginTargeting(online.myPlayer, 'usurp', r.cands, r.effLv);
+      else if (r.state) applyOnlineState(r.state);
+    } catch (e) {
+      flashStatus(onlineCardMessage());
+    }
+    online.busy = false;
+  }
+  async function commitOnlineCard(o) {
+    if (!online || online.busy) return;
+    online.busy = true;
+    targeting = null;
+    Board3D.setPickSet(null);
+    pendingCell = -1;
+    Board3D.clearGhost();
+    boardWrap.classList.add('locked');
+    try {
+      const r = await apiPost(`/room/${online.code}/card`, { token: online.token, target: o.target });
+      if (r.ok && r.state) applyOnlineState(r.state);
+      else { refreshMarks(); flashStatus(onlineCardMessage(r.error)); boardWrap.classList.toggle('locked', currentPlayer !== online.myPlayer); }
+    } catch (e) {
+      refreshMarks();
+      flashStatus(onlineCardMessage());
+      boardWrap.classList.toggle('locked', currentPlayer !== online.myPlayer);
+    }
+    online.busy = false;
+  }
+  // adopts the card side of a state: who spent a card, the walls, the opponent's card once it is revealed
+  function adoptOnlineCards(state) {
+    if (state.hasCards && state.cards) {
+      online.hasCards = true;
+      online.myCard = state.cards.mine;
+      online.oppCard = state.cards.opp;
+    }
+    cs = { used: { 1: !!(state.cs && state.cs.used[1]), 2: !!(state.cs && state.cs.used[2]) },
+           sealed: ((state.cs && state.cs.sealed) || []).map((c) => ({ cell: c, target: 0, left: Infinity })) };
+  }
+  let onlineShow = false;      // a card show is playing: states that arrive meanwhile wait in onlineQueued
+  let onlineQueued = null;
+  function playOnlineCard(ev, state, done) {
+    onlineShow = true;
+    const by = ev.by;
+    const prevSealed = cs.sealed.slice();
+    grid = ev.grid.slice();    // the board right after the effect; the show draws it at the moment of impact
+    adoptOnlineCards(state);
+    cs.sealed = ev.sealed.map((c) => ({ cell: c, target: 0, left: Infinity }));
+    pendingCell = -1;
+    Board3D.clearGhost();
+    boardWrap.classList.add('locked');
+    refreshMarks(prevSealed);
+    const who = by === online.myPlayer ? '' : `${escapeHtml(online.opponentName || '')}${K('が', 'が')}`;
+    updateStatus(`🃏 ${who}${cardName(ev.effLv)}${K('を使った！', 'をつかった！')}`);
+    presentCard(by, ev.lv, ev.effLv, { cells: ev.cells, cell: ev.cells[0] }, prevSealed, () => {
+      onlineShow = false;
+      done();
+      const q = onlineQueued;
+      onlineQueued = null;
+      if (q) applyOnlineState(q);
+    });
+  }
+
   // Renders whatever the server says the room looks like now — used both for
   // the response to our own move and for a poll that picked up the opponent's.
   function applyOnlineState(state) {
-    if (!online || state.rev === online.rev) return;
+    if (!online) return;
+    if (onlineShow) { onlineQueued = state; return; }   // a card show is playing: take the newest state when it ends
+    if (state.rev === online.rev) return;
     // We're sitting on the post-game result screen and the room just went
     // back to "not game over" under us — that's not a new match starting,
     // it's the room having been vacated (the opponent left, or it expired
@@ -3559,18 +3660,31 @@
     }
     online.rev = state.rev;
     online.turnStartedAt = state.turnStartedAt;
+    if (state.lastCard && (state.cardSeq || 0) > (online.cardSeq || 0)) {   // a card was played: show it first
+      online.cardSeq = state.cardSeq;
+      playOnlineCard(state.lastCard, state, () => finishOnlineState(state));
+      return;
+    }
+    finishOnlineState(state);
+  }
 
-    // Find the single cell that changed since our local copy and animate it
+  function finishOnlineState(state) {
+    adoptOnlineCards(state);
+    refreshMarks();
+    updateCardButton();
+    // Find the cells that changed since our local copy and animate them
     // the same way a local drop does, then adopt the server grid as-is.
     pendingCell = -1;
     Board3D.clearGhost();
+    let changed = false;
     for (let i = 0; i < CELL_COUNT; i++) {
       if (grid[i] === 0 && state.grid[i] !== 0) {
         Board3D.placeBall(i, state.grid[i]);
         SoundMgr.seDrop();
-      }
+      } else if (grid[i] !== state.grid[i]) changed = true;   // a ball removed / recoloured (a card we missed): redraw
     }
     grid = state.grid.slice();
+    if (changed) Board3D.sync(grid);
     currentPlayer = state.currentPlayer;
     gameOver = state.gameOver;
 

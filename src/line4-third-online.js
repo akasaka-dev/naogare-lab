@@ -118,6 +118,86 @@ function checkWin(grid, cell, player) {
   return null;
 }
 
+// ---- Trump cards (server-authoritative port of the client's pure rules) ----
+// Each player is dealt one different card (a "level" 1..5) when a match starts. It stays
+// hidden from the other player until it is played; one use per match, on your own turn.
+//   gear    a random opponent ball is removed          (free)
+//   copy    use the effect of the opponent's unplayed card (free; the copied card decides the rest)
+//   raven   two balls of yours land on random free cells (free)
+//   seal    a permanent neutral wall on a free cell of your choice (free)
+//   usurp   one of 3 random opponent balls turns your colour (costs the turn)
+const CARD_IDS = { 1: 'gear', 2: 'copy', 3: 'raven', 4: 'seal', 5: 'usurp' };
+const CARD_COST = { gear: false, copy: false, raven: false, seal: false, usurp: true };
+const RAVEN_COUNT = 2;
+const USURP_PICKS = 3;
+
+function randomOf(list) { return list[Math.floor(Math.random() * list.length)]; }
+function shuffled(list) {
+  const a = list.slice();
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+}
+function dealCards() {
+  const a = shuffled([1, 2, 3, 4, 5]);
+  return { 1: a[0], 2: a[1] };
+}
+function newCardState() {
+  return { used: { 1: false, 2: false }, sealed: [] };   // sealed: cell indexes of the walls
+}
+// the cells a ball may still go to (empty and not walled)
+function playableCells(grid, sealed) {
+  const out = [];
+  for (let i = 0; i < CELL_COUNT; i++) if (grid[i] === 0 && !sealed.includes(i)) out.push(i);
+  return out;
+}
+
+// Plays card `id` for `user`: mutates grid / cs. Returns { ok, cell?, cells?, win?, endsTurn? }.
+// opts.target: the chosen cell (seal / usurp); opts.cands: the lit balls usurp may take.
+function applyCard(id, user, grid, cs, opts) {
+  const opp = 3 - user;
+  const endsTurn = !!CARD_COST[id];
+  const theirs = [];
+  grid.forEach((v, i) => { if (v === opp) theirs.push(i); });
+  const done = (cell, win, cells) => { cs.used[user] = true; return { ok: true, cell, cells: cells || [cell], win: win || null, endsTurn }; };
+  if (id === 'gear') {
+    if (!theirs.length) return { ok: false };
+    const cell = randomOf(theirs);
+    grid[cell] = 0;
+    return done(cell);
+  }
+  if (id === 'usurp') {
+    const cands = (opts && opts.cands) || [];
+    const cell = opts && opts.target;
+    if (!Number.isInteger(cell) || !cands.includes(cell) || grid[cell] !== opp) return { ok: false };
+    grid[cell] = user;
+    return done(cell, checkWin(grid, cell, user));
+  }
+  if (id === 'raven') {
+    let cell = null, win = null;
+    const placed = [];
+    for (let k = 0; k < RAVEN_COUNT; k++) {
+      const free = playableCells(grid, cs.sealed);
+      if (!free.length) break;
+      const c = randomOf(free);
+      grid[c] = user;
+      cell = c;
+      placed.push(c);
+      win = win || checkWin(grid, c, user);
+    }
+    if (cell === null) return { ok: false };
+    return done(cell, win, placed);
+  }
+  if (id === 'seal') {
+    const free = playableCells(grid, cs.sealed);
+    if (free.length < 2) return { ok: false };   // never wall in the last free cell
+    const cell = opts && opts.target;
+    if (!Number.isInteger(cell) || !free.includes(cell)) return { ok: false };
+    cs.sealed.push(cell);
+    return done(cell);
+  }
+  return { ok: false };
+}
+
 // ---- row <-> room object mapping ----
 
 function rowToRoom(row) {
@@ -143,10 +223,29 @@ function rowToRoom(row) {
     emoteBy: row.emote_by,
     emoteRev: row.emote_rev,
     updatedAt: row.updated_at,
+    cards: row.cards ? JSON.parse(row.cards) : null,                       // { 1: lv, 2: lv } | null (a room from before cards)
+    cs: row.cs ? JSON.parse(row.cs) : newCardState(),
+    pending: row.pending ? JSON.parse(row.pending) : null,                 // { player, effLv, cands } while a usurp waits for its pick
+    lastCard: row.last_card ? JSON.parse(row.last_card) : null,
+    cardSeq: row.card_seq || 0,
   };
 }
 
-function publicState(room) {
+// 1 | 2 when `token` is a seated player of the room, else 0 (a spectator / the waiting creator's poll)
+function viewerOf(room, token) {
+  if (typeof token !== 'string' || !token) return 0;
+  if (room.p1Token === token) return 1;
+  if (room.p2Token === token) return 2;
+  return 0;
+}
+
+// What one viewer may see. The opponent's card stays hidden until it has been played.
+function publicState(room, viewer) {
+  const v = viewer === 1 || viewer === 2 ? viewer : 0;
+  const cards = room.cards && v ? {
+    mine: room.cards[v],
+    opp: room.cs.used[3 - v] ? room.cards[3 - v] : null,
+  } : null;
   return {
     code: room.code,
     status: room.status,
@@ -169,6 +268,12 @@ function publicState(room) {
     emoteBy: room.emoteBy,
     emoteRev: room.emoteRev,
     updatedAt: room.updatedAt,
+    hasCards: !!room.cards,
+    cards,
+    cs: { used: room.cs.used, sealed: room.cs.sealed },
+    pending: v && room.pending && room.pending.player === v ? { effLv: room.pending.effLv, cands: room.pending.cands } : null,
+    lastCard: room.lastCard,
+    cardSeq: room.cardSeq,
   };
 }
 
@@ -226,6 +331,7 @@ async function resolveFinishedExpiry(env, room) {
     `UPDATE rooms SET p1_token = NULL, p1_name = NULL, p1_streak = 0, p2_token = NULL, p2_name = NULL, p2_streak = 0,
      grid = ?1, current_player = 1, game_over = 0, winner = NULL, win_line = NULL, status = 'waiting',
      starting_player = NULL, turn_started_at = NULL, match_started_at = NULL, emote = NULL, emote_by = NULL,
+     cards = NULL, cs = NULL, pending = NULL, last_card = NULL, card_seq = 0,
      rev = rev + 1, updated_at = ?2
      WHERE code = ?3 AND rev = ?4`
   ).bind(JSON.stringify(grid), now, room.code, room.rev).run();
@@ -270,7 +376,7 @@ async function handleCreate(request, env) {
   if (!inserted) return errorResponse('server_error', 500);
 
   const room = await loadRoom(env, code);
-  return jsonResponse({ ok: true, code, token, player: 1, state: publicState(room) });
+  return jsonResponse({ ok: true, code, token, player: 1, state: publicState(room, 1) });
 }
 
 async function handleJoin(request, env, code) {
@@ -296,11 +402,11 @@ async function handleJoin(request, env, code) {
 
   const result = await env.LINE4_THIRD_DB.prepare(
     fillingP1
-      ? `UPDATE rooms SET p1_token = ?1, p1_name = ?2, status = 'playing', starting_player = ?3, current_player = ?3, turn_started_at = ?4, match_started_at = ?4, rev = rev + 1, updated_at = ?4
+      ? `UPDATE rooms SET p1_token = ?1, p1_name = ?2, status = 'playing', starting_player = ?3, current_player = ?3, turn_started_at = ?4, match_started_at = ?4, cards = ?6, cs = ?7, pending = NULL, last_card = NULL, card_seq = 0, rev = rev + 1, updated_at = ?4
          WHERE code = ?5 AND p1_token IS NULL`
-      : `UPDATE rooms SET p2_token = ?1, p2_name = ?2, status = 'playing', starting_player = ?3, current_player = ?3, turn_started_at = ?4, match_started_at = ?4, rev = rev + 1, updated_at = ?4
+      : `UPDATE rooms SET p2_token = ?1, p2_name = ?2, status = 'playing', starting_player = ?3, current_player = ?3, turn_started_at = ?4, match_started_at = ?4, cards = ?6, cs = ?7, pending = NULL, last_card = NULL, card_seq = 0, rev = rev + 1, updated_at = ?4
          WHERE code = ?5 AND p2_token IS NULL`
-  ).bind(token, name, startingPlayer, now, code).run();
+  ).bind(token, name, startingPlayer, now, code, JSON.stringify(dealCards()), JSON.stringify(newCardState())).run();
 
   if (!result.meta || result.meta.changes === 0) {
     const current = await loadRoom(env, code);
@@ -308,13 +414,13 @@ async function handleJoin(request, env, code) {
   }
 
   const updated = await loadRoom(env, code);
-  return jsonResponse({ ok: true, token, player: fillingP1 ? 1 : 2, state: publicState(updated) });
+  return jsonResponse({ ok: true, token, player: fillingP1 ? 1 : 2, state: publicState(updated, fillingP1 ? 1 : 2) });
 }
 
-async function handleState(env, code) {
+async function handleState(request, env, code) {
   const room = await loadRoom(env, code);
   if (!room) return errorResponse('room_not_found', 404);
-  return jsonResponse({ ok: true, state: publicState(room) });
+  return jsonResponse({ ok: true, state: publicState(room, viewerOf(room, request.headers.get('X-Room-Token'))) });
 }
 
 async function handleMove(request, env, code) {
@@ -340,6 +446,7 @@ async function handleMove(request, env, code) {
   if (room.currentPlayer !== player) return errorResponse('not_your_turn', 409);
 
   if (room.grid[cell] !== 0) return errorResponse('cell_taken', 409);
+  if (room.cs.sealed.includes(cell)) return errorResponse('cell_sealed', 409);
 
   room.grid[cell] = player;
   const winLine = checkWin(room.grid, cell, player);
@@ -352,7 +459,7 @@ async function handleMove(request, env, code) {
     gameOver = true;
     winner = String(player);
     if (player === 1) p1Streak += 1; else p2Streak += 1;
-  } else if (isBoardFull(room.grid)) {
+  } else if (playableCells(room.grid, room.cs.sealed).length === 0) {   // full (walls count as full)
     gameOver = true;
     winner = 'draw';
     p1Streak = 0;
@@ -365,7 +472,7 @@ async function handleMove(request, env, code) {
   // turn_started_at resets on every non-final move — it marks when the *next*
   // player's clock (TURN_TIMEOUT_MS, checked lazily in loadRoom) starts.
   const result = await env.LINE4_THIRD_DB.prepare(
-    `UPDATE rooms SET grid = ?1, current_player = ?2, game_over = ?3, winner = ?4, win_line = ?5, rev = rev + 1, updated_at = ?6, status = ?7, p1_streak = ?8, p2_streak = ?9, turn_started_at = ?10
+    `UPDATE rooms SET grid = ?1, current_player = ?2, game_over = ?3, winner = ?4, win_line = ?5, pending = NULL, rev = rev + 1, updated_at = ?6, status = ?7, p1_streak = ?8, p2_streak = ?9, turn_started_at = ?10
      WHERE code = ?11 AND rev = ?12`
   ).bind(
     JSON.stringify(room.grid),
@@ -385,7 +492,93 @@ async function handleMove(request, env, code) {
   if (!result.meta || result.meta.changes === 0) return errorResponse('conflict_retry', 409);
 
   const updated = await loadRoom(env, code);
-  return jsonResponse({ ok: true, state: publicState(updated) });
+  return jsonResponse({ ok: true, state: publicState(updated, player) });
+}
+
+// Plays the caller's trump card. Own turn only, once per match. Cards that need a target take it
+// in two steps: the first call (no `target`) answers { need: 'cell' } (seal: any free cell) or
+// { need: 'pick', cands } (usurp: the server draws the lit balls and remembers them); the second
+// call carries `target`. Everything else is played at once.
+async function handleCard(request, env, code) {
+  let body;
+  try {
+    body = await request.json();
+  } catch (e) {
+    return errorResponse('invalid_json');
+  }
+  const { token, target } = body || {};
+  if (typeof token !== 'string') return errorResponse('invalid_body');
+  if (target != null && !Number.isInteger(target)) return errorResponse('invalid_body');
+
+  const room = await loadRoom(env, code);
+  if (!room) return errorResponse('room_not_found', 404);
+  if (room.status !== 'playing' || room.gameOver) return errorResponse('game_not_active', 409);
+  if (!room.cards) return errorResponse('no_cards', 409);
+  const player = viewerOf(room, token);
+  if (!player) return errorResponse('invalid_token', 403);
+  if (room.currentPlayer !== player) return errorResponse('not_your_turn', 409);
+  if (room.cs.used[player]) return errorResponse('card_used', 409);
+  if (playableCells(room.grid, room.cs.sealed).length <= 2) return errorResponse('board_too_full', 409);
+
+  const lv = room.cards[player];
+  let effLv = lv;
+  if (CARD_IDS[lv] === 'copy') {   // the opponent's unplayed card (never another copy)
+    const oppLv = room.cards[3 - player];
+    if (room.cs.used[3 - player] || CARD_IDS[oppLv] === 'copy') return errorResponse('cannot_copy', 409);
+    effLv = oppLv;
+  }
+  const id = CARD_IDS[effLv];
+  const opp = 3 - player;
+  let cands;
+
+  if (id === 'usurp') {
+    const theirs = [];
+    room.grid.forEach((v, i) => { if (v === opp) theirs.push(i); });
+    if (!theirs.length) return errorResponse('no_target', 409);
+    if (target == null) {
+      const picks = shuffled(theirs).slice(0, USURP_PICKS);
+      await env.LINE4_THIRD_DB.prepare('UPDATE rooms SET pending = ?1 WHERE code = ?2 AND rev = ?3')
+        .bind(JSON.stringify({ player, effLv, cands: picks }), code, room.rev).run();
+      return jsonResponse({ ok: true, need: 'pick', effLv, cands: picks });
+    }
+    if (!room.pending || room.pending.player !== player || room.pending.effLv !== effLv) return errorResponse('no_pending', 409);
+    cands = room.pending.cands;
+  } else if (id === 'seal' && target == null) {
+    return jsonResponse({ ok: true, need: 'cell', effLv });
+  }
+
+  const grid = room.grid.slice();
+  const cs = { used: { 1: room.cs.used[1], 2: room.cs.used[2] }, sealed: room.cs.sealed.slice() };
+  const r = applyCard(id, player, grid, cs, { target, cands });
+  if (!r.ok) return errorResponse('card_failed', 409);
+
+  const now = Date.now();
+  let gameOver = false, winner = null, winLine = null;
+  const nextPlayer = r.endsTurn ? opp : player;
+  let p1Streak = room.p1Streak || 0, p2Streak = room.p2Streak || 0;
+  if (r.win) {
+    gameOver = true; winner = String(player); winLine = r.win;
+    if (player === 1) p1Streak += 1; else p2Streak += 1;
+  } else if (playableCells(grid, cs.sealed).length === 0) {
+    gameOver = true; winner = 'draw'; p1Streak = 0; p2Streak = 0;
+  }
+  const seq = room.cardSeq + 1;
+  const lastCard = { seq, by: player, lv, effLv, cells: r.cells, endsTurn: r.endsTurn, grid: grid.slice(), sealed: cs.sealed.slice() };
+
+  const result = await env.LINE4_THIRD_DB.prepare(
+    `UPDATE rooms SET grid = ?1, cs = ?2, pending = NULL, last_card = ?3, card_seq = ?4, current_player = ?5, game_over = ?6, winner = ?7, win_line = ?8,
+       status = ?9, p1_streak = ?10, p2_streak = ?11, turn_started_at = ?12, rev = rev + 1, updated_at = ?12
+     WHERE code = ?13 AND rev = ?14`
+  ).bind(
+    JSON.stringify(grid), JSON.stringify(cs), JSON.stringify(lastCard), seq,
+    gameOver ? room.currentPlayer : nextPlayer, gameOver ? 1 : 0, winner, winLine ? JSON.stringify(winLine) : null,
+    gameOver ? 'finished' : 'playing', p1Streak, p2Streak, gameOver ? room.turnStartedAt : now,
+    code, room.rev
+  ).run();
+  if (!result.meta || result.meta.changes === 0) return errorResponse('conflict_retry', 409);
+
+  const updated = await loadRoom(env, code);
+  return jsonResponse({ ok: true, state: publicState(updated, player) });
 }
 
 // "Winner stays on": called by the winning player after a decisive (non-draw)
@@ -421,16 +614,16 @@ async function handleRematch(request, env, code) {
 
   const result = await env.LINE4_THIRD_DB.prepare(
     loserIsP1
-      ? `UPDATE rooms SET p1_token = NULL, p1_name = NULL, p1_streak = 0, grid = ?1, current_player = 1, game_over = 0, winner = NULL, win_line = NULL, status = 'waiting', starting_player = NULL, turn_started_at = NULL, match_started_at = NULL, rev = rev + 1, updated_at = ?2
+      ? `UPDATE rooms SET p1_token = NULL, p1_name = NULL, p1_streak = 0, grid = ?1, current_player = 1, game_over = 0, winner = NULL, win_line = NULL, status = 'waiting', starting_player = NULL, turn_started_at = NULL, match_started_at = NULL, cards = NULL, cs = NULL, pending = NULL, last_card = NULL, card_seq = 0, rev = rev + 1, updated_at = ?2
          WHERE code = ?3 AND rev = ?4`
-      : `UPDATE rooms SET p2_token = NULL, p2_name = NULL, p2_streak = 0, grid = ?1, current_player = 1, game_over = 0, winner = NULL, win_line = NULL, status = 'waiting', starting_player = NULL, turn_started_at = NULL, match_started_at = NULL, rev = rev + 1, updated_at = ?2
+      : `UPDATE rooms SET p2_token = NULL, p2_name = NULL, p2_streak = 0, grid = ?1, current_player = 1, game_over = 0, winner = NULL, win_line = NULL, status = 'waiting', starting_player = NULL, turn_started_at = NULL, match_started_at = NULL, cards = NULL, cs = NULL, pending = NULL, last_card = NULL, card_seq = 0, rev = rev + 1, updated_at = ?2
          WHERE code = ?3 AND rev = ?4`
   ).bind(JSON.stringify(grid), now, code, room.rev).run();
 
   if (!result.meta || result.meta.changes === 0) return errorResponse('conflict_retry', 409);
 
   const updated = await loadRoom(env, code);
-  return jsonResponse({ ok: true, state: publicState(updated) });
+  return jsonResponse({ ok: true, state: publicState(updated, myPlayer) });
 }
 
 // Lightweight "in-game chat" — a whitelisted emote icon, piggybacked onto the
@@ -467,7 +660,7 @@ async function handleEmote(request, env, code) {
   ).bind(emote, player, Date.now(), code).run();
 
   const updated = await loadRoom(env, code);
-  return jsonResponse({ ok: true, state: publicState(updated) });
+  return jsonResponse({ ok: true, state: publicState(updated, player) });
 }
 
 // Called when a player explicitly clicks "退室する" after a finished match,
@@ -518,7 +711,7 @@ export async function routeLine4Third(request, env, path) {
   const stateMatch = path.match(/^\/api\/line4-third\/room\/([A-Z0-9]{4,10})\/state$/);
   if (stateMatch) {
     if (request.method !== 'GET') return errorResponse('method_not_allowed', 405);
-    return handleState(env, stateMatch[1]);
+    return handleState(request, env, stateMatch[1]);
   }
 
   const moveMatch = path.match(/^\/api\/line4-third\/room\/([A-Z0-9]{4,10})\/move$/);
@@ -526,6 +719,13 @@ export async function routeLine4Third(request, env, path) {
     if (request.method !== 'POST') return errorResponse('method_not_allowed', 405);
     if (!(await checkRateLimit(env, 'line4-third-move', request, 120, 60))) return errorResponse('rate_limited', 429);
     return handleMove(request, env, moveMatch[1]);
+  }
+
+  const cardMatch = path.match(/^\/api\/line4-third\/room\/([A-Z0-9]{4,10})\/card$/);
+  if (cardMatch) {
+    if (request.method !== 'POST') return errorResponse('method_not_allowed', 405);
+    if (!(await checkRateLimit(env, 'line4-third-card', request, 60, 60))) return errorResponse('rate_limited', 429);
+    return handleCard(request, env, cardMatch[1]);
   }
 
   const rematchMatch = path.match(/^\/api\/line4-third\/room\/([A-Z0-9]{4,10})\/rematch$/);

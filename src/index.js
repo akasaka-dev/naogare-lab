@@ -232,6 +232,7 @@ export default {
         const res = await routeLine4Third(request, env, path);
         if (res) return res;
       } catch (e) {
+        console.error('line4-third route error', e && e.stack || e);
         return jsonResponse({ ok: false, error: 'server_error' }, 500);
       }
     }
