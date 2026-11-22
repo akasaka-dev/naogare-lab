@@ -1282,29 +1282,11 @@
     cursor: pointer;
   }
   #storyOverlay.hidden { display: none; }
-  #storyText {
-    color: #fff;
-    font-family: "Hiragino Mincho ProN", "Yu Mincho", YuMincho, "MS PMincho", serif;
-    font-size: 1.05rem;
-    line-height: 2.1;
-    white-space: pre-line;
-    max-width: 480px;
-    text-align: left;
-    opacity: 0;
-    transition: opacity 0.4s ease;
-  }
-  #storyText.show { opacity: 1; }
-  #storyText.compact { font-size: 0.9rem; line-height: 2; }   /* a whole scene on one screen */
-  /* Scrolling story (prologue / memories): sentences settle softly into place from above, one after another, filling
-     the screen from the top; once it is full the column scrolls up to keep the newest in view. See runScrollStory(). */
-  #storyOverlay:not(.scrolling) #storyScroll { display: none; }
-  #storyOverlay.scrolling #storyText { display: none; }
+  /* Story pages (prologue / entrance / memories): each page's sentences float down into place from above. See runStory(). */
   #storyScroll {
     position: absolute;
     inset: 0;
     overflow: hidden;
-    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 18%);
-    mask-image: linear-gradient(to bottom, transparent 0%, #000 18%);
   }
   #storyScroll .col {
     position: relative;
@@ -1312,7 +1294,7 @@
     margin: 0 auto;
     padding: 72px 24px 0;
     box-sizing: border-box;
-    transition: transform 1.5s ease, opacity 1.2s ease;
+    transition: opacity 0.4s ease;
   }
   #storyScroll p {
     margin: 0 0 1.5em;
@@ -1326,7 +1308,6 @@
     transition: opacity 1.4s ease, transform 1.4s ease;
   }
   #storyScroll p.in { opacity: 1; transform: none; }
-  #storyScroll p.in.old { opacity: 0.6; }
   #storyScroll p.heading { text-align: center; letter-spacing: 0.18em; color: #fde68a; margin: 1.2em 0 2em; }
   #storySkipBtn {
     position: absolute;
@@ -1492,7 +1473,6 @@
   <!-- Ladder result overlay: shown after each CPU match (advance / game over / all-clear / draw) -->
   <!-- Prologue shown when a CPU run begins: tap anywhere to advance line by line. See maybeShowStory(). -->
   <div id="storyOverlay" class="hidden">
-    <div id="storyText"></div>
     <div id="storyScroll"><div class="col"></div></div>
     <div id="storyHint">タップして進む</div>
     <button id="storySkipBtn" type="button">スキップ ≫</button>
@@ -2626,30 +2606,12 @@
     '「そうね、ひまそうだからつれてってあげる」',
     'こうして、わたしのさいごのゲームがはじまった。',
   ];
-  let storyLineIndex = 0;
-  let storyTransitioning = false;
-  const STORY_FADE_MS = 400; // must match #storyText's transition duration
-  // Double rAF: makes the browser register opacity:0 as a real paint before
-  // the class is added, otherwise the fade can silently never play.
-  function fadeStoryTextIn(textEl) {
-    requestAnimationFrame(() => requestAnimationFrame(() => textEl.classList.add('show')));
-  }
-  // A brand-new element per line: reusing one left stale pixels of the
-  // previous line on some phones (GPU-composited opacity layer).
-  function freshStoryTextEl(text) {
-    const old = document.getElementById('storyText');
-    const el = old.cloneNode(false);
-    el.classList.remove('show');
-    el.textContent = text;
-    old.replaceWith(el);
-    return el;
-  }
   // The prologue, then the knight's entrance (one screen). Skipping the prologue skips both.
   function maybeShowStory(onDone) {
     const who = getPlayerName();
     runStory((kanaMode ? PROLOGUE_LINES_KANA : PROLOGUE_LINES).map((l) => l.replace('{name}', who)), (skipped) => {
       if (skipped) onDone(); else showIntroStory(1, onDone, { fadeInMs: 1400 });
-    }, { scroll: true, endFadeMs: 1200, endPauseMs: 1000 });   // fade out, a beat of black, then the entrance fades in
+    }, { endFadeMs: 1200, endPauseMs: 1000 });   // fade out, a beat of black, then the entrance fades in
   }
 
   // After beating a ladder foe: the memory that flows into the player (black screen, white text,
@@ -2908,127 +2870,76 @@
   function showIntroStory(level, onDone, opts) {
     const lines = (kanaMode ? INTRO_STORIES_KANA : INTRO_STORIES)[level];
     if (!lines) { onDone(); return; }
-    runStory([lines.join(String.fromCharCode(10))], onDone, opts);   // short: the whole scene on one screen, one tap to leave
+    runStory(lines, onDone, opts);   // short: usually a single page
   }
   // Shows the memory of the foe of `level`, then calls onDone; calls it at once when there is none.
   function showMemoryStory(level, onDone) {
     const table = kanaMode ? MEMORY_STORIES_KANA : MEMORY_STORIES;
     if (!table[level]) { onDone(); return; }
-    runStory(table[level](getPlayerName()), onDone, { scroll: true, headingIndex: 1, endFadeMs: 1000, endPauseMs: 400 });
+    runStory(table[level](getPlayerName()), onDone, { headingIndex: 1, endFadeMs: 1000, endPauseMs: 400 });
   }
 
-  // opts.fadeInMs: slow fade-in of the first line; opts.endFadeMs / opts.endPauseMs: after the last line
-  // is dismissed, fade it out slowly and stay on black for a moment before onDone runs.
+  // The story player (prologue / entrance / memories): black screen, white text, tap for the next page.
+  // The lines are split into pages that each fit on the screen; a page floats in softly from above (its
+  // sentences one after another, a short beat apart). A tap while it is still arriving completes it, a tap after
+  // that turns to the next page; after the last page the text fades out and onDone runs.
+  // opts.fadeInMs: how slowly the sentences settle in (default 1400); opts.endFadeMs / opts.endPauseMs: the final
+  // fade and a beat of black before onDone; opts.headingIndex: that line is a centred title.
   function runStory(lines, onDone, opts = {}) {
-    if (opts.scroll) { runScrollStory(lines, onDone, opts); return; }
-    const overlay = document.getElementById('storyOverlay');
-    overlay.classList.remove('scrolling');
-    storyLineIndex = 0;
-    storyTransitioning = false;
-    document.getElementById('storyText').classList.toggle('compact', lines.length === 1);
-    document.getElementById('storyText').style.transitionDuration = opts.fadeInMs ? `${opts.fadeInMs}ms` : '';
-    const firstEl = freshStoryTextEl(lines[0]);
-    overlay.classList.remove('hidden');
-    fadeStoryTextIn(firstEl);
-    // One-shot exit shared by "last line dismissed" and the skip button.
-    let finished = false;
-    const skipBtn = document.getElementById('storySkipBtn');
-    const finish = (skipped) => {
-      if (finished) return;
-      finished = true;
-      overlay.classList.add('hidden');
-      overlay.onclick = null;
-      skipBtn.onclick = null;
-      document.removeEventListener('keydown', onKey, true);
-      onDone(skipped === true);
-    };
-    skipBtn.onclick = (e) => {
-      e.stopPropagation();
-      SoundMgr.seClick();
-      finish(true);
-    };
-    const onKey = (e) => {   // any key (but a bare modifier) advances like a tap
-      if (e.repeat || ['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) return;
-      e.preventDefault();
-      overlay.onclick();
-    };
-    document.addEventListener('keydown', onKey, true);
-    overlay.onclick = () => {
-      if (storyTransitioning) return; // ignore taps mid-fade
-      SoundMgr.seClick();
-      storyTransitioning = true;
-      const isLast = storyLineIndex + 1 >= lines.length;
-      const fadeMs = isLast && opts.endFadeMs ? opts.endFadeMs : STORY_FADE_MS;
-      const textNow = document.getElementById('storyText');
-      if (isLast && opts.endFadeMs) textNow.style.transitionDuration = `${opts.endFadeMs}ms`;
-      textNow.classList.remove('show');
-      setTimeout(() => {
-        if (finished) return;
-        storyLineIndex++;
-        if (storyLineIndex >= lines.length) {
-          if (opts.endPauseMs) setTimeout(() => finish(), opts.endPauseMs); else finish();
-          return;
-        }
-        const nextEl = freshStoryTextEl(lines[storyLineIndex]);
-        storyTransitioning = false;
-        fadeStoryTextIn(nextEl);
-      }, fadeMs);
-    };
-  }
-
-  // Scrolling version: sentences fade in one after another on their own at a steady beat (a tap / key brings the
-  // next one at once); the column scrolls up once the screen is full. After the last one: a pause, then everything fades out and onDone runs.
-  // opts.headingIndex: that sentence is a centred title (the memory stories' "xxの記憶").
-  function runScrollStory(lines, onDone, opts = {}) {
     const overlay = document.getElementById('storyOverlay');
     const col = document.querySelector('#storyScroll .col');
-    col.innerHTML = '';
-    col.style.opacity = '1';
-    const paras = lines.map((t, i) => {
-      const p = document.createElement('p');
-      p.textContent = t;
-      if (opts.headingIndex === i) p.className = 'heading';
-      col.appendChild(p);
-      return p;
-    });
-    overlay.classList.add('scrolling');
+    const fadeMs = opts.fadeInMs || 1400;
     overlay.classList.remove('hidden');
     col.style.transition = 'none';
-    col.style.transform = 'translateY(0px)';
+    col.style.opacity = '1';
+    col.innerHTML = '';
     void col.offsetHeight;
     col.style.transition = '';
 
-    let shown = 0, timer = null, finished = false, ending = false;
-    const showNext = () => {
-      if (finished || ending || shown >= paras.length) return;
-      const p = paras[shown++];
-      paras.forEach((q, i) => q.classList.toggle('old', i < shown - 1));
-      p.classList.add('in');
-      // fills from the top; only once the newest would drop below ~80% of the screen does the column scroll up
-      col.style.transform = `translateY(${Math.min(0, overlay.clientHeight * 0.8 - (p.offsetTop + p.offsetHeight))}px)`;
-      clearTimeout(timer);
-      if (shown < paras.length) timer = setTimeout(showNext, 1500);   // a steady beat, not tied to how long the sentence takes to read
-      else timer = setTimeout(beginEnd, 3000);
+    const mk = (it) => {
+      const p = document.createElement('p');
+      p.textContent = it.t;
+      if (it.heading) p.className = 'heading';
+      p.style.transitionDuration = `${fadeMs}ms`;
+      return p;
+    };
+    // paginate: add lines to a page until the next one would not fit above the bottom buttons
+    const items = lines.map((t, i) => ({ t, heading: opts.headingIndex === i }));
+    const limit = overlay.clientHeight - 96;
+    const pages = [];
+    let cur = [];
+    items.forEach((it) => {
+      const p = mk(it);
+      col.appendChild(p);
+      if (cur.length && col.offsetHeight > limit) {
+        pages.push(cur);
+        cur = [];
+        col.innerHTML = '';
+        col.appendChild(p);
+      }
+      cur.push(it);
+    });
+    pages.push(cur);
+    col.innerHTML = '';
+
+    let pageNo = -1, timers = [], arriving = false, switching = false, finished = false, ending = false;
+    const showPage = (n) => {
+      pageNo = n;
+      col.innerHTML = '';
+      arriving = true;
+      const ps = pages[n].map((it) => { const p = mk(it); col.appendChild(p); return p; });
+      ps.forEach((p, k) => timers.push(setTimeout(() => p.classList.add('in'), 150 + k * 260)));
+      timers.push(setTimeout(() => { arriving = false; }, 150 + ps.length * 260 + 500));
     };
     const finish = (skipped) => {
       if (finished) return;
       finished = true;
-      clearTimeout(timer);
+      timers.forEach(clearTimeout);
       overlay.classList.add('hidden');
-      overlay.classList.remove('scrolling');
       overlay.onclick = null;
       skipBtn.onclick = null;
       document.removeEventListener('keydown', onKey, true);
       onDone(skipped === true);
-    };
-    const beginEnd = () => {
-      if (finished || ending) return;
-      ending = true;
-      clearTimeout(timer);
-      const fade = opts.endFadeMs || 800;
-      col.style.transitionDuration = `${fade}ms`;
-      col.style.opacity = '0';
-      timer = setTimeout(() => finish(), fade + (opts.endPauseMs || 0));
     };
     const skipBtn = document.getElementById('storySkipBtn');
     skipBtn.onclick = (e) => {
@@ -3043,10 +2954,36 @@
     };
     document.addEventListener('keydown', onKey, true);
     overlay.onclick = () => {
+      if (finished || ending || switching) return;
       SoundMgr.seClick();
-      if (shown < paras.length) showNext(); else beginEnd();
+      if (arriving) {   // complete the page that is still floating in
+        timers.forEach(clearTimeout);
+        timers = [];
+        col.querySelectorAll('p').forEach((p) => p.classList.add('in'));
+        arriving = false;
+        return;
+      }
+      if (pageNo + 1 < pages.length) {   // turn the page: the old one fades, then the next floats in
+        switching = true;
+        col.style.transitionDuration = '350ms';
+        col.style.opacity = '0';
+        timers.push(setTimeout(() => {
+          col.style.transition = 'none';
+          col.style.opacity = '1';
+          void col.offsetHeight;
+          col.style.transition = '';
+          switching = false;
+          showPage(pageNo + 1);
+        }, 400));
+        return;
+      }
+      ending = true;   // after the last page: slow fade-out, a beat of black, done
+      const f = opts.endFadeMs || 800;
+      col.style.transitionDuration = `${f}ms`;
+      col.style.opacity = '0';
+      timers.push(setTimeout(() => finish(), f + (opts.endPauseMs || 0)));
     };
-    setTimeout(showNext, 500);   // a beat of black, then the first sentence
+    timers.push(setTimeout(() => showPage(0), 500));   // a beat of black first
   }
 
   // NOTE (line4-third): everything in this online section is inherited from line4 and
