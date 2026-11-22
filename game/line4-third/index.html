@@ -720,7 +720,7 @@
     /* min-width/min-height (not plain width/height) is the pure-CSS
        "cover" trick: the browser grows whichever axis is needed to fully
        cover the screen, so no black #endingScreen background can ever
-       show through even on a phone taller than ending2.webp's own 2:1
+       show through even on a phone taller than ending3.webp's own 3:4
        ratio — it crops a bit off the sides instead. */
     min-width: 100%;
     min-height: 100%;
@@ -1576,15 +1576,15 @@
     </div>
   </div>
 
-  <!-- All-clear ending: slow scroll through ending2.webp with a narration
+  <!-- All-clear ending: slow scroll through ending3.webp with a narration
        crawl overlaid on top; ending.mp3 kicks in as the crawl nears its end.
-       ending2.webp is a tall (2:1) crop specifically so width:100% scaling
+       ending3.webp is a tall (3:4) portrait so cover scaling
        still covers portrait phone screens without gaps — see ending.webp
        (kept alongside it, unused) for the original, shorter (~1.5:1) art.
        Click anywhere to return to title. -->
   <div id="endingScreen" class="hidden">
     <div id="endingScroll">
-      <img src="ending2.webp" alt="エンディング" draggable="false">
+      <img src="ending3.webp" alt="エンディング" draggable="false">
       <div id="endingTextWrap"><div id="endingTextCrawl"></div></div>
     </div>
     <div class="ending-hint" id="endingHint"></div>
@@ -1996,7 +1996,7 @@
         victory: 'もういちど……あのえがおがみたい。',
         defeat: 'わたしにうつっているあなた……あなたは……いったい……。',
       } },
-    { level: 3, name: '夢喰いの鴉', stars: 4, img: 'chara/LV3.webp', emoji: '🐦‍⬛',
+    { level: 3, name: '夢喰いの鴉', stars: 4, img: 'chara/LV3_2.webp', emoji: '🐦‍⬛',
       desc: '', depth: 3, wildness: 0.15, cardChance: 0.1,
       lines: {
         normal: [
@@ -3795,13 +3795,13 @@
   }
 
   // Title art, every character, the ending art actually used by the crawl
-  // (ending2.webp; ending.webp is the older, unused version), then the
+  // (ending3.webp; ending.webp is the older, unused version), then the
   // omake-only illustrations (omake/ folder), with the clear illustration last.
   function omakeSlides() {
     return [
       { src: 'title.webp', cap: () => K('黄昏のフォー・イン・ア・ロウ', 'たそがれのフォー・イン・ア・ロウ') },
       ...CHARACTERS.map(c => ({ src: c.img, cap: () => c.name })),
-      { src: 'ending2.webp', cap: () => K('エンディング', 'エンディング') },
+      { src: 'ending3.webp', cap: () => K('エンディング', 'エンディング') },
       { src: 'omake/chibi_gathering.webp', cap: () => K('ゴシック城と月夜のちびキャラ大集合', 'ゴシックじょうとつきよのちびキャラだいしゅうごう') },
       { src: 'omake/balcony.webp', cap: () => K('黒薔薇アイドル', 'くろばらアイドル') },
       { src: 'omake/album.webp', cap: () => K('黄昏を見つめる仲間たち', 'たそがれをみつめるなかまたち') },
@@ -3913,7 +3913,7 @@
     screenEl.addEventListener('pointercancel', () => { downX = null; });
   })();
 
-  // ---------- All-clear ending: narration crawl over ending2.webp ----------
+  // ---------- All-clear ending: narration crawl over ending3.webp ----------
   // Kanji/kana pairs, one entry per crawl paragraph — '\n' is an intentional
   // line break *within* a paragraph (rendered via CSS white-space:pre-line),
   // a blank line between entries is the paragraph gap.
@@ -6032,6 +6032,7 @@
     { ask: 'spread', say: ['そんなときは、盤面を長押ししてみて！', 'そんなときは、ばんめんをながおししてみて！'] },
     { say: ['ガチャッと広がったでしょ。光る点がついているマスが、ボールを置ける場所だよ。', 'ガチャッとひろがったでしょ。ひかるてんがついているマスが、ボールをおけるばしょだよ。'] },
     { say: ['何もないところをタップすると、元に戻るよ。ボールを置いたときも戻るんだ。', 'なにもないところをタップすると、もとにもどるよ。ボールをおいたときももどるんだ。'] },
+    { say: ['広がる距離は、盤面の右下にあるスライダーで3段階に変えられるよ。見やすい距離を探してみてね。', 'ひろがるきょりは、ばんめんのみぎしたにあるスライダーで3だんかいにかえられるよ。みやすいきょりをさがしてみてね。'] },
     { ask: 'place', cells: [21], need: 1, replies: [42],
       say: ['広げたまま、奥の光っているマスにボールを置いてみよう。（戻ってしまったら、もう一度長押しだよ）', 'ひろげたまま、おくのひかっているマスにボールをおいてみよう。（もどってしまったら、もういちどながおしだよ）'] },
     { say: ['いい調子！これで、手前の1つと奥の1つが同じ列に並んだよ。', 'いいちょうし！これで、てまえの1つとおくの1つがおなじれつにならんだよ。'] },
