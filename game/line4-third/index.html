@@ -745,6 +745,21 @@
        the end, so the scene doesn't close on a close-up of someone's boots. */
     transform: translate(-50%, calc(-100% + 100vh));
   }
+  /* the dawn art (landscape): fades in over the tower art once the crawl reaches the outer-staircase line.
+     object-fit: cover; on a portrait phone the overflow is sideways, and object-position pans it (set from JS). */
+  #endingScroll img.ending-sky {
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    object-fit: cover;
+    object-position: 30% 50%;
+    transform: none;
+    opacity: 0;
+    pointer-events: none;
+  }
   #endingScroll img.pan {
     animation: endingPan 90s ease-in-out forwards;
   }
@@ -1379,14 +1394,24 @@
   /* ---- Menu theme: plain black panels, white text (title / online screens only) ---- */
   #titleScreen, #onlineScreen {
     color: #fff;
-    background: rgba(0, 0, 0, 0.82);
+    background: transparent;
     border: none;
     border-radius: 0;
     box-shadow: none;
+    text-shadow: 0 1px 8px rgba(0, 0, 0, 0.9);
+  }
+  /* the mural fills the whole window behind the menu (a fixed layer: 'background-attachment: fixed' is flaky on phones) */
+  body:has(#titleScreen:not(.hidden))::before, body:has(#onlineScreen:not(.hidden))::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background: linear-gradient(rgba(0, 0, 0, 0.22), rgba(0, 0, 0, 0.42)), url('menu-bg.webp') center / cover no-repeat;
   }
   #titleScreen h1, #onlineScreen h1 { color: #fff; text-shadow: none; font-weight: 700; letter-spacing: 0.08em; }
-  #titleScreen p.subtitle, #onlineScreen p.subtitle { color: rgba(255, 255, 255, 0.72); }
-  #titleScreen .player-name-row { color: rgba(255, 255, 255, 0.72); }
+  #titleScreen p.subtitle, #onlineScreen p.subtitle { color: rgba(255, 255, 255, 0.9); }
+  #titleScreen .player-name-row { color: rgba(255, 255, 255, 0.92); }
   #titleScreen #playerNameInput, #onlineScreen .name-input, #onlineScreen #onlineJoinCode {
     background: #000;
     border: none;
@@ -1412,7 +1437,7 @@
     font-weight: 700;
     letter-spacing: 0.06em;
     color: #fff;
-    background: #000;
+    background: rgba(0, 0, 0, 0.74);
     border: none;
     border-radius: 0;
     box-shadow: none;
@@ -1422,7 +1447,7 @@
   #titleScreen .mode-btn .mode-btn-sub, #onlineScreen .mode-btn .mode-btn-sub {
     display: block;
     margin: 3px 0 0;
-    color: rgba(255, 255, 255, 0.66);
+    color: rgba(255, 255, 255, 0.85);
     font-size: 0.72rem;
     font-weight: 400;
     letter-spacing: 0.04em;
@@ -1458,8 +1483,8 @@
     text-shadow: none;
   }
   #onlineScreen .online-error { color: #ff8a8a; }
-  #titleScreen .back-to-splash-btn, #onlineScreen .back-to-splash-btn { color: rgba(255, 255, 255, 0.7); }
-  #titleScreen .credit { color: rgba(255, 255, 255, 0.6); }
+  #titleScreen .back-to-splash-btn, #onlineScreen .back-to-splash-btn { color: rgba(255, 255, 255, 0.9); }
+  #titleScreen .credit { color: rgba(255, 255, 255, 0.82); }
   #titleScreen .credit a { color: #fff; }
 </style>
 </head>
@@ -1681,7 +1706,7 @@
   </div>
 
   <!-- All-clear ending: slow scroll through ending3.webp with a narration
-       crawl overlaid on top; ending.mp3 kicks in as the crawl nears its end.
+       crawl overlaid on top; the ending theme (bgm/ending.mp3) starts with it.
        ending3.webp is a tall (3:4) portrait so cover scaling
        still covers portrait phone screens without gaps — see ending.webp
        (kept alongside it, unused) for the original, shorter (~1.5:1) art.
@@ -1689,6 +1714,7 @@
   <div id="endingScreen" class="hidden">
     <div id="endingScroll">
       <img src="ending3.webp" alt="エンディング" draggable="false">
+      <img class="ending-sky" id="endingSky" src="ending4.webp" alt="" draggable="false">
       <div id="endingTextWrap"><div id="endingTextCrawl"></div></div>
     </div>
     <div class="ending-hint" id="endingHint"></div>
@@ -2261,17 +2287,17 @@
   // pure block (CARD_RULES / applyCard / cardChoices / wantsCard), shared with sim/balance-sim.js.
   const CARDS = {
     1: { id: 'gear', name: '歯車の一撃', nameKana: 'はぐるまのいちげき',
-         desc: '相手の球を1個、ランダムに消す', descKana: 'あいてのたまを1こ、ランダムにけす' },
+         desc: '相手の駒を1個、ランダムに消す', descKana: 'あいてのこまを1こ、ランダムにけす' },
     2: { id: 'copy', name: '鏡写し', nameKana: 'かがみうつし',
          desc: '相手のまだ使っていないカードを見て、同じ効果を自分も使う', descKana: 'あいてのまだつかっていないカードをみて、おなじこうかをじぶんもつかう' },
     3: { id: 'raven', name: '黒羽の降臨', nameKana: 'くろばねのこうりん',
-         desc: '自分の球が、ランダムな2か所に降りてくる', descKana: 'じぶんのたまが、ランダムな2かしょにおりてくる' },
+         desc: '自分の駒が、ランダムな2か所に降りてくる', descKana: 'じぶんのこまが、ランダムな2かしょにおりてくる' },
     4: { id: 'seal', name: '封印', nameKana: 'ふういん',
          desc: '好きな場所に壁を置く。壁はずっと残り、だれもそこに置けない',
          descKana: 'すきなばしょにかべをおく。かべはずっとのこり、だれもそこにおけない' },
     5: { id: 'usurp', name: '簒奪', nameKana: 'さんだつ',
-         desc: '相手の球がランダムに3個光る。そのうち1個をえらんで、自分の色にする',
-         descKana: 'あいてのたまがランダムに3こひかる。そのうち1こをえらんで、じぶんのいろにする' },
+         desc: '相手の駒がランダムに3個光る。そのうち1個をえらんで、自分の色にする',
+         descKana: 'あいてのこまがランダムに3こひかる。そのうち1こをえらんで、じぶんのいろにする' },
   };
   const cardName = (lv) => K(CARDS[lv].name, CARDS[lv].nameKana);
   const cardDesc = (lv) => K(CARDS[lv].desc, CARDS[lv].descKana);
@@ -2471,7 +2497,7 @@
     const id = CARDS[effLv].id;
     const choices = cardChoices(id, p, grid, cs);
     if (id === 'usurp') {
-      if (!choices.length) { flashStatus(K('相手の球がまだありません', 'あいてのたまがまだありません')); return; }
+      if (!choices.length) { flashStatus(K('相手の駒がまだありません', 'あいてのこまがまだありません')); return; }
       beginTargeting(p, id, choices, effLv);
     } else if (id === 'seal') {
       beginTargeting(p, id, null, effLv);
@@ -2485,7 +2511,7 @@
     Board3D.clearGhost();
     Board3D.setPickSet(cands);
     refreshMarks();
-    const how = id === 'usurp' ? K('自分の色にする球を', 'じぶんのいろにするたまを') : K('壁を置く場所を', 'かべをおくばしょを');
+    const how = id === 'usurp' ? K('自分の色にする駒を', 'じぶんのいろにするこまを') : K('壁を置く場所を', 'かべをおくばしょを');
     updateStatus(`🃏 ${how}${K('タップ（カードをもう一度タップでやめる）', 'タップ（カードをもういちどタップでやめる）')}`);
   }
   function cancelTargeting() {
@@ -3684,7 +3710,7 @@
       card_used: K('このカードは、この対戦ではもう使いました', 'このカードは、このたいせんではもうつかいました'),
       board_too_full: K('盤面の空きが少なくて使えません', 'ばんめんのあきがすくなくてつかえません'),
       cannot_copy: K('写せるカードがありません', 'うつせるカードがありません'),
-      no_target: K('相手の球がまだありません', 'あいてのたまがまだありません'),
+      no_target: K('相手の駒がまだありません', 'あいてのこまがまだありません'),
       no_cards: K('この部屋ではカードを使えません', 'このへやではカードをつかえません'),
     };
     return m[code] || K('このカードは使えませんでした', 'このカードはつかえませんでした');
@@ -4218,19 +4244,35 @@
   ];
 
   let endingCrawlAnim = null;
-  let endingBgmTimer = null;
+  let endingSkyStartMs = 0;   // crawl time at which the dawn art starts to fade in
+  let endingSkyRaf = 0;
+  const ENDING_SKY_FADE_MS = 7000;
   let endingCrawlTotalMs = 0;
   let endingCrawlFinished = false; // click-to-title is only honored once this is true
 
   function stopEndingCrawl() {
     if (endingCrawlAnim) { endingCrawlAnim.cancel(); endingCrawlAnim = null; }
-    if (endingBgmTimer) { clearTimeout(endingBgmTimer); endingBgmTimer = null; }
+    if (endingSkyRaf) { cancelAnimationFrame(endingSkyRaf); endingSkyRaf = 0; }
+  }
+
+  // The dawn art is driven by the crawl's own clock (so dragging the crawl back and forth keeps it in sync):
+  // it fades in from endingSkyStartMs and pans left -> right (starting on the girl, ending on the sunrise) until the crawl ends.
+  function endingSkyTick() {
+    endingSkyRaf = 0;
+    if (!endingCrawlAnim) return;
+    const sky = document.getElementById('endingSky');
+    const t = endingCrawlAnim.currentTime || 0;
+    const clamp01 = (v) => Math.max(0, Math.min(1, v));
+    const fade = clamp01((t - endingSkyStartMs) / ENDING_SKY_FADE_MS);
+    const pan = clamp01((t - endingSkyStartMs) / Math.max(1, endingCrawlTotalMs - endingSkyStartMs));
+    sky.style.opacity = String(fade);
+    sky.style.objectPosition = `${((0.3 + 0.7 * pan) * 100).toFixed(2)}% 50%`;
+    endingSkyRaf = requestAnimationFrame(endingSkyTick);
   }
 
   function showEndingScreen() {
     unlockOmake(); // clearing the game (or the debug menu's ending) unlocks おまけ
-    SoundMgr.stop(); // the previous track (e.g. LV5's battle theme) would
-                      // otherwise just keep looping until ending.mp3 kicks in
+    SoundMgr.stop(); // the previous track (e.g. LV5's battle theme) must not carry on under the ending
     const el = document.getElementById('endingScreen');
     const img = el.querySelector('img');
     img.classList.remove('pan');
@@ -4267,9 +4309,20 @@
       { duration: totalMs, easing: 'linear', fill: 'forwards' }
     );
     endingCrawlAnim.onfinish = () => { endingCrawlFinished = true; };
-    // Let the ending theme swell in a few seconds before the crawl finishes,
-    // rather than the moment the screen appears.
-    endingBgmTimer = setTimeout(() => SoundMgr.playTrack('ending', 'title'), Math.max(0, totalMs - 5000));
+    // the dawn art starts to fade in when the "外階段へ降りる" paragraph is about 60% of the way up the screen
+    const sky = document.getElementById('endingSky');
+    sky.style.opacity = '0';
+    sky.style.objectPosition = '30% 50%';
+    const idx = lines.findIndex((t) => /外階段|がいだん/.test(t));
+    if (idx >= 0 && endY < startY) {
+      const off = crawl.children[idx].offsetTop;
+      endingSkyStartMs = Math.max(0, totalMs * (startY * 0.6 - off - startY) / (endY - startY));
+    } else {
+      endingSkyStartMs = totalMs * 0.8;
+    }
+    endingSkyRaf = requestAnimationFrame(endingSkyTick);
+    // the ending theme plays from the very start
+    SoundMgr.playTrack('ending', 'title');
   }
 
   // Drag up/down to scrub the crawl back and forth (a young player found the
@@ -4311,20 +4364,14 @@
       isDown = false;
       screen.classList.remove('dragging');
       if (dragged && endingCrawlAnim) {
-        if (endingBgmTimer) { clearTimeout(endingBgmTimer); endingBgmTimer = null; }
         if (endingCrawlAnim.currentTime >= endingCrawlTotalMs) {
           // .play() on an animation already at its end rewinds it to the
           // start instead of finishing it (per spec) — .finish() is what
           // actually fires onfinish here, so dragged-to-the-end doesn't
           // silently restart the whole crawl.
           endingCrawlAnim.finish();
-          SoundMgr.playTrack('ending', 'title');
         } else {
           endingCrawlAnim.play();
-          // Re-time the BGM cue relative to the scrubbed position, or it'd
-          // fire on the original schedule regardless of where the crawl is now.
-          const remaining = endingCrawlTotalMs - endingCrawlAnim.currentTime;
-          endingBgmTimer = setTimeout(() => SoundMgr.playTrack('ending', 'title'), Math.max(0, remaining - 5000));
         }
       }
     }
@@ -6265,20 +6312,20 @@
   const FOX_IMG = 'emotes/fox_tutor.webp', FOX_STAND = 'chara/fox.webp';   // face icon / full-length figure
   const TUT_SCRIPT = [
     { say: ['やあ！ボクはフェネック。これから、このゲームの遊び方を教えるね。', 'やあ！ボクはフェネック。これから、このゲームのあそびかたをおしえるね。'] },
-    { say: ['ルールは簡単。ボールを置いて、同じ色を4つ一直線に並べたら勝ち。きみがピンク、ボクがミントだよ。', 'ルールはかんたん。ボールをおいて、おなじいろを4ついっちょくせんにならべたらかち。きみがピンク、ボクがミントだよ。'] },
+    { say: ['ルールは簡単。駒を置いて、同じ色を4つ一直線に並べたら勝ち。きみがピンク、ボクがミントだよ。', 'ルールはかんたん。こまをおいて、おなじいろを4ついっちょくせんにならべたらかち。きみがピンク、ボクがミントだよ。'] },
     { say: ['縦・横・斜め、どの向きでもいいし、これは立体だから奥行きも使えるんだ。', 'たて・よこ・ななめ、どのむきでもいいし、これはりったいだからおくゆきもつかえるんだ。'] },
     { ask: 'orbit', say: ['まずは盤面を見渡してみよう。盤面をドラッグして、ぐるっと回してみて！', 'まずはばんめんをみわたしてみよう。ばんめんをドラッグして、ぐるっとまわしてみて！'] },
     { say: ['いいね！ピンチ（2本指）やマウスのホイールで、拡大・縮小もできるよ。', 'いいね！ピンチ（2ほんゆび）やマウスのホイールで、かくだい・しゅくしょうもできるよ。'] },
     { ask: 'place', cells: [20], need: 1, replies: [63],
-      say: ['次はボールを置いてみよう。光っているマスをタップしてね。スマホは、同じマスをもう一度タップすると決定だよ。', 'つぎはボールをおいてみよう。ひかっているマスをタップしてね。スマホは、おなじマスをもういちどタップするとけっていだよ。'] },
-    { say: ['置けたね！ボクもミントのボールを置いたよ。こうやって交互に置いていくんだ。', 'おけたね！ボクもミントのボールをおいたよ。こうやってこうごにおいていくんだ。'] },
-    { say: ['ところで、奥のほうのマスは、手前のボールに隠れて見えにくいよね。', 'ところで、おくのほうのマスは、てまえのボールにかくれてみえにくいよね。'] },
+      say: ['次は駒を置いてみよう。光っているマスをタップしてね。スマホは、同じマスをもう一度タップすると決定だよ。', 'つぎはこまをおいてみよう。ひかっているマスをタップしてね。スマホは、おなじマスをもういちどタップするとけっていだよ。'] },
+    { say: ['置けたね！ボクもミントの駒を置いたよ。こうやって交互に置いていくんだ。', 'おけたね！ボクもミントのこまをおいたよ。こうやってこうごにおいていくんだ。'] },
+    { say: ['ところで、奥のほうのマスは、手前の駒に隠れて見えにくいよね。', 'ところで、おくのほうのマスは、てまえのこまにかくれてみえにくいよね。'] },
     { ask: 'spread', say: ['そんなときは、盤面を長押ししてみて！', 'そんなときは、ばんめんをながおししてみて！'] },
-    { say: ['ガチャッと広がったでしょ。光る点がついているマスが、ボールを置ける場所だよ。', 'ガチャッとひろがったでしょ。ひかるてんがついているマスが、ボールをおけるばしょだよ。'] },
-    { say: ['何もないところをタップすると、元に戻るよ。ボールを置いたときも戻るんだ。', 'なにもないところをタップすると、もとにもどるよ。ボールをおいたときももどるんだ。'] },
+    { say: ['ガチャッと広がったでしょ。光る点がついているマスが、駒を置ける場所だよ。', 'ガチャッとひろがったでしょ。ひかるてんがついているマスが、こまをおけるばしょだよ。'] },
+    { say: ['何もないところをタップすると、元に戻るよ。駒を置いたときも戻るんだ。', 'なにもないところをタップすると、もとにもどるよ。こまをおいたときももどるんだ。'] },
     { say: ['広がる距離は、盤面の右下にあるスライダーで3段階に変えられるよ。見やすい距離を探してみてね。', 'ひろがるきょりは、ばんめんのみぎしたにあるスライダーで3だんかいにかえられるよ。みやすいきょりをさがしてみてね。'] },
     { ask: 'place', cells: [21], need: 1, replies: [42],
-      say: ['広げたまま、奥の光っているマスにボールを置いてみよう。（戻ってしまったら、もう一度長押しだよ）', 'ひろげたまま、おくのひかっているマスにボールをおいてみよう。（もどってしまったら、もういちどながおしだよ）'] },
+      say: ['広げたまま、奥の光っているマスに駒を置いてみよう。（戻ってしまったら、もう一度長押しだよ）', 'ひろげたまま、おくのひかっているマスにこまをおいてみよう。（もどってしまったら、もういちどながおしだよ）'] },
     { say: ['いい調子！これで、手前の1つと奥の1つが同じ列に並んだよ。', 'いいちょうし！これで、てまえの1つとおくの1つがおなじれつにならんだよ。'] },
     { ask: 'place', cells: [22, 23], need: 2, replies: [0],
       say: ['あと2つで4つ並ぶよ！光っているマスに置いて、四つ並べてみよう！', 'あと2つで4つならぶよ！ひかっているマスにおいて、よっつならべてみよう！'] },
