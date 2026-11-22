@@ -198,6 +198,89 @@ function applyCard(id, user, grid, cs, opts) {
   return { ok: false };
 }
 
+// ---- The "skip waiting" CPU ----
+// A room's creator who doesn't want to wait can seat a CPU in the empty slot (handleFillCpu). The CPU has no
+// process of its own — like the turn timeout it acts lazily: the first read (every /state poll counts) of a
+// room whose turn belongs to the CPU, once it has "thought" for CPU_THINK_MS, plays its turn (resolveCpuTurn):
+// maybe its trump card, then a ball. The play is a cheap heuristic (no deep search: a Worker's CPU budget is small).
+const CPU_THINK_MS = 1600;
+const CPU_NAMES = { easy: 'CPU・かんたん', normal: 'CPU・ふつう', hard: 'CPU・つよい' };
+const CPU_LEVELS = {
+  //          slip: chance of a random ball, win/block: chance it sees an immediate win / threat, threats: reads double threats, card: card chance per turn
+  easy:   { slip: 0.35, win: 0.7, block: 0.55, threats: false, card: 0.10 },
+  normal: { slip: 0.08, win: 1, block: 0.95, threats: true, card: 0.20 },
+  hard:   { slip: 0, win: 1, block: 1, threats: true, card: 0.30 },
+};
+
+function wallView(grid, sealed) {
+  const w = grid.slice();
+  sealed.forEach((c) => { w[c] = 3; });
+  return w;
+}
+// the free cells where `p` would complete a line right now
+function winningCells(w, p) {
+  const out = new Set();
+  for (const cells of LINES) {
+    let mine = 0, free = -1, bad = false;
+    for (const c of cells) {
+      if (w[c] === p) mine++;
+      else if (w[c] === 0) free = c;
+      else { bad = true; break; }
+    }
+    if (!bad && mine === 3 && free >= 0) out.add(free);
+  }
+  return [...out];
+}
+// how useful a ball of `me` on `cell` is: open lines of its own grow, the opponent's open lines are cut
+function cellValue(w, cell, me) {
+  const opp = 3 - me;
+  const mineW = [1, 3, 9, 0], oppW = [0.5, 2, 7, 0];
+  let v = 0;
+  for (const li of LINES_THROUGH[cell]) {
+    let mine = 0, theirs = 0, dead = false;
+    for (const c of LINES[li]) { if (w[c] === me) mine++; else if (w[c] === opp) theirs++; else if (w[c] === 3) dead = true; }
+    if (dead) continue;
+    if (theirs === 0) v += mineW[mine];
+    if (mine === 0) v += oppW[theirs];
+  }
+  return v;
+}
+function cpuChooseCell(grid, sealed, me, level) {
+  const cfg = CPU_LEVELS[level] || CPU_LEVELS.normal;
+  const opp = 3 - me;
+  const w = wallView(grid, sealed);
+  const free = playableCells(grid, sealed);
+  if (!free.length) return null;
+  const wins = winningCells(w, me);
+  if (wins.length && Math.random() < cfg.win) return randomOf(wins);
+  const threats = winningCells(w, opp);
+  if (threats.length && Math.random() < cfg.block) return randomOf(threats);
+  if (cfg.slip && Math.random() < cfg.slip) return randomOf(free);
+  let best = free[0], bestV = -Infinity;
+  for (const c of free) {
+    let v = cellValue(w, c, me) + Math.random() * 0.8;
+    if (cfg.threats) {
+      w[c] = me;
+      const mine = winningCells(w, me).length;   // threats I would own after this ball (two = cannot all be blocked)
+      const theirs = winningCells(w, opp).length;
+      w[c] = 0;
+      v += mine >= 2 ? 200 : mine === 1 ? 12 : 0;
+      v -= theirs > 0 ? 60 : 0;
+    }
+    if (v > bestV) { bestV = v; best = c; }
+  }
+  return best;
+}
+// would the CPU play its card now? (mirrors the single-player rule: at once against a threat, else by chance)
+function cpuWantsCard(effId, grid, sealed, me, level) {
+  const cfg = CPU_LEVELS[level] || CPU_LEVELS.normal;
+  const w = wallView(grid, sealed);
+  if (winningCells(w, me).length) return false;   // it can just win
+  if (effId !== 'raven' && winningCells(w, 3 - me).length) return true;
+  if (grid.filter((v) => v !== 0).length < 8) return false;
+  return Math.random() < cfg.card;
+}
+
 // ---- row <-> room object mapping ----
 
 function rowToRoom(row) {
@@ -228,6 +311,8 @@ function rowToRoom(row) {
     pending: row.pending ? JSON.parse(row.pending) : null,                 // { player, effLv, cands } while a usurp waits for its pick
     lastCard: row.last_card ? JSON.parse(row.last_card) : null,
     cardSeq: row.card_seq || 0,
+    cpuPlayer: row.cpu_player || 0,                                        // 0 | 1 | 2: the seat the "skip waiting" CPU holds
+    cpuDifficulty: row.cpu_difficulty || null,
   };
 }
 
@@ -274,6 +359,7 @@ function publicState(room, viewer) {
     pending: v && room.pending && room.pending.player === v ? { effLv: room.pending.effLv, cands: room.pending.cands } : null,
     lastCard: room.lastCard,
     cardSeq: room.cardSeq,
+    cpuPlayer: room.cpuPlayer,
   };
 }
 
@@ -285,10 +371,90 @@ async function loadRoom(env, code) {
       && Date.now() - room.turnStartedAt > TURN_TIMEOUT_MS) {
     return resolveTimeout(env, room);
   }
+  if (room.status === 'playing' && !room.gameOver && room.cpuPlayer && room.currentPlayer === room.cpuPlayer
+      && room.turnStartedAt && Date.now() - room.turnStartedAt >= CPU_THINK_MS) {
+    return resolveCpuTurn(env, room);
+  }
   if (room.status === 'finished' && Date.now() - room.updatedAt > FINISHED_ROOM_GRACE_MS) {
     return resolveFinishedExpiry(env, room);
   }
   return room;
+}
+
+// The CPU plays its turn: its card first (when it wants to), then a ball unless the card used up the turn.
+async function resolveCpuTurn(env, room) {
+  const me = room.cpuPlayer, opp = 3 - me;
+  const level = room.cpuDifficulty || 'normal';
+  const grid = room.grid.slice();
+  const cs = { used: { 1: room.cs.used[1], 2: room.cs.used[2] }, sealed: room.cs.sealed.slice() };
+  let lastCard = room.lastCard, cardSeq = room.cardSeq;
+  let gameOver = false, winner = null, winLine = null, turnDone = false;
+
+  if (room.cards && !cs.used[me] && playableCells(grid, cs.sealed).length > 2) {
+    const lv = room.cards[me];
+    let effLv = lv;
+    if (CARD_IDS[lv] === 'copy') {   // the opponent's unplayed card, never another copy
+      const oppLv = room.cards[opp];
+      effLv = cs.used[opp] || CARD_IDS[oppLv] === 'copy' ? null : oppLv;
+    }
+    const id = effLv ? CARD_IDS[effLv] : null;
+    if (id && cpuWantsCard(id, grid, cs.sealed, me, level)) {
+      const trial = grid.slice();
+      const trialCs = { used: { 1: cs.used[1], 2: cs.used[2] }, sealed: cs.sealed.slice() };
+      let opts = {};
+      if (id === 'usurp') {
+        const theirs = [];
+        grid.forEach((v, i) => { if (v === opp) theirs.push(i); });
+        const cands = shuffled(theirs).slice(0, USURP_PICKS);
+        const w = wallView(grid, cs.sealed);
+        const target = cands.length ? cands.reduce((a, b) => (cellValue(w, b, me) > cellValue(w, a, me) ? b : a)) : null;
+        opts = { cands, target };
+      } else if (id === 'seal') {   // wall the cell the opponent would like best
+        const w = wallView(grid, cs.sealed);
+        const free = playableCells(grid, cs.sealed);
+        opts = { target: free.length ? free.reduce((a, b) => (cellValue(w, b, opp) > cellValue(w, a, opp) ? b : a)) : null };
+      }
+      const r = applyCard(id, me, trial, trialCs, opts);
+      if (r.ok) {
+        trialCs.used[me] = true;
+        grid.splice(0, CELL_COUNT, ...trial);
+        cs.used = trialCs.used; cs.sealed = trialCs.sealed;
+        cardSeq += 1;
+        lastCard = { seq: cardSeq, by: me, lv, effLv, cells: r.cells, endsTurn: r.endsTurn, grid: grid.slice(), sealed: cs.sealed.slice() };
+        if (r.win) { gameOver = true; winner = String(me); winLine = r.win; }
+        else if (playableCells(grid, cs.sealed).length === 0) { gameOver = true; winner = 'draw'; }
+        else if (r.endsTurn) turnDone = true;
+      }
+    }
+  }
+  if (!gameOver && !turnDone) {
+    const cell = cpuChooseCell(grid, cs.sealed, me, level);
+    if (cell === null) { gameOver = true; winner = 'draw'; }
+    else {
+      grid[cell] = me;
+      const win = checkWin(grid, cell, me);
+      if (win) { gameOver = true; winner = String(me); winLine = win; }
+      else if (playableCells(grid, cs.sealed).length === 0) { gameOver = true; winner = 'draw'; }
+    }
+  }
+
+  let p1Streak = room.p1Streak || 0, p2Streak = room.p2Streak || 0;
+  if (winner === 'draw') { p1Streak = 0; p2Streak = 0; }
+  else if (winner) { if (winner === '1') p1Streak += 1; else p2Streak += 1; }
+  const now = Date.now();
+  await env.LINE4_THIRD_DB.prepare(
+    `UPDATE rooms SET grid = ?1, cs = ?2, pending = NULL, last_card = ?3, card_seq = ?4, current_player = ?5, game_over = ?6, winner = ?7, win_line = ?8,
+       status = ?9, p1_streak = ?10, p2_streak = ?11, turn_started_at = ?12, rev = rev + 1, updated_at = ?12
+     WHERE code = ?13 AND rev = ?14`
+  ).bind(
+    JSON.stringify(grid), JSON.stringify(cs), lastCard ? JSON.stringify(lastCard) : null, cardSeq,
+    gameOver ? me : opp, gameOver ? 1 : 0, winner, winLine ? JSON.stringify(winLine) : null,
+    gameOver ? 'finished' : 'playing', p1Streak, p2Streak, gameOver ? room.turnStartedAt : now,
+    room.code, room.rev
+  ).run();
+  // (if that lost a race — a poll from the other side did the same — the room is simply read again)
+  const row = await env.LINE4_THIRD_DB.prepare('SELECT * FROM rooms WHERE code = ?1').bind(room.code).first();
+  return rowToRoom(row);
 }
 
 // No cron/Durable Object on this plan, so a timed-out turn isn't caught by a
@@ -331,7 +497,7 @@ async function resolveFinishedExpiry(env, room) {
     `UPDATE rooms SET p1_token = NULL, p1_name = NULL, p1_streak = 0, p2_token = NULL, p2_name = NULL, p2_streak = 0,
      grid = ?1, current_player = 1, game_over = 0, winner = NULL, win_line = NULL, status = 'waiting',
      starting_player = NULL, turn_started_at = NULL, match_started_at = NULL, emote = NULL, emote_by = NULL,
-     cards = NULL, cs = NULL, pending = NULL, last_card = NULL, card_seq = 0,
+     cards = NULL, cs = NULL, pending = NULL, last_card = NULL, card_seq = 0, cpu_player = 0, cpu_difficulty = NULL,
      rev = rev + 1, updated_at = ?2
      WHERE code = ?3 AND rev = ?4`
   ).bind(JSON.stringify(grid), now, room.code, room.rev).run();
@@ -581,6 +747,41 @@ async function handleCard(request, env, code) {
   return jsonResponse({ ok: true, state: publicState(updated, player) });
 }
 
+// "Skip waiting": a seated player of a still-waiting room seats a CPU in the empty slot and the match starts
+// at once (cards dealt, first mover drawn, exactly like handleJoin).
+async function handleFillCpu(request, env, code) {
+  let body;
+  try {
+    body = await request.json();
+  } catch (e) {
+    return errorResponse('invalid_json');
+  }
+  const { token } = body || {};
+  const level = body && CPU_LEVELS[body.difficulty] ? body.difficulty : 'normal';
+  if (typeof token !== 'string') return errorResponse('invalid_body');
+
+  const room = await loadRoom(env, code);
+  if (!room) return errorResponse('room_not_found', 404);
+  if (room.status !== 'waiting') return errorResponse('not_waiting', 409);
+  const me = viewerOf(room, token);
+  if (!me) return errorResponse('invalid_token', 403);
+  const slot = me === 1 ? 2 : 1;
+  if ((slot === 1 ? room.p1Token : room.p2Token)) return errorResponse('room_full', 409);
+
+  const now = Date.now();
+  const starting = Math.random() < 0.5 ? 1 : 2;
+  const col = slot === 1 ? 'p1' : 'p2';
+  const result = await env.LINE4_THIRD_DB.prepare(
+    `UPDATE rooms SET ${col}_token = ?1, ${col}_name = ?2, cpu_player = ?3, cpu_difficulty = ?4, status = 'playing', starting_player = ?5, current_player = ?5,
+       turn_started_at = ?6, match_started_at = ?6, cards = ?7, cs = ?8, pending = NULL, last_card = NULL, card_seq = 0, rev = rev + 1, updated_at = ?6
+     WHERE code = ?9 AND ${col}_token IS NULL AND status = 'waiting'`
+  ).bind('cpu:' + randomToken(), CPU_NAMES[level], slot, level, starting, now, JSON.stringify(dealCards()), JSON.stringify(newCardState()), code).run();
+  if (!result.meta || result.meta.changes === 0) return errorResponse('conflict_retry', 409);
+
+  const updated = await loadRoom(env, code);
+  return jsonResponse({ ok: true, state: publicState(updated, me) });
+}
+
 // "Winner stays on": called by the winning player after a decisive (non-draw)
 // finish. Clears the LOSER's slot (token/name/streak) so a new challenger can
 // join it via the same room code, keeps the winner's slot/streak untouched,
@@ -614,9 +815,9 @@ async function handleRematch(request, env, code) {
 
   const result = await env.LINE4_THIRD_DB.prepare(
     loserIsP1
-      ? `UPDATE rooms SET p1_token = NULL, p1_name = NULL, p1_streak = 0, grid = ?1, current_player = 1, game_over = 0, winner = NULL, win_line = NULL, status = 'waiting', starting_player = NULL, turn_started_at = NULL, match_started_at = NULL, cards = NULL, cs = NULL, pending = NULL, last_card = NULL, card_seq = 0, rev = rev + 1, updated_at = ?2
+      ? `UPDATE rooms SET p1_token = NULL, p1_name = NULL, p1_streak = 0, grid = ?1, current_player = 1, game_over = 0, winner = NULL, win_line = NULL, status = 'waiting', starting_player = NULL, turn_started_at = NULL, match_started_at = NULL, cards = NULL, cs = NULL, pending = NULL, last_card = NULL, card_seq = 0, cpu_player = 0, cpu_difficulty = NULL, rev = rev + 1, updated_at = ?2
          WHERE code = ?3 AND rev = ?4`
-      : `UPDATE rooms SET p2_token = NULL, p2_name = NULL, p2_streak = 0, grid = ?1, current_player = 1, game_over = 0, winner = NULL, win_line = NULL, status = 'waiting', starting_player = NULL, turn_started_at = NULL, match_started_at = NULL, cards = NULL, cs = NULL, pending = NULL, last_card = NULL, card_seq = 0, rev = rev + 1, updated_at = ?2
+      : `UPDATE rooms SET p2_token = NULL, p2_name = NULL, p2_streak = 0, grid = ?1, current_player = 1, game_over = 0, winner = NULL, win_line = NULL, status = 'waiting', starting_player = NULL, turn_started_at = NULL, match_started_at = NULL, cards = NULL, cs = NULL, pending = NULL, last_card = NULL, card_seq = 0, cpu_player = 0, cpu_difficulty = NULL, rev = rev + 1, updated_at = ?2
          WHERE code = ?3 AND rev = ?4`
   ).bind(JSON.stringify(grid), now, code, room.rev).run();
 
@@ -726,6 +927,13 @@ export async function routeLine4Third(request, env, path) {
     if (request.method !== 'POST') return errorResponse('method_not_allowed', 405);
     if (!(await checkRateLimit(env, 'line4-third-card', request, 60, 60))) return errorResponse('rate_limited', 429);
     return handleCard(request, env, cardMatch[1]);
+  }
+
+  const fillMatch = path.match(/^\/api\/line4-third\/room\/([A-Z0-9]{4,10})\/fill-cpu$/);
+  if (fillMatch) {
+    if (request.method !== 'POST') return errorResponse('method_not_allowed', 405);
+    if (!(await checkRateLimit(env, 'line4-third-fill', request, 20, 600))) return errorResponse('rate_limited', 429);
+    return handleFillCpu(request, env, fillMatch[1]);
   }
 
   const rematchMatch = path.match(/^\/api\/line4-third\/room\/([A-Z0-9]{4,10})\/rematch$/);

@@ -26,6 +26,8 @@ CREATE TABLE IF NOT EXISTS rooms (
   pending TEXT,                             -- JSON {player, effLv, cands} while a usurp waits for the player's pick
   last_card TEXT,                           -- JSON of the last card played (what the other client replays): {seq, by, lv, effLv, cells, endsTurn, grid, sealed}
   card_seq INTEGER NOT NULL DEFAULT 0,      -- bumped on every card played
+  cpu_player INTEGER NOT NULL DEFAULT 0,     -- 0 | 1 | 2: the seat held by the "skip waiting" CPU (see handleFillCpu)
+  cpu_difficulty TEXT,                      -- 'easy' | 'normal' | 'hard' | NULL
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );

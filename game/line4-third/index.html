@@ -348,6 +348,9 @@
     padding: 10px 18px;
     border-radius: 10px;
   }
+  .online-cpu-row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  .online-cpu-btn { padding: 9px 14px; border-radius: 10px; font-size: 0.85rem; }
+  .online-cpu-btn:disabled { opacity: 0.5; }
   .online-error {
     color: var(--p1);
     font-size: 0.85rem;
@@ -1444,6 +1447,12 @@
       <div class="online-room-code" id="onlineRoomCode"></div>
       <button id="onlineCopyBtn"></button>
       <p class="online-waiting-text" id="onlineWaitingText"></p>
+      <p class="subtitle" id="onlineCpuLabel" style="margin-top:6px;"></p>
+      <div class="online-cpu-row">
+        <button class="online-cpu-btn" data-level="easy" id="onlineCpuEasy"></button>
+        <button class="online-cpu-btn" data-level="normal" id="onlineCpuNormal"></button>
+        <button class="online-cpu-btn" data-level="hard" id="onlineCpuHard"></button>
+      </div>
       <button class="back-to-splash-btn" id="onlineCancelBtn"></button>
     </div>
     <div id="onlineJoinConfirm" class="hidden">
@@ -1885,6 +1894,10 @@
     document.getElementById('onlineCopyBtn').textContent = K('招待URLをコピー', 'しょうたいURLをコピー');
     document.getElementById('onlineWaitingText').textContent = K('対戦相手を待っています…', 'たいせんあいてをまっています…');
     document.getElementById('onlineCancelBtn').textContent = 'キャンセル';
+    document.getElementById('onlineCpuLabel').textContent = K('待たずにCPUと対戦', 'またずにCPUとたいせん');
+    document.getElementById('onlineCpuEasy').textContent = K('かんたん', 'かんたん');
+    document.getElementById('onlineCpuNormal').textContent = K('ふつう', 'ふつう');
+    document.getElementById('onlineCpuHard').textContent = K('つよい', 'つよい');
     document.getElementById('onlineJoinNameLabel').textContent = K('プレイヤー名', 'プレイヤーめい');
     document.getElementById('onlineJoinConfirmBtn').textContent = K('開始する', 'かいしする');
     document.getElementById('onlineJoinCancelBtn').textContent = 'キャンセル';
@@ -3156,6 +3169,7 @@
     return {
       room_not_found: K('部屋が見つかりませんでした。コードを確認してください。', 'へやがみつかりませんでした。コードをかくにんしてください。'),
       room_full: K('その部屋は現在対戦中です。', 'そのへやはげんざいたいせんちゅうです。'),
+      not_waiting: K('もう対戦が始まっています。', 'もうたいせんがはじまっています。'),
       invalid_body: K('コードを入力してください。', 'コードをにゅうりょくしてください。'),
       server_error: K('通信エラーが発生しました。もう一度お試しください。', 'つうしんエラーがはっせいしました。もういちどおためしください。'),
     };
@@ -3264,9 +3278,10 @@
   // slot filled" symmetrically rather than assuming p2.
   function pollForOpponent() {
     online.timer = setInterval(async () => {
-      if (!online) return;
+      if (!online || online.cpuFilling) return;
       try {
         const res = await apiGet(`/room/${online.code}/state`, online.token);
+        if (!online || online.cpuFilling) return;
         const opponentSlotFilled = online.myPlayer === 1 ? res.state.hasP2 : res.state.hasP1;
         if (res.ok && opponentSlotFilled) {
           stopOnlinePolling();
@@ -3373,6 +3388,23 @@
       goToTitle();
     }
   }
+
+  // "Skip waiting": seat a CPU in the empty slot (the server starts the match at once)
+  document.querySelectorAll('.online-cpu-btn').forEach((btn) => btn.addEventListener('click', async () => {
+    SoundMgr.seClick();
+    if (!online || online.cpuFilling) return;
+    online.cpuFilling = true;
+    document.querySelectorAll('.online-cpu-btn').forEach((b) => { b.disabled = true; });
+    try {
+      const res = await apiPost(`/room/${online.code}/fill-cpu`, { token: online.token, difficulty: btn.dataset.level });
+      if (online && res.ok) { stopOnlinePolling(); beginOnlineMatch(res.state); }
+      else if (online) { showOnlineError(res.error); }
+    } catch (e) {
+      if (online) showOnlineError('server_error');
+    }
+    if (online) online.cpuFilling = false;
+    document.querySelectorAll('.online-cpu-btn').forEach((b) => { b.disabled = false; });
+  }));
 
   document.getElementById('onlineCreateBtn').addEventListener('click', () => { SoundMgr.seClick(); createOnlineRoom(); });
   document.getElementById('onlineJoinBtn').addEventListener('click', () => {
