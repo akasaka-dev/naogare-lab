@@ -35,3 +35,10 @@ database_id = "1d686960-c6e4-4698-8560-f47040b523cb"
 binding = "LINE4_SECOND_DB"
 database_name = "line4-second-rooms-db"
 database_id = "fd1a7fa2-0276-48b4-8df2-898c666b36fd"
+
+# line4-third (黄昏のフォー・イン・ア・ロウ 3D) online multiplayer room storage.
+# Its own dedicated D1 database, isolated from line4's and line4-second's.
+[[d1_databases]]
+binding = "LINE4_THIRD_DB"
+database_name = "line4-third-rooms-db"
+database_id = "04fe15f4-d5bd-49a9-bbf2-74f0c6dd3d63"
