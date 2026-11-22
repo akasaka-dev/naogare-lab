@@ -1705,15 +1705,11 @@
     </div>
   </div>
 
-  <!-- All-clear ending: slow scroll through ending3.webp with a narration
-       crawl overlaid on top; the ending theme (bgm/ending.mp3) starts with it.
-       ending3.webp is a tall (3:4) portrait so cover scaling
-       still covers portrait phone screens without gaps — see ending.webp
-       (kept alongside it, unused) for the original, shorter (~1.5:1) art.
+  <!-- All-clear ending: the narration crawl runs over black; the dawn art (ending4.webp) fades in at the
+       outer-staircase line and pans sideways. The ending theme (bgm/ending.mp3) starts with it.
        Click anywhere to return to title. -->
   <div id="endingScreen" class="hidden">
     <div id="endingScroll">
-      <img src="ending3.webp" alt="エンディング" draggable="false">
       <img class="ending-sky" id="endingSky" src="ending4.webp" alt="" draggable="false">
       <div id="endingTextWrap"><div id="endingTextCrawl"></div></div>
     </div>
@@ -4274,10 +4270,6 @@
     unlockOmake(); // clearing the game (or the debug menu's ending) unlocks おまけ
     SoundMgr.stop(); // the previous track (e.g. LV5's battle theme) must not carry on under the ending
     const el = document.getElementById('endingScreen');
-    const img = el.querySelector('img');
-    img.classList.remove('pan');
-    void img.offsetWidth; // restart the pan animation each time this is shown
-    img.classList.add('pan');
     el.classList.remove('hidden');
     requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('show')));
 
