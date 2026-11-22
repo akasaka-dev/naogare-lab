@@ -1380,17 +1380,18 @@
   #titleScreen, #onlineScreen {
     color: #fff;
     background: rgba(0, 0, 0, 0.82);
-    border: 1px solid rgba(255, 255, 255, 0.22);
-    border-radius: 8px;
-    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6);
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
   }
   #titleScreen h1, #onlineScreen h1 { color: #fff; text-shadow: none; font-weight: 700; letter-spacing: 0.08em; }
   #titleScreen p.subtitle, #onlineScreen p.subtitle { color: rgba(255, 255, 255, 0.72); }
   #titleScreen .player-name-row { color: rgba(255, 255, 255, 0.72); }
   #titleScreen #playerNameInput, #onlineScreen .name-input, #onlineScreen #onlineJoinCode {
     background: #000;
-    border: 1px solid rgba(255, 255, 255, 0.4);
-    border-radius: 4px;
+    border: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.5);
+    border-radius: 0;
     color: #fff;
   }
   #titleScreen #playerNameInput:focus, #onlineScreen .name-input:focus, #onlineScreen #onlineJoinCode:focus {
@@ -1412,8 +1413,8 @@
     letter-spacing: 0.06em;
     color: #fff;
     background: #000;
-    border: 1px solid rgba(255, 255, 255, 0.5);
-    border-radius: 4px;
+    border: none;
+    border-radius: 0;
     box-shadow: none;
     transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
   }
@@ -1429,7 +1430,6 @@
   #titleScreen .mode-btn:hover, #onlineScreen .mode-btn:hover {
     background: #fff;
     color: #000;
-    border-color: #fff;
     transform: none;
     box-shadow: none;
   }
@@ -1440,22 +1440,21 @@
   #onlineScreen #onlineJoinBtn, #onlineScreen #onlineCopyBtn, #onlineScreen #onlineJoinConfirmBtn, #onlineScreen .online-cpu-btn {
     color: #fff;
     background: #000;
-    border: 1px solid rgba(255, 255, 255, 0.5);
-    border-radius: 4px;
+    border: none;
+    border-radius: 0;
     box-shadow: none;
   }
   #onlineScreen #onlineJoinBtn:hover, #onlineScreen #onlineCopyBtn:hover, #onlineScreen #onlineJoinConfirmBtn:hover, #onlineScreen .online-cpu-btn:hover {
     filter: none;
     background: #fff;
     color: #000;
-    border-color: #fff;
     box-shadow: none;
   }
   #onlineScreen .online-room-code {
     color: #fff;
     background: #000;
-    border: 1px solid rgba(255, 255, 255, 0.6);
-    border-radius: 6px;
+    border: none;
+    border-radius: 0;
     text-shadow: none;
   }
   #onlineScreen .online-error { color: #ff8a8a; }
@@ -1495,7 +1494,6 @@
 
   <!-- Title / mode select screen -->
   <div id="titleScreen">
-    <p class="subtitle" id="titleSubtitle">遊び方を選んでください</p>
     <div class="player-name-row">
       <label for="playerNameInput" id="playerNameLabel"></label>
       <input type="text" id="playerNameInput" maxlength="10" autocomplete="off">
@@ -1952,7 +1950,6 @@
   // time they run — but if a match is already in progress we also nudge the
   // couple of screens that only render once at match start.
   function applyKanaMode() {
-    document.getElementById('titleSubtitle').textContent = K('遊び方を選んでください', 'あそびかたをえらんでください');
     document.getElementById('playerNameLabel').textContent = K('プレイヤー名', 'プレイヤーめい');
     document.getElementById('tutBtnLabel').textContent = K('あそびかた', 'あそびかた');
     document.getElementById('tutBtnSub').textContent = K('フェネックが教えてくれます', 'フェネックがおしえてくれます');
