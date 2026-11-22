@@ -1295,8 +1295,8 @@
   }
   #storyText.show { opacity: 1; }
   #storyText.compact { font-size: 0.9rem; line-height: 2; }   /* a whole scene on one screen */
-  /* Scrolling story (prologue / memories): the sentences float up one at a time and the column scrolls so the newest
-     one sits low-centre, the older ones dimmed above it. See runScrollStory(). */
+  /* Scrolling story (prologue / memories): sentences settle softly into place from above, one after another, filling
+     the screen from the top; once it is full the column scrolls up to keep the newest in view. See runScrollStory(). */
   #storyOverlay:not(.scrolling) #storyScroll { display: none; }
   #storyOverlay.scrolling #storyText { display: none; }
   #storyScroll {
@@ -1310,7 +1310,7 @@
     position: relative;
     max-width: 480px;
     margin: 0 auto;
-    padding: 0 24px;
+    padding: 72px 24px 0;
     box-sizing: border-box;
     transition: transform 1.5s ease, opacity 1.2s ease;
   }
@@ -1322,11 +1322,11 @@
     line-height: 2.1;
     white-space: pre-line;
     opacity: 0;
-    transform: translateY(12px);
+    transform: translateY(-16px);
     transition: opacity 1.4s ease, transform 1.4s ease;
   }
   #storyScroll p.in { opacity: 1; transform: none; }
-  #storyScroll p.in.old { opacity: 0.4; }
+  #storyScroll p.in.old { opacity: 0.6; }
   #storyScroll p.heading { text-align: center; letter-spacing: 0.18em; color: #fde68a; margin: 1.2em 0 2em; }
   #storySkipBtn {
     position: absolute;
@@ -2976,8 +2976,8 @@
     };
   }
 
-  // Scrolling version: sentences fade in one after another on their own (a tap / key brings the next one at
-  // once) while the column scrolls up. After the last one: a pause, then everything fades out and onDone runs.
+  // Scrolling version: sentences fade in one after another on their own at a steady beat (a tap / key brings the
+  // next one at once); the column scrolls up once the screen is full. After the last one: a pause, then everything fades out and onDone runs.
   // opts.headingIndex: that sentence is a centred title (the memory stories' "xxの記憶").
   function runScrollStory(lines, onDone, opts = {}) {
     const overlay = document.getElementById('storyOverlay');
@@ -2994,21 +2994,21 @@
     overlay.classList.add('scrolling');
     overlay.classList.remove('hidden');
     col.style.transition = 'none';
-    col.style.transform = `translateY(${overlay.clientHeight}px)`;
+    col.style.transform = 'translateY(0px)';
     void col.offsetHeight;
     col.style.transition = '';
 
     let shown = 0, timer = null, finished = false, ending = false;
-    const textLen = (p) => p.textContent.length;
     const showNext = () => {
       if (finished || ending || shown >= paras.length) return;
       const p = paras[shown++];
       paras.forEach((q, i) => q.classList.toggle('old', i < shown - 1));
       p.classList.add('in');
-      col.style.transform = `translateY(${overlay.clientHeight * 0.68 - (p.offsetTop + p.offsetHeight)}px)`;
+      // fills from the top; only once the newest would drop below ~80% of the screen does the column scroll up
+      col.style.transform = `translateY(${Math.min(0, overlay.clientHeight * 0.8 - (p.offsetTop + p.offsetHeight))}px)`;
       clearTimeout(timer);
-      if (shown < paras.length) timer = setTimeout(showNext, Math.min(4200, 800 + 80 * textLen(p)));
-      else timer = setTimeout(beginEnd, 2200 + 80 * textLen(p));
+      if (shown < paras.length) timer = setTimeout(showNext, 1500);   // a steady beat, not tied to how long the sentence takes to read
+      else timer = setTimeout(beginEnd, 3000);
     };
     const finish = (skipped) => {
       if (finished) return;
