@@ -1183,6 +1183,36 @@
     -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 26%);
     mask-image: linear-gradient(to bottom, transparent 0%, #000 26%);
   }
+  /* quiet 3-step slider tucked into the board's lower-right corner */
+  #spreadCtl {
+    position: absolute;
+    right: 10px;
+    bottom: 8px;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 10px 2px 8px;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.4);
+    opacity: 0.6;
+    transition: opacity 0.2s ease;
+  }
+  #spreadCtl:hover, #spreadCtl:active, #spreadCtl:focus-within { opacity: 1; }
+  #spreadCtl .sc-icon { font-size: 0.8rem; line-height: 1; color: #bcd0ff; }
+  #spreadRange {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 62px;
+    height: 22px;
+    margin: 0;
+    background: transparent;
+    cursor: pointer;
+  }
+  #spreadRange::-webkit-slider-runnable-track { height: 3px; border-radius: 2px; background: rgba(188, 208, 255, 0.45); }
+  #spreadRange::-moz-range-track { height: 3px; border-radius: 2px; background: rgba(188, 208, 255, 0.45); }
+  #spreadRange::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; margin-top: -5.5px; border-radius: 50%; background: #cfe0ff; border: none; box-shadow: 0 0 6px rgba(143, 180, 255, 0.8); }
+  #spreadRange::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: #cfe0ff; border: none; box-shadow: 0 0 6px rgba(143, 180, 255, 0.8); }
   /* The 3D view stays draggable while locked (CPU thinking / coin toss) so the
      player can keep looking around; taps are ignored in JS instead. */
   #board-wrap.locked { opacity: 0.92; }
@@ -1426,6 +1456,8 @@
     <div id="turnTimeoutWarning" class="hidden"></div>
     <div id="board-wrap">
       <div id="board"></div>
+      <!-- how far the cubes fly apart in the spread view (long press): 3 steps, remembered -->
+      <div id="spreadCtl"><span class="sc-icon" aria-hidden="true">▦</span><input id="spreadRange" type="range" min="0" max="2" step="1" value="1" aria-label="キューブが離れる距離"></div>
     </div>
     <!-- Bottom dock (CPU matches): the character's dialogue box + the trump-card deck -->
     <div id="dock">
@@ -4978,7 +5010,10 @@
     let glowTex = null, flameTex = null;
     let dimmed = false;
     // "spread" view: a long press blows the block apart so the inner cells can be reached; a tap on nothing folds it back
-    const EXPLODE = 1.9, LONG_PRESS_MS = 420;
+    const SPREAD_LEVELS = [1.45, 1.9, 3.0];   // how far apart the cells go: near / default / far (the slider under the board picks one)
+    let EXPLODE = SPREAD_LEVELS[1];
+    const LONG_PRESS_MS = 420;
+    let previewTimer = null;
     let spreadT = 0, spreadK = 0, spreadFrom = 0, spreadT0 = 0, spreadDur = 500, spreadAnim = false;
     let F = 1, zoomF = 1;   // current pitch multiplier / camera pull-back factor (both follow spreadK)
     let spreadCb = null, orbitCb = null;
@@ -5786,7 +5821,7 @@
     // ---- the spread view ----
     function applySpread() {
       F = 1 + (EXPLODE - 1) * spreadK;
-      const nz = 1 + 0.7 * spreadK;   // pull the camera back so the spread block still fits the view
+      const nz = 1 + 0.7 * ((EXPLODE - 1) / 0.9) * spreadK;   // pull the camera back so the spread block still fits the view
       cam.dist *= nz / zoomF; zoomF = nz;
       applyCamera();
       for (let i = 0; i < 64; i++) {
@@ -5810,14 +5845,29 @@
       if (u >= 1) { spreadK = spreadT; spreadAnim = false; }
       applySpread();
     }
-    function setSpread(on, instant) {
+    function setSpread(on, instant, silent) {
+      if (!silent) { clearTimeout(previewTimer); previewTimer = null; }
       const t = on ? 1 : 0;
       if (spreadT === t && !(instant && spreadK !== t)) return;
       spreadFrom = spreadK; spreadT = t; spreadT0 = performance.now(); spreadDur = on ? 560 : 340;
       if (instant) { spreadK = t; spreadAnim = false; applySpread(); }
       else spreadAnim = true;
       refreshView();
-      if (!instant && spreadCb) spreadCb(on);
+      if (!instant && !silent && spreadCb) spreadCb(on);
+    }
+    // the slider: choose how far the cells fly apart; already spread = the block follows at once
+    function setSpreadLevel(n) {
+      EXPLODE = SPREAD_LEVELS[Math.max(0, Math.min(SPREAD_LEVELS.length - 1, n))];
+      if (spreadK > 0) applySpread();
+    }
+    // show the chosen distance: spread out for a moment, then fold back (not when the player already has it open)
+    function previewSpread() {
+      if (!ready) return;
+      clearTimeout(previewTimer);
+      previewTimer = null;
+      const wasOpen = spreadT > 0;
+      setSpread(true, false, true);
+      if (!wasOpen) previewTimer = setTimeout(() => { previewTimer = null; setSpread(false, false, true); }, 1500);
     }
 
     function hideGhost() {
@@ -5836,6 +5886,8 @@
       onTap(fn) { tapCb = fn; },
       onHover(fn) { hoverCb = fn; },
       onSpread(fn) { spreadCb = fn; },
+      setSpreadLevel,
+      previewSpread,
       onOrbit(fn) { orbitCb = fn; },
       start() {
         if (!ready || running) return;
@@ -6104,6 +6156,22 @@
       && !(mode === 'tutorial' && (currentPlayer === 2 || tut.wait !== 'place'))   // the fox's turn / a line is being read: no balls
       && !boardWrap.classList.contains('locked');
   }
+  // the spread-distance slider (3 steps, remembered)
+  (function setupSpreadSlider() {
+    const KEY = 'lineup4_3rd_spread';
+    const range = document.getElementById('spreadRange');
+    let v = parseInt(safeStorageGet(KEY), 10);
+    if (!(v >= 0 && v <= 2)) v = 1;
+    range.value = String(v);
+    Board3D.setSpreadLevel(v);
+    range.addEventListener('input', () => {
+      const n = +range.value;
+      safeStorageSet(KEY, String(n));
+      Board3D.setSpreadLevel(n);
+      Board3D.previewSpread();
+    });
+  })();
+
   Board3D.onTap((cell, pointerType) => {
     if (!humanCanMove()) return;
     if (targeting) { handleTargetTap(cell, pointerType); return; }
