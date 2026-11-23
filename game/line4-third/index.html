@@ -1850,20 +1850,24 @@
 
     function tone(freq, duration, type, gainPeak, delay) {
       if (!seOn) return;
-      const audioCtx = ensureContext();
-      if (!audioCtx) return;
-      const t0 = audioCtx.currentTime + (delay || 0);
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.type = type || 'sine';
-      osc.frequency.setValueAtTime(freq, t0);
-      gain.gain.setValueAtTime(0, t0);
-      gain.gain.linearRampToValueAtTime(gainPeak || 0.15, t0 + 0.015);
-      gain.gain.exponentialRampToValueAtTime(0.001, t0 + duration);
-      osc.connect(gain);
-      gain.connect(audioCtx.destination);
-      osc.start(t0);
-      osc.stop(t0 + duration + 0.02);
+      // a sound effect must never be able to break the game logic that called it (iOS Safari can throw
+      // from the Web Audio API when the audio session was interrupted)
+      try {
+        const audioCtx = ensureContext();
+        if (!audioCtx) return;
+        const t0 = audioCtx.currentTime + (delay || 0);
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = type || 'sine';
+        osc.frequency.setValueAtTime(freq, t0);
+        gain.gain.setValueAtTime(0, t0);
+        gain.gain.linearRampToValueAtTime(gainPeak || 0.15, t0 + 0.015);
+        gain.gain.exponentialRampToValueAtTime(0.001, t0 + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(t0);
+        osc.stop(t0 + duration + 0.02);
+      } catch (e) { /* ignore */ }
     }
 
     return {
@@ -3297,17 +3301,27 @@
   const onlineRoomCodeEl = document.getElementById('onlineRoomCode');
   const onlineJoinCodeEl = document.getElementById('onlineJoinCode');
 
-  async function apiPost(path, body) {
-    const res = await fetch(ONLINE_API + path, {
+  // every request gets a deadline: a request that hangs (a phone changing networks, a throttled tab) would
+  // otherwise keep online.busy set for ever and silence the polling, and the turn clock runs out unseen
+  async function fetchJson(url, init) {
+    const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+    const timer = ctl ? setTimeout(() => ctl.abort(), 10000) : 0;
+    try {
+      const res = await fetch(url, ctl ? Object.assign({}, init, { signal: ctl.signal }) : init);
+      return await res.json();
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+  function apiPost(path, body) {
+    return fetchJson(ONLINE_API + path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body || {}),
     });
-    return res.json();
   }
-  async function apiGet(path, token) {
-    const res = await fetch(ONLINE_API + path, token ? { headers: { 'X-Room-Token': token } } : undefined);
-    return res.json();
+  function apiGet(path, token) {
+    return fetchJson(ONLINE_API + path, token ? { headers: { 'X-Room-Token': token }, cache: 'no-store' } : { cache: 'no-store' });
   }
 
   function onlineErrorMessages() {
@@ -3426,7 +3440,7 @@
       if (!online || online.cpuFilling) return;
       try {
         const res = await apiGet(`/room/${online.code}/state`, online.token);
-        if (!online || online.cpuFilling) return;
+        if (!online || online.cpuFilling || !online.timer) return;
         const opponentSlotFilled = online.myPlayer === 1 ? res.state.hasP2 : res.state.hasP1;
         if (res.ok && opponentSlotFilled) {
           stopOnlinePolling();
@@ -3566,22 +3580,40 @@
 
   function startOnlinePolling() {
     stopOnlinePolling();
-    online.timer = setInterval(async () => {
-      if (!online || online.busy) return;
-      try {
-        const res = await apiGet(`/room/${online.code}/state`, online.token);
-        if (!res.ok) return;
-        // Emote check rides on this same poll — no separate request needed.
-        if (res.state.emoteRev !== online.emoteRev) {
-          online.emoteRev = res.state.emoteRev;
-          if (res.state.emoteBy && res.state.emoteBy !== online.myPlayer) {
-            showIncomingEmote(res.state.emote);
-          }
-        }
-        if (res.state.rev !== online.rev) applyOnlineState(res.state);
-      } catch (e) { /* transient — try again next tick */ }
-    }, ONLINE_POLL_MS);
+    online.timer = setInterval(pollOnlineMatch, ONLINE_POLL_MS);
+    pollOnlineMatch();
   }
+  let onlinePollBusy = false;
+  async function pollOnlineMatch() {
+    if (!online || online.busy || onlinePollBusy) return;
+    onlinePollBusy = true;
+    const o = online;
+    try {
+      const res = await apiGet(`/room/${o.code}/state`, o.token);
+      if (online !== o || !res.ok) return;
+      // Emote check rides on this same poll — no separate request needed.
+      if (res.state.emoteRev !== online.emoteRev) {
+        online.emoteRev = res.state.emoteRev;
+        if (res.state.emoteBy && res.state.emoteBy !== online.myPlayer) {
+          showIncomingEmote(res.state.emote);
+        }
+      }
+      if (online.busy) return;   // our own move is in flight: its reply carries the newer state
+      if (res.state.rev > online.rev) applyOnlineState(res.state);
+      else if (res.state.rev === online.rev && !onlineShow && online.postGameDeadline == null
+          && (currentPlayer !== res.state.currentPlayer || gameOver !== res.state.gameOver
+              || (!res.state.gameOver && (turnOrbs.front !== res.state.currentPlayer
+                  || boardWrap.classList.contains('locked') !== (res.state.currentPlayer !== online.myPlayer))))) {
+        // the server and this screen disagree about whose turn it is although they hold the same revision
+        // (an earlier draw failed half way): redraw from the server's state instead of waiting for ever
+        finishOnlineState(res.state);
+      }
+    } catch (e) { /* transient — try again next tick */ }
+    finally { onlinePollBusy = false; }
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && online && online.timer && mode === 'online') pollOnlineMatch();
+  });
 
   const ONLINE_EMOTE_COOLDOWN_MS = 1500;
   let onlineEmoteCooldownUntil = 0;
@@ -3810,21 +3842,32 @@
     refreshMarks(prevSealed);
     const who = by === online.myPlayer ? '' : `${escapeHtml(online.opponentName || '')}${K('が', 'が')}`;
     updateStatus(`🃏 ${who}${cardName(ev.effLv)}${K('を使った！', 'をつかった！')}`);
-    presentCard(by, ev.lv, ev.effLv, { cells: ev.cells, cell: ev.cells[0] }, prevSealed, () => {
+    let ended = false;
+    const end = () => {
+      if (ended) return;
+      ended = true;
+      clearTimeout(watchdog);
       onlineShow = false;
-      done();
+      try { done(); } catch (e) { console.error(e); }
       const q = onlineQueued;
       onlineQueued = null;
       if (q) applyOnlineState(q);
-    });
+    };
+    const watchdog = setTimeout(end, 9000);   // the show has its own safeties; this is the last one
+    try {
+      presentCard(by, ev.lv, ev.effLv, { cells: ev.cells, cell: ev.cells[0] }, prevSealed, end);
+    } catch (e) { console.error(e); end(); }
   }
 
   // Renders whatever the server says the room looks like now — used both for
   // the response to our own move and for a poll that picked up the opponent's.
   function applyOnlineState(state) {
     if (!online) return;
-    if (onlineShow) { onlineQueued = state; return; }   // a card show is playing: take the newest state when it ends
-    if (state.rev === online.rev) return;
+    if (onlineShow) {   // a card show is playing: take the newest state when it ends
+      if (!onlineQueued || state.rev >= onlineQueued.rev) onlineQueued = state;
+      return;
+    }
+    if (state.rev <= online.rev) return;   // the same state again, or a late reply from before a newer one
     // We're sitting on the post-game result screen and the room just went
     // back to "not game over" under us — that's not a new match starting,
     // it's the room having been vacated (the opponent left, or it expired
@@ -3837,12 +3880,25 @@
     }
     online.rev = state.rev;
     online.turnStartedAt = state.turnStartedAt;
-    if (state.lastCard && (state.cardSeq || 0) > (online.cardSeq || 0)) {   // a card was played: show it first
-      online.cardSeq = state.cardSeq;
-      playOnlineCard(state.lastCard, state, () => finishOnlineState(state));
-      return;
+    try {
+      if (state.lastCard && (state.cardSeq || 0) > (online.cardSeq || 0)) {   // a card was played: show it first
+        online.cardSeq = state.cardSeq;
+        playOnlineCard(state.lastCard, state, () => finishOnlineState(state));
+        return;
+      }
+      finishOnlineState(state);
+    } catch (e) {
+      // whatever failed (a drawing glitch), the turn and the lock must still follow the server
+      console.error(e);
+      onlineShow = false;
+      grid = state.grid.slice();
+      currentPlayer = state.currentPlayer;
+      gameOver = state.gameOver;
+      if (!gameOver) {
+        boardWrap.classList.toggle('locked', currentPlayer !== online.myPlayer);
+        try { updateStatus(); } catch (e2) { /* ignore */ }
+      }
     }
-    finishOnlineState(state);
   }
 
   function finishOnlineState(state) {
