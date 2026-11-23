@@ -837,6 +837,18 @@
      so the emote strip stays reachable above the result overlay's backdrop
      instead of being hidden underneath it — pinned to the bottom of the
      viewport with a higher z-index than #resultOverlay (6). */
+  /* in the dock, between the two decks */
+  #dock #onlineEmoteBar {
+    flex: 1 1 0;
+    min-width: 0;
+    width: 0;          /* zero intrinsic width: the 25 icons must not stretch the dock (and #gameScreen) past the screen */
+    max-width: none;
+    overflow: hidden;
+    margin: 0;
+    align-self: center;
+  }
+  #dock #emoteScroller { padding: 4px 2px 6px; gap: 6px; }
+  #dock .emote-icon-btn { width: 46px; height: 46px; padding: 3px; border-radius: 10px; }
   #onlineEmoteBar.postgame {
     position: fixed;
     left: 50%;
@@ -3235,8 +3247,15 @@
   function pinEmoteBarForPostGame() {
     document.body.appendChild(document.getElementById('onlineEmoteBar'));
   }
+  // With trump cards the strip sits in the dock between the two decks (that frees the row under the board, so the
+  // status text at the top is no longer pushed off the screen); without cards it stays under the board.
   function restoreEmoteBarPosition() {
-    document.getElementById('board-wrap').insertAdjacentElement('afterend', document.getElementById('onlineEmoteBar'));
+    const bar = document.getElementById('onlineEmoteBar');
+    if (typeof online !== 'undefined' && online && online.hasCards) {
+      document.getElementById('dock').insertBefore(bar, document.getElementById('cardDeck2'));
+    } else {
+      document.getElementById('board-wrap').insertAdjacentElement('afterend', bar);
+    }
   }
 
   // Called from the finished/leave room after either a decisive win/loss/draw:
@@ -3739,6 +3758,7 @@
     cpuThinking = false;
     pendingCell = -1;
     online.hasCards = !!(state.hasCards && state.cards);
+    restoreEmoteBarPosition();
     online.myCard = state.cards ? state.cards.mine : null;
     online.oppCard = state.cards ? state.cards.opp : null;
     online.cardSeq = state.cardSeq || 0;
