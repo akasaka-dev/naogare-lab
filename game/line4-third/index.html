@@ -1362,11 +1362,11 @@
     font-size: 1.05rem;
     line-height: 2.1;
     white-space: pre-line;
-    /* tidy Japanese wrapping: kinsoku, break between phrases (where supported), and balanced lines so a paragraph
-       never ends on a 1-2 character line ('pretty' still left those) */
+    /* tidy Japanese wrapping: kinsoku, break between phrases (where supported), and 'pretty' wrapping to avoid
+       very short last lines ('balance' made the lines too short) */
     line-break: strict;
     word-break: auto-phrase;
-    text-wrap: balance;
+    text-wrap: pretty;
     opacity: 0;
     transform: translateY(-16px);
     transition: opacity 1.4s ease, transform 1.4s ease;
