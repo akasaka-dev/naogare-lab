@@ -3755,14 +3755,31 @@
     pendingCell = -1;
     Board3D.clearGhost();
     boardWrap.classList.add('locked');
+    // Show the ball at once (the ghost it replaces would otherwise vanish and leave an empty cell until the
+    // server answers); the server's reply then finds it already drawn. A refused / failed move takes it back.
+    const placed = grid[cell] === 0;
+    if (placed) {
+      grid[cell] = online.myPlayer;
+      Board3D.placeBall(cell, online.myPlayer);
+      SoundMgr.seDrop();
+    }
+    const takeBack = () => {
+      if (placed && online && grid[cell] === online.myPlayer) {
+        grid[cell] = 0;
+        Board3D.sync(grid);
+        refreshMarks();
+      }
+    };
     try {
       const res = await apiPost(`/room/${online.code}/move`, { token: online.token, cell });
       if (res.ok) {
         applyOnlineState(res.state);
       } else {
+        takeBack();
         boardWrap.classList.toggle('locked', currentPlayer !== online.myPlayer);
       }
     } catch (e) {
+      takeBack();
       boardWrap.classList.toggle('locked', currentPlayer !== online.myPlayer);
     }
     online.busy = false;
