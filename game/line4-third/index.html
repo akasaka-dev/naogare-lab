@@ -1767,11 +1767,13 @@
     const TITLE_URL = 'bgm/title.mp3';
     const GAME_URL = 'bgm/bgm.mp3';
     const ENDING_URL = 'bgm/ending.mp3';
+    const TUTORIAL_URL = 'bgm/tutorial.mp3';
     function levelUrl(level) { return 'bgm/LV' + level + '.mp3'; }
     function urlForKey(key) {
       if (key === 'title') return TITLE_URL;
       if (key === 'game') return GAME_URL;
       if (key === 'ending') return ENDING_URL;
+      if (key === 'tutorial') return TUTORIAL_URL;
       if (key.indexOf('level:') === 0) return levelUrl(key.slice(6));
       return null;
     }
@@ -4096,6 +4098,7 @@
   const OMAKE_BGMS = [
     ['ending', () => K('エンディング', 'エンディング')],
     ['title', () => K('タイトル', 'タイトル')],
+    ['tutorial', () => K('あそびかた', 'あそびかた')],
     ['game', () => K('通常戦闘', 'つうじょうせんとう')],
     ['level:4', () => 'LV4'],
     ['level:5', () => 'LV5'],
@@ -6395,7 +6398,7 @@
     titleScreen.classList.add('hidden');
     gameScreen.classList.remove('hidden');
     titleBtn.classList.remove('hidden');
-    SoundMgr.playTrack('game');
+    SoundMgr.playTrack('tutorial', 'game');
     modeLabelEl.classList.remove('show');
     modeLabelEl.textContent = '';
     setCharBackground({ img: FOX_STAND, h: '66vh' });
