@@ -3436,11 +3436,15 @@
   // whichever slot the loser just vacated) — so it checks "is the OTHER
   // slot filled" symmetrically rather than assuming p2.
   function pollForOpponent() {
-    online.timer = setInterval(async () => {
-      if (!online || online.cpuFilling) return;
+    stopOnlinePolling();   // never leave an older timer running: it could not be stopped any more
+    const o = online;
+    const timer = setInterval(async () => {
+      // a timer that is no longer the current one (a second rematch tap, a new room...) stops itself
+      if (!online || online !== o || online.timer !== timer) { clearInterval(timer); return; }
+      if (online.cpuFilling || onlineScreenEl.classList.contains('hidden')) return;
       try {
         const res = await apiGet(`/room/${online.code}/state`, online.token);
-        if (!online || online.cpuFilling || !online.timer) return;
+        if (!online || online !== o || online.cpuFilling || online.timer !== timer || onlineScreenEl.classList.contains('hidden')) return;
         const opponentSlotFilled = online.myPlayer === 1 ? res.state.hasP2 : res.state.hasP1;
         if (res.ok && opponentSlotFilled) {
           stopOnlinePolling();
@@ -3448,6 +3452,7 @@
         }
       } catch (e) { /* transient — try again next tick */ }
     }, ONLINE_POLL_MS);
+    online.timer = timer;
   }
 
   // Entering a code no longer joins immediately — it peeks at the room first
@@ -3523,6 +3528,8 @@
   // loser's slot server-side and reuses the same waiting-room UI/polling as
   // a freshly created room while a new challenger joins via the same code.
   async function requestRematch() {
+    if (online.rematchBusy) return;   // a double tap must not start two waiting-room polls
+    online.rematchBusy = true;
     online.postGameDeadline = null;
     restoreEmoteBarPosition();
     document.getElementById('onlineEmoteBar').classList.remove('postgame');
@@ -3530,6 +3537,7 @@
     document.getElementById('resultNote').textContent = '';
     try {
       const res = await apiPost(`/room/${online.code}/rematch`, { token: online.token });
+      online.rematchBusy = false;
       if (!res.ok) { goToTitle(); return; }
       online.rev = res.state.rev;
       online.awaitingRematch = true;
@@ -3544,6 +3552,7 @@
         `${myStreak}${K('連勝中！次の挑戦者を待っています…', 'れんしょうちゅう！つぎのちょうせんしゃをまっています…')}`;
       pollForOpponent();
     } catch (e) {
+      if (online) online.rematchBusy = false;
       goToTitle();
     }
   }
@@ -3580,7 +3589,12 @@
 
   function startOnlinePolling() {
     stopOnlinePolling();
-    online.timer = setInterval(pollOnlineMatch, ONLINE_POLL_MS);
+    const o = online;
+    const timer = setInterval(() => {
+      if (!online || online !== o || online.timer !== timer) { clearInterval(timer); return; }
+      pollOnlineMatch();
+    }, ONLINE_POLL_MS);
+    online.timer = timer;
     pollOnlineMatch();
   }
   let onlinePollBusy = false;
