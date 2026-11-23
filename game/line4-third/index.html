@@ -4116,18 +4116,20 @@
     if (current) sel.value = current;
   }
 
-  // Title art, every character, the ending art actually used by the crawl
-  // (ending3.webp; ending.webp is the older, unused version), then the
-  // omake-only illustrations (omake/ folder), with the clear illustration last.
+  // Title art, every character, the endings (the one in use, then the rejected earlier one), the menu
+  // mural, then the omake-only illustrations (omake/ folder).
   function omakeSlides() {
     return [
       { src: 'title.webp', cap: () => K('黄昏のフォー・イン・ア・ロウ', 'たそがれのフォー・イン・ア・ロウ') },
       ...CHARACTERS.map(c => ({ src: c.img, cap: () => c.name })),
-      { src: 'ending3.webp', cap: () => K('エンディング', 'エンディング') },
-      { src: 'omake/chibi_gathering.webp', cap: () => K('ゴシック城と月夜のちびキャラ大集合', 'ゴシックじょうとつきよのちびキャラだいしゅうごう') },
+      { src: 'ending4.webp', cap: () => K('エンディング', 'エンディング') },
+      { src: 'ending3.webp', cap: () => K('エンディング没', 'エンディングぼつ') },
+      { src: 'menu-bg.webp', cap: () => K('古代壁画', 'こだいへきが') },
       { src: 'omake/balcony.webp', cap: () => K('黒薔薇アイドル', 'くろばらアイドル') },
       { src: 'omake/album.webp', cap: () => K('黄昏を見つめる仲間たち', 'たそがれをみつめるなかまたち') },
-      { src: 'omake/epilogue.webp', cap: () => K('黄昏の屋上、絆のエピローグ', 'たそがれのおくじょう、きずなのエピローグ') },
+      { src: 'omake/dusk_stairs.webp', cap: () => K('夕映えの外階段', 'ゆうばえのそとかいだん') },
+      { src: 'omake/thorn_girl.webp', cap: () => K('茨の冠の少女', 'いばらのかんむりのしょうじょ') },
+      { src: 'omake/fennec.webp', cap: () => K('紫のマントのフェネック', 'むらさきのマントのフェネック') },
     ];
   }
 
