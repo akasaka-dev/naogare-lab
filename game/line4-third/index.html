@@ -509,6 +509,11 @@
   .result-actions button {
     width: 100%;
   }
+  /* debug menu: a level's entrance button plus its (narrower) memory button on one row */
+  .debug-row { display: flex; gap: 8px; }
+  .debug-row button { width: auto; flex: 1 1 auto; white-space: nowrap; font-size: 0.9rem; padding-left: 8px; padding-right: 8px; }
+  .debug-row .debug-mem { flex: 0 0 64px; }
+  .debug-row button:disabled { opacity: 0.4; }
   .result-actions .secondary {
     background: transparent;
     border: 2px solid #475569;
@@ -1692,7 +1697,7 @@
   <!-- Opponent's emote pops up here briefly when it arrives via polling -->
   <div id="incomingEmote"><img id="incomingEmoteIcon" src="" alt=""></div>
 
-  <!-- Hidden debug menu: double-click the "ロ" in the title to jump straight to any ladder level -->
+  <!-- Hidden debug menu: double-click "Created by" under the menu to jump to any ladder level's entrance or memory -->
   <div id="debugLevelOverlay" class="hidden">
     <div class="result-card">
       <div class="result-title">🛠 デバッグ: 開始レベル選択</div>
@@ -3914,8 +3919,11 @@
     const actions = document.getElementById('debugLevelActions');
     actions.innerHTML = '';
     CHARACTERS.forEach((ch, idx) => {
+      // one row per level: [entrance -> match] and [memory only]
+      const row = document.createElement('div');
+      row.className = 'debug-row';
       const b = document.createElement('button');
-      b.textContent = `LV.${ch.level} ${ch.name}`;
+      b.textContent = `LV.${ch.level} ${ch.name} 登場`;
       if (idx > 0) b.classList.add('secondary');
       b.addEventListener('click', () => {
         SoundMgr.seClick();
@@ -3932,7 +3940,18 @@
           showEntranceThenFoe(ch);
         }
       });
-      actions.appendChild(b);
+      row.appendChild(b);
+      const memBtn = document.createElement('button');
+      memBtn.textContent = '記憶';
+      memBtn.classList.add('secondary', 'debug-mem');
+      if (!MEMORY_STORIES[ch.level]) memBtn.disabled = true;   // no memory written for this level (yet)
+      memBtn.addEventListener('click', () => {
+        SoundMgr.seClick();
+        overlay.classList.add('hidden');
+        showMemoryStory(ch.level, () => {});   // just the memory text; the title screen is still behind it
+      });
+      row.appendChild(memBtn);
+      actions.appendChild(row);
     });
     const endingBtn = document.createElement('button');
     endingBtn.textContent = 'エンディング';
