@@ -4917,8 +4917,10 @@
     if (mode === 'tutorial' && player === 1) tutOnPlace(idx);
 
     if (mode === 'cpu' && player === 2 && currentChar) {
-      if (findImmediateWin(grid, 1) !== null) speak(currentChar, 'aboutToLose');
-      else if (findImmediateWin(grid, 2) !== null) speak(currentChar, 'aboutToWin');
+      // sealed walls are not playable cells: judge the threats on the board with the walls in it
+      const wg = wallGrid(grid, cs);
+      if (findImmediateWin(wg, 1) !== null) speak(currentChar, 'aboutToLose');
+      else if (findImmediateWin(wg, 2) !== null) speak(currentChar, 'aboutToWin');
       else speak(currentChar, 'normal');
     }
 
