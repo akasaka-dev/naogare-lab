@@ -3103,12 +3103,14 @@
   function showIntroStory(level, onDone, opts) {
     const lines = (kanaMode ? INTRO_STORIES_KANA : INTRO_STORIES)[level];
     if (!lines) { onDone(); return; }
+    SoundMgr.stop();   // the entrance text is read in silence; the foe's theme starts with the match
     runStory(lines.map((l) => l.replace(/\{name\}/g, getPlayerName())), onDone, opts);   // short: usually a single page
   }
   // Shows the memory of the foe of `level`, then calls onDone; calls it at once when there is none.
   function showMemoryStory(level, onDone) {
     const table = kanaMode ? MEMORY_STORIES_KANA : MEMORY_STORIES;
     if (!table[level]) { onDone(); return; }
+    SoundMgr.stop();   // the victory (memory) text is read in silence too
     runStory(table[level](getPlayerName()), onDone, { headingIndex: 1, endFadeMs: 1000, endPauseMs: 400 });
   }
 
@@ -4058,7 +4060,7 @@
       memBtn.addEventListener('click', () => {
         SoundMgr.seClick();
         overlay.classList.add('hidden');
-        showMemoryStory(ch.level, () => {});   // just the memory text; the title screen is still behind it
+        showMemoryStory(ch.level, () => SoundMgr.playTrack('title'));   // just the memory text; the title screen is still behind it
       });
       row.appendChild(memBtn);
       actions.appendChild(row);
@@ -4680,8 +4682,9 @@
         embers.appendChild(e);
       }
     }
-    scr.classList.remove('hidden', 'leaving', 'sealing', 'sealed', 'flash', 'fadeout');
-    scr.querySelectorAll('.seal-stage, .seal-embers').forEach((el) => { el.style.animation = 'none'; void el.offsetWidth; el.style.animation = ''; });
+    // Everything is reset while the screen is still display:none, and it is shown last. (Resetting it while it was
+    // already visible let the previous foe's text / card / portrait play their fade-out transitions for a moment.)
+    scr.classList.remove('leaving', 'sealing', 'sealed', 'flash', 'fadeout');
     const sealImg = document.getElementById('sealImg');
     sealImg.removeAttribute('src');   // never show the previously sealed foe while this one loads
     sealImg.src = beaten.img;
@@ -4690,6 +4693,8 @@
     actEl.innerHTML = '';
     textEl.textContent = K(`${beaten.name}を倒した。\nこの者を、カードに封印しますか？`, `${beaten.name}をたおした。\nこのものを、カードにふういんしますか？`);
     subEl.textContent = `🃏 ${cardName(beaten.level)}\n${cardDesc(beaten.level)}`;
+    scr.classList.remove('hidden');
+    scr.querySelectorAll('.seal-stage, .seal-embers').forEach((el) => { el.style.animation = 'none'; void el.offsetWidth; el.style.animation = ''; });
 
     const mk = (cls, label, fn) => {
       const b = document.createElement('button');
