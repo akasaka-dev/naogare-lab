@@ -54,6 +54,10 @@ const ALLOWED_EMOTES = [
   'icon06_cat_surprised', 'icon07_owl_question', 'icon08_rose_heart', 'icon09_sparkle', 'icon10_skull_ghost',
   'icon11_char_striker', 'icon12_char_dealer', 'icon13_char_mask', 'icon14_char_idol', 'icon15_char_puppeteer',
   'icon16_pet_owl', 'icon17_pet_fox', 'icon18_pet_badger', 'icon19_pet_mouse', 'icon20_hand_wave',
+  // the current set (the sheet of 15); the icon ids above are only kept for clients that still have the old page open
+  'em01_striker', 'em02_dealer', 'em03_mask', 'em04_idol', 'em05_puppeteer',
+  'em06_owl', 'em07_fox', 'em08_badger', 'em09_mouse', 'em10_hand',
+  'em11_wave', 'em12_girl_happy', 'em13_thanks', 'em14_end', 'em15_skull',
 ];
 
 function jsonResponse(data, status) {
