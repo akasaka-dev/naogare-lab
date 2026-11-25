@@ -1883,6 +1883,43 @@
       } catch (e) { /* ignore */ }
     }
 
+    // Sampled sound effects (se/*.mp3), decoded once and played through the same Web Audio context as the tones:
+    // an HTMLAudio element started from a timer is refused on iOS, a buffer source is not.
+    // seBuffers[name]: undefined = not requested, null = loading, false = failed, AudioBuffer = ready.
+    const seBuffers = {};
+    const CARD_IMPACT_SE = { gear: 'gear.mp3', raven: 'raven.mp3', seal: 'seal.mp3', usurp: 'usurp.mp3' };   // card id -> file in se/
+    function loadSe(name) {
+      if (seBuffers[name] !== undefined) return;
+      seBuffers[name] = null;
+      try {
+        const audioCtx = ensureContext();
+        if (!audioCtx) { seBuffers[name] = false; return; }
+        fetch('se/' + name)
+          .then((r) => { if (!r.ok) throw new Error('se ' + r.status); return r.arrayBuffer(); })
+          .then((b) => new Promise((ok, ng) => { audioCtx.decodeAudioData(b, ok, ng); }))
+          .then((buf) => { seBuffers[name] = buf; })
+          .catch(() => { seBuffers[name] = false; });
+      } catch (e) { seBuffers[name] = false; }
+    }
+    // true when the sound was played (or SE is switched off); false when the caller should use its fallback
+    function playSe(name, volume) {
+      if (!seOn) return true;
+      const buf = seBuffers[name];
+      if (!buf) { loadSe(name); return false; }
+      try {
+        const audioCtx = ensureContext();
+        if (!audioCtx) return false;
+        const src = audioCtx.createBufferSource();
+        const gain = audioCtx.createGain();
+        src.buffer = buf;
+        gain.gain.value = volume;
+        src.connect(gain);
+        gain.connect(audioCtx.destination);
+        src.start();
+        return true;
+      } catch (e) { return false; }
+    }
+
     return {
       unlock() {
         if (unlocked) return;
@@ -1923,6 +1960,14 @@
       seDraw() { tone(300, 0.2, 'sine', 0.12); tone(300, 0.2, 'sine', 0.12, 0.15); },
       seBurst() { tone(180, 0.35, 'sawtooth', 0.09); tone(740, 0.4, 'sine', 0.13, 0.02); tone(1480, 0.3, 'triangle', 0.09, 0.07); },
       seCard() { tone(660, 0.12, 'triangle', 0.12); tone(880, 0.16, 'triangle', 0.12, 0.08); tone(1320, 0.26, 'sine', 0.1, 0.18); },
+      // the moment a trump card's effect lands on the board: 歯車の一撃 is a sword slash (se/gear.mp3), 黒羽の降臨 dark
+      // magic (se/raven.mp3), 封印 the placing of a wall (se/seal.mp3), 簒奪 a rush of movement (se/usurp.mp3);
+      // any card without a file (or whose file is missing) gets the burst tone
+      preloadCardImpact(id) { if (CARD_IMPACT_SE[id]) loadSe(CARD_IMPACT_SE[id]); },
+      seCardImpact(id) {
+        if (CARD_IMPACT_SE[id] && playSe(CARD_IMPACT_SE[id], 0.9)) return;
+        SoundMgr.seBurst();
+      },
     };
   })();
 
@@ -2630,6 +2675,7 @@
   // plays the whole show for player p's card `lv` (effLv = the card whose effect it is; differs for a copy)
   function presentCard(p, lv, effLv, r, prevSealed, done) {
     SoundMgr.seCard();
+    SoundMgr.preloadCardImpact(CARDS[effLv].id);   // the card spends over a second flying out: time enough to load
     const style = CARD_FX[CARDS[effLv].id] || CARD_FX.gear;
     const color = style.color !== null ? style.color : (p === 1 ? 0xff4fa3 : 0x3df2d8);
     flyCard(lv, originOf(p), deckEls[p])
@@ -2641,7 +2687,7 @@
       })
       .then(() => Board3D.fx({
         cells: r.cells || [r.cell], kind: style.kind, color, from: style.from,
-        onImpact: () => { Board3D.sync(grid); refreshMarks(); SoundMgr.seBurst(); },
+        onImpact: () => { Board3D.sync(grid); refreshMarks(); SoundMgr.seCardImpact(CARDS[effLv].id); },
       }))
       .catch(() => { Board3D.sync(grid); refreshMarks(); })
       .then(() => setTimeout(done, 300));
@@ -4357,7 +4403,7 @@
   // a blank line between entries is the paragraph gap.
   const ENDING_TEXT = [
     '茨が、音もなく崩れ落ちていく。',
-    '深紅の薔薇が一輪、また一輪と花びらを散らし、\n長い間閉ざされていた空間に、淡い光が満ち始めた。',
+    '漆黒の薔薇が一輪、また一輪と花びらを散らし、\n長い間閉ざされていた空間に、淡い光が満ち始めた。',
     '玉座の向こう。',
     '白い光の中に、ひとりの少女が立っていた。',
     '黒い髪が、解呪の風で揺れている。',
@@ -4383,7 +4429,7 @@
   ];
   const ENDING_TEXT_KANA = [
     'いばらが、おとなくくずれおちていく。',
-    'しんくのばらがいちりん、またいちりんとはなびらをちらし、\nながいあいだとざされていたくうかんに、あわいひかりがみちはじめた。',
+    'しっこくのばらがいちりん、またいちりんとはなびらをちらし、\nながいあいだとざされていたくうかんに、あわいひかりがみちはじめた。',
     'ぎょくざのむこう。',
     'しろいひかりのなかに、ひとりのしょうじょがたっていた。',
     'くろいかみが、かいじゅのかぜでゆれている。',
