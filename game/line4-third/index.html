@@ -1781,12 +1781,14 @@
     const GAME_URL = 'bgm/bgm.mp3';
     const ENDING_URL = 'bgm/ending.mp3';
     const TUTORIAL_URL = 'bgm/tutorial.mp3';
+    const VERSUS_URL = 'bgm/versus.mp3';   // 対人戦 and online matches
     function levelUrl(level) { return 'bgm/LV' + level + '.mp3'; }
     function urlForKey(key) {
       if (key === 'title') return TITLE_URL;
       if (key === 'game') return GAME_URL;
       if (key === 'ending') return ENDING_URL;
       if (key === 'tutorial') return TUTORIAL_URL;
+      if (key === 'versus') return VERSUS_URL;
       if (key.indexOf('level:') === 0) return levelUrl(key.slice(6));
       return null;
     }
@@ -3797,7 +3799,7 @@
     document.getElementById('onlineEmoteBar').classList.remove('hidden', 'postgame');
     document.getElementById('resultNote').textContent = '';
     setCharBackground(null);
-    SoundMgr.playTrack('game');
+    SoundMgr.playTrack('versus', 'game');
     modeLabelEl.classList.add('show');
     modeLabelEl.textContent = `${K('オンライン対戦', 'オンラインたいせん')}（${K('部屋', 'へや')}: ${online.code}） ／ ${K('あなたは', 'あなたは')}${online.myPlayer === 1 ? K('ピンク', 'ぴんく') : K('ミント', 'みんと')}`
       + (opponentStreak > 0 ? `（${K('相手は', 'あいては')}${opponentStreak}${K('連勝中', 'れんしょうちゅう')}）` : '');
@@ -4165,7 +4167,8 @@
       if (avatarEl.getAttribute('src') !== currentChar.img) { avatarEl.removeAttribute('src'); avatarEl.src = currentChar.img; }   // no previous foe's face while loading
       speechBubbleEl.classList.remove('hidden');
     } else {
-      SoundMgr.playTrack('game');
+      if (mode === 'pvp') SoundMgr.playTrack('versus', 'game');   // 対人戦
+      else SoundMgr.playTrack('game');
       modeLabelEl.classList.remove('show');
       modeLabelEl.textContent = '';
       setCharBackground(null);
@@ -4256,6 +4259,7 @@
     ['title', () => K('タイトル', 'タイトル')],
     ['tutorial', () => K('あそびかた', 'あそびかた')],
     ['game', () => K('通常戦闘', 'つうじょうせんとう')],
+    ['versus', () => K('対人戦・オンライン対戦', 'たいじんせん・オンラインたいせん')],
     ['level:4', () => 'LV4'],
     ['level:5', () => 'LV5'],
     ['off', () => K('BGMなし', 'BGMなし')],
