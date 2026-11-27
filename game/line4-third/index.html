@@ -1810,10 +1810,14 @@
       return ctx;
     }
 
+    let fadeId = 0;        // a newer fade cancels the one still running (a slow fade-out must not fight a new track's fade-in)
+    let stopTimer = 0;     // the pause scheduled by stop(); playTrack() cancels it
     function fadeVolume(target, duration) {
+      const id = ++fadeId;
       const start = bgmEl.volume;
       const t0 = performance.now();
       function step(now) {
+        if (id !== fadeId) return;
         // rAF's timestamp can be slightly earlier than t0 -> keep t (and the volume) inside 0..1
         const t = Math.max(0, Math.min(1, (now - t0) / duration));
         bgmEl.volume = Math.max(0, Math.min(1, start + (target - start) * t));
@@ -1823,6 +1827,7 @@
     }
 
     function playTrack(key, fallbackKey) {
+      if (stopTimer) { clearTimeout(stopTimer); stopTimer = 0; }
       if (trackMissing[key]) {
         if (fallbackKey) playTrack(fallbackKey, fallbackKey === 'game' ? null : 'game');
         return;
@@ -1935,9 +1940,11 @@
         endingLoop = !!v;
         if (currentTrackKey === 'ending') bgmEl.loop = endingLoop;
       },
-      stop() {
-        fadeVolume(0, 250);
-        setTimeout(() => bgmEl.pause(), 260);
+      stop(fadeMs) {   // fadeMs: how slowly the music dies away (default: a quick 250 ms)
+        const ms = fadeMs || 250;
+        fadeVolume(0, ms);
+        if (stopTimer) clearTimeout(stopTimer);
+        stopTimer = setTimeout(() => { stopTimer = 0; bgmEl.pause(); }, ms + 10);
         currentTrackKey = null; // so a later playTrack() re-inits fully instead of just resuming
       },
       setBgmOn(v) {
@@ -3158,7 +3165,7 @@
   function showMemoryStory(level, onDone) {
     const table = kanaMode ? MEMORY_STORIES_KANA : MEMORY_STORIES;
     if (!table[level]) { onDone(); return; }
-    SoundMgr.stop();   // the victory (memory) text is read in silence too
+    SoundMgr.stop(2000);   // the victory (memory) text is read in silence too; the battle theme fades out over 2 s
     runStory(table[level](getPlayerName()), onDone, { headingIndex: 1, endFadeMs: 1000, endPauseMs: 400 });
   }
 
