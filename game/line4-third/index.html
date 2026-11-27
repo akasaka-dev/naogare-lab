@@ -1810,17 +1810,41 @@
       return ctx;
     }
 
+    // iOS Safari ignores HTMLMediaElement.volume (always 1), so fades and the 0.35 level never took effect there.
+    // Once the Web Audio context exists (first tap), the element is routed through a GainNode and the volume is
+    // set on that instead. Until then (or if this fails) the element's own volume is used.
+    let bgmVol = BGM_VOLUME;   // the level we asked for (bgmEl.volume cannot be read back on iOS)
+    let bgmGain = null;
+    function setBgmVol(v) {
+      bgmVol = Math.max(0, Math.min(1, v));
+      if (bgmGain) bgmGain.gain.value = bgmVol; else bgmEl.volume = bgmVol;
+    }
+    function ensureBgmGraph() {
+      if (bgmGain) return;
+      try {
+        const audioCtx = ensureContext();
+        if (!audioCtx || !audioCtx.createMediaElementSource) return;
+        const node = audioCtx.createMediaElementSource(bgmEl);
+        const gain = audioCtx.createGain();
+        gain.gain.value = bgmVol;
+        node.connect(gain);
+        gain.connect(audioCtx.destination);
+        bgmEl.volume = 1;
+        bgmGain = gain;
+      } catch (e) { bgmGain = null; /* keep using the element's own volume */ }
+    }
+
     let fadeId = 0;        // a newer fade cancels the one still running (a slow fade-out must not fight a new track's fade-in)
     let stopTimer = 0;     // the pause scheduled by stop(); playTrack() cancels it
     function fadeVolume(target, duration) {
       const id = ++fadeId;
-      const start = bgmEl.volume;
+      const start = bgmVol;
       const t0 = performance.now();
       function step(now) {
         if (id !== fadeId) return;
         // rAF's timestamp can be slightly earlier than t0 -> keep t (and the volume) inside 0..1
         const t = Math.max(0, Math.min(1, (now - t0) / duration));
-        bgmEl.volume = Math.max(0, Math.min(1, start + (target - start) * t));
+        setBgmVol(start + (target - start) * t);
         if (t < 1) requestAnimationFrame(step);
       }
       requestAnimationFrame(step);
@@ -1848,10 +1872,10 @@
         bgmEl.src = urlForKey(key);
         bgmEl.loop = key !== 'ending' || endingLoop; // the ending theme plays once, except in おまけ
         if (bgmOn && unlocked) {
-          bgmEl.volume = 0;
+          setBgmVol(0);
           bgmEl.play().then(() => fadeVolume(BGM_VOLUME, 500)).catch(() => {});
         } else {
-          bgmEl.volume = BGM_VOLUME;
+          setBgmVol(BGM_VOLUME);
         }
       };
       if (!bgmEl.paused) {
@@ -1932,6 +1956,7 @@
         if (unlocked) return;
         unlocked = true;
         ensureContext();
+        ensureBgmGraph();
         playTrack(currentTrackKey || 'title');
       },
       playTrack,
@@ -4935,7 +4960,8 @@
     scores[player]++;
     statusEl.innerHTML = '';
     if (mode === 'cpu' && currentChar) {
-      if (player === 2) SoundMgr.seLose(); else SoundMgr.seWin();
+      if (player === 2) SoundMgr.seLose();
+      else { SoundMgr.seWin(); SoundMgr.stop(2000); }   // the battle theme dies away from the moment of victory (also before the ending)
       const spokenMs = speak(currentChar, player === 2 ? 'victory' : 'defeat');
       waitThenOutcome(player === 1 ? 'win' : 'lose', Math.max(1800, spokenMs + 600));
     } else {
