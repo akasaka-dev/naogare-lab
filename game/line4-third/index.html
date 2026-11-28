@@ -4273,6 +4273,30 @@
     hideFoeScreen();
   }
 
+  // ---------- back gesture / back button during a game ----------
+  // While the game screen is open, one dummy history entry sits on top of the real one. A back gesture (Android's
+  // swipe or button) only pops that dummy; the popstate handler pushes it again, so the player stays in the game.
+  // On the title and the other menus the guard is off and back works as usual. (The browser only keeps such an
+  // entry once the page has had a tap, which entering a game always involves.)
+  let backGuardOn = false;
+  function armBackGuard() {
+    if (backGuardOn) return;
+    try { history.pushState({ l4guard: 1 }, '', location.href); backGuardOn = true; } catch (e) { /* no history API: leave it */ }
+  }
+  function disarmBackGuard() {
+    if (!backGuardOn) return;
+    backGuardOn = false;   // the popstate this causes must not be taken for a back gesture
+    try { if (history.state && history.state.l4guard) history.back(); } catch (e) { /* ignore */ }
+  }
+  window.addEventListener('popstate', () => {
+    if (!backGuardOn) return;
+    if (gameScreen.classList.contains('hidden')) { backGuardOn = false; return; }
+    try { history.pushState({ l4guard: 1 }, '', location.href); } catch (e) { backGuardOn = false; }
+  });
+  new MutationObserver(() => {
+    if (gameScreen.classList.contains('hidden')) disarmBackGuard(); else armBackGuard();
+  }).observe(gameScreen, { attributes: true, attributeFilter: ['class'] });
+
   // ---------- おまけ: post-clear slideshow ----------
   // Unlocked by reaching the ending. The flag lives only in memory on purpose:
   // reloading or closing the browser locks it again, so it's a per-session
